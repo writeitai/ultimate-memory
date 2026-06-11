@@ -1,0 +1,232 @@
+# Architecture Decision Log
+
+Decisions made during requirements/design exploration (June 2026), with context and rationale.
+Companion docs: `requirements_v2.md` (what), `l6_graph_design.md` (L6 how), `concepts.md`
+(data-model explainer), `ladybug_capabilities.md` (verified DB facts), `questions.md` (open).
+
+---
+
+## D1. Split source of truth: Postgres vs. the git repo
+
+**Decision.** Postgres is authoritative for L0–L2 and L6 — everything deterministically
+derivable. The L3–L5 git repo is *itself* a source of truth (backed up independently);
+Postgres holds only its provenance and triggers.
+
+**Context.** v1 required "the entire system rebuildable from Postgres" while also making
+L3–L5 LLM-derived git-tracked layers. LLM output is non-deterministic — those layers are not
+reproducible from Postgres unless model+prompt+inputs are pinned, and even then re-runs differ.
+The two requirements contradicted each other.
+
+**Consequences.** Rebuild guarantees apply to L0–L2+L6 only. The repo needs its own backup
+discipline. Postgres records prompt/model/embedding versions per derived artifact so partial
+reproducibility is still auditable.
+
+---
+
+## D2. Claims and relations are distinct concepts (many-to-many)
+
+**Decision.** L2 claims are atomic *natural-language assertions* (identity =
+assertion-by-a-source; immutable, append-only). A separate normalization step maps eligible
+claims onto **relation** records `(subject_entity, predicate, object_entity)` (identity = the
+fact itself). Join table `relation_evidence(relation_id, claim_id, stance)` connects them.
+
+**Context.** An earlier draft stamped `claim_id` directly on graph edges, silently assuming
+claims ≅ triplets 1:1. They aren't: one claim can yield several facts; one fact can be asserted
+by hundreds of documents; many claims (opinions, n-ary, single-entity attributes) yield none.
+
+**Consequences.**
+- Corpus redundancy collapses: N documents asserting the same fact = one relation with N
+  evidence rows, not N parallel edges. `evidence_count` becomes a free confidence/salience
+  signal (and a candidate filter for L5 core beliefs).
+- Graph edge count scales with distinct facts, not corpus size.
+- Full reasoning in `concepts.md`.
+
+---
+
+## D3. Supersession/contradiction adjudication operates at the relation level
+
+**Decision.** "Alice left Acme" closes the validity window of the relation
+`(alice, works_at, acme)` — one row update. Claims are never marked superseded; they remain
+true as records of what sources asserted.
+
+**Context.** Claim-level supersession would require finding and flagging every assertion that
+ever implied the old fact (hundreds of records, inevitable misses → zombie facts in
+retrieval). Mirrors how Graphiti invalidates edges, not episodes.
+
+**Consequences.** Two clocks with different semantics: claim timestamps (asserted/ingested)
+never change; relation windows (valid_from/valid_until + ingested_at/invalidated_at) are
+revisable adjudications over evidence. Both time-travel questions ("was it true at T?" /
+"what did we believe at T?") stay answerable.
+
+---
+
+## D4. Supersession detection via entity-keyed blocking + cheap-first cascade
+
+**Decision.** Candidate conflicts are found by blocking on `(entity_id, predicate)` over the
+relations table (small — distinct facts only), then escalating: exact → fuzzy → embedding
+similarity → small model → frontier LLM only for the residue. A novelty gate (similarity
+thresholds) routes clear ADD/NOOP cases past the LLM entirely.
+
+**Context.** O(N) vector-similarity scans per write are both unaffordable at millions of
+claims and imprecise (they surface compatible-but-related statements, forcing wasted LLM
+judgments). Convergent recommendation of both external reviews. Blocking requires a predicate
+— which raw NL claims don't have — making the relations table (D2) the enabling index.
+
+**Consequences.** Write-side LLM cost scales with ambiguity, not volume. Entity-resolution
+quality becomes make-or-break (false negatives in resolution = missed supersessions) →
+invest in the registry early; coreference resolution runs before claim extraction.
+
+---
+
+## D5. Predicate vocabulary is governed, not emergent
+
+**Decision.** A Postgres predicate registry (name, description, synonyms, status). Extraction
+is constrained to the registry with an `other:<freetext>` escape; a periodic job reviews and
+promotes/maps frequent `other:` values. Start strict (high precision, smaller graph).
+
+**Context.** Free-text predicates fragment ("works_at"/"employed_by"/"is employee of"),
+silently breaking both `(entity_id, predicate)` blocking and graph queries.
+
+**Consequences.** Ontology evolves by review, not accretion. Because the graph rebuilds (D7),
+vocabulary cleanups apply retroactively for free. Loosening later is cheap; tightening a noisy
+vocabulary later is not — hence strict-first.
+
+---
+
+## D6. The graph (L6) is a derived projection, never an authority
+
+**Decision.** LadybugDB holds a read-optimized projection of Postgres facts. It makes no
+decisions, stores no unique state, holds **no embeddings**, and can be deleted and rebuilt at
+any time. Validity metadata has exactly one home: Postgres.
+
+**Context.** The strongest finding from the external supersession review: replicated
+invalidation state across vector/graph stores drifts (documented Mem0 desync bug class).
+Deliberate divergence from Graphiti, which adjudicates inside the graph at write time — we
+already paid for adjudication at L2; a second authority would only create disagreement.
+
+**Consequences.** The graph writer is dumb and deterministic. Graph corruption is a
+non-event (rebuild). All cross-store consistency questions reduce to "how stale is the
+projection," bounded by rebuild cadence.
+
+---
+
+## D7. Rebuild-first sync; immutable GCS snapshots; read-only readers
+
+**Decision.** The L6 worker periodically rebuilds the entire graph from a Postgres → Parquet
+export (`COPY FROM` bulk load), validates, and publishes an immutable versioned snapshot to
+GCS (write-then-pointer-swap). Readers download the `latest` snapshot, open READ_ONLY, and
+hot-swap on updates. Incremental event application is Phase 2, only if sub-hour freshness is
+ever actually needed.
+
+**Context.** LadybugDB's verified concurrency model is one READ_WRITE process XOR many
+READ_ONLY processes — snapshot serving is the intended usage, not a workaround. Sizing at the
+1M-doc target (distinct relations, few GB, minutes to bulk-load) makes full rebuilds cheap.
+
+**Consequences.**
+- Drift between Postgres and graph is impossible beyond one cycle — no reconciliation jobs.
+- Entity merges (nightmare incrementally — re-pointing thousands of edges) are no-ops.
+- "Rebuildable from Postgres" is exercised every cycle instead of rotting as a DR script.
+- Old snapshots are free point-in-time debugging artifacts.
+- Freshness SLA = rebuild cadence (start 6-hourly; tighten if missed).
+
+---
+
+## D8. Relation fact-label embeddings live in LanceDB, not in the graph
+
+**Decision.** Each relation gets a canonical fact label ("Alice Novak works at Acme as VP of
+Engineering") embedded in a Lance `relations` table keyed by `relation_id`, with scalar
+columns (subject_id, predicate, object_id, validity window, evidence_count) for filtered
+hybrid search. No vectors in the LadybugDB snapshot.
+
+**Context.** Challenged ("is Lance really the best place?") and then verified against the
+vendored LadybugDB source + official docs. Findings (detail in `ladybug_capabilities.md`):
+
+1. **Hard blocker**: LadybugDB's HNSW vector index and BM25 FTS index support **node-table
+   properties only** — relationship properties cannot be indexed. In-graph fact search would
+   require reifying every relation as a node, roughly doubling the graph and contorting
+   traversals.
+2. **Snapshot economics**: 5–15M fact embeddings at 1024–1536 dims fp32 ≈ 20–90 GB inside
+   every snapshot (vs. a few GB without) plus a full HNSW build per rebuild cycle — destroys
+   the rebuild-and-ship model (D7).
+3. **Lance exists regardless** for L1 chunks and L2 claims; one vector estate, one embedding
+   pipeline, one index-maintenance regime.
+4. **The avoided join is cheap**: top-k (~100s) relation_ids from Lance → ID-keyed
+   expansion/BFS in the snapshot.
+
+**Consequences.** Division of labor: Lance = entry (semantic + BM25 + scalar-filtered
+candidate generation); LadybugDB = structure (expansion, paths, distance reranking, as-of
+traversal). Revisit only if D7 changes *and* the node-only limitation disappears upstream.
+The Lance relations table is derived state, rebuilt with the same guarantees as the snapshot.
+Fact labels add a small write-side LLM cost (one sentence per relation, only on material
+adjudication changes).
+
+---
+
+## D9. Search architecture: Graphiti-inspired, zero LLM calls on the query path
+
+**Decision.** Parallel retrieval channels (semantic over Lance relations + claims, BM25,
+lexical PG FTS, structured scalar lookups, registry entity resolution) fused with **RRF**;
+reranked by **graph distance from focal entities** (native SHORTEST/BFS in the snapshot) and
+**evidence count**; optional cross-encoder as a flagged final stage. Composable primitives
+plus named **search recipes** (`relation_hybrid_rrf`, `relation_near_entity`,
+`claims_verbatim`, …). Hard rule: no LLM calls in the core search path.
+
+**Context.** Graphiti's search stack (edge-fact embeddings + BM25 + graph traversal, RRF
+default, node-distance/episode-mentions/MMR/cross-encoder rerankers, canned recipes, no
+query-time LLM — how Zep reaches ~300ms P95), adapted to our store layout: their edge-fact
+embedding relocates to Lance (D8); their episode-mentions reranker is our `evidence_count`,
+free from D2.
+
+**Consequences.** Query latency is bounded by retrieval+rerank, not generation. Agents pick
+strategies instead of assembling plumbing. Center-node reranking requires focal-entity
+resolution first — the registry is on the hot path.
+
+---
+
+## D10. As-of traversal via projected graphs
+
+**Decision.** Bi-temporal filtering during graph traversal is implemented with
+`PROJECT_GRAPH_CYPHER` relationship predicates over the four temporal columns (project the
+graph down to edges valid at `$as_of`, then traverse), since LadybugDB has no native temporal
+query semantics.
+
+**Context.** Verified: projected graphs accept rel-level Cypher predicates; nothing else in
+the engine understands time.
+
+---
+
+## D11. Community detection runs externally (Phase 3)
+
+**Decision.** LadybugDB's algo extension ships PageRank, K-Core, and connected components but
+**no Louvain/Leiden** (verified in `src/extension/extension_entries.cpp`). Community detection
+runs as an external pass (igraph/graspologic) over the same Parquet export that feeds the
+rebuild; results (community assignments, centrality) are written back to **Postgres**, keeping
+the graph a projection (D6). Communities then serve as L3 refresh triggers ("claims in
+community C changed") and salience priors.
+
+---
+
+## D12. Trigger model: per-document chain ends at L2; aggregates are debounced
+
+**Decision.** L0→L1→L2 chain per document (Cloud Tasks). L3–L6 are *aggregate* layers
+triggered by windows/debounce ("N new claims or T minutes"), with the rolling-window-delay
+worker for hot files (index.md). Cloud Tasks: max 2 retries + dead-letter into Postgres;
+idempotent workers keyed by content hash + processing version.
+
+**Context.** "Trigger next layer when previous finishes" (v1) maps cleanly only to
+per-document layers. L3+ summarize *across* documents; per-doc triggering of a serial
+git-editing layer was the design's scaling bottleneck.
+
+---
+
+## D13. LadybugDB accepted as the L6 engine
+
+**Decision.** LadybugDB (maintained community successor of Kuzu after Kuzu Inc. was acquired
+by Apple and open-source development stopped, October 2025) is the L6 base: embedded,
+columnar, Cypher, native paths, Parquet/Arrow interop, read-only multi-process mode.
+
+**Context.** Confirmed via web research and a survey of the vendored source tree
+(`ladybug_capabilities.md`). Risks accepted: young fork; vector/FTS/algo extension
+implementations live in a separate repo (not vendored) — irrelevant to our usage since
+vectors/FTS stay in Lance (D8) and the engine features we depend on (COPY FROM, paths,
+projected graphs, read-only mode) are core, verified in source.
