@@ -31,6 +31,7 @@
 
 ## Deployment
 - Postgres on Hetzner
+- workers on GCP (cloud run jobs)
 
 
 ## Processing
@@ -50,3 +51,24 @@
 - some highly-frequent edited files like root-level index.md might have to be edited by a separate worker that would be triggered after a rolling-window delay
   - i.e. if it gets a signal, there will be some delay before it starts
   - if the signal is received again within the delay window, the delay gets restarted to original value
+
+
+## Retrieval
+- we should prepare API and CLI
+- the idea is that the agents would be able to use hybrid approaches
+- we should offer searches:
+  - lexical (FTS / BM25)
+  - semantic
+  - file search (greps etc.)
+- they should be able to filter stuff, and also get the exact IDs
+- they should be able to do cross-layer searches, but also per-layer searches
+
+Basically we should offer a full flexibility.
+
+
+## Code
+- we should use Python that would be as typed as possible - Pydantic / TypedDict + enums, types.Literal etc.
+- we should use docstrings and comments
+- we should structure code well
+- we should use Pyright for type checking
+- pytest for unit tests
