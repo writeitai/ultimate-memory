@@ -1,5 +1,7 @@
 # Requirements
 
+I want a solution that would scale to million of input documents and would still offer value.
+
 ## Ingestion
 - all inputs are tracked in Postgres
 - the entire system (vector + graph datbase layers) should be rebuildable based on the data that Postgres holds
@@ -27,6 +29,16 @@
 ### L4 - Special-Purpose Knowledge Layers
 - e.g. people profiles, business planning, paper idea concepts etc. - whatever the system is aimed or wants to be better at
 - also git-tracked
+
+### L5 - Core beliefs and stances
+- ultra-derived and filtered layer holding the core beliefs and stances
+
+### L6 - graph layer
+- tracking relationships between entities
+- bi-temporal
+- we should start with a reasonable ontology and evolve over time if necessary
+- be inspired by graphity / zep
+- base it on ladybug db
 
 
 ## Deployment
