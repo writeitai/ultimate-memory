@@ -2,9 +2,15 @@
 
 A step-back critique of the layered architecture as captured in
 `../requirements/requirements_v3.md` and `../designs/overall_design.md` (June 2026).
-Status: **O1 accepted → D14** (E/K/P plane naming, applied across docs); **O5 in progress**
-(analysis written: `entity_registry.md`; D15/D16 logged; `registries_design.md` + quality
-metrics still pending); O2–O4, O6 open.
+Status:
+- **O1 accepted → D14** (E/K/P plane naming).
+- **O3 accepted → D25–D30** (value/salience gate). Researched in `value_gate_research/`;
+  premise verified (with the "98% junk" headline demoted — see below).
+- **O5 accepted → D15–D24** (entity-registry/ontology subsystem). Researched in
+  `registry_research/`; design doc `plan/designs/registries_design.md`.
+- **O6 partially folded in** via D22 (eval loop ships v1; ER half + retrieval half).
+- **O2, O4 still open.**
+
 When an objection is accepted, it lands as a decision (D14+) and flows into the docs;
 when rejected, the rationale is recorded here.
 
@@ -62,14 +68,22 @@ its own machinery.
 
 ---
 
-## O3. No value gate before claim extraction — the biggest missing cost lever
+## O3. No value gate before claim extraction — the biggest missing cost lever  ✅ ACCEPTED → D25–D30
 
 **Objection.** The design runs Claimify + coreference + entity resolution + relation
 normalization on *everything*. At 1M documents most content is boilerplate, duplication, or
-low-value filler (cf. the Mem0 audit finding: ~98% of unfiltered extracted entries were junk).
-L2 is simultaneously the cost center and the quality bottleneck — and it processes a paper's
-references section with the same enthusiasm as its core findings. Junk in L2 poisons
-relations, the graph, and every compiled layer downstream.
+low-value filler. E2/E3 is simultaneously the cost center and the quality bottleneck — and it
+processes a paper's references section with the same enthusiasm as its core findings. Junk in
+E2 poisons relations, the graph, and every compiled layer downstream.
+
+**Citation correction (post-research).** The original draft cited "a Mem0 audit: ~98% of
+unfiltered entries were junk." Research (`value_gate_research/`) traced this to a real but
+**single-deployment** audit (mem0 GitHub issue #4573: 97.8% of 10,134 entries, 52.7% of it one
+agent re-ingesting its own boot file) — *not* a population statistic. The premise nonetheless
+holds, multiply-sourced: web survival ~5–10% after dedup/boilerplate-strip; pruning ~40% of
+entities can *improve* answer quality (denoising-KG arXiv 2510.14271). Decisive: swapping in a
+stronger model only dropped junk to 89.6% — **the extraction prompt, not the model, is the
+bottleneck**, so a gate must precede extraction.
 
 **Proposed change.** Tiered processing:
 
@@ -110,7 +124,7 @@ Promote from nice-to-have to requirement.
 
 ---
 
-## O5. Entity resolution and predicate governance deserve subsystem status
+## O5. Entity resolution and predicate governance deserve subsystem status  ✅ ACCEPTED → D15–D24
 
 **Objection.** Both are flagged "make-or-break" in the decisions (D4, D5) and then live as
 bullets inside the L2 section. If entity resolution is mediocre: relations are garbage, the
@@ -155,7 +169,7 @@ O3/O5's gates and thresholds.
 
 ## Priority
 
-If only three: **O3** (pure cost/quality leverage), **O6** (everything else is blind tuning
-without it), **O2** (less machinery to build before learning whether compiled layers work at
-all). O1 is a cheap doc reframe worth doing alongside; O4 and O5 fold naturally into the
-upcoming L2 / git-layer / entity-registry design docs.
+Original call (if only three): **O3**, **O6**, **O2**. **Status update:** O1 (→D14), O5
+(→D15–D24), O3 (→D25–D30) are done; O6 is half-folded via D22 (eval loop). **Remaining open:
+O2** (collapse K1–K3 — orthogonal, untouched) and **O4** (semantic regenerability / manifests
+for the K-plane git layers). Both naturally belong with the upcoming K-layer design docs.

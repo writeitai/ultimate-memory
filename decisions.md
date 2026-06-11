@@ -77,7 +77,9 @@ judgments). Convergent recommendation of both external reviews. Blocking require
 
 **Consequences.** Write-side LLM cost scales with ambiguity, not volume. Entity-resolution
 quality becomes make-or-break (false negatives in resolution = missed supersessions) →
-invest in the registry early; coreference resolution runs before claim extraction.
+invest in the registry early. Coreference is a *guarantee* (no claim leaves E2 with a dangling
+pronoun), not necessarily a discrete prior stage — its topology is set by D19. Tier thresholds
+mentioned here are placeholders superseded by D17 (per-type, golden-set-tuned).
 
 ---
 
@@ -279,8 +281,10 @@ best-effort core. Both live in the existing registries (D5) — ontology is cont
 machinery:
 
 - **Universal core, borrowed not invented**: ~8 entity types and ~10–15 predicates aligned
-  with schema.org naming (extraction LLMs have strong priors on that vocabulary — familiar
-  names are a quality lever, not aesthetics).
+  with schema.org naming — *familiar, schema.org-aligned names + registry-rendered
+  descriptions/examples* (LLMs interpret labels by pretrained semantics, so meaningful names
+  beat arbitrary ones; **no measured schema.org-vs-good-synonym delta is claimed**). Concrete
+  seed core fixed in D18.
 - **Extension rule — extend, never fork**: every user-defined type declares a core parent
   (`ResearchPaper ⊂ Document`); predicates may too. This keeps blocking, graph queries, and
   cross-scope retrieval working at the core level over any custom domain.
@@ -324,3 +328,222 @@ consumers of plane E, not owners; a scope owns its compiled markdown, never fact
 definition) + extraction interests; never a new database. Rule of thumb: **scopes multiply;
 truth doesn't.** Access-sensitive scopes (e.g. people profiles) are handled by filtered
 snapshots + API-level authorization, not by forking storage.
+
+---
+
+> **D17–D30 provenance.** D17–D24 formalize the entity-registry research
+> (`plan/analysis/registry_research/SYNTHESIS.md`, objection O5); D25–D30 formalize the
+> value-gate research (`plan/analysis/value_gate_research/SYNTHESIS.md`, objection O3). Both
+> efforts read 12 systems at source + literature, with adversarial fact-checkers. Where a
+> number is involved it is a **placeholder to be measured on a golden set / corpus slice**, not
+> a committed constant — the spikes are listed in each SYNTHESIS §5.
+
+## D17. Canonical resolution tier cascade (T0–T5), block-loose / decide-tight
+
+**Decision.** One authoritative entity-resolution cascade, replacing the scattered/folklore
+thresholds: **T0** external-authority match → **T1** exact (on normalized lemma) → **T2** fuzzy
+*blocking* (`pg_trgm` GIN, recall-first low floor — candidate generation, NOT a decision) →
+**T3** phonetic (Daitch-Mokotoff, **not** Soundex) → **T4** embedding similarity (Lance, residue
+only) → **T5** LLM adjudication (small→frontier) on the ambiguous middle band → human review for
+high blast-radius. Each tier's accept/reject bands are **per-type, golden-set-measured, versioned
+config** stamped with `resolver_version`. No threshold ships without a per-type precision/recall
+curve.
+
+**Context.** JW≥0.92 / cosine≥0.88 were folklore: JW 0.92 is Splink's per-field Bayes *evidence
+level*, not an accept bar; benchmark spread (Magellan 98.4 clean vs 43.6 textual) proves no
+global constant works. Graphiti independently arrived at the same block-loose/decide-tight shape.
+(R2; refines D4.)
+
+**Consequences.** LLM cost scales with ambiguity. Blocking sets a hard recall ceiling, so cheap
+tiers *escalate* near-misses, never auto-reject. Feeds O6 (every threshold needs the golden set).
+
+## D18. Ontology seed core — 8 types + 14 predicates, schema.org-anchored, domain/range not OWL
+
+**Decision.** Seed core: 8 entity types (`Person, Organization, Place, Document⊂CreativeWork,
+Event, Concept, Project, Product`) + 14 predicates with `subject_type`/`object_type` columns
+(`works_for, member_of, affiliated_with, located_in, part_of, authored, created, about,
+knows_about, knows, participated_in, works_on, founded, related_to`). `related_to` is the
+predicate-side core parent for extend-never-fork (D15). Time is bi-temporal edge metadata, never a
+predicate or Date-node. Enforce domain/range exactly as Graphiti's `edge_type_map[(src,tgt)→[rel]]`
+— the only structural ontology gate any surveyed production system ships. Schema.org property
+mappings get a spot-check before freezing.
+
+**Context.** Concretizes D15. Graphiti's `edge_type_map` is the validated mechanism; Cognee loads
+OWL but enforces no domain/range. The "familiar names help extraction" claim is true in spirit
+(pretrained semantics) but no measured schema.org-vs-synonym delta is asserted. (R5.)
+
+## D19. Coref topology + per-language default
+
+**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun.
+**English default: satisfied inside the E2 extraction call** (no separate stage — 6/6 surveyed
+systems do this). **Czech/Slavic default: ON**, as a dedicated multilingual CorefUD (CorPipe-class)
+pre-pass. Engine + default are a registry row per language/scope; coref output is **candidate
+mention-links only, never committed identity**; `resolver_version` pinned.
+
+**Context.** Resolves a three-way contradiction in our own research (R1 default-OFF-in-call vs R3
+mandatory-multilingual-for-Czech vs R6 discrete-stage). Dedicated coref still beats LLM coref by
+~13 CoNLL F1; CORE-KG showed −28% duplication from *having* a coref step. Czech declines names
+across 7 cases, attacking `(entity_id, predicate)` blocking. (R1, R3; refines D4.)
+
+## D20. Tier-0 authority set + fall-through rule
+
+**Decision.** Launch tier-0 authorities: **Wikidata** (self-hosted reconciler — only standardized
+multi-type one) + **OpenAlex** (snapshot + API) + **DOI/ORCID/LEI** deterministic validators.
+**Never** OpenCorporates (viral share-alike + paid) or ISBN-as-authority. GitHub/Google-Books are
+per-scope opt-in. **Tier 0 never gates:** on miss, mint a local `entity_id` and fall through (most
+real entities are long-tail misses). External IDs are stored as **aliases, never as the canonical
+`entity_id`**. Self-host all snapshots — never put the write path on public rate-limited endpoints
+(OpenAlex moved to key+credit; Crossref cut limits 2025-12-01).
+
+**Context.** Tier 0 is an accelerator, not a requirement. (R4.)
+
+## D21. Clustering algorithm + incremental procedure + reversibility records
+
+**Decision.** Decision clustering = **connected-components-to-gather** (with a black-hole guard:
+raise threshold + repartition above component size T) → **HAC distance-cut inside each blob**
+(never bare transitive closure; never Louvain/Leiden for ER — that's D11 community detection).
+Write-path incremental = max-both assignment + **nDR n=1** (re-cluster only the 1-hop neighborhood;
+order-independent; n=2 only when a hub is touched). Reversibility state lives **only in Postgres**:
+`resolution_decisions` (append-only, `superseded_by`), `merge_events` (append-only, pre-merge
+membership snapshot), `merged_into` redirect chain, optional negative/exclusion edges. A
+generic-identifier guard (Senzing) down-weights + re-evaluates an alias that suddenly links many.
+P2 rebuild (D7) re-points edges on merge/un-merge for free.
+
+**Context.** No OSS system (Splink/dedupe/Zingg/Graphiti) ships un-merge — building it in Postgres
+is correct, not over-engineering. dedupe uses exactly HAC `linkage(centroid)`+`fcluster(distance)`
++ a `max_components` guard. (R8.)
+
+## D22. Golden-set + evaluation plan (ships in v1)
+
+**Decision.** Two **separate** assets: a **golden EVAL set** (unbiased, measures P/R, tunes
+thresholds) and, later, a **training set** (only if a learned matcher is added; AL-sampled, biased,
+never used to measure). v1 ships: ~200 human-verified labeled pairs/type (~100 hard positives incl.
+synthetic father/son/inflection/married-name + ~100 hard negatives; grow to ~400/type for
+auto-merge-critical types), blocking-stratified positive over-sampling, **Wilson** CIs, per-tier
+metrics, and a canary regression harness re-run per `resolver_version`. **Break the circularity:**
+the cascade/LLM may *propose* candidate pairs, but measurement labels must be **human-adjudicated**.
+Re-add the **retrieval-eval half of O6** (recall@k per search recipe, rerank-weight tuning,
+contradiction-detection precision). Defer learned matchers + active-learning loop past v1.
+
+**Context.** Closes O6's ER half concretely; the eval set is also the seed for the value gate's
+salience classifier (D26). (R7, O6.)
+
+## D23. Registry scale & schema
+
+**Decision.** RANGE-partition the three ~10⁸ append-only tables (`mentions`,
+`resolution_decisions`, `relation_evidence`) by ingest month (`pg_partman`); **btree-only** on
+those hot tables (cap write-amplification). Do **not** partition `entities`/`aliases` (the blocking
+targets, ≤10⁷). GIN `gin_trgm_ops` + GIN `daitch_mokotoff(name)` on `aliases.normalized_name`;
+btree composite `(subject_entity_id, predicate[, object])` on `relations`. Supersession + tiers
+T0–T3 run in Postgres; embedding tier T4 in Lance (D8); HNSW never in OLTP. Load-test a
+representative corpus slice before locking partition/index choices. **Row counts are contingent on
+the value gate (D25) — size against *gated* volume.**
+
+**Context.** Only the 10⁸ tables are huge and they're never fuzzy-scanned (queried by id/doc_id).
+(R9.)
+
+## D24. Review tooling — build a thin Postgres-backed cluster-review queue
+
+**Decision.** **Build** (don't adopt as system-of-record) a thin CLI cluster-review queue over
+Postgres; no OSS tool offers cluster-queue + append-only reversible verdicts + provenance +
+blast-radius gating. Review **clusters, not pairs** (pairwise is quadratic); route only the
+`expected_impact = blast_radius × (1 − confidence)` middle band to humans; high-degree hub merges
+never auto-accept. Borrow Splink's waterfall (evidence panel), Zingg's 3-way verdict (ergonomics),
+OpenRefine's cluster-card-with-exclude (interaction). Every action appends a reversible,
+provenance-stamped, redirect-preserving record (D21). Web/Argilla deferred until middle-band volume
+justifies it. (R10.)
+
+## D25. Value/salience gate as plane-E stage E1.5 (E1→E2 boundary, per-PageIndex-section)
+
+**Decision.** Add a new per-document stage **E1.5** on the Cloud Tasks chain, at the **E1→E2
+boundary**: `E0 → E1 → E1.5 gate → { E2 (FULL) | enqueue-deferred (DEFERRED) | stop (CHUNKS-ONLY)
+| skip (dup) }`. **E0 and E1 always run** for every document (cheap, deterministic, and they produce
+the signals the gate consumes) — the gate withholds only the expensive E2/E3 LLM layer, never the
+retrieval floor. The gate's unit is the **PageIndex section** (document-rollup for reporting,
+chunk-level only as the CHUNKS-ONLY fallback).
+
+**Context.** Accepts objection O3. Premise verified: most raw corpus is low-value (web survival
+~5–10% after dedup/boilerplate-strip), LLM graphs are measurably noisy, pruning ~40% entities can
+*improve* answer quality; the "98% junk" headline is a real but single-deployment audit (mem0
+#4573). Decisively, a better model only drops junk to 89.6% — the **extraction prompt, not the
+model, is the bottleneck**, so the gate must precede extraction. No surveyed system (GraphRAG,
+LightRAG, HippoRAG, mem0, cognee, Letta) builds this — all extract-everything; GraphRAG extraction
+is ~75% of indexing cost. Codex V2 and Antigravity V3 independently converged on this exact shape.
+(O3; V1–V6.)
+
+## D26. The gate is a nested cheap-first cascade
+
+**Decision.** E1.5 is a nested cheap-first cascade (D4 philosophy, one stage earlier), cheapest-
+and-most-decisive first: **T-dup** (exact content-hash; doubles as the D7 idempotency cache) →
+**T-struct** (PageIndex node-type: references/boilerplate/nav → CHUNKS-ONLY) → **T-novel**
+(embedding/MinHash near-dup vs already-extracted high-`evidence_count` sections; reuses E1 vectors)
+→ **T-salience** (distilled small classifier — fastText/BERT-class, ~6× cheaper than an LLM,
+GPU-free). A **frontier LLM judge is OFF the hot path** — it labels the seed/golden set the
+classifier distills from, never a per-section call. **Escalate uncertain sections to DEFERRED,
+never hard-reject to CHUNKS-ONLY.** Override-to-FULL signals: never-defer source classes
+(first-party/curated) and change-of-state/temporal lexical markers (the pre-extraction proxy for
+supersession-bearing content).
+
+**Context.** Distillation (label once with an oracle, classify cheaply) is the only economically
+sound way to use LLM judgment here. (V2, Codex V2.)
+
+## D27. Defer decision is durable, versioned Postgres state; the queue is a projection
+
+**Decision.** The gate verdict is **first-class, append-only, versioned Postgres state**, never
+only a Cloud Tasks message (a queue purge must not silently drop documents). Tables:
+`gate_decisions` (append-only verdict: document_id, section_id, tier, features jsonb,
+salience_score, `gate_version`, deferred_trigger, decided_at, `superseded_by`) and
+`document_extraction_state` (current state driving the queue, drained via `FOR UPDATE SKIP LOCKED`).
+Enqueue Cloud Tasks **atomically with the state flip via transactional outbox**; backfill is
+idempotent on `content_hash + processing_version` (D12). **Rebuild semantics (D7):** rebuild reads
+the *stored* tier and never re-runs the gate. **Determinism caveat:** deterministic rungs
+(hash/structural/near-dup) are recomputable; the **salience/LLM rung is replay-from-storage only**
+(model-endpoint drift) — so "rebuildable" for the gate means *stored & auditable*, not *recomputed*.
+
+**Context.** Keeps D7 and D12 intact — deferral is a conditional terminal state of E1, not a bypass.
+(V3, Antigravity V3, V6.)
+
+## D28. Lazy promotion triggers, priority order
+
+**Decision.** A DEFERRED section is promoted to E2 by, in priority order: **(i) on-scope-interest**
+(a K2 scope's declared entity/predicate interest sweeps matching deferred docs — D16; highest
+leverage, ties cost to demand) → **(ii) on-first-retrieval** (a P1 hit on a deferred chunk enqueues
+its E2 — lazy materialization, but *persisted to the ledger*, the trade LazyGraphRAG doesn't make) →
+**(iii) bounded steady-state drain** (a low-priority worker guarantees deferred ≠ never — a freshness
+SLA like D7's rebuild cadence) → **(iv) gate-version re-classification** (a better gate promotes
+previously-deferred docs as a version-filtered batch). Promotion starts at E2 over existing E1
+chunks; E0/E1 are not reprocessed.
+
+**Context.** ugm defers only the low-salience fraction and persists once-forever, vs LazyGraphRAG
+which defers all and re-pays every query. (V3, V5.)
+
+## D29. Defer-don't-DROP recall envelope
+
+**Decision.** The gate's output is **never DELETE** — only `{FULL, DEFERRED, CHUNKS-ONLY, dup}`.
+E0/E1 are immutable and authoritative (D1), so a skipped section is *un-extracted, not lost*;
+backfill is routine idempotent re-extraction (D7/D12). Safeguards: always-full E1 (deferred ≠
+unindexed); never-defer source classes + change-of-state lexical up-weighting; bounded drain;
+**canary facts** planted in the golden set (CI fails if a candidate threshold routes a canary to
+DEFERRED without a backfilling trigger); sampled audits of the deferred stream measuring **per-fact
+false-skip rate** (tune thresholds against per-fact loss, never corpus average); optional K3 belief
+guard (exclude mostly-still-deferred entities from belief promotion). Bias **recall-conservative**:
+over-defer is cheap and recoverable; over-extract silently poisons relations/graph/beliefs.
+
+**Context.** The immutable backstop is what makes aggressive gating safe — the eviction literature
+has to bolt this on; we get it from D1. Highest-severity residual risk: the zombie-fact /
+supersession-skip case (see spike below). (V5, V3.)
+
+## D30. Gate cost & break-even discipline
+
+**Decision.** Ship **no cost multiplier and no salience threshold without a measured filter rate**
+on a representative corpus slice, and define a **break-even multiplier** below which the gate's
+complexity + E1.5 latency + recall risk + *its own aggregate compute* is net-negative; the spike
+must clear it. Day-one metrics: per-tier section counts, false-skip rate vs the gate-verdict golden
+set, `r_retrieve` (realized lazy lever), E2/E3 spend-per-doc vs full-extraction baseline, **and the
+gate's own aggregate compute**. Honest cost model: salience-skip alone is ~1.5–2×; the ~10× O3
+imagined needs the DEFERRED/never-retrieved tier carrying most of the weight. R9's 10⁸ tables
+(E2/E3 outputs) shrink by `(f_full + f_def·r_retrieve)` → R9 gets *more* comfortable, sized against
+gated volume.
+
+**Context.** The #1 unaddressed risk is the gate becoming a new fleet-scale LLM stage; bounding its
+own compute is spike-1. (V6; O6 hook.)

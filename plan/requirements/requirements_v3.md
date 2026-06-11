@@ -88,6 +88,10 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - **Cost discipline**: cheap-first cascades — deterministic checks before small models before
   frontier models; LLM spend scales with ambiguity, not volume; per-layer cost metering and
   budgets.
+- **Tiered processing**: not every input deserves full extraction. A cheap value/salience gate
+  decides full / deferred / chunks-only before the expensive extraction layer; low-value content
+  (boilerplate, near-duplicates, references) is skipped or deferred — never silently dropped, and
+  always re-extractable from the immutable originals (progressive disclosure of *processing*).
 - **Failures never disappear**: bounded retries, then dead-letter with recorded status.
 - **Freshness**: plane E processes promptly per document; planes K and P are
   debounced/scheduled — staleness bounded by an explicit, configurable cadence.
