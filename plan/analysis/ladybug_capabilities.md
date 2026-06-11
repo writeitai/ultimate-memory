@@ -1,8 +1,8 @@
 # LadybugDB Capability Findings
 
-Verified June 2026 against (a) the vendored source tree at `_additional_context/ladybug`
+Verified June 2026 against (a) the vendored source tree at `../../_additional_context/ladybug`
 (git-ignored, ~129 MB, C++ core) and (b) docs.ladybugdb.com. Compiled to ground the L6 design
-decisions in `l6_graph_design.md` and `decisions.md` (D7, D8, D10, D11, D13).
+decisions in `../designs/l6_graph_design.md` and `../../decisions.md` (D7, D8, D10, D11, D13).
 
 **Provenance caveat.** The vector, FTS, algo, and LLM extension *implementations* live in a
 separate repo (`github.com/ladybugdb/extensions`, a git submodule not present in the vendored

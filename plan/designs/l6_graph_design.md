@@ -1,12 +1,12 @@
 # L6 Graph Layer — Design
 
-Drill-down of the L6 requirements from `requirements_v2.md`. Inspirations: Graphiti/Zep
+Drill-down of the L6 requirements from `../../requirements_v2.md`. Inspirations: Graphiti/Zep
 (bi-temporal edges, episode provenance, communities) and the supersession-architecture review
 (graph restricted to entity adjacency, single source of truth for validity, no replicated
 invalidation state).
 
 For a worked explanation of the claims / relations / evidence model and bi-temporality, see
-`concepts.md`.
+`../analysis/concepts.md`.
 
 ## 1. Role: a derived projection, never an authority
 
@@ -210,7 +210,7 @@ freshness.
 
 ## 5b. Verified LadybugDB capabilities (source tree + official docs)
 
-Surveyed from the vendored source (`_additional_context/ladybug`) and docs.ladybugdb.com:
+Surveyed from the vendored source (`../../_additional_context/ladybug`) and docs.ladybugdb.com:
 
 | Capability | Status |
 |---|---|

@@ -1,6 +1,6 @@
 # Concepts: Claims, Relations, Evidence, and the Two Clocks
 
-A pedagogical companion to `requirements_v2.md` and `l6_graph_design.md`. Explains the core
+A pedagogical companion to `../../requirements_v2.md` and `../designs/l6_graph_design.md`. Explains the core
 data model with a running example.
 
 **One-line mental model:** claims are the courtroom transcript (immutable testimony — who said
@@ -180,4 +180,4 @@ supersession-at-relation-level.
 The one place we deliberately diverge: Graphiti runs this adjudication *inside the graph store
 at write time*. We run it in Postgres at the L2/relation level, and the graph just mirrors the
 result — because our graph is a disposable, rebuildable projection, and validity must have
-exactly one home (see `l6_graph_design.md` §1).
+exactly one home (see `../designs/l6_graph_design.md` §1).

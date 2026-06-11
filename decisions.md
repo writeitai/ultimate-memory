@@ -1,8 +1,9 @@
 # Architecture Decision Log
 
 Decisions made during requirements/design exploration (June 2026), with context and rationale.
-Companion docs: `requirements_v2.md` (what), `l6_graph_design.md` (L6 how), `concepts.md`
-(data-model explainer), `ladybug_capabilities.md` (verified DB facts), `questions.md` (open).
+Companion docs: `requirements_v2.md` (what), `plan/designs/l6_graph_design.md` (L6 how),
+`plan/analysis/concepts.md` (data-model explainer), `plan/analysis/ladybug_capabilities.md`
+(verified DB facts), `questions.md` (open).
 
 ---
 
@@ -39,7 +40,7 @@ by hundreds of documents; many claims (opinions, n-ary, single-entity attributes
   evidence rows, not N parallel edges. `evidence_count` becomes a free confidence/salience
   signal (and a candidate filter for L5 core beliefs).
 - Graph edge count scales with distinct facts, not corpus size.
-- Full reasoning in `concepts.md`.
+- Full reasoning in `plan/analysis/concepts.md`.
 
 ---
 
@@ -139,7 +140,8 @@ columns (subject_id, predicate, object_id, validity window, evidence_count) for 
 hybrid search. No vectors in the LadybugDB snapshot.
 
 **Context.** Challenged ("is Lance really the best place?") and then verified against the
-vendored LadybugDB source + official docs. Findings (detail in `ladybug_capabilities.md`):
+vendored LadybugDB source + official docs. Findings (detail in
+`plan/analysis/ladybug_capabilities.md`):
 
 1. **Hard blocker**: LadybugDB's HNSW vector index and BM25 FTS index support **node-table
    properties only** — relationship properties cannot be indexed. In-graph fact search would
@@ -226,7 +228,7 @@ by Apple and open-source development stopped, October 2025) is the L6 base: embe
 columnar, Cypher, native paths, Parquet/Arrow interop, read-only multi-process mode.
 
 **Context.** Confirmed via web research and a survey of the vendored source tree
-(`ladybug_capabilities.md`). Risks accepted: young fork; vector/FTS/algo extension
+(`plan/analysis/ladybug_capabilities.md`). Risks accepted: young fork; vector/FTS/algo extension
 implementations live in a separate repo (not vendored) — irrelevant to our usage since
 vectors/FTS stay in Lance (D8) and the engine features we depend on (COPY FROM, paths,
 projected graphs, read-only mode) are core, verified in source.

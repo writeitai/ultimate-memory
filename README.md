@@ -2,14 +2,40 @@
 
 A layered memory system (L0 files → L6 graph) designed to scale to millions of input documents.
 
-## Documents
+## The `plan/` directory
+
+All project planning lives in `plan/`, organized in three levels of abstraction:
+
+- **`plan/requirements/`** — the highest level of abstraction: *what we want from the system*.
+  Mostly bullet points. No technology choices, no architecture — just needs, constraints, and
+  goals.
+- **`plan/designs/`** — drill-downs into the architecture: *how a part of the system works*.
+  Data models, store layouts, pipelines, trade-offs and decision rationale. Each design serves
+  one area and traces back to the requirements it satisfies.
+- **`plan/plans/`** — *bringing it all together*: concrete, ordered plans for building the
+  system. Plans reference the designs (never duplicate them) and sequence the work — phases,
+  dependencies, deliverables.
+- **`plan/analysis/`** — the working material *behind* the designs: research reports,
+  capability surveys (e.g. `ladybug_capabilities.md`), option explorations, worked explainers
+  (e.g. `concepts.md`), external-review digests. Analyses are allowed to be messy,
+  opinionated, and eventually superseded — they capture *why we believe things*. Designs
+  distill analyses into the binding picture and cite them; nothing in `analysis/` is binding
+  on its own.
+
+Rule of thumb: requirements say **what**, designs say **how**, plans say **in what order**,
+analysis says **why we think so**. A change should land at the highest level it applies to
+and flow downward.
+
+## Exploratory documents
+
+Pre-`plan/` exploration (will be folded into `plan/` over time):
 
 | Doc | Purpose |
 |---|---|
 | [requirements_v2.md](requirements_v2.md) | High-level requirements (current) |
-| [l6_graph_design.md](l6_graph_design.md) | L6 graph layer design drill-down |
-| [concepts.md](concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
+| [plan/designs/l6_graph_design.md](plan/designs/l6_graph_design.md) | L6 graph layer design |
+| [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D13) with rationale |
-| [ladybug_capabilities.md](ladybug_capabilities.md) | Verified LadybugDB capability findings |
+| [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [questions.md](questions.md) | Open questions to resolve before building |
 | [requirements_v1.md](requirements_v1.md) | Original requirements (superseded) |
