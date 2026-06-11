@@ -1,6 +1,6 @@
 # L6 Graph Layer — Design
 
-Drill-down of the L6 requirements from `../../requirements_v2.md`. Inspirations: Graphiti/Zep
+Drill-down of the L6 requirements from `../requirements/requirements_v3.md`. Inspirations: Graphiti/Zep
 (bi-temporal edges, episode provenance, communities) and the supersession-architecture review
 (graph restricted to entity adjacency, single source of truth for validity, no replicated
 invalidation state).

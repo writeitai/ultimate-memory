@@ -26,16 +26,17 @@ Rule of thumb: requirements say **what**, designs say **how**, plans say **in wh
 analysis says **why we think so**. A change should land at the highest level it applies to
 and flow downward.
 
-## Exploratory documents
-
-Pre-`plan/` exploration (will be folded into `plan/` over time):
+## Document index
 
 | Doc | Purpose |
 |---|---|
-| [requirements_v2.md](requirements_v2.md) | High-level requirements (current) |
+| [plan/requirements/requirements_v3.md](plan/requirements/requirements_v3.md) | Requirements (current) |
+| [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design |
 | [plan/designs/l6_graph_design.md](plan/designs/l6_graph_design.md) | L6 graph layer design |
+| [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 (open, not yet folded in) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D13) with rationale |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D13) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
+| [requirements_v2.md](requirements_v2.md) | Exploratory requirements (superseded by v3) |
 | [requirements_v1.md](requirements_v1.md) | Original requirements (superseded) |
