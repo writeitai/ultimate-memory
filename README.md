@@ -1,2 +1,1 @@
-# ugm
-Ultimate General Memory
+# ugm - Ultimate General Memory
