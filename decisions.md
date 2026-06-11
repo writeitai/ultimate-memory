@@ -269,3 +269,58 @@ didn't was a symptom of the same conflation.
 (e2_claims, k_layers, …). O2 (collapsing K1–K3), if later accepted, becomes a change local to
 plane K. Decision texts D1–D13 keep their original L-naming as historical record; the mapping
 above translates.
+
+---
+
+## D15. Ontology: universal core + anchored extensions, on the registries
+
+**Decision.** Users define their own ontology per problem; the system ships a small
+best-effort core. Both live in the existing registries (D5) — ontology is content, not new
+machinery:
+
+- **Universal core, borrowed not invented**: ~8 entity types and ~10–15 predicates aligned
+  with schema.org naming (extraction LLMs have strong priors on that vocabulary — familiar
+  names are a quality lever, not aesthetics).
+- **Extension rule — extend, never fork**: every user-defined type declares a core parent
+  (`ResearchPaper ⊂ Document`); predicates may too. This keeps blocking, graph queries, and
+  cross-scope retrieval working at the core level over any custom domain.
+- **Domain/range constraints** on predicates (`works_at: Person → Organization`) —
+  lightweight typed columns that mechanically reject a class of extraction hallucinations.
+- **Prompts render from the registry** (types/predicates/descriptions/examples): defining a
+  scope = editing rows, not prompt engineering; prompt-version tracking (D12) captures
+  ontology changes.
+- **Deliberately not OWL**: parent-links + domain/range replicate most benefits without
+  permanent reasoner/tooling cost. User-supplied OWL can be imported into the registry.
+
+**Context.** Multiple K2 scopes are domain ontologies in disguise; a fixed universal ontology
+either bloats or strangles them. Cognee's ontology-anchoring informed the external-authority
+idea (tier 0 of resolution); the `other:` escape (D5) becomes the discovery/promotion funnel.
+Three speeds, one registry: core (slow, each element a commitment) → scope extensions (fast,
+each an experiment) → `other:` (ungoverned, monitored). Analysis:
+`plan/analysis/entity_registry.md`.
+
+**Consequences.** Adding types/predicates = inserting rows. Retyping is retroactively clean
+in P2 thanks to rebuilds (D7). Only splitting heavily-used types/predicates is expensive —
+hence the small core. Seed lists and constraint tables go to `registries_design.md`.
+
+---
+
+## D16. One graph, many lenses: scopes never get their own graph
+
+**Decision.** Multiple K2 scopes (projects, team profiling, …) share one P2 graph and one
+entity space. Scopes get, in increasing order of weight: (1) **ontology extensions** (D15) —
+their vocabulary as a footprint in the shared graph; (2) **query-time scope views** via
+`PROJECT_GRAPH_CYPHER` (verified LadybugDB capability), declared in the registry as
+scope → predicate/type lists; (3) **materialized filtered snapshots** only if performance or
+access isolation ever demands — emitted by the same P2 rebuild from the same Postgres export,
+a second projection of the same truth, never a second graph.
+
+**Context.** Separate per-domain graphs would re-fragment identity — the exact disease the
+registry cures — and kill cross-scope queries ("which team members worked on projects
+connected to X?"), which are the point of having a graph. Plane discipline: K2 scopes are
+consumers of plane E, not owners; a scope owns its compiled markdown, never facts.
+
+**Consequences.** New scope = git directory + registry rows (types/predicates + scope-view
+definition) + extraction interests; never a new database. Rule of thumb: **scopes multiply;
+truth doesn't.** Access-sensitive scopes (e.g. people profiles) are handled by filtered
+snapshots + API-level authorization, not by forking storage.

@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D14); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D16); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -78,6 +78,10 @@ documents ─< chunks                    entities ──< entity_aliases
 - **Entities** — canonical registry with aliases, types, cached resolutions; only canonical
   IDs flow downstream.
 - **Predicates** — governed vocabulary with `other:` escape and periodic promotion (D5).
+- **Ontology** — universal schema.org-aligned core + user extensions anchored to it
+  (extend-never-fork), with domain/range constraints; lives in the registries (D15).
+  K2 scopes share one entity space and one graph; scope views are registry-declared
+  projections, never separate databases (D16).
 
 ## 4. Plane E: ingestion pipeline (per-document chain, D12)
 

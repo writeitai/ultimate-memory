@@ -2,7 +2,9 @@
 
 A step-back critique of the layered architecture as captured in
 `../requirements/requirements_v3.md` and `../designs/overall_design.md` (June 2026).
-Status: **O1 accepted → D14** (E/K/P plane naming, applied across docs); O2–O6 open.
+Status: **O1 accepted → D14** (E/K/P plane naming, applied across docs); **O5 in progress**
+(analysis written: `entity_registry.md`; D15/D16 logged; `registries_design.md` + quality
+metrics still pending); O2–O4, O6 open.
 When an objection is accepted, it lands as a decision (D14+) and flows into the docs;
 when rejected, the rationale is recorded here.
 

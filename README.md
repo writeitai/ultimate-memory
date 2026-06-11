@@ -36,10 +36,11 @@ and flow downward.
 | [plan/requirements/requirements_v3.md](plan/requirements/requirements_v3.md) | Requirements (current) |
 | [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
-| [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 (open, not yet folded in) |
+| [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
+| [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D14) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D16) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
 | [requirements_v2.md](requirements_v2.md) | Exploratory requirements (superseded by v3) |
 | [requirements_v1.md](requirements_v1.md) | Original requirements (superseded) |
