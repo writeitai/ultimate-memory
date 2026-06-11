@@ -1,0 +1,24 @@
+You are a senior ML/data engineer. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite file paths/line numbers and sources, give real numbers, avoid filler.
+
+PROJECT CONTEXT
+We are designing a "value/salience gate" for a large-scale memory system (millions of documents). Pipeline: files (E0) -> chunks (E1) -> claims (E2, atomic NL assertions via Claimify) -> relations (E3, normalized (subject,predicate,object) facts). The EXPENSIVE stages are E2/E3 (LLM extraction + entity resolution). Today the design extracts EVERYTHING. Objection O3 says: at a million documents most content is boilerplate/duplication/low-value, so we should add a cheap gate that decides, per document or section or chunk: FULL extraction / DEFERRED / chunks-only. This is plausibly a ~10x cost lever. Read first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/objections.md (O3)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/overall_design.md (planes E/K/P, trigger model)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (D4 cheap-first, D7 rebuildable, D12 triggers)
+
+YOUR QUESTION (V2): What are the best techniques to CHEAPLY score document/section/chunk VALUE before expensive extraction, and how to build the gate?
+
+Inspect how these cloned systems filter/gate what gets extracted (read the actual code):
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/mem0  (custom_instructions filtering, fact-extraction prompt that drops chit-chat, the ADD/UPDATE/DELETE/NOOP novelty controller in mem0/memory/main.py, configs/prompts.py)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphrag (does it extract everything? gleaning loop, any filtering)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/lightrag (entity/relation extraction — any value filter)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/cognee (any salience/filter before graph extraction)
+
+COVER:
+1. For each repo: is there any value/salience/novelty gate before extraction? Quote it (file:line). Where does each spend vs save LLM cost?
+2. Cheap value-scoring SIGNALS and how to compute them at scale: source type/trust, structural role (boilerplate/nav/references vs body), information/entity density, novelty-vs-already-known (embedding distance to existing claims; near-duplicate via MinHash/SimHash), length/perplexity, query-demand. Which are predictive, which are noise?
+3. MECHANISM options for the gate: pure heuristics, a small trained classifier, a small-LLM judge, embedding-novelty threshold, near-dup dedup pre-pass. Cost/latency/accuracy of each. The gate must cost << the extraction it gates — give rough cost ratios.
+4. Evidence on JUNK rate at scale: is the "~98% of unfiltered memory entries are junk" (attributed to a Mem0 audit) real? Find the actual source. Other evidence that unfiltered extraction degrades KG/retrieval quality, with numbers.
+5. Concrete recommendation for OUR gate: where it sits (E0/E1/E2 boundary), the signal set, the mechanism, the 3 output tiers (full/deferred/chunks-only), and what to measure (filter rate, recall loss, cost saved).
+
+Write the full analysis to stdout as markdown. 1500-3000 words. Lead with "Key findings", then detail, then "Recommendations for the ugm design".
