@@ -1,0 +1,26 @@
+You are a senior NLP/LLM engineer. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite file paths, give real techniques and numbers, avoid filler.
+
+PROJECT CONTEXT
+We are designing the claim/relation extraction stage of a large-scale memory system (millions of documents). Pipeline: document -> chunks -> claims (atomic verifiable NL assertions, via the Claimify principle) -> relations (normalized (subject, predicate, object) facts). We use a GOVERNED predicate vocabulary (a registry) with an `other:<freetext>` escape hatch — i.e. closed information extraction with an open escape. Entities are resolved to a canonical registry; an ontology has a universal schema.org-aligned core plus user extensions, with predicate domain/range constraints. Read first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/entity_registry.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/concepts.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (D2,D5,D15)
+
+YOUR QUESTION (R6): What are the best techniques for high-precision, scalable claim/relation extraction into a governed schema?
+
+Read the actual extraction code of these cloned repos:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphiti  (graphiti_core/prompts/extract_nodes.py, extract_edges.py, extract_nodes_and_edges.py, models.py — how it forces structured output; entity/edge type schemas)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/cognee    (extraction tasks, custom graph model / entity schema definition examples under examples/demos)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/mem0      (mem0/utils/entity_extraction.py, configs/prompts.py)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/lightrag  (entity/relation extraction prompts)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphrag  (microsoft graphrag entity/relationship extraction prompts, gleaning loop)
+
+COVER:
+1. For each repo: how is extraction prompted and constrained? Free-form vs typed function-calling/JSON-schema vs grammar-constrained decoding? Single-pass vs multi-pass "gleaning"? Quote the schema/prompt structure (file refs).
+2. Closed-IE (fixed predicate set) vs OpenIE (free predicates): what does the literature say about precision/recall tradeoffs? Does our closed-with-`other:`-escape hybrid have a known recall cost, and how to mitigate?
+3. Constrained-decoding / structured-output techniques (tool/function calling, JSON schema, Outlines/grammar, GLiNER-style models): which materially improve extraction precision into a fixed schema, and at what cost?
+4. How should the governed ontology (types + predicates + domain/range + descriptions + few-shot examples) be rendered into the extraction prompt? Static vs dynamically selected (only relevant predicates per chunk)? How to keep the prompt small when the predicate set grows large?
+5. Decontextualization vs minimality tension for claims; how the surveyed systems keep extracted facts self-contained without bloating them.
+6. Concrete recommendation for OUR E2->E3 extraction worker: model tier(s), prompt/schema design, gleaning, how to enforce domain/range, how `other:` is handled, and what to measure for precision/recall.
+
+Write the full analysis to stdout as markdown (captured to a file). 1500-3000 words. Lead with "Key findings", then detail, then "Recommendations for the ugm design".

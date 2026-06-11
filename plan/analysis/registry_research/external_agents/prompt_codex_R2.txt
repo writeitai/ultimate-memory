@@ -1,0 +1,26 @@
+You are a senior ML/data-engineering researcher. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite file paths and line numbers, give real numbers, and avoid hedging filler.
+
+PROJECT CONTEXT
+We are designing the entity-resolution (ER) subsystem of a large-scale memory system (target: millions of documents). Architecture: Postgres is the relational spine and single source of truth; LanceDB holds vector+FTS indexes; LadybugDB (a Kuzu successor, embedded graph) holds a rebuilt-from-Postgres graph projection. Data model: documents -> chunks -> claims (atomic NL assertions, immutable) -> relations (normalized (subject,predicate,object) facts with bi-temporal validity). Entity resolution maps entity mentions to canonical entity IDs. Supersession detection blocks candidates on (entity_id, predicate). Read these design docs first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/entity_registry.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (esp. D2,D3,D4,D5,D15,D16)
+
+YOUR QUESTION (R2): What do tiered-cascade entity-resolution systems ACTUALLY do and achieve, with real numbers?
+Our current design assumes a tier cascade: exact match -> fuzzy string (Jaro-Winkler >=0.92, FTS-blocked) -> phonetic (Soundex) -> embedding similarity (cosine >=0.88) -> LLM adjudication. Those thresholds came from a single secondary source and are essentially folklore. Investigate and either justify, correct, or replace them.
+
+Read the actual source of these cloned repos:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphiti  (getzep/graphiti — node/edge dedup: graphiti_core/utils/maintenance/dedup_helpers.py, graphiti_core/prompts/dedupe_nodes.py, dedupe_edges.py, extract_nodes.py)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/cognee   (topoteretes/cognee — entity description consolidation, ontology matching)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/mem0     (mem0ai/mem0 — ADD/UPDATE/DELETE/NOOP controller, entity_extraction.py, configs/prompts.py)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/splink   (probabilistic record linkage — Fellegi-Sunter; blocking rules; match weights)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/dedupe   (active-learning ER; thresholds; clustering)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/zingg    (ER at scale; blocking; review)
+
+COVER:
+1. For each repo: the EXACT resolution mechanism and any concrete thresholds/parameters found in code (quote them with file:line). How does each decide "same vs different"? Where is the LLM used vs deterministic logic?
+2. Graphiti specifically: how does node dedup actually work (the dedup_helpers fuzzy/MinHash logic + the LLM dedupe prompt)? What similarity cutoffs? How does it block candidates?
+3. Published ER benchmark numbers: on standard datasets (Magellan/DeepMatcher benchmarks, WDC products, Abt-Buy, DBLP-ACM/Scholar, etc.), what precision/recall do (a) classic Fellegi-Sunter/splink, (b) embedding-similarity, (c) LLM-based matchers achieve? What recall does blocking typically sacrifice? Give numbers and sources from your training knowledge.
+4. Are our specific thresholds (Jaro-Winkler 0.92, cosine 0.88) defensible? What do production systems actually use, and how should thresholds be set (per-type? learned from a labeled set?)?
+5. Concrete recommendation for OUR tier cascade: ordering, which tiers earn their keep, where to spend the LLM call, how to set thresholds, and what to measure.
+
+Write the full analysis to stdout as markdown (it will be captured to a file). Target 1500-3000 words. Lead with a short "Key findings" bullet list, then detail, then "Recommendations for the ugm design."
