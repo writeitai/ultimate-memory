@@ -11,27 +11,45 @@ Decision rationale: `decisions.md`. Open items: `questions.md`.
 - Consumed primarily by AI agents, with full human auditability.
 - Still valuable at a million documents — scale is a requirement, not an aspiration.
 
-## Knowledge layers
+## System structure: three planes (D14)
 
-- **L0 — Files**: every input tracked and preserved; normalized to a common text form;
-  document structure (hierarchy + summaries) extracted; cross-references between documents
-  (e.g. citations) tracked.
-- **L1 — Chunks**: retrieval-sized units that preserve their surrounding context and trace
-  back to the exact source document and position.
-- **L2 — Claims**: atomic, verifiable natural-language assertions; typed (fact / opinion /
-  prediction) and temporally classified; immutable and append-only; provenance always
-  attached; entity mentions resolved to canonical entities.
-- **Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
-  many-to-many evidence links between claims and relations; predicate vocabulary is governed,
-  not emergent.
-- **L3 — General knowledge**: progressive-disclosure summaries over high-information claims;
-  refreshed incrementally, never globally; human-editable and version-controlled.
-- **L4 — Special-purpose layers**: pluggable domain layers (people profiles, business
-  planning, paper ideas, …); same guarantees as L3; multiple layers may coexist.
-- **L5 — Core beliefs and stances**: ultra-distilled; every belief linked to its supporting
-  and contradicting evidence; updates only on evidence, resistant to drift.
-- **L6 — Graph**: relationships between entities; bi-temporal; supports as-of queries;
-  ontology starts small and evolves by governance.
+The system is organized as three planes; the plane determines trigger model, source of
+truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand.
+
+### Plane E — Evidence (per-document; relational spine is the source of truth)
+
+- **E0 — Files** *(formerly L0)*: every input tracked and preserved; normalized to a common
+  text form; document structure (hierarchy + summaries) extracted; cross-references between
+  documents (e.g. citations) tracked.
+- **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
+  context and trace back to the exact source document and position.
+- **E2 — Claims** *(formerly L2)*: atomic, verifiable natural-language assertions; typed
+  (fact / opinion / prediction) and temporally classified; immutable and append-only;
+  provenance always attached; entity mentions resolved to canonical entities.
+- **E3 — Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
+  many-to-many evidence links between claims and relations; the unit of supersession and
+  contradiction.
+- **Registries** (cross-cutting substrate of plane E — registries canonicalize, layers
+  transform): canonical **entities** with aliases and resolution; governed **predicate**
+  vocabulary with an escape hatch and periodic promotion.
+
+### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
+
+- **K1 — General knowledge** *(formerly L3)*: progressive-disclosure summaries over
+  high-information claims; refreshed incrementally, never globally; human-editable and
+  version-controlled.
+- **K2 — Special-purpose scopes** *(formerly L4)*: pluggable domain layers (people profiles,
+  business planning, paper ideas, …); same guarantees as K1; multiple scopes may coexist.
+- **K3 — Core beliefs and stances** *(formerly L5)*: ultra-distilled; every belief linked to
+  its supporting and contradicting evidence; updates only on evidence, resistant to drift.
+
+### Plane P — Projections (derived, no authority; rebuilt on schedule)
+
+- **P1 — Search indexes**: vector/FTS indexes over chunks, claims, and relation fact labels;
+  fully rebuildable from the spine.
+- **P2 — Graph** *(formerly L6)*: relationships between entities; bi-temporal; supports
+  as-of queries; ontology starts small and evolves by governance; fully rebuildable from the
+  spine.
 
 ## Knowledge lifecycle
 
@@ -71,8 +89,8 @@ Decision rationale: `decisions.md`. Open items: `questions.md`.
   frontier models; LLM spend scales with ambiguity, not volume; per-layer cost metering and
   budgets.
 - **Failures never disappear**: bounded retries, then dead-letter with recorded status.
-- **Freshness**: per-document layers process promptly; aggregate layers are debounced/windowed
-  — staleness bounded by an explicit, configurable cadence.
+- **Freshness**: plane E processes promptly per document; planes K and P are
+  debounced/scheduled — staleness bounded by an explicit, configurable cadence.
 - Observability over all pipelines; backups for both sources of truth.
 
 ## Imposed constraints (fixed choices)
@@ -81,9 +99,9 @@ Decision rationale: `decisions.md`. Open items: `questions.md`.
 - Document structure: **PageIndex**. Chunking: **semchunk**. Claim extraction: **Claimify**
   principle.
 - Workers: **GCP Cloud Run jobs** triggered via **Cloud Tasks** (max 2 retries, rate-limited).
-- L3/L4 processing: **Codex / OpenCode** sessions over a **single git repo** (distinct
-  directory split; conflict retry within the same session; rolling-window delay for hot
-  files).
+- Plane K compilation (K1/K2): **Codex / OpenCode** sessions over a **single git repo**
+  (distinct directory split; conflict retry within the same session; rolling-window delay
+  for hot files).
 
 ## Code
 

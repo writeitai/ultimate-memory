@@ -1,9 +1,11 @@
 # Architecture Decision Log
 
 Decisions made during requirements/design exploration (June 2026), with context and rationale.
-Companion docs: `requirements_v2.md` (what), `plan/designs/l6_graph_design.md` (L6 how),
-`plan/analysis/concepts.md` (data-model explainer), `plan/analysis/ladybug_capabilities.md`
-(verified DB facts), `questions.md` (open).
+Companion docs: `plan/requirements/requirements_v3.md` (what),
+`plan/designs/p2_graph_design.md` (graph how), `plan/analysis/concepts.md` (data-model
+explainer), `plan/analysis/ladybug_capabilities.md` (verified DB facts), `questions.md`
+(open). Naming note: D1–D13 predate the E/K/P plane naming (D14) and keep their original
+L-numbers as historical record.
 
 ---
 
@@ -221,7 +223,7 @@ git-editing layer was the design's scaling bottleneck.
 
 ---
 
-## D13. LadybugDB accepted as the L6 engine
+## D13. LadybugDB accepted as the L6 engine (P2 after D14)
 
 **Decision.** LadybugDB (maintained community successor of Kuzu after Kuzu Inc. was acquired
 by Apple and open-source development stopped, October 2025) is the L6 base: embedded,
@@ -232,3 +234,38 @@ columnar, Cypher, native paths, Parquet/Arrow interop, read-only multi-process m
 implementations live in a separate repo (not vendored) — irrelevant to our usage since
 vectors/FTS stay in Lance (D8) and the engine features we depend on (COPY FROM, paths,
 projected graphs, read-only mode) are core, verified in source.
+
+---
+
+## D14. Naming: three planes (E/K/P) replace the L0–L6 ladder
+
+**Decision.** The system is described as three planes, each with its own internal sequence,
+because the plane — not the number — determines the operational rules (trigger model, source
+of truth, mutability, rebuild semantics):
+
+- **Plane E — Evidence** (per-document processing writing into global ledgers; Postgres is
+  truth): **E0 files, E1 chunks, E2 claims, E3 relations**; plus the **entity and predicate
+  registries** as explicit cross-cutting substrate (layers *transform*, registries
+  *canonicalize*).
+- **Plane K — Knowledge** (aggregate, LLM-compiled, debounced; git is truth): **K1 general,
+  K2 special-purpose scopes, K3 core beliefs**.
+- **Plane P — Projections** (derived, no authority, rebuilt on schedule, immutable
+  snapshots): **P1 search indexes** (Lance), **P2 graph** (LadybugDB).
+
+Mapping: L0→E0, L1→E1, L2→E2, L3→K1, L4→K2, L5→K3, L6→P2. Relations (E3) and the Lance
+indexes (P1) previously had no name at all. L-numbers survive as colloquial shorthand;
+"(formerly LX)" annotations are kept for one doc generation.
+
+**Context.** Accepted objection O1 (`plan/analysis/objections.md`). The ladder implied a
+single cascade of same-kind layers; in reality P2 is a projection of E3, not a level above
+K3, and relations — the most load-bearing artifact — had no slot. Every recurring design
+confusion was a plane-boundary violation: `claim_id`-on-edges (E3 vs P2), "each layer
+triggers the next" (E rules applied to K), "is the graph rebuildable" (P semantics asked of
+K). The asymmetry that the graph projection had a layer number while the vector indexes
+didn't was a symptom of the same conflation.
+
+**Consequences.** `requirements_v3` and `overall_design` reframed around planes;
+`l6_graph_design.md` renamed `p2_graph_design.md`; future per-layer designs named by plane
+(e2_claims, k_layers, …). O2 (collapsing K1–K3), if later accepted, becomes a change local to
+plane K. Decision texts D1–D13 keep their original L-naming as historical record; the mapping
+above translates.

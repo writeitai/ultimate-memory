@@ -1,6 +1,6 @@
-# L6 Graph Layer — Design
+# P2 Graph Layer — Design (formerly L6)
 
-Drill-down of the L6 requirements from `../requirements/requirements_v3.md`. Inspirations: Graphiti/Zep
+Drill-down of the P2 (graph) requirements from `../requirements/requirements_v3.md`. Inspirations: Graphiti/Zep
 (bi-temporal edges, episode provenance, communities) and the supersession-architecture review
 (graph restricted to entity adjacency, single source of truth for validity, no replicated
 invalidation state).
@@ -17,9 +17,9 @@ deleted and rebuilt at any time without data loss.
 Concretely:
 
 - **Validity is decided upstream.** Supersession, contradiction, and entity merges all happen
-  in the L2 pipeline and are recorded in Postgres. The graph mirrors the outcome. (Graphiti
+  in the E2 pipeline and are recorded in Postgres. The graph mirrors the outcome. (Graphiti
   runs LLM-driven edge invalidation at graph-write time; we deliberately don't — that judgment
-  already happened at L2. The graph writer is dumb and deterministic.)
+  already happened at E2. The graph writer is dumb and deterministic.)
 - **No embeddings in the graph.** Semantic entry points come from LanceDB/Postgres. Storing
   vectors in two places is how stores drift apart (documented Mem0 failure mode). The graph's
   job starts when you already have an entity ID.
@@ -34,7 +34,7 @@ What the graph IS for:
 | Relationship lookup | "how are X and Y connected?" (1–2 hops) |
 | As-of reconstruction | "what did we believe about X on 2025-03-01?" |
 | Structural navigation | citation chains, person↔org affiliations, doc↔entity mentions |
-| (Later) graph analytics | communities, PageRank, paths — feeding L3 topic hints |
+| (Later) graph analytics | communities, PageRank, paths — feeding K1 topic hints |
 
 ## 2. Ontology and schema
 
@@ -55,7 +55,7 @@ CREATE NODE TABLE Entity(
 );
 
 CREATE NODE TABLE Document(
-  id UUID PRIMARY KEY,          // L0 input ID
+  id UUID PRIMARY KEY,          // E0 input ID
   title STRING,
   source_uri STRING,
   published_at DATE
@@ -75,14 +75,14 @@ CREATE REL TABLE RELATES(
   confidence DOUBLE
 );
 
-// Structural edges — from L0/L1 metadata, not claims
+// Structural edges — from E0/E1 metadata, not claims
 CREATE REL TABLE MENTIONED_IN(FROM Entity TO Document, mention_count INT64, first_seen TIMESTAMP);
 CREATE REL TABLE CITES(FROM Document TO Document, context STRING);
 ```
 
 ### Relations vs. claims — distinct concepts, distinct records
 
-Claims (L2) and graph edges are NOT the same thing, and the mapping is many-to-many:
+Claims (E2) and graph edges are NOT the same thing, and the mapping is many-to-many:
 
 - a **claim** is a verifiable natural-language assertion as made by a source — possibly n-ary,
   qualified, an opinion or prediction; many claims flatten to no triplet at all
@@ -92,7 +92,7 @@ Claims (L2) and graph edges are NOT the same thing, and the mapping is many-to-m
 
 So Postgres holds a first-class `relations` table (subject_id, predicate, object_id,
 bi-temporal fields) plus `relation_evidence(relation_id, claim_id, stance: supports |
-contradicts)`. A **relation-normalization step** in the L2 pipeline (after claim extraction +
+contradicts)`. A **relation-normalization step** in the E2 pipeline (after claim extraction +
 entity resolution) maps eligible claims onto relations against the predicate registry:
 
 - `(s, p, o)` already exists with compatible validity → claim added as **evidence**
@@ -106,7 +106,7 @@ Rules:
   the Postgres registry before projection. The graph never contains two nodes for one entity.
 - **Edges project relations, not claims.** Edge count scales with distinct facts, not corpus
   redundancy. Attribute claims ("X was founded in 1998") and non-normalizable claims stay
-  L2-only — retrievable via Lance/Postgres. This keeps the graph lean (rough sizing at 1M
+  E2-only — retrievable via Lance/Postgres. This keeps the graph lean (rough sizing at 1M
   docs: ~50M claims → far fewer distinct relations → graph of a few GB, comfortably embedded).
 - **Contradictions project too**: an unresolved contradiction between relations becomes two
   live edges with a shared `contradiction_group` property, so retrieval can surface both sides.
@@ -119,16 +119,16 @@ Free-text predicates explode ("works_at" / "employed_by" / "is employee of") and
 both entity-keyed blocking and graph queries. So:
 
 - A **predicate registry table in Postgres**: `predicate, description, synonyms[], status`.
-- L2 extraction is constrained to the registry vocabulary, with an `other:<freetext>` escape
+- E2 extraction is constrained to the registry vocabulary, with an `other:<freetext>` escape
   hatch.
 - A periodic job reviews frequent `other:` values and promotes them (or maps them to existing
   predicates). The ontology evolves by governance, not by accretion.
 - Seed vocabulary: `works_at, member_of, authored, cites, located_in, part_of, collaborates_with,
-  founded, advises, related_to` — extend per L4 domains.
+  founded, advises, related_to` — extend per K2 domains.
 
 ## 4. Bi-temporality and as-of queries
 
-Edges carry the same four timestamps as L2 claims (Graphiti/Zep model):
+Edges carry the same four timestamps as E2 claims (Graphiti/Zep model):
 
 - `valid_from` / `valid_until` — when the fact was true in the world
 - `ingested_at` / `invalidated_at` — when the system learned it / learned it was superseded
@@ -164,7 +164,7 @@ processes** on the same database files. Don't fight this — design around it.
 
 ### The writer: periodic full rebuild (Phase 1)
 
-Instead of incremental event application, the L6 worker **rebuilds the whole graph from
+Instead of incremental event application, the P2 worker **rebuilds the whole graph from
 Postgres on every cycle**:
 
 1. Export projection inputs from Postgres to Parquet (entities, relations with validity
@@ -182,7 +182,7 @@ Why rebuild-first instead of incremental:
   handling, and out-of-order event headaches all disappear.
 - **Entity merges become trivial.** A merge that re-points thousands of edges is a nightmare
   incrementally and a no-op in a rebuild.
-- **It fits the trigger model.** L6 is a debounced aggregate layer anyway (requirements v2) —
+- **It fits the trigger model.** P2 is a debounced aggregate layer anyway (requirements v2) —
   nobody needs second-level graph freshness; the cadence (start: hourly) is the freshness SLA.
 - **Cheap at our scale.** A few GB rebuilt in minutes on one Cloud Run job. Only when rebuild
   time outgrows the cadence does incremental (Phase 2) pay for itself — and the watermark
@@ -250,7 +250,7 @@ one-engine hybrid search. Four reasons:
    every snapshot (vs. a few GB without), plus a full HNSW build per rebuild cycle (hours, not
    minutes). This kills the rebuild-first + ship-to-readers model that the rest of the design
    depends on.
-3. **Lance exists regardless.** L1 chunks and L2 claims are not graph objects; their vectors
+3. **Lance exists regardless.** E1 chunks and E2 claims are not graph objects; their vectors
    must live in Lance anyway. Splitting the vector estate across two engines means two
    embedding pipelines, two index-maintenance regimes, two sets of failure modes.
 4. **The join we avoid is cheap.** Vector search returns top-k (~100s) relation_ids; the graph
@@ -283,7 +283,7 @@ entity scope, as-of windows) before the vector stage.
 | "Who works at Acme?" | structured: relations `object=acme, predicate=works_at` (scalar only) |
 | "Alice's career changes?" | semantic+BM25 over Lance relations, scoped to subject=alice, RRF-fused |
 | vague / no clear entity | semantic over relations AND claims; claim hits join to relations via evidence |
-| "what did source X say" | claim/chunk search (L1/L2); relations hydrate *down* to evidence |
+| "what did source X say" | claim/chunk search (E1/E2); relations hydrate *down* to evidence |
 
 ### Pipeline
 
@@ -312,7 +312,7 @@ as_of?, hops?)`, `path(a, b, max_hops)`, relation/claim search with filters) **p
 search recipes** (`relation_hybrid_rrf`, `relation_near_entity`, `claims_verbatim`, …) so
 agents pick a strategy instead of assembling plumbing per call.
 
-## 7. Communities and L3 hints (Phase 3)
+## 7. Communities and K1 hints (Phase 3)
 
 LadybugDB ships some graph algorithms natively (PageRank, K-Core, connected components). Run
 them on the snapshot after rebuild, write results **back to Postgres** (community assignments,
@@ -322,10 +322,10 @@ Note: Louvain/Leiden are NOT shipped in LadybugDB's algo extension (verified) �
 detection runs as an external pass (igraph/graspologic) over the rebuild's Parquet export;
 PageRank/K-Core/WCC run natively on the snapshot.
 
-1. **L3 compile hints**: communities ≈ candidate topics; "claims in community C changed" is a
-   better incremental-refresh trigger for L3 summaries than per-file signals (Zep uses
+1. **K1 compile hints**: communities ≈ candidate topics; "claims in community C changed" is a
+   better incremental-refresh trigger for K1 summaries than per-file signals (Zep uses
    communities exactly this way).
-2. **Entity importance**: PageRank as a salience prior for retrieval ranking and L5 candidate
+2. **Entity importance**: PageRank as a salience prior for retrieval ranking and K3 candidate
    filtering.
 3. **Registry hygiene**: tiny disconnected components often indicate entity-resolution misses.
 
@@ -344,7 +344,7 @@ PageRank/K-Core/WCC run natively on the snapshot.
 - **Phase 1**: schema, Parquet export, full-rebuild writer, GCS snapshots, read-only serving,
   neighborhood + as-of queries in API/CLI.
 - **Phase 2** (if freshness demands it): outbox + incremental micro-snapshots between rebuilds.
-- **Phase 3**: communities + PageRank feeding L3 triggers and retrieval ranking; multi-hop/path
+- **Phase 3**: communities + PageRank feeding K1 triggers and retrieval ranking; multi-hop/path
   queries; possible promotion of hot predicates to dedicated rel tables.
 
 ## 10. Open questions
@@ -354,6 +354,6 @@ PageRank/K-Core/WCC run natively on the snapshot.
 2. Do `MENTIONED_IN` edges link to documents only, or also to PageIndex nodes (finer-grained,
    bigger graph)?
 3. Should attribute claims ever project into the graph (as entity properties), or stay
-   L2-only? (Current call: L2-only.)
+   E2-only? (Current call: E2-only.)
 4. Where do retrieval API readers run — same Cloud Run service as the rest of the API, with
    snapshot on local SSD? Snapshot size will decide.

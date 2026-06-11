@@ -2,9 +2,9 @@
 
 A step-back critique of the layered architecture as captured in
 `../requirements/requirements_v3.md` and `../designs/overall_design.md` (June 2026).
-Status: **open** — none of these are folded into requirements/designs/decisions yet.
-When one is accepted, it should land as a decision (D14+) and flow into the docs;
-when rejected, the rationale should be recorded here.
+Status: **O1 accepted → D14** (E/K/P plane naming, applied across docs); O2–O6 open.
+When an objection is accepted, it lands as a decision (D14+) and flows into the docs;
+when rejected, the rationale is recorded here.
 
 ## What survives scrutiny (no objection)
 
@@ -14,7 +14,7 @@ The objections below are about what's *around* these, not these.
 
 ---
 
-## O1. The "ladder" framing is wrong — it's a DAG, and the numbering misleads
+## O1. The "ladder" framing is wrong — it's a DAG, and the numbering misleads ✅ ACCEPTED → D14
 
 **Objection.** L6 is not "above" L5: the graph is a projection of L2-level relations and has
 nothing to do with beliefs. Relations — the most load-bearing artifact in the system — have no

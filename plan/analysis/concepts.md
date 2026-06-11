@@ -1,6 +1,6 @@
 # Concepts: Claims, Relations, Evidence, and the Two Clocks
 
-A pedagogical companion to `../../requirements_v2.md` and `../designs/l6_graph_design.md`. Explains the core
+A pedagogical companion to `../../requirements_v2.md` and `../designs/p2_graph_design.md`. Explains the core
 data model with a running example.
 
 **One-line mental model:** claims are the courtroom transcript (immutable testimony — who said
@@ -62,7 +62,7 @@ Claims-to-relations is many-to-many:
 - c1 produced **two** relations (one claim, several facts)
 - c2 produced **zero new** relations — the fact already existed
 - some claims (opinions, n-ary facts, attribute statements like "Acme was founded in 1998" with
-  only one entity) produce **none** — and that's fine; they remain fully retrievable in L2 via
+  only one entity) produce **none** — and that's fine; they remain fully retrievable in E2 via
   Lance/FTS
 
 ## 3. Evidence: the join between the two
@@ -81,7 +81,7 @@ hundreds of times. Without the relation layer, that's hundreds of near-duplicate
 needing fuzzy dedup. With it, it's **one edge with evidence_count = 247** — and that count is
 itself useful: a fact independently asserted by 247 sources is more trustworthy than one
 asserted once. Confidence becomes an aggregate over evidence rather than a guess at extraction
-time. (This is also exactly the signal L5 wants: a "core belief" candidate is a relation with
+time. (This is also exactly the signal K3 wants: a "core belief" candidate is a relation with
 lots of supporting evidence and no contradicting stance — now a SQL query.)
 
 ## 4. Supersession at the relation level
@@ -169,7 +169,7 @@ Graphiti (Zep's engine) has the same three-level shape under different names:
 
 | Graphiti | Ours |
 |---|---|
-| **Episode** — a raw ingested message/document, kept forever | **Claim** (plus the L0 doc) — what was said, immutable |
+| **Episode** — a raw ingested message/document, kept forever | **Claim** (plus the E0 doc) — what was said, immutable |
 | **Edge with a fact label** — a normalized fact between entity nodes, carrying `valid_at`/`invalid_at` | **Relation** → projected as graph edge |
 | **Edge's episode list** — every episode that mentioned this fact | **relation_evidence** — every claim supporting/contradicting the fact |
 
@@ -178,6 +178,6 @@ episodes — it sets the *edge's* `invalid_at` and keeps the episode list as his
 supersession-at-relation-level.
 
 The one place we deliberately diverge: Graphiti runs this adjudication *inside the graph store
-at write time*. We run it in Postgres at the L2/relation level, and the graph just mirrors the
+at write time*. We run it in Postgres at the E2/relation level, and the graph just mirrors the
 result — because our graph is a disposable, rebuildable projection, and validity must have
-exactly one home (see `../designs/l6_graph_design.md` §1).
+exactly one home (see `../designs/p2_graph_design.md` §1).

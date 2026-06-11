@@ -18,12 +18,12 @@ Questions that requirements_v2.md deliberately leaves open. Answers will shape t
 
 ## Semantics
 6. **Single user or multi-tenant?** Even "just me but multiple agents" affects ID scoping,
-   retrieval filters, and the L4 directory layout.
-7. **What seeds the L6 ontology?** Which entity types and relations matter on day one
+   retrieval filters, and the K2 directory layout.
+7. **What seeds the P2 ontology?** Which entity types and relations matter on day one
    (people, papers, organizations, concepts, projects…)?
-8. **L5 beliefs: qualitative or quantitative?** Plain markdown statements with claim links, or a
+8. **K3 beliefs: qualitative or quantitative?** Plain markdown statements with claim links, or a
    numeric stance score with update rules? (v2 defaults to qualitative + links.)
-9. **How fresh must L3/L4 be?** The debounce window (minutes? hours? daily?) is a core design
+9. **How fresh must K1/K2 be?** The debounce window (minutes? hours? daily?) is a core design
    parameter for the aggregate-layer triggers.
 10. **Hard-delete requirements?** Does GDPR-style "forget this source completely" need to be
     supported, or is soft invalidation always sufficient? (Affects the append-only guarantee.)
