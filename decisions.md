@@ -327,7 +327,10 @@ consumers of plane E, not owners; a scope owns its compiled markdown, never fact
 **Consequences.** New scope = git directory + registry rows (types/predicates + scope-view
 definition) + extraction interests; never a new database. Rule of thumb: **scopes multiply;
 truth doesn't.** Access-sensitive scopes (e.g. people profiles) are handled by filtered
-snapshots + API-level authorization, not by forking storage.
+snapshots + API-level authorization, not by forking storage. Scope-sharing applies *within*
+one deployment only — separate deployments (assistant, agency, client projects, …) are fully
+independent instances with separate entity spaces (`registries_design.md` §1, deployment
+model).
 
 ---
 
@@ -371,6 +374,11 @@ mappings get a spot-check before freezing.
 **Context.** Concretizes D15. Graphiti's `edge_type_map` is the validated mechanism; Cognee loads
 OWL but enforces no domain/range. The "familiar names help extraction" claim is true in spirit
 (pretrained semantics) but no measured schema.org-vs-synonym delta is asserted. (R5.)
+
+**Consequences.** Work-shaped concepts (Task/Decision/Goal) stay out of the core but ship as a
+system-provided **extension pack**, enabled per deployment — full entity status without a core
+commitment; `Decision` standing rides on bi-temporal relations, so reversals are ordinary
+supersession (`registries_design.md` §4, extension packs).
 
 ## D19. Coref topology + per-language default
 

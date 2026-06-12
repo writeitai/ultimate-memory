@@ -23,6 +23,25 @@ is **silent**: a missed merge means a stale fact is served as current with no er
 asymmetry governs every default — **under-merging degrades gradually; over-merging poisons
 catastrophically** — so the system is recall-conservative and reversible throughout.
 
+### Deployment model: one system, N independent instances
+
+The system deploys as **independent instances**, one per problem domain — target deployments
+include a personal assistant, the brain of an AI-native agency (development + marketing of
+multiple online products), a data-migration project between enterprise systems for a
+manufacturing company, and a knowledge engine for a law-related product. Rules:
+
+- **Entity spaces are never shared across deployments.** D16's "one graph, one entity space"
+  applies *within* a deployment; separate deployments are separate Postgres
+  instances/schemas, separate registries, separate graphs (a client project's data and a
+  personal assistant's data must never co-resolve).
+- **Each deployment = the universal core (D18) + chosen extension packs (§4) + its own K2
+  scopes.** The core is identical everywhere; packs and scopes are per-deployment choices.
+- The multi-scope case *within* one deployment (e.g. the agency: multiple products as K2
+  scopes over one shared entity space) is exactly D16's "scopes multiply, truth doesn't".
+- **Language is a per-deployment property**: a deployment with Czech (or other
+  inflected-language) corpora puts WP-ML (§5) on its critical path; English-only deployments
+  defer it.
+
 ## 2. Data model (Postgres — the single authority, D6)
 
 The transcript/verdict epistemics of D2/D3 apply to resolution too: mentions are evidence,
@@ -103,6 +122,43 @@ One canonical cascade (ends the prior tier-numbering drift). Stop at the first c
   in the shared graph; scope views are `PROJECT_GRAPH_CYPHER` projections declared in
   `scope_interests`, never separate databases.
 
+### System-shipped extension packs — the "Work" pack
+
+Extension packs are predefined, system-shipped sets of extension types + predicates a
+deployment can enable as a unit. **Extensions are not second-class**: an extension type lives
+in the same entity space, graph, ER machinery, and relations as core types — the tier is a
+*governance* distinction (stability commitment, golden-set obligation), not a capability one.
+Packs let work-shaped concepts be first-class entities from day one without burning core
+slots or committing every deployment (e.g. the law engine) to them.
+
+**Work pack** (for assistant / agency / project-management deployments):
+
+| Type | Parent | Notes |
+|---|---|---|
+| `Task` | ⊂ Event | an intended occurrence with a lifecycle |
+| `Decision` | ⊂ Event | a commitment made at a point in time |
+| `Goal` | ⊂ Concept | a desired state — held, not occurring |
+
+| Predicate | Domain → Range |
+|---|---|
+| `blocks` | Task → Task |
+| `depends_on` | Task → Task |
+| `concerns` | Task \| Decision → any |
+| `decided_by` | Decision → Person \| Organization |
+| `pursues` | Project \| Organization → Goal |
+
+The payoff for `Decision` is the bi-temporal machinery: a decision is *a fact that holds
+until reversed* — its standing rides on relations with validity windows, so reversals are
+ordinary supersession, "what was the standing decision on X as of March?" is an ordinary
+as-of query, and stale decisions get zombie-fact protection like any other relation. K2
+scopes still compile narrative decision-logs/task-boards — referencing these entity IDs (the
+usual entities-feed-compilation pattern); the pack provides identity + graph linkage +
+temporal validity, K2 provides synthesis. Neither replaces the other.
+
+Anticipated future packs (defined when a deployment needs them, not before): legal
+(`Statute/Ruling/Contract ⊂ Document`, `Jurisdiction ⊂ Place`), systems/migration
+(`System/Module ⊂ Product`, `Requirement ⊂ Document`, `BusinessProcess ⊂ Concept`).
+
 ## 5. Multilingual / inflected — work package WP-ML (D19, R3)
 
 Czech (and Slavic generally) declines names across ~7 cases → ~7 surface forms per name, a
@@ -179,8 +235,9 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 ## 11. Phasing
 
 - **Phase 1:** registry schema + Alembic; T0–T3 deterministic tiers + T5 LLM adjudication; the
-  seed ontology (D18) + domain/range; entity-resolution on English; the golden eval set + per-tier
-  metrics + review CLI; reversibility records.
+  seed ontology (D18) + domain/range + the Work extension pack (registry rows, enabled per
+  deployment); entity-resolution on English; the golden eval set + per-tier metrics + review
+  CLI; reversibility records.
 - **Phase 2:** T4 embedding tier; WP-ML (Czech lemmatization + D-M + multilingual coref); tier-0
   authority connectors; predicate-promotion workflow; health dashboards.
 - **Phase 3:** learned matcher + active-learning training loop (separate from eval set); scope
