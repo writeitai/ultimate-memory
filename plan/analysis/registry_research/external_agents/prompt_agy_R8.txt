@@ -1,0 +1,22 @@
+You are a senior data-engineering researcher specializing in entity resolution at scale. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, give real algorithms and numbers, avoid filler.
+
+PROJECT CONTEXT
+We are designing the clustering/merge machinery of an entity-resolution subsystem for a large-scale memory system (millions of documents, hence tens to hundreds of millions of entity mentions). Postgres is the single source of truth. We resolve mentions -> canonical entities incrementally as documents stream in. Key decisions: merges are REDIRECTS not rewrites (absorbed entity keeps its ID, points to survivor); merges must be REVERSIBLE (un-merge on new evidence); we keep append-only resolution-decision and merge-event records. Read first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/entity_registry.md (sections 4 and 7)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (D4)
+
+Inspect the actual clustering/linkage code of these cloned repos:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/splink (clustering of pairwise links; connected components; thresholds)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/dedupe (clustering; hierarchical/centroid; thresholds)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/zingg (graph/connected-components clustering at scale on Spark)
+
+YOUR QUESTION (R8): What is the correct, production-grade approach to INCREMENTAL entity clustering with reversible merges?
+COVER:
+1. The danger of naive transitive closure (A~B, B~C => A=C) in pairwise ER. How real systems avoid over-merging: correlation clustering, connected components with edge-cutting/weighting, Louvain/community-cut, hierarchical agglomerative with stopping. What do splink/dedupe/zingg actually use (file refs + the algorithm)?
+2. INCREMENTAL clustering: how to add a new mention/record without re-clustering everything, and how clusters evolve. Survey approaches (incremental connected components, streaming correlation clustering, Senzing-style principle-based real-time resolution). What invariants make this tractable?
+3. UN-MERGE / split: what state must be retained to reverse a merge or split a cluster when new evidence arrives? How do production systems support this (or fail to)? Concrete data structures.
+4. Cluster QUALITY safeguards: blast-radius limits (never auto-merge hub entities), cluster-size monitoring to detect over-merge, singleton-rate for under-merge. Real metrics and thresholds.
+5. How does this interact with a design where the GRAPH is fully rebuilt from Postgres every cycle (so merges become retroactively clean in the graph for free)? Does rebuild-first change which clustering approach is best?
+6. Concrete recommendation for OUR design: the clustering algorithm, the incremental update procedure, the exact records/snapshots to retain for reversibility, and the safeguard metrics — all expressed against a Postgres-backed store.
+
+Write the full analysis to stdout as markdown (captured to a file). 1500-3000 words. Lead with "Key findings", then detail, then "Recommendations for the ugm design".

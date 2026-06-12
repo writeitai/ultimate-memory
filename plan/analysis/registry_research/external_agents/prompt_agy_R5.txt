@@ -1,0 +1,20 @@
+You are a senior knowledge-engineering researcher. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, give real vocabularies/numbers, avoid filler.
+
+PROJECT CONTEXT
+We are designing the ontology of a large-scale memory system (millions of documents). Decision D15: a universal, schema.org-aligned CORE ontology (~8 entity types, ~10-15 predicates) plus user-defined EXTENSIONS that must declare a core parent ("extend, never fork"), with predicate domain/range constraints. It lives as rows in a Postgres registry (NOT OWL/RDF). Read first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/entity_registry.md  (sections 5 and 6)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md  (D5, D15, D16)
+
+Also inspect how cognee handles ontologies in its actual source:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/cognee  (ontology examples under examples/guides/ontology_quickstart.py, examples/demos/custom_graph_model_entity_schema_definition.py, and the ontology-matching/validation code)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphiti (graphiti_core/utils/ontology_utils/, prompts/models.py — its entity/edge type system)
+
+YOUR QUESTIONS (R5):
+1. VALIDATE OR REFUTE the claim that "LLMs extract more accurately into familiar/standard vocabularies (e.g. schema.org) than into bespoke type names." Find real evidence (studies, ablations, practitioner reports) on whether vocabulary/label choice affects extraction quality. If evidence is weak, say so plainly.
+2. Survey candidate MINIMAL CORE ontologies we could borrow from: schema.org (core types), Wikidata top-level classes, FOAF, Dublin Core, CIDOC-CRM, DBpedia ontology, OBO/BFO upper ontologies. For each: what it covers, size, licensing, and suitability as a small universal core for a general knowledge/memory system.
+3. Propose a CONCRETE seed core for us: a specific list of ~8 entity types and ~12-15 predicates, each mapped to a schema.org (or other standard) term, with domain/range for each predicate. Make it directly usable.
+4. How do cognee and graphiti actually represent and enforce their ontologies/type systems in code (concrete findings, file refs)? What works, what to avoid?
+5. The "extend, never fork" rule with parent-anchoring and domain/range constraints — is this a sound lightweight alternative to OWL subclass reasoning? What do we lose vs OWL, and does it matter for extraction/blocking/retrieval (not formal reasoning)?
+6. Governance: how should the `other:<freetext>` predicate escape hatch feed promotion into the core/extensions? Patterns from real systems.
+
+Write the full analysis to stdout as markdown (captured to a file). 1500-3000 words. Lead with "Key findings", then detail, then a ready-to-use "Proposed seed core ontology" table, then "Recommendations for the ugm design".

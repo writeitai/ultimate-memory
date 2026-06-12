@@ -1,0 +1,26 @@
+Reading additional input from stdin...
+OpenAI Codex v0.137.0
+--------
+workdir: /Users/jpuc/code/moje/ultimate_memory/ugm
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019eb7a4-d3ad-7241-ae95-638d15d7c163
+--------
+user
+You are a senior ML/data engineer. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite file paths/line numbers and sources, give real numbers, avoid filler.
+
+PROJECT CONTEXT
+We are designing a "value/salience gate" for a large-scale memory system (millions of documents). Pipeline: files (E0) -> chunks (E1) -> claims (E2, atomic NL assertions via Claimify) -> relations (E3, normalized (subject,predicate,object) facts). The EXPENSIVE stages are E2/E3 (LLM extraction + entity resolution). Today the design extracts EVERYTHING. Objection O3 says: at a million documents most content is boilerplate/duplication/low-value, so we should add a cheap gate that decides, per document or section or chunk: FULL extraction / DEFERRED / chunks-only. This is plausibly a ~10x cost lever. Read first:
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/objections.md (O3)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/overall_design.md (planes E/K/P, trigger model)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (D4 cheap-first, D7 rebuildable, D12 triggers)
+
+YOUR QUESTION (V2): What are the best techniques to CHEAPLY score document/section/chunk VALUE before expensive extraction, and how to build the gate?
+
+Inspect how these cloned systems filter/gate what gets extracted (read the actual code):
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/mem0  (custom_instructions filtering, fact-extraction prompt that drops chit-chat, the ADD/UPDATE/DELETE/NOOP novelty controller in mem0/memory/main.py, configs/prompts.py)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphrag (does it extract everything? gleaning 
