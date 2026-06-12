@@ -173,6 +173,35 @@ OntoNotes. **Acceptance test:** measured reduction in missed-supersession rate o
 pairs vs the surface-form baseline. *(Open spike: proper-noun/surname lemmatization accuracy is
 the unverified hard case — measure before trusting WP-ML.)*
 
+### Coref pre-pass: deployment & operation (D19)
+
+The dedicated coreference pre-pass is a **flag-gated capability, default OFF** in every
+deployment. The default coref mechanism is in-call (the E2 extraction LLM resolves references
+over its chunk); the pre-pass is enabled explicitly where it earns its cost — strongly
+recommended for Czech/Slavic deployments (inflected names + pro-drop pronouns), pointless for
+most English-only ones.
+
+- **Enablement:** per-deployment configuration — a registry row per language/scope naming the
+  engine and model version. Never enabled implicitly; turning it on is a documented,
+  deliberate act.
+- **Packaging:** model weights (~0.5–1B-param transformer, 1–2 GB) are **never baked into the
+  worker image**. The coref worker image is slim and model-agnostic; weights are fetched at
+  startup from the GCS model store, addressed by the pinned `resolver_version`. Upgrading the
+  model = publishing new weights + bumping the version row (+ canary re-run per D22) — no
+  image rebuild.
+- **Topology:** runs on the **full E0 markdown** (coref chains span sections; per-chunk input
+  would destroy them), as a CPU-first Cloud Run worker in the per-document chain (D12):
+  idempotent on `content_hash + resolver_version`, max 2 retries + DLQ. Output: mention
+  chains as char-spans written to Postgres as **candidate mention-links**
+  (`provenance=coref`) — never committed identity; the ER cascade verifies every link.
+  E2 extraction consults the chains overlapping its chunk. A GPU-backed shared inference
+  service is the upgrade path only if measured CPU throughput can't keep pace with ingestion.
+- **Interaction with the value gate:** a DEFERRED document's coref pre-pass defers with it —
+  chains are computed only when extraction actually runs.
+- **Licensing (open item):** CorPipe weights are CC BY-NC-SA (non-commercial). Before any
+  commercial deployment enables the flag: train our own model on CorefUD data, obtain a
+  license, or select a permissively-licensed alternative. The flag stays OFF until resolved.
+
 ## 6. Clustering & reversibility (D21)
 
 - **Decision clustering:** connected-components *to gather* candidate blobs (with a **black-hole

@@ -380,18 +380,27 @@ system-provided **extension pack**, enabled per deployment — full entity statu
 commitment; `Decision` standing rides on bi-temporal relations, so reversals are ordinary
 supersession (`registries_design.md` §4, extension packs).
 
-## D19. Coref topology + per-language default
+## D19. Coref topology + flag-gated dedicated pre-pass
 
-**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun.
-**English default: satisfied inside the E2 extraction call** (no separate stage — 6/6 surveyed
-systems do this). **Czech/Slavic default: ON**, as a dedicated multilingual CorefUD (CorPipe-class)
-pre-pass. Engine + default are a registry row per language/scope; coref output is **candidate
-mention-links only, never committed identity**; `resolver_version` pinned.
+**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun. The
+*default* mechanism everywhere is **inside the E2 extraction call** (no separate stage — 6/6
+surveyed systems do this). A **dedicated coref pre-pass** (multilingual CorefUD /
+CorPipe-class model) exists as an explicitly **flag-gated, default-OFF** capability:
+
+- enabled per deployment via configuration (a registry row per language/scope) — never
+  implicitly; **strongly recommended for Czech/Slavic deployments** (it is on WP-ML's
+  critical path there), pointless for most English-only ones;
+- **model weights are never baked into worker images** — fetched at startup from a model
+  store (GCS), pinned by `resolver_version`; the worker image stays slim and model-agnostic;
+- the flag, engine choice, model version, and operational behavior must be **clearly
+  documented** (`registries_design.md` §5);
+- coref output is **candidate mention-links only, never committed identity**.
 
 **Context.** Resolves a three-way contradiction in our own research (R1 default-OFF-in-call vs R3
 mandatory-multilingual-for-Czech vs R6 discrete-stage). Dedicated coref still beats LLM coref by
 ~13 CoNLL F1; CORE-KG showed −28% duplication from *having* a coref step. Czech declines names
-across 7 cases, attacking `(entity_id, predicate)` blocking. (R1, R3; refines D4.)
+across 7 cases, attacking `(entity_id, predicate)` blocking. Flag-gating keeps compute and the
+CorPipe licensing exposure (CC BY-NC-SA) strictly opt-in. (R1, R3; refines D4.)
 
 ## D20. Tier-0 authority set + fall-through rule
 
