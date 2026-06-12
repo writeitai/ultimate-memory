@@ -77,7 +77,9 @@ judgments). Convergent recommendation of both external reviews. Blocking require
 
 **Consequences.** Write-side LLM cost scales with ambiguity, not volume. Entity-resolution
 quality becomes make-or-break (false negatives in resolution = missed supersessions) →
-invest in the registry early; coreference resolution runs before claim extraction.
+invest in the registry early. Coreference is a *guarantee* (no claim leaves E2 with a dangling
+pronoun), not necessarily a discrete prior stage — its topology is set by D19. Tier thresholds
+mentioned here are placeholders superseded by D17 (per-type, golden-set-tuned).
 
 ---
 
@@ -279,8 +281,10 @@ best-effort core. Both live in the existing registries (D5) — ontology is cont
 machinery:
 
 - **Universal core, borrowed not invented**: ~8 entity types and ~10–15 predicates aligned
-  with schema.org naming (extraction LLMs have strong priors on that vocabulary — familiar
-  names are a quality lever, not aesthetics).
+  with schema.org naming — *familiar, schema.org-aligned names + registry-rendered
+  descriptions/examples* (LLMs interpret labels by pretrained semantics, so meaningful names
+  beat arbitrary ones; **no measured schema.org-vs-good-synonym delta is claimed**). Concrete
+  seed core fixed in D18.
 - **Extension rule — extend, never fork**: every user-defined type declares a core parent
   (`ResearchPaper ⊂ Document`); predicates may too. This keeps blocking, graph queries, and
   cross-scope retrieval working at the core level over any custom domain.
@@ -324,3 +328,127 @@ consumers of plane E, not owners; a scope owns its compiled markdown, never fact
 definition) + extraction interests; never a new database. Rule of thumb: **scopes multiply;
 truth doesn't.** Access-sensitive scopes (e.g. people profiles) are handled by filtered
 snapshots + API-level authorization, not by forking storage.
+
+---
+
+> **D17–D24 provenance.** D17–D24 formalize the entity-registry research
+> (`plan/analysis/registry_research/SYNTHESIS.md`, objection O5) — 12 systems read at source +
+> literature, with adversarial fact-checkers. Where a number is involved it is a **placeholder
+> to be measured on a golden set / corpus slice**, not a committed constant — the spikes are
+> listed in SYNTHESIS §5. (D25–D30, formalizing the value-gate research / objection O3, follow
+> in a separate PR.)
+
+## D17. Canonical resolution tier cascade (T0–T5), block-loose / decide-tight
+
+**Decision.** One authoritative entity-resolution cascade, replacing the scattered/folklore
+thresholds: **T0** external-authority match → **T1** exact (on normalized lemma) → **T2** fuzzy
+*blocking* (`pg_trgm` GIN, recall-first low floor — candidate generation, NOT a decision) →
+**T3** phonetic (Daitch-Mokotoff, **not** Soundex) → **T4** embedding similarity (Lance, residue
+only) → **T5** LLM adjudication (small→frontier) on the ambiguous middle band → human review for
+high blast-radius. Each tier's accept/reject bands are **per-type, golden-set-measured, versioned
+config** stamped with `resolver_version`. No threshold ships without a per-type precision/recall
+curve.
+
+**Context.** JW≥0.92 / cosine≥0.88 were folklore: JW 0.92 is Splink's per-field Bayes *evidence
+level*, not an accept bar; benchmark spread (Magellan 98.4 clean vs 43.6 textual) proves no
+global constant works. Graphiti independently arrived at the same block-loose/decide-tight shape.
+(R2; refines D4.)
+
+**Consequences.** LLM cost scales with ambiguity. Blocking sets a hard recall ceiling, so cheap
+tiers *escalate* near-misses, never auto-reject. Feeds O6 (every threshold needs the golden set).
+
+## D18. Ontology seed core — 8 types + 14 predicates, schema.org-anchored, domain/range not OWL
+
+**Decision.** Seed core: 8 entity types (`Person, Organization, Place, Document⊂CreativeWork,
+Event, Concept, Project, Product`) + 14 predicates with `subject_type`/`object_type` columns
+(`works_for, member_of, affiliated_with, located_in, part_of, authored, created, about,
+knows_about, knows, participated_in, works_on, founded, related_to`). `related_to` is the
+predicate-side core parent for extend-never-fork (D15). Time is bi-temporal edge metadata, never a
+predicate or Date-node. Enforce domain/range exactly as Graphiti's `edge_type_map[(src,tgt)→[rel]]`
+— the only structural ontology gate any surveyed production system ships. Schema.org property
+mappings get a spot-check before freezing.
+
+**Context.** Concretizes D15. Graphiti's `edge_type_map` is the validated mechanism; Cognee loads
+OWL but enforces no domain/range. The "familiar names help extraction" claim is true in spirit
+(pretrained semantics) but no measured schema.org-vs-synonym delta is asserted. (R5.)
+
+## D19. Coref topology + per-language default
+
+**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun.
+**English default: satisfied inside the E2 extraction call** (no separate stage — 6/6 surveyed
+systems do this). **Czech/Slavic default: ON**, as a dedicated multilingual CorefUD (CorPipe-class)
+pre-pass. Engine + default are a registry row per language/scope; coref output is **candidate
+mention-links only, never committed identity**; `resolver_version` pinned.
+
+**Context.** Resolves a three-way contradiction in our own research (R1 default-OFF-in-call vs R3
+mandatory-multilingual-for-Czech vs R6 discrete-stage). Dedicated coref still beats LLM coref by
+~13 CoNLL F1; CORE-KG showed −28% duplication from *having* a coref step. Czech declines names
+across 7 cases, attacking `(entity_id, predicate)` blocking. (R1, R3; refines D4.)
+
+## D20. Tier-0 authority set + fall-through rule
+
+**Decision.** Launch tier-0 authorities: **Wikidata** (self-hosted reconciler — only standardized
+multi-type one) + **OpenAlex** (snapshot + API) + **DOI/ORCID/LEI** deterministic validators.
+**Never** OpenCorporates (viral share-alike + paid) or ISBN-as-authority. GitHub/Google-Books are
+per-scope opt-in. **Tier 0 never gates:** on miss, mint a local `entity_id` and fall through (most
+real entities are long-tail misses). External IDs are stored as **aliases, never as the canonical
+`entity_id`**. Self-host all snapshots — never put the write path on public rate-limited endpoints
+(OpenAlex moved to key+credit; Crossref cut limits 2025-12-01).
+
+**Context.** Tier 0 is an accelerator, not a requirement. (R4.)
+
+## D21. Clustering algorithm + incremental procedure + reversibility records
+
+**Decision.** Decision clustering = **connected-components-to-gather** (with a black-hole guard:
+raise threshold + repartition above component size T) → **HAC distance-cut inside each blob**
+(never bare transitive closure; never Louvain/Leiden for ER — that's D11 community detection).
+Write-path incremental = max-both assignment + **nDR n=1** (re-cluster only the 1-hop neighborhood;
+order-independent; n=2 only when a hub is touched). Reversibility state lives **only in Postgres**:
+`resolution_decisions` (append-only, `superseded_by`), `merge_events` (append-only, pre-merge
+membership snapshot), `merged_into` redirect chain, optional negative/exclusion edges. A
+generic-identifier guard (Senzing) down-weights + re-evaluates an alias that suddenly links many.
+P2 rebuild (D7) re-points edges on merge/un-merge for free.
+
+**Context.** No OSS system (Splink/dedupe/Zingg/Graphiti) ships un-merge — building it in Postgres
+is correct, not over-engineering. dedupe uses exactly HAC `linkage(centroid)`+`fcluster(distance)`
++ a `max_components` guard. (R8.)
+
+## D22. Golden-set + evaluation plan (ships in v1)
+
+**Decision.** Two **separate** assets: a **golden EVAL set** (unbiased, measures P/R, tunes
+thresholds) and, later, a **training set** (only if a learned matcher is added; AL-sampled, biased,
+never used to measure). v1 ships: ~200 human-verified labeled pairs/type (~100 hard positives incl.
+synthetic father/son/inflection/married-name + ~100 hard negatives; grow to ~400/type for
+auto-merge-critical types), blocking-stratified positive over-sampling, **Wilson** CIs, per-tier
+metrics, and a canary regression harness re-run per `resolver_version`. **Break the circularity:**
+the cascade/LLM may *propose* candidate pairs, but measurement labels must be **human-adjudicated**.
+Re-add the **retrieval-eval half of O6** (recall@k per search recipe, rerank-weight tuning,
+contradiction-detection precision). Defer learned matchers + active-learning loop past v1.
+
+**Context.** Closes O6's ER half concretely; the eval set is also the seed for the value gate's
+salience classifier (D26). (R7, O6.)
+
+## D23. Registry scale & schema
+
+**Decision.** RANGE-partition the three ~10⁸ append-only tables (`mentions`,
+`resolution_decisions`, `relation_evidence`) by ingest month (`pg_partman`); **btree-only** on
+those hot tables (cap write-amplification). Do **not** partition `entities`/`aliases` (the blocking
+targets, ≤10⁷). GIN `gin_trgm_ops` + GIN `daitch_mokotoff(name)` on `aliases.normalized_name`;
+btree composite `(subject_entity_id, predicate[, object])` on `relations`. Supersession + tiers
+T0–T3 run in Postgres; embedding tier T4 in Lance (D8); HNSW never in OLTP. Load-test a
+representative corpus slice before locking partition/index choices. **Row counts are contingent on
+the value gate (D25) — size against *gated* volume.**
+
+**Context.** Only the 10⁸ tables are huge and they're never fuzzy-scanned (queried by id/doc_id).
+(R9.)
+
+## D24. Review tooling — build a thin Postgres-backed cluster-review queue
+
+**Decision.** **Build** (don't adopt as system-of-record) a thin CLI cluster-review queue over
+Postgres; no OSS tool offers cluster-queue + append-only reversible verdicts + provenance +
+blast-radius gating. Review **clusters, not pairs** (pairwise is quadratic); route only the
+`expected_impact = blast_radius × (1 − confidence)` middle band to humans; high-degree hub merges
+never auto-accept. Borrow Splink's waterfall (evidence panel), Zingg's 3-way verdict (ergonomics),
+OpenRefine's cluster-card-with-exclude (interaction). Every action appends a reversible,
+provenance-stamped, redirect-preserving record (D21). Web/Argilla deferred until middle-band volume
+justifies it. (R10.)
