@@ -1,0 +1,25 @@
+You are a senior knowledge-graph / data systems architect. Produce an exhaustive, decisive markdown analysis. Be concrete, cite file paths, give a recommended design, avoid filler.
+
+PROJECT CONTEXT (read these first)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/registries_design.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md  (esp. D2, D4, D5, D15, D16, D17 resolution cascade, D18 ontology core, D21 clustering/reversibility, D22 golden set)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/concepts.md
+
+The system: a large-scale memory system (millions of docs). Postgres is the single source of truth. Pipeline: documents -> chunks -> claims (atomic NL assertions) -> relations (normalized (subject_entity, predicate, object_entity) facts, bi-temporal). Entity mentions are resolved to canonical entity IDs via a tiered cascade (T0 external authority -> T1 exact-on-lemma -> T2 fuzzy blocking -> T3 phonetic -> T4 embedding -> T5 LLM). The ontology is a small universal core (8 entity types: Person, Organization, Place, Document, Event, Concept, Project, Product) + user extensions anchored to it; predicates carry domain/range constraints (e.g. works_for: Person -> Organization) enforced like Graphiti's edge_type_map.
+
+THE GAP (your subject)
+Identity resolution (which real-world thing a mention refers to) is fully specified. **Entity TYPING — how a mention/entity gets assigned its type (Person vs Organization vs Concept ...) — is NOT specified anywhere.** Yet domain/range enforcement DEPENDS on types being known. Design the entity-typing subsystem.
+
+ANSWER THESE, decisively, with a recommended architecture:
+1. WHEN/WHERE does typing happen? At extraction time (the E2/E3 LLM proposes a type as it extracts the mention)? During resolution? As a separate classifier stage? Give the pipeline position and why.
+2. MENTION-level vs ENTITY-level typing. A mention is typed in context; the canonical entity needs ONE type. How are per-mention type votes reconciled into the entity's type? What if mentions of the same entity disagree (e.g. "Washington" tagged Person in one doc, Place in another — but they're actually different entities) vs genuine type drift?
+3. Is type FIXED once assigned, or RE-ADJUDICABLE like identity? The design says "retyping is retroactively clean in P2 after rebuild (D7)" — so retyping must exist. Specify the mechanism: is type a versioned, append-only decision (like resolution_decisions)? How does retyping interact with relations already validated against the old type (domain/range)?
+4. The CIRCULAR DEPENDENCY: domain/range validates relations, but needs entity types; types come from the same extraction that produces relations. What is the correct ORDER OF OPERATIONS so this isn't circular? (e.g. type first from the mention, then validate the relation; what about the object entity's type?)
+5. A TYPING CASCADE analogous to D17? Cheap-first: external-authority type (DOI->Document, ORCID->Person, LEI->Organization — free and certain), then deterministic/gazetteer signals, then small typed-NER model (GLiNER-style), then LLM. Where does each earn its place? Confidence + escalation.
+6. SUBTYPE assignment: core type (Person) vs extension subtype (ResearchPaper subset of Document). Does the extractor pick the leaf subtype or the core, and who refines core->subtype? How does the per-deployment extension/pack set scope the type menu given to the extractor?
+7. UNTYPABLE mentions and the `Concept` dumping-ground risk: what happens when a mention fits no core type well? An `other`/`Thing` type? Defer? How to keep `Concept` from absorbing everything.
+8. The DATA MODEL: what tables/columns does typing add to the registry (entities.type, type_decisions, ...)? Tie to the existing mentions/entities/resolution_decisions/merge_events model.
+
+Read how Graphiti assigns entity types in source: /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphiti (graphiti_core/prompts/extract_nodes.py, utils/ontology_utils/entity_types_utils.py, nodes.py) — quote what's real. Also glance at cognee ontology class matching and GLiNER (/Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/GLiNER) for zero-shot typed NER.
+
+Write the full analysis to stdout as markdown. 2000-3500 words. Lead with "Recommended architecture (TL;DR)", then the 8 answers with rationale, then "Data model + decision text" ready to drop into our design, then "Open risks / what to spike".

@@ -1,0 +1,27 @@
+Reading prompt from stdin...
+OpenAI Codex v0.137.0
+--------
+workdir: /Users/jpuc/code/moje/ultimate_memory/ugm
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 019eca5c-6b5d-7f52-aa9f-837fa55886a5
+--------
+user
+You are a senior knowledge-graph / data systems architect. Produce an exhaustive, decisive markdown analysis. Be concrete, cite file paths, give a recommended design, avoid filler.
+
+PROJECT CONTEXT (read these first)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/registries_design.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md  (esp. D2, D4, D5, D15, D16, D17 resolution cascade, D18 ontology core, D21 clustering/reversibility, D22 golden set)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/concepts.md
+
+The system: a large-scale memory system (millions of docs). Postgres is the single source of truth. Pipeline: documents -> chunks -> claims (atomic NL assertions) -> relations (normalized (subject_entity, predicate, object_entity) facts, bi-temporal). Entity mentions are resolved to canonical entity IDs via a tiered cascade (T0 external authority -> T1 exact-on-lemma -> T2 fuzzy blocking -> T3 phonetic -> T4 embedding -> T5 LLM). The ontology is a small universal core (8 entity types: Person, Organization, Place, Document, Event, Concept, Project, Product) + user extensions anchored to it; predicates carry domain/range constraints (e.g. works_for: Person -> Organization) enforced like Graphiti's edge_type_map.
+
+THE GAP (your subject)
+Identity resolution (which real-world thing a mention refers to) is fully specified. **Entity TYPING — how a mention/entity gets assigned its type (Person vs Organization vs Concept ...) — is NOT specified anywhere.** Yet domain/range enforcement DEPENDS on types being known. Design the entity-typing subsystem.
+
+ANSWER THESE, decisively, with a recommended architecture:
+1. WHEN/WHERE does typing happen? At ex
