@@ -144,6 +144,33 @@ mappings (the `schema_org_ref` column) get a spot-check before freezing (D18).
   in the shared graph; scope views are `PROJECT_GRAPH_CYPHER` projections declared in
   `scope_interests`, never separate databases.
 
+### How an entity gets its type
+
+Domain/range enforcement needs entity types, so they must be assigned — but this is *not* a
+separate subsystem. Type comes free with extraction:
+
+- **The E2 extractor emits the type** alongside the mention, constrained to the registry's type
+  enum (8 core + enabled subtypes) — the same registry-rendered-into-the-prompt mechanism as
+  predicates; a free-form type label is not allowed (it would fragment like ungoverned
+  predicates).
+- **A canonical entity's type = the majority / highest-confidence vote** across its mentions'
+  types, stored on `entities.type`. Mentions of one entity almost always agree; no
+  voting/metonymy machinery is needed at the start.
+- **Domain/range (D18) validates relations against entity types.** A relation that fails is
+  dropped — and is **re-derivable from its immutable claim** if the entity is later retyped, so
+  no quarantine table is needed (claims are the durable record, D2).
+- **Cross-mention type disagreement on the core type is a cheap over-merge signal** (Washington
+  person/place ⇒ two referents likely merged) — logged for D24 review; a SELECT, not machinery.
+- Low-confidence mentions abstain to the `other:` floor, **never** dumped into `Concept`
+  (`Concept` is a positive type, not the unknown bin).
+
+A fuller "typing subsystem" (a cascade with GLiNER/authorities, an append-only type-decision
+ledger, a relation-quarantine table, elaborate vote reconciliation) was researched and
+**deliberately scoped down** — the extraction LLM is already being called, so a cheap-first
+typing cascade avoids a cost we already pay; the heavier options are recorded in
+`../analysis/entity_typing_research/SYNTHESIS.md` to revisit only if the golden set (D22)
+surfaces a specific failure.
+
 ### System-shipped extension packs — the "Work" pack
 
 Extension packs are predefined, system-shipped sets of extension types + predicates a

@@ -1,3 +1,17 @@
+> **STATUS — scoped down (2026-06).** The minimal design was adopted: entity type is emitted by
+> the E2 extractor (constrained to the registry enum), reconciled to a canonical `entities.type`
+> by a simple majority/confidence vote, validated by D18 with rejected relations re-derived from
+> immutable claims (no quarantine table), and cross-mention type disagreement logged as an
+> over-merge signal. See `plan/designs/registries_design.md` §4 ("How an entity gets its type").
+> The fuller subsystem below (typing cascade Tt0–Tt4, append-only type-decision ledger,
+> `candidate_relations` quarantine, elaborate vote reconciliation, external authorities) was
+> **considered and deliberately NOT adopted** — the extraction LLM is already called, so a
+> cheap-first typing cascade avoids a cost we already pay, and the rest is complexity ahead of
+> evidence. Kept here to revisit only if the golden set (D22) surfaces a specific failure. No
+> separate decision (no D31); the four-line mechanism lives in the design doc.
+
+---
+
 # Entity Typing — SYNTHESIS (lead-architect close)
 
 Synthesizes two independent research streams — the **Codex architecture stream**
