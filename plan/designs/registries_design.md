@@ -103,11 +103,33 @@ One canonical cascade (ends the prior tier-numbering drift). Stop at the first c
 
 ## 4. Ontology — universal core + anchored extensions (D15, D18)
 
-- **Seed core (D18):** 8 types `Person, Organization, Place, Document⊂CreativeWork, Event,
-  Concept, Project, Product`; 14 predicates with subject/object types:
-  `works_for, member_of, affiliated_with, located_in, part_of, authored, created, about,
-  knows_about, knows, participated_in, works_on, founded, related_to`. `related_to` is the
-  predicate-side core parent. Time is bi-temporal edge metadata, never a predicate/Date-node.
+- **Seed core (D18):** 8 entity types — `Person, Organization, Place, Document⊂CreativeWork,
+  Event, Concept, Project, Product` — and the 14 core predicates below. `related_to` is the
+  predicate-side core parent (the extend-never-fork anchor + permissive escape). Time is
+  bi-temporal edge metadata, never a predicate/Date-node.
+
+**Core predicates (the authoritative starting set — domain/range is the enforced signature):**
+
+| # | Predicate | Domain → Range | Notes |
+|---|---|---|---|
+| 1 | `works_for` | Person → Organization | employment — change-prone (supersession) |
+| 2 | `member_of` | Person → Organization | membership (boards, teams, clubs) |
+| 3 | `affiliated_with` | Person \| Organization → Organization | looser tie — advisor, partner, alumnus |
+| 4 | `founded` | Person \| Organization → Organization | origin — near-atemporal |
+| 5 | `located_in` | Organization \| Place \| Event → Place | spatial — change-prone for orgs |
+| 6 | `part_of` | X → X (same-kind) | mereology — org units, place containment, sub-projects |
+| 7 | `authored` | Person \| Organization → Document | authorship — atemporal once true |
+| 8 | `created` | Person \| Organization → Product \| Concept | creation beyond documents |
+| 9 | `about` | Document \| Event → any | aboutness — what a thing concerns |
+| 10 | `knows_about` | Person → Concept | expertise — people-profiling workhorse |
+| 11 | `knows` | Person → Person | social graph |
+| 12 | `participated_in` | Person \| Organization → Event \| Project | involvement |
+| 13 | `works_on` | Person \| Organization → Project \| Product | active engagement — change-prone |
+| 14 | `related_to` | any → any | permissive core parent (escape + extend-never-fork anchor) |
+
+Multi-signature predicates list each allowed `(subject_type, object_type)` pair (Graphiti
+`edge_type_map` shape); subtypes inherit a parent's signatures (D15). Schema.org property
+mappings (the `schema_org_ref` column) get a spot-check before freezing (D18).
 - **Extend, never fork:** every user type/predicate declares a core parent → blocking, graph
   queries, and cross-scope retrieval always fall back to the core level.
 - **Domain/range enforced** exactly as Graphiti's `edge_type_map[(src,tgt)→[rel]]` — the only
