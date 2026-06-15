@@ -93,7 +93,7 @@ retries then dead-letter into Postgres.
    record cross-references (citations).
 2. **E1**: semchunk → LLM context prefix per chunk (contextual-retrieval style; prompt-cached)
    → embed → P1, with references to document + PageIndex node.
-3. **E2 → E3**: coreference (D19: in-call for English, dedicated pre-pass for Czech/Slavic) →
+3. **E2 → E3**: coreference (D19: in the E2 extraction call, all languages) →
    Claimify extraction → entity resolution (tiered cascade T0–T5, D17, via the entity
    registry) → relation normalization (predicate registry, domain/range D18) →
    **supersession cascade** (D4): novelty gate → `(entity_id, predicate)` blocking over

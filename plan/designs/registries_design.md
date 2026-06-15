@@ -57,7 +57,7 @@ mentions (immutable — the transcript)        entities (the registry)
 resolution_decisions (append-only — the verdict)   aliases
   decision_id, mention_id → entity_id,               alias_id, entity_id, alias_text,
   method (T0–T5), confidence, features jsonb,        normalized_lemma, provenance
-  resolver_version, decided_at, superseded_by        (source|lemmatizer|external_authority),
+  resolver_version, decided_at, superseded_by        (source|llm_canonical|external_authority),
                                                       confidence, first_seen, last_seen
 merge_events (append-only — reversibility)
   merge_id, survivor_id, absorbed_id, evidence,    external_ids
@@ -97,9 +97,9 @@ One canonical cascade (ends the prior tier-numbering drift). Stop at the first c
   cosine≥0.88 are placeholders to overwrite.
 - Blocking (T2/T3) sets a hard recall ceiling, so cheap tiers **escalate near-misses to T5**,
   never auto-reject — textual recall is mediocre and over-rejection is a silent hole.
-- Coreference (D19) runs *before* resolution to ground pronouns into mentions: inside the E2
-  call by default (English), as a dedicated multilingual CorefUD pre-pass for Czech/Slavic;
-  output is candidate mention-links only.
+- Coreference (D19) is resolved *inside the E2 extraction call* (all languages) so mentions
+  arrive with referents already grounded — no dedicated coref model. Likewise, each mention's
+  canonical/nominative name form is LLM-emitted at extraction (§5), feeding T1.
 
 ## 4. Ontology — universal core + anchored extensions (D15, D18)
 
@@ -243,48 +243,30 @@ causality* is forgone, which over LLM-extracted causal edges would be confidentl
 Admission ticket (if ever): a scope extension with tight domain/range, extraction gated to
 causal-classified claims, and **exclusion from graph-distance reranking**.
 
-## 5. Multilingual / inflected — work package WP-ML (D19, R3)
+## 5. Multilingual / inflected names — LLM canonicalization + deterministic matching tiers
 
-Czech (and Slavic generally) declines names across ~7 cases → ~7 surface forms per name, a
-direct attack on `(entity_id, predicate)` blocking. Intake stage:
+Czech (and Slavic generally) declines names across ~7 cases → ~7 surface forms per name
+("Jiří Puc" / "Jiřího Puce" / "Jiřímu Pucovi"), a direct attack on `(entity_id, predicate)`
+blocking. Following the "per-mention understanding is free with extraction; at-scale matching
+needs cheap tiers" principle (§4, D19), this is handled **without specialized ML models**:
 
-1. language-detect per mention → 2. lemmatize names to nominative (UDPipe2/MorphoDiTa for cs;
-Stanza/spaCy tail) → 3. store the lemma as a **first-class alias** (`provenance=lemmatizer`) →
-4. T1 exact runs on the lemma → 5. T2 `unaccent`+`pg_trgm`, T3 `fuzzystrmatch.daitch_mokotoff`
-(UTF-8-safe, GIN-indexable; optional app-layer BMPM behind a flag) → transliteration only if the
-corpus is confirmed multi-script. Czech coref uses a multilingual CorefUD model, not English
-OntoNotes. **Acceptance test:** measured reduction in missed-supersession rate on inflected-name
-pairs vs the surface-form baseline. *(Open spike: proper-noun/surname lemmatization accuracy is
-the unverified hard case — measure before trusting WP-ML.)*
+- **Canonicalization is LLM-emitted at extraction** (no UDPipe/MorphoDiTa lemmatizer pass). The
+  E2 extractor emits each mention's **nominative/canonical name form** alongside the surface
+  form — the same free per-mention output as type and coref. The canonical form is stored as a
+  first-class alias (`provenance=llm_canonical`); T1 exact match runs on it.
+- **Residual variants are caught by the deterministic at-scale tiers** (these are cheap Postgres
+  built-ins, not ML, and do what the per-mention LLM cannot — match against millions of existing
+  aliases): T2 `unaccent` + `pg_trgm` (GIN), T3 `fuzzystrmatch.daitch_mokotoff` (UTF-8-safe,
+  GIN-indexable — catches "Nowak/Novak"-class spelling/transliteration variants). Optional
+  app-layer BMPM behind a flag only if D-M recall proves short. Transliteration handling only if
+  a corpus is confirmed multi-script.
+- **Coref is in the E2 call** for all languages (D19) — no dedicated multilingual model.
 
-### Coref pre-pass: deployment & operation (D19)
-
-The dedicated coreference pre-pass is a **flag-gated capability, default OFF** in every
-deployment. The default coref mechanism is in-call (the E2 extraction LLM resolves references
-over its chunk); the pre-pass is enabled explicitly where it earns its cost — strongly
-recommended for Czech/Slavic deployments (inflected names + pro-drop pronouns), pointless for
-most English-only ones.
-
-- **Enablement:** per-deployment configuration — a registry row per language/scope naming the
-  engine and model version. Never enabled implicitly; turning it on is a documented,
-  deliberate act.
-- **Packaging:** model weights (~0.5–1B-param transformer, 1–2 GB) are **never baked into the
-  worker image**. The coref worker image is slim and model-agnostic; weights are fetched at
-  startup from the GCS model store, addressed by the pinned `resolver_version`. Upgrading the
-  model = publishing new weights + bumping the version row (+ canary re-run per D22) — no
-  image rebuild.
-- **Topology:** runs on the **full E0 markdown** (coref chains span sections; per-chunk input
-  would destroy them), as a CPU-first Cloud Run worker in the per-document chain (D12):
-  idempotent on `content_hash + resolver_version`, max 2 retries + DLQ. Output: mention
-  chains as char-spans written to Postgres as **candidate mention-links**
-  (`provenance=coref`) — never committed identity; the ER cascade verifies every link.
-  E2 extraction consults the chains overlapping its chunk. A GPU-backed shared inference
-  service is the upgrade path only if measured CPU throughput can't keep pace with ingestion.
-- **Interaction with the value gate:** a DEFERRED document's coref pre-pass defers with it —
-  chains are computed only when extraction actually runs.
-- **Licensing (open item):** CorPipe weights are CC BY-NC-SA (non-commercial). Before any
-  commercial deployment enables the flag: train our own model on CorefUD data, obtain a
-  license, or select a permissively-licensed alternative. The flag stays OFF until resolved.
+**Acceptance test:** measured reduction in missed-supersession rate on inflected-name pairs vs a
+surface-form baseline. *(Open spike: whether LLM-emitted canonical forms are consistent enough on
+inflected proper nouns, and D-M phonetic recall on declined names — measure on a Czech corpus
+slice before trusting the multilingual path; no specialized model to fall back on, so the
+deterministic tiers must carry the residual.)*
 
 ## 6. Clustering & reversibility (D21)
 
@@ -351,7 +333,7 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
   seed ontology (D18) + domain/range + the Work extension pack (registry rows, enabled per
   deployment); entity-resolution on English; the golden eval set + per-tier metrics + review
   CLI; reversibility records.
-- **Phase 2:** T4 embedding tier; WP-ML (Czech lemmatization + D-M + multilingual coref); tier-0
+- **Phase 2:** T4 embedding tier; multilingual matching (LLM-emitted canonical forms + unaccent/pg_trgm + Daitch-Mokotoff); tier-0
   authority connectors; predicate-promotion workflow; health dashboards.
 - **Phase 3:** learned matcher + active-learning training loop (separate from eval set); scope
   views; richer review UI if middle-band volume justifies it.
@@ -360,7 +342,7 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 
 1. **Golden-set labeling without circularity** — LLM-propose / human-verify loop; the denominator
    trap (recall needs ~370 true-positive pairs).
-2. **Czech proper-noun lemmatization + D-M precision/recall** on declined names (no end-to-end
+2. **LLM canonical-form consistency on inflected proper nouns + D-M phonetic recall** on declined names (no end-to-end
    Czech ER benchmark exists).
 3. **Un-merge → bi-temporal supersession ripple** — confirm relation validity windows closed
    under a merged identity are correctly re-adjudicated on un-merge (this is where silent

@@ -380,27 +380,27 @@ system-provided **extension pack**, enabled per deployment — full entity statu
 commitment; `Decision` standing rides on bi-temporal relations, so reversals are ordinary
 supersession (`registries_design.md` §4, extension packs).
 
-## D19. Coref topology + flag-gated dedicated pre-pass
+## D19. Coref is satisfied inside the E2 extraction call (no dedicated model)
 
-**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun. The
-*default* mechanism everywhere is **inside the E2 extraction call** (no separate stage — 6/6
-surveyed systems do this). A **dedicated coref pre-pass** (multilingual CorefUD /
-CorPipe-class model) exists as an explicitly **flag-gated, default-OFF** capability:
+**Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun — satisfied
+**inside the E2 extraction call, for all languages** (the LLM reads the chunk/document and writes
+claims with referents resolved). **No dedicated coref model or pre-pass** (CorPipe/CorefUD).
+Rationale: the extraction LLM is already called, so coref — a per-mention understanding task —
+rides that call at ~zero marginal cost; a separate model would be a separate pass, separate
+infra, and (CorPipe) a CC BY-NC-SA licensing exposure, to do something the LLM already does.
 
-- enabled per deployment via configuration (a registry row per language/scope) — never
-  implicitly; **strongly recommended for Czech/Slavic deployments** (it is on WP-ML's
-  critical path there), pointless for most English-only ones;
-- **model weights are never baked into worker images** — fetched at startup from a model
-  store (GCS), pinned by `resolver_version`; the worker image stays slim and model-agnostic;
-- the flag, engine choice, model version, and operational behavior must be **clearly
-  documented** (`registries_design.md` §5);
-- coref output is **candidate mention-links only, never committed identity**.
+**Context.** Same family of decisions as entity typing (`registries_design.md` §4): per-mention
+understanding (typing, coref, name-canonicalization) is free with extraction; only *at-scale
+matching against the registry* (fuzzy/phonetic/embedding) needs non-LLM tiers. 6/6 surveyed
+systems do coref in-call. The earlier "dedicated coref beats LLM by ~13 CoNLL F1" finding
+compared older/constrained LLMs, not a frontier model extracting with full context; Czech and
+other inflected languages are well-served by frontier LLMs in-context. (R1, R3; refines D4.)
 
-**Context.** Resolves a three-way contradiction in our own research (R1 default-OFF-in-call vs R3
-mandatory-multilingual-for-Czech vs R6 discrete-stage). Dedicated coref still beats LLM coref by
-~13 CoNLL F1; CORE-KG showed −28% duplication from *having* a coref step. Czech declines names
-across 7 cases, attacking `(entity_id, predicate)` blocking. Flag-gating keeps compute and the
-CorPipe licensing exposure (CC BY-NC-SA) strictly opt-in. (R1, R3; refines D4.)
+**Consequences.** Cross-*document* coref ("the CEO" referring to an entity introduced in another
+document) remains an open recall gap — it is not solved by intra-document coref of any kind
+(LLM or model). If a *future* deployment's language is genuinely poorly served by frontier LLMs
+(a low-resource language — not Czech), a specialized model could be reconsidered as a
+per-deployment opt-in; not built now.
 
 ## D20. Tier-0 authority set + fall-through rule
 
