@@ -145,6 +145,7 @@ slots or committing every deployment (e.g. the law engine) to them.
 | `depends_on` | Task → Task |
 | `concerns` | Task \| Decision → any |
 | `decided_by` | Decision → Person \| Organization |
+| `assigned_to` | Task → Person \| Organization |
 | `pursues` | Project \| Organization → Goal |
 
 The payoff for `Decision` is the bi-temporal machinery: a decision is *a fact that holds
@@ -158,6 +159,40 @@ temporal validity, K2 provides synthesis. Neither replaces the other.
 Anticipated future packs (defined when a deployment needs them, not before): legal
 (`Statute/Ruling/Contract ⊂ Document`, `Jurisdiction ⊂ Place`), systems/migration
 (`System/Module ⊂ Product`, `Requirement ⊂ Document`, `BusinessProcess ⊂ Concept`).
+
+### Predicate watchlist & promotion rule
+
+These predicates were considered for the core/Work pack and **deliberately held back** —
+plausible but not yet proven. The default lives in claims (E2); promotion to a typed predicate
+happens **on demonstrated demand, not intuition**: when extraction produces a matching
+`other:<freetext>` value at volume (the D5 promotion funnel), the periodic review promotes it
+into the appropriate pack with a tight signature. Adding one is a registry row; the cost of a
+premature core predicate (prompt space, golden-set coverage, a split if it's wrong) is the
+reason to wait.
+
+| Candidate | Tight signature | Future home |
+|---|---|---|
+| `uses` | Organization \| Person → Product | systems pack |
+| `reports_to` | Person → Person | work/HR pack |
+| `owns` / `acquired_by` | Organization → Organization \| Product | business pack |
+| `lives_in` | Person → Place | personal pack |
+| `enables` | Concept → Concept (tight only) | research scope — guardrailed (see below) |
+
+**Excluded on principle — `causes` and `enables` as general relations.** Causal predicates are
+**not** admitted to the core, and `enables` only ever as a tightly-typed `Concept → Concept`
+scope experiment. Three reasons: (1) **evidence aggregation fails** — causal claims rarely
+repeat verbatim, so they produce thousands of `evidence_count=1` edges instead of a few
+well-evidenced ones, and the mechanism that makes relations trustworthy never engages; (2)
+**no supersession semantics** — a causal assertion isn't *ended* by an event (the bi-temporal
+model), it is *contested by argument* and hedged/conditional, which is exactly what the claims
+layer (E2) preserves and the relations layer discards; (3) **no domain/range bite** —
+`causes: any → any` waves everything through the one structural gate we trust (D18
+`edge_type_map`), and LLMs over-read causation ("leads to / drives / thanks to"), producing
+hub nodes that poison graph-distance reranking (D9). The causal *content* is not lost — it
+lives in claims, fully searchable with its hedges intact (P1); only graph *traversal over
+causality* is forgone, which over LLM-extracted causal edges would be confidently wrong.
+Admission ticket (if ever): a scope extension with tight domain/range, extraction gated to
+causal-classified claims, and **exclusion from graph-distance reranking**.
 
 ## 5. Multilingual / inflected — work package WP-ML (D19, R3)
 
