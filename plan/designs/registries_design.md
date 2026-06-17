@@ -56,14 +56,18 @@ mentions (immutable — the transcript)        entities (the registry)
         ▼
 resolution_decisions (append-only — the verdict)   aliases
   decision_id, mention_id → entity_id,               alias_id, entity_id, alias_text,
-  method (T0–T5), confidence, features jsonb,        normalized_lemma, provenance
-  resolver_version, decided_at, superseded_by        (source|llm_canonical|external_authority),
+  method (T0–T4), confidence, features jsonb,        normalized_lemma, provenance
+  resolver_version, decided_at, superseded_by        (source|llm_canonical),
                                                       confidence, first_seen, last_seen
 merge_events (append-only — reversibility)
-  merge_id, survivor_id, absorbed_id, evidence,    external_ids
-  pre_merge_membership_snapshot jsonb,               entity_id, authority (wikidata|openalex|
-  decided_at, reversed_by                            doi|orcid|lei|…), external_id, confidence
+  merge_id, survivor_id, absorbed_id, evidence,
+  pre_merge_membership_snapshot jsonb, decided_at, reversed_by
 ```
+
+(No `external_ids` table — resolution is registry-self-contained, D20. If a *future*
+deployment ingests structured data with its own authoritative keys (internal/domain IDs, not
+3rd-party registries), those would attach as aliases or a per-deployment table — out of scope
+now.)
 
 Ontology tables:
 
@@ -79,27 +83,27 @@ Invariants: `entity_id` is **never reused**; a merge is a **redirect** (`merged_
 rewrite (Wikidata model) — everything downstream that stored the old ID still resolves; P2
 rebuild (D7) re-points graph edges on merge/un-merge for free.
 
-## 3. Resolution cascade — T0–T5, block-loose / decide-tight (D17)
+## 3. Resolution cascade — T0–T4, block-loose / decide-tight (D17)
 
-One canonical cascade (ends the prior tier-numbering drift). Stop at the first confident match.
+One canonical cascade. Stop at the first confident match. **Registry-self-contained — no
+3rd-party external-authority tier** (D20).
 
 | Tier | Mechanism | Role | Where |
 |---|---|---|---|
-| **T0** | external-authority match (D20) | accelerator (never gates) | connectors |
-| **T1** | exact match on `normalized_lemma` | decision | Postgres |
-| **T2** | fuzzy blocking — `pg_trgm` GIN, recall-first low floor | **candidate generation, NOT a decision** | Postgres |
-| **T3** | phonetic — Daitch-Mokotoff (`fuzzystrmatch`), **not Soundex** | candidate generation | Postgres |
-| **T4** | embedding similarity, residue only | decision (mid band) | Lance (D8) |
-| **T5** | LLM adjudication (small→frontier); human review for high blast-radius | decision (ambiguous band) | worker |
+| **T0** | exact match on the canonical name form (LLM-emitted, §5) | decision | Postgres |
+| **T1** | fuzzy blocking — `pg_trgm` GIN, recall-first low floor | **candidate generation, NOT a decision** | Postgres |
+| **T2** | phonetic — Daitch-Mokotoff (`fuzzystrmatch`), **not Soundex** | candidate generation | Postgres |
+| **T3** | embedding similarity, residue only | decision (mid band) | Lance (D8) |
+| **T4** | LLM adjudication (small→frontier); human review for high blast-radius | decision (ambiguous band) | worker |
 
 - **Thresholds are per-type, golden-set-measured, versioned** (`resolver_versions`), stamped on
   every decision. No threshold ships without a per-type P/R curve (D17, D22). The old JW≥0.92 /
   cosine≥0.88 are placeholders to overwrite.
-- Blocking (T2/T3) sets a hard recall ceiling, so cheap tiers **escalate near-misses to T5**,
+- Blocking (T1/T2) sets a hard recall ceiling, so cheap tiers **escalate near-misses to T4**,
   never auto-reject — textual recall is mediocre and over-rejection is a silent hole.
 - Coreference (D19) is resolved *inside the E2 extraction call* (all languages) so mentions
   arrive with referents already grounded — no dedicated coref model. Likewise, each mention's
-  canonical/nominative name form is LLM-emitted at extraction (§5), feeding T1.
+  canonical/nominative name form is LLM-emitted at extraction (§5), feeding T0.
 
 ## 4. Ontology — universal core + anchored extensions (D15, D18)
 
@@ -253,10 +257,10 @@ needs cheap tiers" principle (§4, D19), this is handled **without specialized M
 - **Canonicalization is LLM-emitted at extraction** (no UDPipe/MorphoDiTa lemmatizer pass). The
   E2 extractor emits each mention's **nominative/canonical name form** alongside the surface
   form — the same free per-mention output as type and coref. The canonical form is stored as a
-  first-class alias (`provenance=llm_canonical`); T1 exact match runs on it.
+  first-class alias (`provenance=llm_canonical`); T0 exact match runs on it.
 - **Residual variants are caught by the deterministic at-scale tiers** (these are cheap Postgres
   built-ins, not ML, and do what the per-mention LLM cannot — match against millions of existing
-  aliases): T2 `unaccent` + `pg_trgm` (GIN), T3 `fuzzystrmatch.daitch_mokotoff` (UTF-8-safe,
+  aliases): T1 `unaccent` + `pg_trgm` (GIN), T2 `fuzzystrmatch.daitch_mokotoff` (UTF-8-safe,
   GIN-indexable — catches "Nowak/Novak"-class spelling/transliteration variants). Optional
   app-layer BMPM behind a flag only if D-M recall proves short. Transliteration handling only if
   a corpus is confirmed multi-script.
@@ -310,7 +314,7 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 - Do **not** partition `entities`/`aliases` (≤10⁷, the blocking targets). GIN `gin_trgm_ops` +
   GIN `daitch_mokotoff(name)` on `aliases.normalized_lemma`; btree composite
   `(subject_entity_id, predicate[, object])` on `relations`.
-- T0–T3 in Postgres; T4 embedding in Lance (D8); HNSW never in OLTP.
+- T0–T2 in Postgres; T3 embedding in Lance (D8); HNSW never in OLTP.
 - **Row counts are contingent on the value gate (D25)** — size the load-test against *gated*
   volume.
 
@@ -329,12 +333,12 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 
 ## 11. Phasing
 
-- **Phase 1:** registry schema + Alembic; T0–T3 deterministic tiers + T5 LLM adjudication; the
+- **Phase 1:** registry schema + Alembic; T0–T2 deterministic tiers + T4 LLM adjudication; the
   seed ontology (D18) + domain/range + the Work extension pack (registry rows, enabled per
   deployment); entity-resolution on English; the golden eval set + per-tier metrics + review
   CLI; reversibility records.
-- **Phase 2:** T4 embedding tier; multilingual matching (LLM-emitted canonical forms + unaccent/pg_trgm + Daitch-Mokotoff); tier-0
-  authority connectors; predicate-promotion workflow; health dashboards.
+- **Phase 2:** T3 embedding tier; multilingual matching (LLM-emitted canonical forms + unaccent/pg_trgm + Daitch-Mokotoff);
+  predicate-promotion workflow; health dashboards.
 - **Phase 3:** learned matcher + active-learning training loop (separate from eval set); scope
   views; richer review UI if middle-band volume justifies it.
 

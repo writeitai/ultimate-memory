@@ -297,8 +297,8 @@ machinery:
   permanent reasoner/tooling cost. User-supplied OWL can be imported into the registry.
 
 **Context.** Multiple K2 scopes are domain ontologies in disguise; a fixed universal ontology
-either bloats or strangles them. Cognee's ontology-anchoring informed the external-authority
-idea (tier 0 of resolution); the `other:` escape (D5) becomes the discovery/promotion funnel.
+either bloats or strangles them. The `other:` escape (D5) becomes the discovery/promotion
+funnel. (An external-authority resolution tier was considered and later dropped — see D20.)
 Three speeds, one registry: core (slow, each element a commitment) → scope extensions (fast,
 each an experiment) → `other:` (ungoverned, monitored). Analysis:
 `plan/analysis/entity_registry.md`.
@@ -341,16 +341,16 @@ model).
 > listed in SYNTHESIS §5. (D25–D30, formalizing the value-gate research / objection O3, follow
 > in a separate PR.)
 
-## D17. Canonical resolution tier cascade (T0–T5), block-loose / decide-tight
+## D17. Canonical resolution tier cascade (T0–T4), block-loose / decide-tight
 
 **Decision.** One authoritative entity-resolution cascade, replacing the scattered/folklore
-thresholds: **T0** external-authority match → **T1** exact (on normalized lemma) → **T2** fuzzy
+thresholds: **T0** exact match on the LLM-emitted canonical name form (§5/D19) → **T1** fuzzy
 *blocking* (`pg_trgm` GIN, recall-first low floor — candidate generation, NOT a decision) →
-**T3** phonetic (Daitch-Mokotoff, **not** Soundex) → **T4** embedding similarity (Lance, residue
-only) → **T5** LLM adjudication (small→frontier) on the ambiguous middle band → human review for
-high blast-radius. Each tier's accept/reject bands are **per-type, golden-set-measured, versioned
-config** stamped with `resolver_version`. No threshold ships without a per-type precision/recall
-curve.
+**T2** phonetic (Daitch-Mokotoff, **not** Soundex) → **T3** embedding similarity (Lance, residue
+only) → **T4** LLM adjudication (small→frontier) on the ambiguous middle band → human review for
+high blast-radius. **Registry-self-contained — no 3rd-party external-authority tier (D20).** Each
+tier's accept/reject bands are **per-type, golden-set-measured, versioned config** stamped with
+`resolver_version`. No threshold ships without a per-type precision/recall curve.
 
 **Context.** JW≥0.92 / cosine≥0.88 were folklore: JW 0.92 is Splink's per-field Bayes *evidence
 level*, not an accept bar; benchmark spread (Magellan 98.4 clean vs 43.6 textual) proves no
@@ -402,17 +402,25 @@ document) remains an open recall gap — it is not solved by intra-document core
 (a low-resource language — not Czech), a specialized model could be reconsidered as a
 per-deployment opt-in; not built now.
 
-## D20. Tier-0 authority set + fall-through rule
+## D20. No 3rd-party external-authority tier — resolution is registry-self-contained
 
-**Decision.** Launch tier-0 authorities: **Wikidata** (self-hosted reconciler — only standardized
-multi-type one) + **OpenAlex** (snapshot + API) + **DOI/ORCID/LEI** deterministic validators.
-**Never** OpenCorporates (viral share-alike + paid) or ISBN-as-authority. GitHub/Google-Books are
-per-scope opt-in. **Tier 0 never gates:** on miss, mint a local `entity_id` and fall through (most
-real entities are long-tail misses). External IDs are stored as **aliases, never as the canonical
-`entity_id`**. Self-host all snapshots — never put the write path on public rate-limited endpoints
-(OpenAlex moved to key+credit; Crossref cut limits 2025-12-01).
+**Decision.** Entity resolution does **not** depend on 3rd-party external registries (Wikidata,
+OpenAlex, DOI, ORCID, LEI, …). Identity is resolved entirely from the system's own data via the
+T0–T4 cascade (D17). The earlier "tier-0 authority" idea is **dropped from scope.**
 
-**Context.** Tier 0 is an accelerator, not a requirement. (R4.)
+**Context.** Two reasons. (1) **Coverage:** public registries only know publicly-notable entities
+(listed companies, published researchers, papers) — near-zero coverage for the actual target
+deployments, whose data is internal/private/domain-specific (a manufacturer's internal systems,
+a personal assistant's contacts, statutes, internal projects). (2) **Dependency:** they put an
+external, rate-limited, license-encumbered service on a core write path for little return. The
+research (R4) recommended them as an *optional, never-gating accelerator*; for these deployments
+that accelerator rarely fires, so the simplicity of dropping it wins.
+
+**Consequences.** The cascade starts at T0 = exact match on the LLM-emitted canonical name form.
+The genuinely valuable "authority" case is **internal/domain authoritative IDs** (a source
+system's own keys, legal citations) — *not* 3rd-party registries; that is a **future
+per-deployment connector**, not built now, and would attach such IDs as aliases (never as the
+canonical `entity_id`). No `external_ids` table ships now.
 
 ## D21. Clustering algorithm + incremental procedure + reversibility records
 
@@ -452,7 +460,7 @@ salience classifier (D26). (R7, O6.)
 those hot tables (cap write-amplification). Do **not** partition `entities`/`aliases` (the blocking
 targets, ≤10⁷). GIN `gin_trgm_ops` + GIN `daitch_mokotoff(name)` on `aliases.normalized_name`;
 btree composite `(subject_entity_id, predicate[, object])` on `relations`. Supersession + tiers
-T0–T3 run in Postgres; embedding tier T4 in Lance (D8); HNSW never in OLTP. Load-test a
+T0–T2 run in Postgres; embedding tier T3 in Lance (D8); HNSW never in OLTP. Load-test a
 representative corpus slice before locking partition/index choices. **Row counts are contingent on
 the value gate (D25) — size against *gated* volume.**
 
