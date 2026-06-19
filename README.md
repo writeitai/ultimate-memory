@@ -1,4 +1,4 @@
-# ugm - Ultimate General Memory
+# Ultimate Memory
 
 A memory system designed to scale to millions of input documents, organized as three planes
 (D14): **E — Evidence** (files → chunks → claims → relations; Postgres is truth),
