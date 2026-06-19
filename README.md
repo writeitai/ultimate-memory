@@ -5,6 +5,16 @@ A memory system designed to scale to millions of input documents, organized as t
 **K — Knowledge** (LLM-compiled scopes and beliefs; git is truth), and **P — Projections**
 (search indexes and graph; derived, rebuildable).
 
+## TL;DR — the EKP planes
+
+| Plane | What it holds | Source of truth | Rebuildable? |
+|---|---|---|---|
+| **E — Evidence** | Raw inputs broken down: files → chunks → claims → relations | Postgres | No (it's the ground truth) |
+| **K — Knowledge** | LLM-compiled scopes and beliefs distilled from evidence | git | No (authored/curated) |
+| **P — Projections** | Search indexes and graph derived from E and K | derived | Yes (regenerate any time) |
+
+In short: **E** is what we ingested, **K** is what we concluded, **P** is what we query — and P can always be rebuilt from E + K.
+
 ## The `plan/` directory
 
 All project planning lives in `plan/`, organized in three levels of abstraction:
@@ -42,5 +52,3 @@ and flow downward.
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D16) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
-| [requirements_v2.md](requirements_v2.md) | Exploratory requirements (superseded by v3) |
-| [requirements_v1.md](requirements_v1.md) | Original requirements (superseded) |
