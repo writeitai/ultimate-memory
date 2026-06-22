@@ -376,8 +376,8 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
   GIN `daitch_mokotoff(name)` on `aliases.normalized_lemma`; btree composite
   `(subject_entity_id, predicate[, object])` on `relations`.
 - T0–T2 in Postgres; T3 embedding in Lance (D8); HNSW never in OLTP.
-- **Row counts are contingent on the value gate (D25)** — size the load-test against *gated*
-  volume.
+- **Row counts are sized against full extraction** (there is no value gate — D25); size the
+  load-test against *ungated* volume.
 
 ## 10. Quality & evaluation (D22, O6)
 
@@ -400,9 +400,10 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
    Czech ER benchmark exists).
 3. **Un-merge → bi-temporal supersession ripple** — confirm relation validity windows closed
    under a merged identity are correctly re-adjudicated on un-merge (this is where silent
-   supersession failure lives; coordinate with the value-gate zombie-fact spike).
+   supersession failure lives; coordinate with E2 Selection's change-of-state never-drop safeguard,
+   D25/D35).
 4. **Scale load-test** real mentions-per-doc, GIN index sizes, streaming throughput on a corpus
-   slice (contingent on D25's filter rate).
+   slice (sized against full extraction — there is no value gate, D25).
 5. **Predicate-promotion workflow + split cost** (G5).
 
 ## References

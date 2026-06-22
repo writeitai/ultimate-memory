@@ -93,14 +93,12 @@ retries then dead-letter into Postgres.
    record cross-references (citations).
 2. **E1**: semchunk → LLM context prefix per chunk (contextual-retrieval style; prompt-cached)
    → embed → P1, with references to document + PageIndex node.
-3. **E1.5 value gate** (D25–D30, `e1_5_value_gate_design.md`): per PageIndex section, a nested
-   cheap-first cascade (content-hash dup → structural role → embedding novelty → distilled
-   salience classifier) routes to **FULL / DEFERRED / CHUNKS-ONLY / dup**. E0/E1 always run;
-   the gate withholds only the expensive E2/E3 LLM layer. Output is **defer-don't-DROP** durable
-   Postgres state; DEFERRED sections promote to E2 on scope-interest / first-retrieval / drain.
-4. **E2 → E3** (FULL or promoted): coreference (D19: in the E2 extraction call, all languages) →
-   Claimify extraction → entity resolution (tiered cascade T0–T4, D17, via the entity
-   registry) → relation normalization (predicate registry, domain/range D18) →
+3. **E2 → E3** (every chunked document — there is no pre-extraction value gate, D25): coreference
+   (D19: in the E2 extraction call, all languages) → **Claimify extraction with in-call Selection**
+   (proposition-level verifiability KEEP/REWRITE/DROP — the value filter that replaces any
+   pre-extraction gate; the E0 PageIndex section path is fed in so references/boilerplate/intro/
+   conclusion drop at proposition grain) → entity resolution (tiered cascade T0–T4, D17, via the
+   entity registry) → relation normalization (predicate registry, domain/range D18) →
    **supersession cascade** (D4): novelty gate → `(entity_id, predicate)` blocking over
    relations → cheap-first escalation → write-time outcomes (`supersedes` closes windows,
    `contradicts` flags, `same_as` proposes merges). Registry detail: `registries_design.md`.
@@ -175,7 +173,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `overall_design.md` | this document | current |
 | `e0_files_design.md` | ingestion, markdown, PageIndex, cross-refs | future |
 | `e1_chunks_design.md` | chunking, context prefixes, P1 layout | future |
-| `e1_5_value_gate_design.md` | value/salience gate, tiers, lazy/deferred extraction (D25–D30) | **current** |
+| `e2_value_control_non_goal.md` | why there is no value gate; junk-control at E2 Selection + D2 (D25) | **current** |
 | `e2_e3_claims_relations_design.md` | extraction, relation normalization, supersession cascade | future |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
 | `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | future |

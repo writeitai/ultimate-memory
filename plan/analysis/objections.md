@@ -4,8 +4,9 @@ A step-back critique of the layered architecture as captured in
 `../requirements/requirements_v3.md` and `../designs/overall_design.md` (June 2026).
 Status:
 - **O1 accepted → D14** (E/K/P plane naming).
-- **O3 accepted → D25–D30** (value/salience gate). Researched in `value_gate_research/`;
-  premise verified (with the "98% junk" headline demoted — see below).
+- **O3 premise accepted, gate-mechanism rejected → D25** (no pre-extraction value gate;
+  junk-control reassigned to E2 Selection + D2). Researched in `value_gate_research/` and
+  `claimify_research/`; premise verified (with the "98% junk" headline demoted — see below).
 - **O5 accepted → D15–D24** (entity-registry/ontology subsystem). Researched in
   `registry_research/`; design doc `plan/designs/registries_design.md`.
 - **O6 partially folded in** via D22 (eval loop ships v1; ER half + retrieval half).
@@ -68,7 +69,7 @@ its own machinery.
 
 ---
 
-## O3. No value gate before claim extraction — the biggest missing cost lever  ✅ ACCEPTED → D25–D30
+## O3. No value gate before claim extraction — the biggest missing cost lever  ✅ PREMISE ACCEPTED, MECHANISM REJECTED → D25
 
 **Objection.** The design runs Claimify + coreference + entity resolution + relation
 normalization on *everything*. At 1M documents most content is boilerplate, duplication, or
@@ -98,6 +99,17 @@ bottleneck**, so a gate must precede extraction.
 **Cost of adopting:** medium (one new gate + a deferred-work queue; the per-doc chain already
 supports staged triggering). **Risk of ignoring:** L2 cost scales with corpus size instead of
 corpus value; junk degradation of all derived layers.
+
+**Resolution (post-research).** The premise (junk exists; it poisons downstream) is **accepted**; the
+proposed *gate* is **rejected**. The only value rung (a distilled salience classifier) is unbuilt and
+golden-set-dependent; the novelty rung is a corpus-scale ANN (the gate's own worst risk); the honest
+lever is ~1.5–2× (not 10×) and the 10× lived in DEFERRED machinery disproportionate to it; and a
+pre-extraction skip concentrates the highest-severity correctness risk (the zombie-fact /
+supersession-skip case). Junk-control instead lives at **E2 Selection** (Claimify verifiability,
+in-call, ablation-proven 83.7→54.4) + **D2** (redundancy → `evidence_count`), with exact-hash dedup
+retained as idempotency only and the E0 PageIndex role fed into E2 (`claimify_research/`). A trivial
+deterministic structural section-skip is a documented future add-back, not a smart gate.
+→ **D25** (and withdrawn D26–D30); design `plan/designs/e2_value_control_non_goal.md`.
 
 ---
 
@@ -163,13 +175,13 @@ steering wheel.
 
 **Cost of adopting:** real but front-loaded; smallest when started before scale.
 **Risk of ignoring:** blind tuning, silent quality regressions, no way to validate any of
-O3/O5's gates and thresholds.
+O5's resolution thresholds and E2 Selection's drop quality (O3).
 
 ---
 
 ## Priority
 
 Original call (if only three): **O3**, **O6**, **O2**. **Status update:** O1 (→D14), O5
-(→D15–D24), O3 (→D25–D30) are done; O6 is half-folded via D22 (eval loop). **Remaining open:
+(→D15–D24), O3 (→D25, gate mechanism rejected) are done; O6 is half-folded via D22 (eval loop). **Remaining open:
 O2** (collapse K1–K3 — orthogonal, untouched) and **O4** (semantic regenerability / manifests
 for the K-plane git layers). Both naturally belong with the upcoming K-layer design docs.
