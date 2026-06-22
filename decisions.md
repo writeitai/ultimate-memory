@@ -120,8 +120,9 @@ projection," bounded by rebuild cadence.
 **Decision.** The L6 worker periodically rebuilds the entire graph from a Postgres → Parquet
 export (`COPY FROM` bulk load), validates, and publishes an immutable versioned snapshot to
 GCS (write-then-pointer-swap). Readers download the `latest` snapshot, open READ_ONLY, and
-hot-swap on updates. Incremental event application is Phase 2, only if sub-hour freshness is
-ever actually needed.
+hot-swap on updates. Incremental event application is a **deliberate non-goal** — rebuild-first
+is the design; incremental is a documented alternative (`p2_graph_design.md` §5) we would adopt
+only if sub-hour graph freshness ever became a hard requirement.
 
 **Context.** LadybugDB's verified concurrency model is one READ_WRITE process XOR many
 READ_ONLY processes — snapshot serving is the intended usage, not a workaround. Sizing at the
@@ -201,7 +202,7 @@ the engine understands time.
 
 ---
 
-## D11. Community detection runs externally (Phase 3)
+## D11. Community detection runs externally
 
 **Decision.** LadybugDB's algo extension ships PageRank, K-Core, and connected components but
 **no Louvain/Leiden** (verified in `src/extension/extension_entries.cpp`). Community detection
@@ -400,7 +401,7 @@ other inflected languages are well-served by frontier LLMs in-context. (R1, R3; 
 document) remains an open recall gap — it is not solved by intra-document coref of any kind
 (LLM or model). If a *future* deployment's language is genuinely poorly served by frontier LLMs
 (a low-resource language — not Czech), a specialized model could be reconsidered as a
-per-deployment opt-in; not built now.
+per-deployment alternative — a documented option, not part of the system.
 
 ## D20. No 3rd-party external-authority tier — resolution is registry-self-contained
 
@@ -419,7 +420,7 @@ that accelerator rarely fires, so the simplicity of dropping it wins.
 **Consequences.** The cascade starts at T0 = exact match on the LLM-emitted canonical name form.
 The genuinely valuable "authority" case is **internal/domain authoritative IDs** (a source
 system's own keys, legal citations) — *not* 3rd-party registries; that is a **future
-per-deployment connector**, not built now, and would attach such IDs as aliases (never as the
+per-deployment connector** (a documented alternative, not part of the system), which would attach such IDs as aliases (never as the
 canonical `entity_id`). No `external_ids` table ships now.
 
 ## D21. Clustering algorithm + incremental procedure + reversibility records
@@ -438,17 +439,19 @@ P2 rebuild (D7) re-points edges on merge/un-merge for free.
 is correct, not over-engineering. dedupe uses exactly HAC `linkage(centroid)`+`fcluster(distance)`
 + a `max_components` guard. (R8.)
 
-## D22. Golden-set + evaluation plan (ships in v1)
+## D22. Golden-set + evaluation plan
 
 **Decision.** Two **separate** assets: a **golden EVAL set** (unbiased, measures P/R, tunes
-thresholds) and, later, a **training set** (only if a learned matcher is added; AL-sampled, biased,
-never used to measure). v1 ships: ~200 human-verified labeled pairs/type (~100 hard positives incl.
-synthetic father/son/inflection/married-name + ~100 hard negatives; grow to ~400/type for
+thresholds) and a **training set** (built only if a learned matcher is ever added; AL-sampled,
+biased, never used to measure). The eval set: ~200 human-verified labeled pairs/type (~100 hard
+positives incl. synthetic father/son/inflection/married-name + ~100 hard negatives; ~400/type for
 auto-merge-critical types), blocking-stratified positive over-sampling, **Wilson** CIs, per-tier
 metrics, and a canary regression harness re-run per `resolver_version`. **Break the circularity:**
 the cascade/LLM may *propose* candidate pairs, but measurement labels must be **human-adjudicated**.
-Re-add the **retrieval-eval half of O6** (recall@k per search recipe, rerank-weight tuning,
-contradiction-detection precision). Defer learned matchers + active-learning loop past v1.
+The eval plan also covers the **retrieval half of O6** (recall@k per search recipe, rerank-weight
+tuning, contradiction-detection precision). A learned matcher + active-learning training loop are
+a documented **optional extension** of the cascade (D17), kept strictly separate from the eval
+set — the core design resolves with the deterministic + LLM tiers, not a learned matcher.
 
 **Context.** Closes O6's ER half concretely; the eval set is also the seed for the value gate's
 salience classifier (D26). (R7, O6.)
@@ -475,5 +478,6 @@ blast-radius gating. Review **clusters, not pairs** (pairwise is quadratic); rou
 `expected_impact = blast_radius × (1 − confidence)` middle band to humans; high-degree hub merges
 never auto-accept. Borrow Splink's waterfall (evidence panel), Zingg's 3-way verdict (ergonomics),
 OpenRefine's cluster-card-with-exclude (interaction). Every action appends a reversible,
-provenance-stamped, redirect-preserving record (D21). Web/Argilla deferred until middle-band volume
-justifies it. (R10.)
+provenance-stamped, redirect-preserving record (D21). The design is the CLI queue; a web UI /
+Argilla is an optional addition if review volume ever justifies it, not part of the core design.
+(R10.)

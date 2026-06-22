@@ -39,8 +39,8 @@ manufacturing company, and a knowledge engine for a law-related product. Rules:
 - The multi-scope case *within* one deployment (e.g. the agency: multiple products as K2
   scopes over one shared entity space) is exactly D16's "scopes multiply, truth doesn't".
 - **Language is a per-deployment property**: a deployment with Czech (or other
-  inflected-language) corpora puts WP-ML (§5) on its critical path; English-only deployments
-  defer it.
+  inflected-language) corpora needs the multilingual matching of §5; English-only deployments
+  do not.
 
 ## 2. Data model (Postgres — the single authority, D6)
 
@@ -159,7 +159,7 @@ separate subsystem. Type comes free with extraction:
   predicates).
 - **A canonical entity's type = the majority / highest-confidence vote** across its mentions'
   types, stored on `entities.type`. Mentions of one entity almost always agree; no
-  voting/metonymy machinery is needed at the start.
+  voting/metonymy machinery is needed — mentions of one entity almost always agree on type.
 - **Domain/range (D18) validates relations against entity types.** A relation that fails is
   dropped — and is **re-derivable from its immutable claim** if the entity is later retyped, so
   no quarantine table is needed (claims are the durable record, D2).
@@ -274,19 +274,80 @@ deterministic tiers must carry the residual.)*
 
 ## 6. Clustering & reversibility (D21)
 
-- **Decision clustering:** connected-components *to gather* candidate blobs (with a **black-hole
-  guard**: raise threshold + repartition above component size T) → **HAC distance-cut inside
-  each blob** (dedupe's `linkage(centroid)`+`fcluster(distance)`). **Never bare transitive
-  closure** (A≈B, B≈C ⇏ A=C); never Louvain/Leiden for ER (that's D11 community detection).
-- **Incremental:** max-both assignment + **nDR n=1** (re-cluster only the 1-hop neighborhood;
-  order-independent; n=2 only when a hub is touched).
-- **Reversibility (un-merge):** state lives only in Postgres — `resolution_decisions`
-  (append-only), `merge_events` (pre-merge membership snapshot), `merged_into` redirects,
-  optional negative/exclusion edges. No OSS system ships un-merge; building it is correct.
-- **Generic-identifier guard** (Senzing): an alias that suddenly links many entities is
-  down-weighted and re-evaluated.
-- **Blast-radius rule:** never auto-merge above a degree/evidence threshold — wrongly merging
-  two hubs is catastrophic; route to review (§8).
+The resolution cascade (§3) only ever produces *pairwise* guesses — "mention A and mention B
+are probably the same entity." This section turns those pairwise guesses into actual entity
+*groupings* — cheaply, at scale, without catastrophic over-merging, and reversibly. Every rule
+below exists because of one asymmetry: **over-merging (fusing two real entities) is catastrophic
+and silent; under-merging (missing a match) is gradual and recoverable** — so the machinery is
+deliberately paranoid in one direction.
+
+**Never chain the guesses (no "transitive closure").** If the cascade says A≈B and B≈C, we do
+**not** conclude A=C. Example: "Jim Smith"≈"J. Smith" and "J. Smith"≈"James Smith" — but Jim and
+James may be two different people both abbreviated to "J. Smith". Each link is individually
+reasonable; chaining them merges two real people, and a single weak link can fuse two large
+groups. So chaining (the technical term is *transitive closure*) is forbidden — everything below
+is how we avoid it.
+
+**Gather loosely, then decide tightly (two stages).** (1) *Gather*: follow the pairwise links to
+collect a rough candidate *blob* of mentions that are connected somehow (graph
+*connected-components* — just everyone reachable via a match link). (2) *Decide*: inside the
+blob, a stricter check looks at how similar the mentions actually are and **splits the blob into
+the real entities** — so a Smith blob becomes "Jim Smith" (one entity) and "James Smith"
+(another). That tighter check builds a similarity tree of the blob's members and cuts it at a
+threshold, so each piece below the cut is one entity (*hierarchical agglomerative clustering
+with a distance cut* — in practice dedupe's `linkage(centroid)` + `fcluster(distance)`). The
+blob is only ever a *candidate pool*, never automatically one entity. (Community-detection
+algorithms like Louvain/Leiden are for topic communities — D11 — and must never be used to
+decide identity.)
+
+**Cap runaway blobs (the "black-hole guard").** Occasionally a blob balloons to thousands of
+mentions because one bad link or a generic name connected everything — almost always garbage,
+and expensive to process. When a blob crosses a size limit, **raise the matching bar and
+re-split it** rather than swallow the monster. ("Black hole" = an entity that sucks in
+everything; the guard stops it.)
+
+**Place new mentions locally, and independent of arrival order (incremental).** When a new
+document adds a mention, we do **not** re-cluster the whole (million-entity) registry. We
+re-examine only the small set of existing entities the new mention could plausibly be — its
+blocking candidates, i.e. its *neighborhood* — and re-decide just that local pocket. Crucially,
+we re-cluster the pocket **jointly**, rather than greedily gluing the new mention to its single
+best match — because greedy attachment makes the result depend on **ingestion order**:
+
+> if "R. Klein" arrives *before* "Robert Klein" has been seen, the only Klein in the system might
+> be "Rachel Klein", so it wrongly attaches there; had "Robert Klein" arrived first, "R. Klein"
+> would have joined Robert. Same documents, different *people*, purely from order.
+
+Re-clustering the local neighborhood as a unit fixes this: when "Robert Klein" later arrives, his
+neighborhood already contains "R. Klein", so the pocket is re-decided together and "R. Klein"
+moves to Robert. This gives the **bounded cost of a local operation** *and* the **correctness of
+a full re-cluster** — the same grouping no matter what order documents arrived in. (Technically:
+re-resolve the *1-hop neighborhood* — the entities one match-link away from the new mention —
+and look one link further only when the mention touches a *hub*, an entity already connected to
+many others.)
+
+**Keep every merge reversible.** Because over-merges are catastrophic *and* inevitable at scale,
+every merge must be undoable. Three mechanisms, all in Postgres (the single authority, D6):
+- resolution decisions are **append-only** — a better decision *supersedes* the old one
+  (`superseded_by`); nothing is overwritten, so the full history survives;
+- each merge records a **"before" snapshot** of which mentions belonged to which entity
+  (`merge_events.pre_merge_membership_snapshot`) — to un-merge, replay the snapshot;
+- a merge is a **redirect, not a deletion** (`merged_into`): the absorbed entity keeps its ID,
+  pointing at the survivor (Wikidata-style), so undoing is just removing the redirect.
+
+No OSS ER system (Splink, dedupe, Zingg, Graphiti) ships un-merge, so building it is genuinely
+ours to do — and the P2 rebuild (D7) re-points the graph on every merge/un-merge for free.
+
+**Distrust promiscuous signals (the "generic-identifier guard").** Some signals look identifying
+but aren't — `info@company.com`, a placeholder, a very common name. If one alias suddenly links
+to *many* distinct entities, that's a tell it is **generic, not identifying**: down-weight it
+(stop trusting it as a match signal) and re-evaluate the merges it caused. (Senzing pioneered
+this.)
+
+**Blast-radius rule.** A merge's *blast radius* is how much it would affect if wrong — roughly the
+combined size/connectedness of the two entities (their mention counts + graph degree). Never
+auto-merge above a degree/evidence threshold — wrongly merging two
+*hubs* is the worst case of all. High-impact merges are routed to human review (§8), ranked by
+`expected_impact = blast_radius × (1 − confidence)`.
 
 ## 7. Governance — predicate promotion
 
@@ -331,18 +392,7 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 - **Reversibility is an invariant:** any automated decision must be undoable by replaying lineage;
   anything that can't be undone goes to the review queue.
 
-## 11. Phasing
-
-- **Phase 1:** registry schema + Alembic; T0–T2 deterministic tiers + T4 LLM adjudication; the
-  seed ontology (D18) + domain/range + the Work extension pack (registry rows, enabled per
-  deployment); entity-resolution on English; the golden eval set + per-tier metrics + review
-  CLI; reversibility records.
-- **Phase 2:** T3 embedding tier; multilingual matching (LLM-emitted canonical forms + unaccent/pg_trgm + Daitch-Mokotoff);
-  predicate-promotion workflow; health dashboards.
-- **Phase 3:** learned matcher + active-learning training loop (separate from eval set); scope
-  views; richer review UI if middle-band volume justifies it.
-
-## 12. Open spikes (do before committing numbers)
+## 11. Open spikes (do before committing numbers)
 
 1. **Golden-set labeling without circularity** — LLM-propose / human-verify loop; the denominator
    trap (recall needs ~370 true-positive pairs).
