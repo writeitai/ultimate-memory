@@ -1,0 +1,48 @@
+You are a senior ML/NLP engineer. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite file paths + line numbers and sources, give real numbers, avoid filler. This is a research report that another agent will synthesize — return DATA and a concrete design, not pleasantries.
+
+# IMPORTANT — avoid running out of context
+You have a known failure mode: doing many full-page web searches exhausts your context window and you exit having written nothing. To avoid it:
+- Do AT MOST 2 short web searches, and only if a specific fact is missing. Prefer the LOCAL files below — they already contain the primary sources.
+- WRITE YOUR OUTPUT FILE INCREMENTALLY: write the section headers + a one-line outline to the output file FIRST, then fill each section and re-save as you go. Never hold the whole report in your head to dump at the end.
+- Output file: /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/claimify_research/external_agents/codex_decontext_grounding.md
+- When done, print only a 6-bullet summary to stdout.
+
+# PROJECT CONTEXT
+"ugm" (ultimate general memory) is a large-scale memory system (millions of documents). Pipeline planes:
+- E0 files -> E1 chunks (semchunk + an LLM "context prefix" per chunk, contextual-retrieval style, prompt-cached) -> E2 claims (atomic NL assertions via a Claimify-style extractor, coref resolved IN the same call per decision D19) -> E3 relations (normalized (subject,predicate,object) facts).
+- Postgres is the single source of truth; the system must be "rebuildable from Postgres" (D7); per-document Cloud Tasks trigger chain (D12); cheap-first cascades everywhere (D4).
+
+THE PROBLEM WE ARE RESEARCHING (your half): DE-CONTEXTUALIZATION and GROUNDING of extracted claims.
+There is a well-known ANTI-PATTERN for claim extraction — call it the naive single-chunk baseline — that ugm's E2 must avoid because it is wrong in exactly the ways we want to fix. Treat it as the baseline to improve. The naive baseline looks like this:
+- A single structured-output LLM call over ONE chunk in isolation, with a system prompt that says "extract all atomic claims" (a FActScore-shaped, extract-everything extractor).
+- Orchestration that runs per-chunk, ONE chunk at a time, with no neighbors, no title, no section path.
+- A validation gate (the verbatim-substring grounding gate) that REQUIRES each claim's verbatim evidence-quote field to be a verbatim, normalized substring of the chunk.
+- Provenance discarded: only the claim text survives; character offsets and source-span pointers are not retained.
+
+Two baseline defects you must analyze precisely:
+1. It extracts from ONE chunk in isolation — no surrounding document context, no neighbor chunks, no title/section path — so pronouns/acronyms/relative time references cannot be resolved; claims are not standalone.
+2. Its validation REQUIRES the claim's verbatim evidence-quote to be a verbatim substring of the chunk. A properly DECONTEXTUALIZED claim is a rewrite (pronouns resolved, entities named, time absolutized) and therefore is NOT a substring of the source — so the verbatim-substring contract is actively hostile to decontextualization. Either claims stay contextual (to pass the gate) or good decontextualized claims get silently dropped.
+
+# PRIMARY SOURCES — READ THESE LOCAL FILES FIRST (cite file:line)
+- Claimify paper as markdown: /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/claimify_deshwalmahesh/paper_text.md  (also PDF at .../_additional_context/claimify_papers/claimify_2502.10855.pdf). Claimify stages: Sentence-splitting -> Selection -> Disambiguation -> Decomposition. Focus on Disambiguation (resolve ambiguity using surrounding context; DISCARD when no confident interpretation) and Decomposition (atomic, DECONTEXTUALIZED claims).
+- Claimify implementation prompts (3 independent reimplementations — compare them):
+  .../_additional_context/claimify_deshwalmahesh/src/prompts.py and src/claimify.py
+  .../_additional_context/claimify_claimsmcp/structured_prompts.py + structured_models.py + pipeline.py  (a STRUCTURED-OUTPUT impl — closest to a responses.parse approach)
+  .../_additional_context/claimeai/apps/agent/claim_extractor/prompts.py + schemas.py
+- Molecular Facts (decontextuality vs MINIMALITY — add the least context needed to stand alone): .../_additional_context/molecular_facts/ (README, src, prompt) + paper .../claimify_papers/molecular_facts_2406.20079.pdf
+- DnDScore (decontextualization changes verifiability; decontextualize THEN verify): .../claimify_papers/dndscore_2412.13175.pdf
+- VeriScore (extracts only verifiable claims, with context window): .../_additional_context/veriscore/ (prompt/ dir) + paper .../claimify_papers/veriscore_2406.19276.pdf
+- ugm design context: /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/overall_design.md (planes; E1 context prefix; E2 Claimify+coref), .../decisions.md (D4 cheap-first, D7 rebuildable, D12 triggers, D19 coref-in-call), .../plan/designs/e1_5_value_gate_design.md (the chunk-level value gate — your half is the CLAIM level, distinct from this).
+
+# YOUR QUESTION
+How do we make extracted claims properly DECONTEXTUALIZED (standalone — interpretable with no access to the source chunk) while keeping them GROUNDED (provably supported, never hallucinated), and what concretely replaces the verbatim-substring quote gate?
+
+COVER, with evidence and concrete proposals:
+1. DECONTEXTUALIZATION — what it means precisely (referential: pronouns/coref; structural: acronyms/elisions; temporal: "last year" -> absolute; entity naming). Exactly how Claimify's Disambiguation + Decomposition do it (quote the prompts). The discard-when-not-confident rule and why it raises precision.
+2. THE MINIMALITY TRADE-OFF (Molecular Facts) — over-contextualizing bloats claims and can inject unsupported detail; under-contextualizing leaves them ambiguous. State the desiderata (decontextuality + minimality) and how to instruct an LLM to add the MINIMUM context. Give the numbers from Molecular Facts / DnDScore if present.
+3. WHAT CONTEXT TO FEED THE EXTRACTOR so it CAN decontextualize: the chunk + its E1 context-prefix + neighbor chunks (prev/next) + document title + PageIndex section path/summary + in-call coref (D19) + optionally known entity names. Specify the minimal context bundle and why each element earns its tokens. How to keep it cheap (shared per-document prefix + prompt caching).
+4. GROUNDING WITHOUT VERBATIM QUOTES — this is the crux. Survey and recommend among: (a) character span pointers (char_start/char_end into the chunk) for the SOURCE span, kept SEPARATE from the standalone claim_text; (b) an entailment/NLI verification step ("is claim C entailed by chunk text T?", as DnDScore/VeriScore/SAFE do) instead of substring containment; (c) keeping BOTH a verbatim source_span (for provenance/audit) AND a decontextualized claim_text (for retrieval/reasoning); (d) a self-check LLM pass. What does Claimify itself do to keep claims faithful? Recommend a concrete grounding contract.
+5. CONCRETE PROPOSAL for ugm's E2 (replacing the naive baseline): (i) the extracted-claim schema (fields: claim_text standalone, source_span verbatim, char offsets, confidence, maybe a "decontextualization_changes" list); (ii) the replacement for the verbatim-substring grounding gate (precise acceptance rule); (iii) the actual extractor PROMPT text (system + user) that produces decontextualized-but-grounded atomic claims with coref in-call; (iv) how this stays cheap and rebuildable (D7) and idempotent (D12).
+
+# OUTPUT
+Write the full analysis to the output file (incrementally). Structure: "Key findings" (8 bullets) -> detailed sections (1-5 above, with file:line + source citations, verified vs inferred clearly marked) -> "Concrete recommendation for ugm's E2 extractor" (schema + validation rule + prompt text). 1800-3500 words. Then print only a 6-bullet summary to stdout.

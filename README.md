@@ -52,6 +52,7 @@ and flow downward.
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
 | [plan/analysis/value_gate_research/](plan/analysis/value_gate_research/) | O3 value-gate research + SYNTHESIS (→ D25–D30) |
+| [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D30) with rationale |

@@ -1,0 +1,41 @@
+You are a senior data-pipeline / applied-NLP architect. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, give real patterns, prompts, and tradeoffs with citations (file:line + sources), avoid filler. This is a research report another agent will synthesize — return DATA and a concrete design.
+
+# OUTPUT + OPERATING RULES
+- Write your full analysis to this file (create it): /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/claimify_research/external_agents/agy_selection_integration.md
+- Prefer the LOCAL files listed below over the web; do at most a few short web searches only for a missing specific fact.
+- When done, print only a 6-bullet summary.
+
+# PROJECT CONTEXT
+"ugm" (ultimate general memory) is a large-scale memory system (millions of documents). Pipeline planes:
+- E0 files -> E1 chunks (semchunk + an LLM context-prefix per chunk) -> E2 claims (atomic NL assertions via a Claimify-style extractor; coref resolved IN the same call, decision D19) -> E3 relations (normalized (subject,predicate,object) facts).
+- Postgres is source of truth; "rebuildable from Postgres" (D7); per-document Cloud Tasks chain (D12); cheap-first cascades (D4).
+- There is ALREADY a CHUNK/section-level value gate at the E1->E2 boundary (stage "E1.5", decisions D25-D30) that decides per PageIndex section: FULL / DEFERRED / CHUNKS-ONLY / dup. READ ITS DESIGN: /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/e1_5_value_gate_design.md and the synthesis /Users/jpuc/code/moje/ultimate_memory/ugm/plan/analysis/value_gate_research/SYNTHESIS.md. Your question is the DIFFERENT, finer-grained problem.
+
+THE PROBLEM WE ARE RESEARCHING (your half): CLAIM-LEVEL SELECTION (do not extract non-relevant / low-information content) and the END-TO-END E2 INTEGRATION of a Claimify-style extractor.
+Treat the naive single-chunk baseline as the KNOWN ANTI-PATTERN E2 must avoid: an extract-everything, FActScore-shaped extractor that pulls "ALL atomic claims" from each chunk with no selection — so it manufactures claims from boilerplate, hedges, questions, opinions, examples, and meta-text. Characterize this baseline conceptually:
+- A per-chunk extraction orchestration that runs an LLM over each chunk in isolation and emits every atomic assertion it can find, with no SELECTION stage and no per-claim KEEP/DROP decision.
+- An extracted-claim schema with a verbatim evidence-quote field, and a verbatim-substring grounding gate that only checks the quote appears in the source text — it enforces grounding but does NOT enforce information value, so boilerplate and meta-text that are quotable still pass.
+- No neighbor/section context beyond the single chunk, no coref-in-call, and no audit trail of what was deliberately skipped.
+
+# PRIMARY SOURCES — READ THESE LOCAL FILES FIRST (cite file:line)
+- Claimify paper as markdown: /Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/claimify_deshwalmahesh/paper_text.md (PDF: .../_additional_context/claimify_papers/claimify_2502.10855.pdf). Stages: Sentence-splitting -> SELECTION (keep only sentences with a specific, VERIFIABLE proposition; drop opinions/questions/hypotheticals/generic statements) -> Disambiguation -> Decomposition. Your focus is SELECTION.
+- Claimify SELECTION prompts in the reimplementations:
+  .../_additional_context/claimify_deshwalmahesh/src/prompts.py
+  .../_additional_context/claimify_claimsmcp/structured_prompts.py + pipeline.py
+  .../_additional_context/claimeai/apps/agent/claim_extractor/prompts.py
+- VeriScore (extracts ONLY verifiable claims, unlike FActScore/SAFE which decompose everything): .../_additional_context/veriscore/ (prompt/ dir) + paper .../claimify_papers/veriscore_2406.19276.pdf. FActScore: .../_additional_context/factscore/ ; SAFE: .../_additional_context/safe_long_form_factuality/ .
+- How memory/graph systems filter at extraction: mem0's fact-extraction prompt that DROPS chit-chat + its ADD/UPDATE/DELETE/NOOP controller (.../_additional_context/mem0/), cognee, graphiti, lightrag, graphrag, hipporag, letta (all under .../_additional_context/). Note what each EXTRACTS vs SKIPS and the context window each extractor sees.
+- ugm design: .../plan/designs/overall_design.md, .../decisions.md (D4, D7, D12, D19 coref-in-call, D25-D30 value gate), .../plan/analysis/concepts.md (claims vs relations).
+
+# YOUR QUESTION
+(A) How should we decide, at the SENTENCE/PROPOSITION level inside E2, what is worth extracting as a claim vs what to skip — without losing rare-but-important facts — and (B) how does a Claimify-style multi-stage E2 (Selection -> Disambiguation/decontextualization -> Decomposition, coref in-call) integrate into the ugm per-document chain and COMPOSE with the existing chunk-level E1.5 value gate without double-filtering?
+
+COVER, with evidence and concrete proposals:
+1. CLAIM-LEVEL SELECTION criteria: precise rules for KEEP (specific, verifiable, factual, decision/state/quantity-bearing) vs DROP (opinion, hypothetical/conditional, question, instruction, generic truism, boilerplate, meta-commentary, pure example). Quote Claimify Selection + VeriScore + mem0 prompts (file:line). What is "information value" at the claim level vs the chunk level?
+2. COMPOSITION with E1.5 (D25-D30): E1.5 already withholds extraction for low-value SECTIONS. Selection inside E2 is the finer second sieve on the sections that DO get extracted. Define the division of labor so they don't redundantly re-filter, and so a section ruled FULL doesn't then get everything dropped by Selection (or vice versa). Should Selection feed signal back to E1.5's salience learning?
+3. RECALL SAFEGUARDS at the claim level: the rare-but-critical fact (a one-off allergy, a single key decision) must not be dropped by Selection. Mitigations: never-drop lexical classes (change-of-state/temporal/quantity/medical-legal cues), conservative KEEP bias, recording DROP decisions so they are auditable/recoverable (analogous to gate_decisions), sampled audits. Evidence on precision/recall tradeoffs of selection from Claimify/VeriScore (give numbers).
+4. E2 PIPELINE INTEGRATION: lay out the multi-stage E2 as it should run per document — over the E1 context-prefixed chunks, with neighbor context, coref in-call (D19), Selection -> Disambiguation -> Decomposition, feeding E3. One LLM call vs staged calls (cost/quality tradeoff; Claimify uses separate stages — is that worth it for us at millions of docs, or can a frontier model do it in one structured-output call?). Idempotency (D12) and rebuildability (D7). How selection/drop decisions are persisted.
+5. CONCRETE RECOMMENDATION: the E2 stage design (stages, calls, context bundle), the claim-level selection rule + its recall safeguards, how it composes with E1.5, what to persist for audit/rebuild, and what to MEASURE (selection precision/recall, claim coverage, decontextualization rate) — plus a concrete near-term design move that lifts E2 above the naive extract-everything baseline.
+
+# OUTPUT
+Write the full analysis to the output file. Structure: "Key findings" (8 bullets) -> detailed sections (1-5, with file:line + source citations, verified vs inferred clearly marked) -> "Concrete recommendation for ugm E2 (vs the extract-everything baseline)". 1800-3500 words. Then print only a 6-bullet summary.
