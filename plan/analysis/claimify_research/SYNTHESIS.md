@@ -3,9 +3,19 @@
 Lead-architect synthesis of the Claimify research effort (questions C1–C8, repo archaeology over the
 3 Claimify reimplementations + 7 memory/graph systems, `verify/{facts,completeness}.md`, and the
 independent external-agent runs) against the current design (`overall_design.md` plane E, `decisions.md`
-D1–D30, `e1_5_value_gate_design.md`, `value_gate_research/SYNTHESIS.md`) and against the **naive
-single-chunk baseline** (the FActScore-shaped anti-pattern) that this redesign replaces. Decisive where
-the evidence allows; explicit about what is still a spike.
+D1–D30, `value_gate_research/SYNTHESIS.md`) and against the **naive single-chunk baseline** (the
+FActScore-shaped anti-pattern) that this redesign replaces. Decisive where the evidence allows; explicit
+about what is still a spike.
+
+> **Post-research reconciliation (the value gate was dropped).** This analysis was written while the
+> E1.5 value/salience gate (then D25–D30) was part of the design, so it frames E2 Selection as the
+> *claim-grain dual* of that section-grain gate. That gate has since been **dropped** — O3 resolved,
+> premise accepted, mechanism rejected (`decisions.md` D25; `plan/designs/e2_value_control_non_goal.md`).
+> With no gate, **Selection is simply THE value filter**: junk-control lives entirely at the proposition
+> grain (verifiability, in-call) + D2 redundancy-collapse. Where this document treats the gate as given,
+> read "the dual of the gate" as "the value filter." The D34 proposal and the §4 decision-change notes
+> are updated to match; the executive summary, per-question conclusions, and recommended design (§1–§3)
+> are left as the historical analysis (read them with this reconciliation in mind).
 
 **Provenance note (load-bearing).** This effort has an asymmetric external cross-check. **Codex
 succeeded** (`external_agents/codex_decontext_grounding.md`, 3,168 words, decontextualization +
@@ -350,26 +360,28 @@ against the gate's savings.
   Postgres state (`claim_extraction_decisions`), mirroring D27.** Rebuild reads stored claims+decisions,
   never re-calls the model (D7 = stored-and-auditable for the LLM rungs). Idempotent on the chunk content
   hash + `extractor_version` (D12).
-- **D34 — E2 Selection is the claim-level dual of the E1.5 section-level value gate, kept metrically
-  separate.** E1.5 = pay-or-defer per section (salience, D25); Selection = is-a-verifiable-claim per
-  proposition (verifiability). Orthogonal axes; report on separate metrics (gate false-skip vs Selection
-  precision/recall) to avoid double-counting.
+- **D34 — E2 Selection is THE value filter (no section-level gate to be the dual of).** With the
+  pre-extraction value gate dropped (D25 — O3 resolved, mechanism rejected), junk-control lives entirely
+  at the proposition grain: Selection decides **verifiability** (not relevance — D16 — and not ambiguity —
+  the disambiguation step), plus D2 redundancy-collapse. Selection's metrics stand alone.
 - **D35 — Selection recall envelope (defer-don't-DROP one grain down).** Conservative KEEP bias,
   never-drop lexical classes, a `kept_flagged` low-confidence outcome (no hard delete), the DROP ledger
   for version-filtered re-examination, and per-fact canary CI. Mirrors D29 at claim grain.
 
 ### What changes in D4 / D7 / D12 / D19 / D25–D30
 - **D4 (cheap-first)** — extended: a third cheap-first instance (Selection in-call, entailment self-
-  verdict in-call, independent judge only on a sampled/borderline stream) sits *inside* E2, downstream of
-  E1.5's gate cascade and upstream of E3's supersession cascade.
-- **D7 (rebuildable)** — the E2 decision ledger is rebuildable **state**, with the same determinism caveat
-  as the gate: deterministic rungs recomputable, LLM rungs replay-from-storage. Add
+  verdict in-call, independent judge only on a sampled/borderline stream) sits *inside* E2, upstream of
+  E3's supersession cascade.
+- **D7 (rebuildable)** — the E2 decision ledger is rebuildable **state**, with an explicit determinism
+  caveat: deterministic rungs recomputable, LLM rungs replay-from-storage. Add
   `claim_extraction_decisions` to the Postgres-authoritative set.
 - **D12 (per-doc chain)** — E2 is still the per-document Cloud Tasks stage; only its internal shape (2
   calls, ledger writes) changes; idempotency key gains `extractor_version`.
 - **D19 (coref in-call)** — **realized** by D31's context bundle (intra-document only; cross-document
   coref remains the acknowledged open gap, `decisions.md:400-404`).
-- **D25–D30 (value gate)** — **unchanged**; D34 records the claim-level/section-level duality.
+- **D25 (no value gate)** — the pre-extraction value gate is **dropped** (O3 resolved: premise accepted,
+  mechanism rejected); junk-control moves to E2 Selection + D2. D34 simplifies to "Selection is THE value
+  filter" (no section-grain dual). The former D26–D30 are withdrawn.
 
 ### Open risks & what to prototype first
 **Spike before locking (highest leverage first):**
