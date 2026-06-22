@@ -1,0 +1,27 @@
+You are a senior NLP / information-extraction researcher. Produce an exhaustive, evidence-backed markdown analysis. Be concrete, cite repo file paths and sources, give real techniques and numbers, avoid filler.
+
+PROJECT CONTEXT (read first)
+- /Users/jpuc/code/moje/ultimate_memory/ugm/plan/designs/registries_design.md
+- /Users/jpuc/code/moje/ultimate_memory/ugm/decisions.md (D15 ontology core+extensions, D18 8-type seed core + domain/range, D17 resolution cascade)
+
+The system maps entity mentions to canonical entity IDs in a large-scale memory system, with an 8-type ontology core (Person, Organization, Place, Document, Event, Concept, Project, Product) + extensions, and predicate domain/range constraints that DEPEND on entity types being known. The gap: how a mention/entity gets assigned its TYPE is unspecified. Your job is the LANDSCAPE + the hard cases, to inform our design.
+
+COVER:
+1. HOW DO PRODUCTION/OSS SYSTEMS TYPE ENTITIES? Read the actual source and report what is real (file:line):
+   - graphiti (/Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/graphiti): entity_types system, the extract_nodes prompt, how a type label is attached to a node, default/fallback type, type-on-merge behavior.
+   - cognee (.../cognee): how extracted entities are matched to ontology classes (the ~0.8 fuzzy cutoff), what happens to unmatched, default typing.
+   - lightrag (.../lightrag) and graphrag (.../graphrag): the entity_types list passed to the extraction prompt, the default DEFAULT_ENTITY_TYPES, how unknown types are handled.
+   - mem0 (.../mem0): does it type entities at all?
+2. THE TYPED-NER / ZERO-SHOT-TYPING LANDSCAPE, with tradeoffs and numbers:
+   - GLiNER (/Users/jpuc/code/moje/ultimate_memory/ugm/_additional_context/GLiNER) and GLiREL (.../GLiREL): zero-shot typing against an arbitrary label set — accuracy, speed/cost, how the label set is supplied, suitability as a cheap typing tier.
+   - classic NER (spaCy/Stanza/Flair, OntoNotes 18-type inventory): fixed types, F1, where it helps.
+   - LLM typing via structured output (type as an enum field in the extraction schema): precision, the "type menu size" effect on accuracy.
+   - external authorities as a free type source: DOI->Document, ORCID->Person, GLEIF LEI->Organization, Wikidata instance-of/P31 -> type. Coverage & reliability.
+3. THE HARD CASES — survey how the field handles them:
+   - POLYSEMY / type ambiguity: "Washington" (Person/Place/Org), "transformer" (Concept/Product/Document), "Apple" (Org/Product/Fruit). Context-dependent typing; metonymy ("the White House said" = Organization, not Place).
+   - mention-level vs entity-level: per-mention type votes vs one canonical entity type; how to reconcile; how disagreement signals an entity-resolution error (two different referents) vs genuine ambiguity.
+   - the DUMPING-GROUND problem: a broad catch-all type (our `Concept`) absorbing everything; evidence this happens; mitigations.
+   - subtype granularity: when to assign a fine subtype vs the core type; coarse-to-fine typing.
+4. EVALUATION: how is entity typing measured (typed-NER F1, entity linking type accuracy)? What's a realistic accuracy ceiling, and how would we build a typing golden set?
+
+Write the full analysis to stdout as markdown. 2000-3500 words. Lead with "Key findings", then the four sections with evidence/citations, then "Implications for the ugm typing design" (concrete recommendations, where you agree/disagree with an extraction-time + cascade approach).

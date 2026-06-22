@@ -2,9 +2,15 @@
 
 A step-back critique of the layered architecture as captured in
 `../requirements/requirements_v3.md` and `../designs/overall_design.md` (June 2026).
-Status: **O1 accepted → D14** (E/K/P plane naming, applied across docs); **O5 in progress**
-(analysis written: `entity_registry.md`; D15/D16 logged; `registries_design.md` + quality
-metrics still pending); O2–O4, O6 open.
+Status:
+- **O1 accepted → D14** (E/K/P plane naming).
+- **O5 accepted → D15–D24** (entity-registry/ontology subsystem). Researched in
+  `registry_research/`; design doc `plan/designs/registries_design.md`.
+- **O6 partially folded in** via D22 (eval loop ships v1; ER half + retrieval half).
+- **O3 researched** (`value_gate_research/` — premise verified); formalization (D25–D30)
+  follows in a separate PR.
+- **O2, O4 still open.**
+
 When an objection is accepted, it lands as a decision (D14+) and flows into the docs;
 when rejected, the rationale is recorded here.
 
@@ -67,9 +73,9 @@ its own machinery.
 **Objection.** The design runs Claimify + coreference + entity resolution + relation
 normalization on *everything*. At 1M documents most content is boilerplate, duplication, or
 low-value filler (cf. the Mem0 audit finding: ~98% of unfiltered extracted entries were junk).
-L2 is simultaneously the cost center and the quality bottleneck — and it processes a paper's
-references section with the same enthusiasm as its core findings. Junk in L2 poisons
-relations, the graph, and every compiled layer downstream.
+E2/E3 is simultaneously the cost center and the quality bottleneck — and it processes a paper's
+references section with the same enthusiasm as its core findings. Junk in E2 poisons relations,
+the graph, and every compiled layer downstream.
 
 **Proposed change.** Tiered processing:
 
@@ -110,7 +116,7 @@ Promote from nice-to-have to requirement.
 
 ---
 
-## O5. Entity resolution and predicate governance deserve subsystem status
+## O5. Entity resolution and predicate governance deserve subsystem status  ✅ ACCEPTED → D15–D24
 
 **Objection.** Both are flagged "make-or-break" in the decisions (D4, D5) and then live as
 bullets inside the L2 section. If entity resolution is mediocre: relations are garbage, the
@@ -155,7 +161,8 @@ O3/O5's gates and thresholds.
 
 ## Priority
 
-If only three: **O3** (pure cost/quality leverage), **O6** (everything else is blind tuning
-without it), **O2** (less machinery to build before learning whether compiled layers work at
-all). O1 is a cheap doc reframe worth doing alongside; O4 and O5 fold naturally into the
-upcoming L2 / git-layer / entity-registry design docs.
+Original call (if only three): **O3**, **O6**, **O2**. **Status update:** O1 (→D14) and O5
+(→D15–D24) are done; O6 is half-folded via D22 (eval loop); O3 is researched with
+formalization pending in a separate PR. **Remaining open: O2** (collapse K1–K3 — orthogonal,
+untouched) and **O4** (semantic regenerability / manifests for the K-plane git layers). Both
+naturally belong with the upcoming K-layer design docs.

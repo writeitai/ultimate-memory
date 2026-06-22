@@ -34,7 +34,7 @@ What the graph IS for:
 | Relationship lookup | "how are X and Y connected?" (1–2 hops) |
 | As-of reconstruction | "what did we believe about X on 2025-03-01?" |
 | Structural navigation | citation chains, person↔org affiliations, doc↔entity mentions |
-| (Later) graph analytics | communities, PageRank, paths — feeding K1 topic hints |
+| graph analytics | communities, PageRank, paths — feeding K1 topic hints (§7) |
 
 ## 2. Ontology and schema
 
@@ -162,7 +162,7 @@ system currently holds true. History stays queryable forever.
 LadybugDB's concurrency model (verified): **one READ_WRITE process XOR many READ_ONLY
 processes** on the same database files. Don't fight this — design around it.
 
-### The writer: periodic full rebuild (Phase 1)
+### The writer: periodic full rebuild
 
 Instead of incremental event application, the P2 worker **rebuilds the whole graph from
 Postgres on every cycle**:
@@ -185,7 +185,7 @@ Why rebuild-first instead of incremental:
 - **It fits the trigger model.** P2 is a debounced aggregate layer anyway (requirements v2) —
   nobody needs second-level graph freshness; the cadence (start: hourly) is the freshness SLA.
 - **Cheap at our scale.** A few GB rebuilt in minutes on one Cloud Run job. Only when rebuild
-  time outgrows the cadence does incremental (Phase 2) pay for itself — and the watermark
+  time outgrows the cadence does incremental application pay for itself — and the watermark
   machinery can then be added without changing readers at all.
 
 ### The readers: read-only snapshot copies
@@ -200,13 +200,14 @@ This gives horizontally scalable reads, zero lock contention, cross-cloud friend
 (Hetzner Postgres never serves graph queries), and free point-in-time debugging — old
 snapshots ARE the graph as-of their timestamp.
 
-### Phase 2: incremental between rebuilds (only if needed)
+### Alternative (a deliberate non-goal): incremental between rebuilds
 
-If freshness demands tighten: keep the periodic full rebuild (e.g. nightly) as the anchor, and
-between rebuilds apply claim events from a Postgres outbox (`graph_events`, watermark stored in
-Postgres) to a working copy, publishing micro-snapshots. The rebuild still guarantees drift is
-bounded by one rebuild cycle. Don't build this until someone actually needs sub-hour graph
-freshness.
+Rebuild-first is the design. Incremental application is documented here only as the alternative
+we would adopt **if** sub-hour graph freshness ever became a hard requirement — it is *not* part
+of the current design. The shape, for the record: keep the periodic full rebuild as the anchor,
+and between rebuilds apply claim events from a Postgres outbox (`graph_events`, watermark stored
+in Postgres) to a working copy, publishing micro-snapshots; the rebuild still bounds drift to
+one cycle. At the target scale, rebuild-first is sufficient (§5).
 
 ## 5b. Verified LadybugDB capabilities (source tree + official docs)
 
@@ -228,7 +229,7 @@ Two design touch-ups this verification forces:
 
 - **As-of traversal**: implemented via projected graphs (rel predicates on the temporal
   columns), since there are no native temporal query semantics.
-- **Phase 3 communities**: Louvain/Leiden are not shipped. Run community detection externally
+- **Communities**: Louvain/Leiden are not shipped. Run community detection externally
   (e.g. igraph/graspologic over the same Parquet export that feeds the rebuild) and write
   assignments to Postgres; PageRank/K-Core/WCC can run natively in LadybugDB.
 
@@ -259,7 +260,7 @@ one-engine hybrid search. Four reasons:
 
 Division of labor: **Lance = entry** (semantic + BM25 + scalar-filtered candidate generation),
 **LadybugDB = structure** (expansion, paths, graph-distance reranking, as-of traversal via
-projected graphs). Revisit only if the snapshot model itself changes (e.g. Phase 2 incremental
+projected graphs). Revisit only if the snapshot model itself changes (e.g. an incremental
 writer makes in-graph HNSW maintenance plausible) — and even then, reason #1 must first
 disappear upstream.
 
@@ -312,7 +313,7 @@ as_of?, hops?)`, `path(a, b, max_hops)`, relation/claim search with filters) **p
 search recipes** (`relation_hybrid_rrf`, `relation_near_entity`, `claims_verbatim`, …) so
 agents pick a strategy instead of assembling plumbing per call.
 
-## 7. Communities and K1 hints (Phase 3)
+## 7. Communities and K1 hints
 
 LadybugDB ships some graph algorithms natively (PageRank, K-Core, connected components). Run
 them on the snapshot after rebuild, write results **back to Postgres** (community assignments,
@@ -339,15 +340,7 @@ PageRank/K-Core/WCC run natively on the snapshot.
 | Graph size growth | Invalidated edges older than N months can be excluded from the *hot* snapshot (PG keeps everything; deep time-travel falls back to PG or an archive snapshot) |
 | Predicate explosion | Registry governance (§3); rebuild makes vocabulary cleanups retroactive for free |
 
-## 9. Phasing
-
-- **Phase 1**: schema, Parquet export, full-rebuild writer, GCS snapshots, read-only serving,
-  neighborhood + as-of queries in API/CLI.
-- **Phase 2** (if freshness demands it): outbox + incremental micro-snapshots between rebuilds.
-- **Phase 3**: communities + PageRank feeding K1 triggers and retrieval ranking; multi-hop/path
-  queries; possible promotion of hot predicates to dedicated rel tables.
-
-## 10. Open questions
+## 9. Open questions
 
 1. Rebuild cadence to start — hourly or every 6h? (Cost is one Cloud Run job + a few GB of GCS
    traffic per cycle.)
