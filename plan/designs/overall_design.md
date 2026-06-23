@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D30); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D35); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -173,8 +173,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `overall_design.md` | this document | current |
 | `e0_files_design.md` | ingestion, markdown, PageIndex, cross-refs | future |
 | `e1_chunks_design.md` | chunking, context prefixes, P1 layout | future |
-| `e2_value_control_non_goal.md` | why there is no value gate; junk-control at E2 Selection + D2 (D25) | **current** |
-| `e2_e3_claims_relations_design.md` | extraction, relation normalization, supersession cascade | future |
+| `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
 | `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | future |
 | `k3_beliefs_design.md` | belief derivation and update rules | future |
