@@ -47,6 +47,8 @@ and flow downward.
 | [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design |
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |
 | [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | Claim extraction + relation normalization; why there is no value gate (D31–D35, D25) |
+| [plan/designs/e0_files_design.md](plan/designs/e0_files_design.md) | E0 document layer + P3 corpus filesystem (D36–D40) |
+| [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | E2/E3 claim extraction + relation normalization (D31–D35) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
@@ -55,5 +57,5 @@ and flow downward.
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D35) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D40) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

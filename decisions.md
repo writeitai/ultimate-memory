@@ -629,3 +629,96 @@ corpus average.
 
 **Context.** Mirrors the recall-conservative discipline the dropped gate carried (former D29), relocated
 to the grain where junk is actually identifiable. (C4; D33.)
+
+---
+
+> **D36–D40 provenance.** D36–D40 formalize the E0 (document layer) + corpus-filesystem analysis
+> (`_feature_planning/e0/` — Claude + Codex). Binding design: `plan/designs/e0_files_design.md`.
+> Numbers/choices are starting points to measure (CLAUDE.md), not committed constants.
+
+## D36. E0 is the document layer — a chain of idempotent sub-workers, not a renumber
+
+**Decision.** E0 stays a single product layer (*files / structured document*) implemented as a short
+chain of separately-idempotent, separately-observable sub-workers: **ingest** (store raw + hash) →
+**convert** (raw → Markdown) → **structure** (PageIndex tree + roles + spans + summaries + placement
+hint) → **crossref** (citations / document links). PageIndex post-processing is **not** promoted to a
+top-level stage; E1/E2/E3 are **not** renumbered.
+
+**Context.** The E-numbers name *product layers* (files → chunks → claims → relations); PageIndex
+structure is metadata *about the document*, before chunking, so it belongs to E0. Renumbering would
+churn every doc that references E1–E3 for no architectural gain (the L→E rename cost is the cautionary
+precedent). Each sub-worker keys idempotency on `content_hash + its own version` (D12) so a single
+config change doesn't rerun the whole chain.
+
+**Consequences.** E0's output contract is unchanged (durable artifacts + queryable structure, ready
+for E1). Operational complexity is handled by decomposition, not numbering.
+
+## D37. E0 storage split — GCS holds bodies, Postgres holds the index; ID-addressed; mount-ready
+
+**Decision.** Two GCS buckets per deployment: a **raw** bucket (immutable originals, cold, strict
+IAM, **never mounted**) and an **artifacts** bucket (Markdown + `pageindex.json` + conversion
+sidecars, standard storage, reachable from the mounted corpus filesystem). Canonical objects are
+**ID-addressed** (`doc_id` + `content_hash`), never title-addressed. **Postgres never stores document
+body/Markdown text** — only compact query-critical metadata (identity, versions, state, artifact
+URIs, hashes, costs, and the section index: titles/paths/roles/spans/summaries). `content_hash`
+(sha256 of raw bytes) is the idempotency key (D12) and the only surviving dedup (idempotency, not a
+value tier — D25).
+
+**Context.** Postgres is the E-plane ledger; GCS is the blob store. Storing 1M document bodies in
+Postgres bloats it for nothing and puts text where agents can't mount it. The precise rule (bodies in GCS, queryable metadata in Postgres) keeps the spine queryable while the
+text lives where it can be mounted.
+
+**Consequences.** Postgres stays lean; the artifact store is mount-friendly (D40); a converter
+change re-converts by version (D7).
+
+## D38. Configurable raw → Markdown conversion module
+
+**Decision.** A pluggable, **configurable** conversion module (a reusable open-source library):
+interface `convert(bytes, mime, hints) -> { markdown, blocks[] }` where `blocks` carry **page +
+character offsets back to the source** (load-bearing for E2 grounding D32, chunking, PageIndex). A
+**router** selects a converter by input type per-deployment config (digital PDF → text extract;
+scanned/complex PDF + images → OCR e.g. Mistral OCR; office/html/email → markitdown; text →
+passthrough). **Versioned** (`converter_version`): a converter/routing change re-converts affected
+docs and rebuilds downstream.
+
+**Context.** Conversion quality gates the whole pipeline, so it is pinned and reprocessable.
+Generalizes common practice (Mistral OCR for PDFs, markitdown elsewhere) into a routing table. (User
+proposal.)
+
+## D39. PageIndex provides per-document structure — sidecar + PG index, structure-only, summaries kept, placement-hint-extended
+
+**Decision.** PageIndex builds a per-document hierarchical tree (`node_id`, `title`, `summary`,
+nested nodes, spans). It is used as **structure, not a retrieval engine** (we keep chunk + embed +
+graph, D8/D9). Stored **both** as a `pageindex.json` sidecar (artifact) **and** a Postgres
+`document_sections` index (queryable path/role/span per chunk for E1/E2). **Per-section summaries are
+kept** (cheap, per-section) as **context never facts** — feeding E1 prefixes, navigation, and
+selection-explainability; the corpus's *global* high-level picture remains the K plane's job, so it
+never depends on summary quality. The PageIndex output is **extended with a `placement` hint**: a
+proposed path for the document (and key sections) in the corpus's hypothetical directory tree —
+advisory input to the P3 projection (D40), not a commitment.
+
+**Context.** Structure is load-bearing (section-aware chunk boundaries + the E2 role signal); summaries
+are cheap polish worth measuring, not deleting on intuition. The placement hint lets E0 seed the
+corpus filesystem (P3, D40) — a per-document path guess produced where the document is freshly
+understood, reconciled into a coherent tree by the projection.
+
+## D40. P3 — the corpus filesystem: a mountable, rebuildable projection
+
+**Decision.** The system builds a **canonical corpus filesystem** (a published navigable view, no source-of-truth): a materialized **GCS bucket
+laid out as a directory tree** organizing the whole corpus for agent navigation, **mounted read-only**
+to agentic workers (`gcsfuse`). It is a **P-plane projection** (P3) — derived, holds no
+source-of-truth, **rebuilt from Postgres + document artifacts**, like P1/P2. A projection worker
+materializes/maintains the tree from the **placement hints** (D39) + entities/relations + the K-plane
+structure: folders by topic/source/time/entity, leaves linking to per-document artifacts, a generated
+`_index.md` / `llms.txt` at each level. K (compiled understanding) and P3 (navigable index over
+sources) cross-link and compose; they are not duplicates.
+
+**Context.** Agentic consumers need to browse the memory as a filesystem, which requires a navigable
+corpus tree. Cross-document organization is a function of evolving knowledge, so it must be a
+**rebuildable projection** (P3), not E0 state — per-document structure is E0 (intrinsic), corpus
+organization is P3 (derived). Realizes the "extend PageIndex with placement → projection materializes
+a mounted bucket tree" design.
+
+**Consequences.** Agents browse a stable, navigable hierarchy and drill into raw sources; the tree
+reorganizes as the corpus grows without touching truth (placement hints are inputs). New projection in
+plane P alongside P1 (search) and P2 (graph).
