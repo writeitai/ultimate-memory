@@ -191,7 +191,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `k3_beliefs_design.md` | belief derivation and update rules | planned |
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
 | `retrieval_design.md` | API/CLI/MCP, recipes, rerankers | planned |
-| `postgres_schema_design.md` | spine schema, migrations, indexes | planned |
+| `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
 
 ## 10. Open questions
 

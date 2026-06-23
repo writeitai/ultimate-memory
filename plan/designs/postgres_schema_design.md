@@ -1,0 +1,1626 @@
+# Postgres Schema Design — the Plane-E Spine
+
+This document specifies the **complete Postgres schema** for `ugm`: every table, column,
+primary key, foreign key, index, enum, and the partitioning / deletion / versioning rules that
+tie them together. Postgres is the **single source of truth for plane E** (evidence) and the
+**only home of validity/invalidation state** (D6); every other store (LanceDB, LadybugDB, the
+GCS corpus filesystem, the K-plane git repo) is either a rebuildable projection of what lives
+here or an independently-backed source of truth whose *provenance and triggers* live here.
+
+It is the binding companion to `overall_design.md` (§3 core data model, §9 lists this doc),
+`registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
+`e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
+`concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
+(D1–D40). Where a table or column exists *because of* a decision, the decision is cited inline.
+
+> **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
+> conversation. Each module opens with what it stores and *why it has the shape it has*; each
+> column carries a description stating what it holds, its units, and any non-obvious constraint.
+> Jargon is defined where first used or cited to a companion doc: **blocking** and **bi-temporal**
+> in `concepts.md` §6/§5, **supersession** in `concepts.md` §4. The few statistical/tool terms
+> this doc uses (**Wilson interval**, **Splink waterfall**, **novelty gate**) are glossed at first
+> use below.
+
+> **This is the full-scope schema (CLAUDE.md Rule 2).** It is sized and shaped for the millions-
+> of-documents target, not an MVP. Numbers (partition cadence, retry budgets, golden-set sizes,
+> threshold defaults) are **starting points to measure**, labelled as such — never committed
+> constants. The one deliberately-excluded mechanism is the graph incremental-sync outbox
+> (`graph_events`), a documented *non-goal* under D7 (rebuild-first); its absence is a scope
+> boundary, not a deferral. §15 records it as a non-goal.
+
+---
+
+## 0. Conventions
+
+These rules apply to every table unless a module overrides them with a stated reason.
+
+- **Migrations & DDL ordering.** The schema is owned by **Alembic** (requirements_v3 §Code). The
+  DDL in this document is the source; the migration emits each inline `--` column description as a
+  `COMMENT ON COLUMN` and each `COMMENT ON TABLE` shown here. **All `CREATE TYPE` enum statements
+  (§1) are created first, before any table** — they are presented in §1 (immediately below) for
+  exactly this reason. Extensions (below) are created before that.
+- **Identifiers.** All surrogate primary keys are **`uuid`**, generated as **UUIDv7**
+  (time-ordered) by the application/worker, *not* the database — Cloud Run workers write
+  concurrently and a central sequence would be a hotspot, while UUIDv7's leading timestamp gives
+  index/heap locality on append-only tables and lets a reader derive the row's creation month from
+  the id alone (used for partition pruning, §12). UUIDv7 also satisfies "`entity_id` is **never
+  reused**" (D17/§4) for free. IDs are worker-minted so the row's identity is known before the
+  INSERT (needed for idempotency and for deterministic-id dedup, §9).
+- **Time (bi-temporal vocabulary).** Every timestamp is **`timestamptz`** (UTC). Two distinct
+  *kinds* of time recur and must not be conflated (`concepts.md` §5):
+  - **valid-time** — when a fact held *in the world*. On **relations** this is
+    `valid_from`/`valid_until`; on **claims** the world-axis is the single point `asserted_at`
+    (when the source asserted it) — claims are assertions, not intervals, so they carry one
+    valid-time stamp, not a window.
+  - **transaction-time** — when the *system* learned/un-learned it: `ingested_at` (claims,
+    relations) and `invalidated_at` (relations only). Never revised on claims; revisable on
+    relations (supersession).
+  The pair = "bi-temporal". A relation answers both "true in the world at T?" and "believed by us
+  at T?"; a claim answers "asserted when / ingested when?" and never changes.
+- **Tenancy (`deployment_id`) and cross-deployment isolation.** The system runs as **N independent
+  deployments**, one per problem domain (personal assistant, agency, a manufacturer's migration, a
+  legal engine); entity spaces are **never shared across deployments** (`registries_design.md` §1,
+  D16). Every deployment-scoped table carries `deployment_id`. Two physical realizations satisfy
+  the same logical schema: **(a)** one database with `deployment_id` on every row (optionally with
+  Row-Level Security), or **(b)** schema-/database-per-deployment (the column is then constant
+  within a schema). This document is written for the stricter case (a). **The
+  "never co-resolve across deployments" invariant is enforced structurally, not by prose:** every
+  deployment-scoped parent table carries a `UNIQUE (deployment_id, <pk>)` key, and every
+  deployment-scoped foreign key is **composite** — `FOREIGN KEY (deployment_id, x_id) REFERENCES
+  parent (deployment_id, x_id)` — so a row in deployment A *cannot* reference a row in deployment B
+  even though UUIDs are globally unique. (This is the single biggest change from a naive
+  single-column-UUID FK design and is applied throughout.) **The one documented exception is a
+  *self-referential* FK** — a row pointing at another row of the *same* table (a section's parent
+  section; a merge or adjudication supersession chain: `merge_events.reversed_by`,
+  `relation_adjudications.superseded_by`). Both rows are by construction in the same deployment (same
+  document, same registry), so these remain single-column for brevity; they cannot cross deployments
+  because the worker only ever links rows it created within one deployment.
+- **Foreign keys at scale (D23).** The large append-only E-plane tables (`mentions`,
+  `resolution_decisions`, `relation_evidence`, `claims`, `claim_extraction_decisions`, `chunks`)
+  are **RANGE-partitioned by month** and use **logical foreign keys** — referential integrity
+  enforced by the idempotent workers and verified by a periodic **auditor query**, **not** by a
+  DB-level `FOREIGN KEY`. Reasons: (1) Postgres requires a FK to a partitioned table to reference a
+  unique constraint that *includes the partition key*, which would force the partition month into
+  every child and join; (2) D23's "btree-only, cap write-amplification" mandate on these hot
+  tables. **All non-partitioned tables use real composite FK constraints** with the `ON DELETE`
+  behavior stated per column. A logical-only FK is tagged `-- LOGICAL FK → table(col)`. The auditor
+  checks for orphans **and** for duplicate logical-unique tuples that a partitioned table cannot
+  enforce in-DB (notably `(relation_id, claim_id)` in `relation_evidence`, §9).
+- **Versioning (D1, D12).** Every non-deterministic output records the version of the component
+  that produced it (`*_version` columns), resolving to a row in `pipeline_component_versions` (§2)
+  that pins model + prompt hash + params. This is what makes "rebuild = replay stored state, never
+  re-call the model" (D7/D33) auditable and what scopes a re-processing batch.
+- **Enums** (§1) are small, stable, system-owned vocabularies; `ALTER TYPE ... ADD VALUE` extends
+  them. User-governed vocabularies (entity types, predicates) are **registry tables** (§3), not
+  enums (D5/D15) — they must be insertable at runtime with descriptions and parent links.
+- **JSONB** is used only for open-ended, not-queried-by-key payloads (resolver feature vectors,
+  tier configs, validation reports, DLQ payloads). Anything filtered or joined is a column.
+- **Naming.** snake_case; tables plural; `_id` = identity reference; `_ref` = opaque key into
+  another store (e.g. a Lance row key); `_uri` = GCS object URI; `_at` = timestamptz; `_version` =
+  component version string.
+- **No document/body text in Postgres (D37).** Postgres stores compact, query-critical metadata
+  and the section index; bodies/Markdown/chunk text/embeddings live in GCS / Lance. The schema
+  stores **offsets + URIs**, plus the small generated artifacts that must be *replayed* on rebuild
+  (context prefixes, claim text, decision ledgers) — derived metadata, not source bodies.
+
+Required Postgres extensions (created before all types and tables):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid fallback; digests
+CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- T1 fuzzy blocking: trigram GIN on names (D17)
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch; -- T2 phonetic: daitch_mokotoff() (D17, NOT soundex)
+CREATE EXTENSION IF NOT EXISTS unaccent;      -- accent-fold names before trigram/phonetic (registries §5)
+CREATE EXTENSION IF NOT EXISTS btree_gin;     -- composite GIN (deployment_id + trigram/phonetic) on blocking tables
+CREATE EXTENSION IF NOT EXISTS btree_gist;    -- composite GiST: relations bi-temporal EXCLUDE constraint (§9)
+CREATE EXTENSION IF NOT EXISTS pg_partman;    -- monthly RANGE partition automation (D23, §12)
+```
+
+PostgreSQL **16+** is assumed (composite-FK column-list `ON DELETE SET NULL` requires 15+; this is
+relied on for `document_crossrefs`, §6).
+
+---
+
+## 1. Enum types (created first)
+
+System-owned, stable vocabularies, created before any table. Extended with
+`ALTER TYPE ... ADD VALUE`. (User-governed vocabularies — entity types, predicates — are registry
+*tables*, §3, not enums.)
+
+```sql
+CREATE TYPE deployment_status      AS ENUM ('active','suspended','archived');
+
+-- Every non-deterministic producer that stamps a *_version resolving to pipeline_component_versions
+-- has a value here (so a version string can always resolve to a catalog row, D1/D12):
+CREATE TYPE pipeline_component     AS ENUM (
+  'ingester','converter','structurer','crossreferencer','chunker','context_prefixer',
+  'extractor','grounder','resolver','normalizer','adjudicator','embedder','fact_labeler',
+  'community_detector','snapshot_builder','knowledge_compiler','judge');
+CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','snapshot','knowledge_artifact');
+CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','embed_relation','label_relation','build_snapshot','detect_communities','compile_knowledge');
+CREATE TYPE processing_status      AS ENUM ('pending','running','succeeded','failed','dead_letter','skipped');
+
+CREATE TYPE ontology_tier          AS ENUM ('core','extension','other','deprecated');
+CREATE TYPE ontology_status        AS ENUM ('active','deprecated');
+CREATE TYPE scope_interest_kind    AS ENUM ('entity_type','predicate','metadata','keyword');
+
+CREATE TYPE entity_status          AS ENUM ('active','merged','retired');
+CREATE TYPE alias_provenance       AS ENUM ('source','llm_canonical');
+CREATE TYPE resolution_tier        AS ENUM ('T0','T1','T2','T3','T4_small','T4_frontier','human');
+CREATE TYPE decision_actor         AS ENUM ('auto','human');
+
+CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','type_conflict','generic_identifier','contradiction');
+CREATE TYPE review_status          AS ENUM ('pending','accepted','rejected','deferred','auto_resolved');
+-- Covers all review_item_kinds (D24), not just merges: pick_a/pick_b/both_stand for contradictions,
+-- downweight/keep_signal for generic_identifier, retype for type_conflict.
+CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype','downweight','keep_signal','pick_a','pick_b','both_stand','uncertain');
+CREATE TYPE golden_label           AS ENUM ('match','no_match');
+CREATE TYPE golden_hardness        AS ENUM ('hard_positive','hard_negative','easy');
+CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding','retrieval','contradiction');
+CREATE TYPE selection_outcome      AS ENUM ('keep','rewrite','drop','kept_flagged');
+
+CREATE TYPE document_status        AS ENUM ('ingesting','converting','structuring','ready','failed','deleted');
+CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
+CREATE TYPE crossref_kind          AS ENUM ('cites','links_to','attaches','replies_to');
+
+CREATE TYPE claim_temporal_class   AS ENUM ('static','dynamic','atemporal');
+CREATE TYPE grounding_audit_status AS ENUM ('unaudited','sampled_pass','sampled_fail','escalated');
+-- The ledger records DROPs, low-confidence keeps (flags), and decontextualization EDITs.
+-- Plain keeps are NOT persisted (they ARE the claims row); see §8.
+CREATE TYPE extraction_decision_type AS ENUM ('selection_drop','selection_keep_flagged','decontext_edit');
+CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','generic','question','intro','conclusion','no_info','ambiguous','references_boilerplate');
+
+CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
+CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
+CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal');
+CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
+
+CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs');
+CREATE TYPE snapshot_status        AS ENUM ('building','validating','published','superseded','failed');
+CREATE TYPE community_algorithm    AS ENUM ('leiden','louvain');  -- external detection pass (D11)
+
+CREATE TYPE knowledge_layer        AS ENUM ('K1','K2','K3');
+CREATE TYPE knowledge_artifact_status AS ENUM ('active','stale','tombstoned');
+CREATE TYPE knowledge_evidence_role AS ENUM ('supports','contradicts','cites');
+CREATE TYPE knowledge_trigger      AS ENUM ('claims_changed','community_changed','debounce_timer','manual','tombstone');
+CREATE TYPE refresh_status         AS ENUM ('pending','running','done','failed');
+```
+
+`novelty_gate` (in `adjudication_method`) is the deterministic short-circuit at the front of the
+supersession cascade: if a new claim's `(subject, predicate, object)` fact already exists with a
+compatible window and adds nothing new, adjudication is skipped entirely (no LLM call) — the
+cheap-first rung of D4. The other methods are self-evident (exact / fuzzy / embedding / small
+model / frontier LLM).
+
+---
+
+## 2. Tenancy & pipeline infrastructure
+
+The substrate every other module sits on: the deployment registry, the component-version catalog
+that gives every `*_version` string meaning, the idempotency/dead-letter ledger that makes workers
+re-runnable (D12), and the cost ledger that meters LLM/embedding spend per layer
+(`overall_design.md` §8).
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- deployments — the tenancy root. One row per independent instance (D16/registries §1).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE deployments (
+  deployment_id   uuid PRIMARY KEY,            -- stable instance identity; appears in every scoped FK
+  slug            text NOT NULL UNIQUE,        -- short handle used in GCS bucket names: ugm-<slug>-raw etc.
+  name            text NOT NULL,               -- human label ("Personal assistant", "Acme migration")
+  description     text,                        -- what this deployment is for
+  default_language text NOT NULL DEFAULT 'en', -- primary corpus language; gates the multilingual matching path (registries §5)
+  raw_bucket      text NOT NULL,               -- gs:// raw bucket (immutable originals, never mounted) — D37
+  artifacts_bucket text NOT NULL,              -- gs:// artifacts bucket (markdown/pageindex, mount-readable) — D37
+  corpusfs_bucket text NOT NULL,               -- gs:// P3 corpus-filesystem bucket (snapshots + latest) — D40
+  knowledge_repo_uri text,                     -- plane-K git remote (git is truth for K; PG holds provenance only) — D1
+  status          deployment_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE deployments IS
+  'Independent system instances (D16). Entity spaces, registries, graphs and buckets are never shared across rows here; deployment_id scopes every other table and participates in every scoped FK.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- pipeline_component_versions — what every *_version string means (D1/D12).
+-- Pin model+prompt+params so replay-on-rebuild (D7) is auditable and re-process batches can be
+-- scoped by a version filter (e.g. re-embed where embedding_version < 'emb-2026-02').
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE pipeline_component_versions (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  component       pipeline_component NOT NULL, -- which producer (see the pipeline_component enum, §1 — every value listed there can appear)
+  version         text NOT NULL,               -- the string stamped on artifacts (e.g. 'extractor-2026-03a')
+  model_name      text,                        -- LLM/embedding model id, if this component calls a model (e.g. 'claude-opus-4-8')
+  prompt_hash     text,                        -- sha256 of the rendered prompt template (registry-derived prompts change ⇒ new version) — D15
+  embedding_dim   int,                         -- embedder only: vector dimension (re-embedding is the hardest migration — questions.md Q3)
+  params          jsonb NOT NULL DEFAULT '{}', -- decoding params, routing table, thresholds snapshot, etc.
+  notes           text,
+  configured_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, component, version)
+);
+COMMENT ON TABLE pipeline_component_versions IS
+  'Catalog resolving every *_version string to its model/prompt/params, so replay-on-rebuild (D7) and version-scoped reprocessing are auditable (D1, D12). Every pipeline_component enum value can be catalogued here.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- processing_state — idempotency + status + dead-letter, the D12 spine.
+-- One row per (target, stage, component_version). A worker INSERTs (ON CONFLICT DO NOTHING) this
+-- row before work; it is a no-op if a row for the SAME (deployment_id, target_kind, target_id,
+-- stage, component_version) already has status='succeeded'. Because target ids are content-derived
+-- and stable (a document re-upload resolves to the same doc_id via documents' UNIQUE(deployment,
+-- content_hash); sub-document targets are deterministic), the (target,stage,version) tuple IS the
+-- content+version idempotency key D12 calls for. content_hash is carried for diagnostics/replay.
+-- The dead-letter queue is the rows with status='dead_letter' (no separate table).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE processing_state (
+  processing_id   uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  target_kind     processing_target NOT NULL,  -- document | document_section | chunk | claim | relation | snapshot | knowledge_artifact
+  target_id       uuid NOT NULL,               -- LOGICAL FK → the target table's PK (kind tells you which)
+  stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
+  component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
+  content_hash    text NOT NULL,               -- sha256 carried for diagnostics/replay; = doc raw-bytes hash, or parent-hash+salt for sub-document targets
+  status          processing_status NOT NULL DEFAULT 'pending',
+  attempts        smallint NOT NULL DEFAULT 0, -- Cloud Tasks retries so far
+  max_attempts    smallint NOT NULL DEFAULT 2, -- per-stage retry budget (D12 starting point, tunable per stage — not a committed constant); ≥ this and still failing ⇒ dead_letter
+  last_error      text,                        -- truncated error of the most recent failure
+  payload         jsonb,                       -- enqueue payload, kept for DLQ inspection / manual replay
+  enqueued_at     timestamptz NOT NULL DEFAULT now(),
+  started_at      timestamptz,
+  finished_at     timestamptz,
+  UNIQUE (deployment_id, target_kind, target_id, stage, component_version)
+);
+COMMENT ON TABLE processing_state IS
+  'Per-(target,stage,version) idempotency + status ledger (D12). No-op iff a succeeded row exists for the same (deployment,target_kind,target_id,stage,component_version). The DLQ is the rows with status=dead_letter; bounded retries then DLQ — failures never disappear.';
+CREATE INDEX ix_procstate_dlq      ON processing_state (deployment_id, stage) WHERE status = 'dead_letter';
+CREATE INDEX ix_procstate_runnable ON processing_state (deployment_id, status, stage) WHERE status IN ('pending','failed');
+CREATE INDEX ix_procstate_target   ON processing_state (target_kind, target_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- cost_ledger — per-invocation cost/latency metering for enforced per-layer budgets (§8 overall).
+-- A succeeded-but-ack-lost call must not be re-billed on the Cloud Tasks retry, so a ledger row is
+-- anchored to a single logical call by (target,stage,version,attempt); enforcement reads the
+-- deduplicated total.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE cost_ledger (
+  cost_id         uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  stage           pipeline_stage NOT NULL,     -- which layer/stage incurred the spend
+  target_kind     processing_target,           -- optional: what was being processed
+  target_id       uuid,                        -- LOGICAL FK → target
+  component_version text,                       -- LOGICAL FK → pipeline_component_versions(version)
+  attempt         smallint NOT NULL DEFAULT 0, -- the processing_state.attempts this call belongs to (dedup anchor)
+  model_name      text,                        -- model billed
+  tier            text,                        -- cascade rung that fired (e.g. 'T4-small','T4-frontier','selection','decontext') — cost scales with ambiguity (D4/D17)
+  tokens_in       bigint,                      -- prompt tokens (incl. cached-prefix accounting where applicable)
+  tokens_out      bigint,                      -- completion tokens
+  cost_usd        numeric(12,6),               -- billed cost in USD
+  latency_ms      integer,                     -- wall-clock of the call
+  occurred_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, target_kind, target_id, stage, component_version, attempt)  -- one billed row per logical call+attempt (no double-count on retry)
+);
+COMMENT ON TABLE cost_ledger IS
+  'Append-only spend/latency per LLM/embedding call, for per-layer dashboards + enforced budgets (overall §8). Idempotent per (target,stage,version,attempt) so a retried-but-already-billed call cannot double-count; budget enforcement reads the deduplicated total.';
+CREATE INDEX ix_cost_layer_time ON cost_ledger (deployment_id, stage, occurred_at);
+```
+
+---
+
+## 3. Ontology & predicate registry (D5, D15, D18)
+
+The **governed vocabulary**: entity types and predicates, their hierarchy (extend-never-fork), and
+the **domain/range signatures** that mechanically reject extraction hallucinations
+(`works_for: Person → Organization`). This is *content, not new machinery* (D15) — prompts render
+from these rows. The core is identical in every deployment; **extension packs** and **scopes** add
+to it per deployment.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- extension_packs — system-shipped sets of types+predicates a deployment enables as a unit.
+-- "Extensions are not second-class" (registries §4): full entity status, governance tier only.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE extension_packs (
+  pack_id         text PRIMARY KEY,            -- stable pack handle: 'work' | 'legal' | 'systems' | ...
+  name            text NOT NULL,
+  description     text NOT NULL,               -- what the pack is for and which deployments want it
+  is_system       boolean NOT NULL DEFAULT true -- shipped with the system vs deployment-defined
+);
+COMMENT ON TABLE extension_packs IS
+  'Predefined bundles of extension types/predicates (registries §4) — e.g. the Work pack (Task/Decision/Goal). Enabling a pack inserts its registry rows for a deployment.';
+
+CREATE TABLE deployment_extension_packs (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  pack_id         text NOT NULL REFERENCES extension_packs,
+  enabled_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, pack_id)
+);
+COMMENT ON TABLE deployment_extension_packs IS 'Which packs each deployment has enabled (registries §1: core + chosen packs + own scopes).';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- scopes — K2 special-purpose lenses over the one shared entity space (D16).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE scopes (
+  scope_id        uuid NOT NULL,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  slug            text NOT NULL,               -- 'people' | 'product-atlas' | ...
+  name            text NOT NULL,
+  description     text,
+  git_path        text,                        -- directory in the K-plane repo this scope compiles into (K2)
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope_id),
+  UNIQUE (deployment_id, scope_id),            -- composite-FK target (tenancy isolation, §0)
+  UNIQUE (deployment_id, slug)
+);
+COMMENT ON TABLE scopes IS
+  'K2 scopes (D16): perspectives over shared evidence. "Scopes multiply; truth doesn''t" — a scope is registry rows + a view definition + a git directory, never a new database.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- entity_types — the typed-entity vocabulary (8-type core + pack/scope extensions, D18).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE entity_types (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  type            text NOT NULL,               -- 'Person','Organization',... ; extension subtypes like 'ResearchPaper'
+  parent_type     text,                        -- extend-never-fork: every extension declares a core parent (D15); NULL only for the 8 core roots
+  description     text NOT NULL,               -- plain-language meaning, rendered into extraction prompts (D15)
+  examples        text[] NOT NULL DEFAULT '{}',-- few-shot examples rendered into prompts
+  schema_org_ref  text,                        -- schema.org anchor (D18); spot-checked before freezing
+  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated (the three speeds, D15)
+  pack_id         text REFERENCES extension_packs, -- non-null if from an extension pack
+  scope_id        uuid,                        -- non-null if defined by a single K2 scope
+  status          ontology_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, type),
+  FOREIGN KEY (deployment_id, parent_type) REFERENCES entity_types (deployment_id, type),
+  FOREIGN KEY (deployment_id, scope_id)    REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
+);
+COMMENT ON TABLE entity_types IS
+  'Governed entity-type registry (D15/D18). 8 schema.org-aligned core roots + pack/scope extensions, each anchored to a core parent (extend-never-fork) so blocking and cross-scope queries always fall back to the core level.';
+CREATE INDEX ix_entity_types_parent ON entity_types (deployment_id, parent_type);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- predicates — the governed relation vocabulary (D5/D18). related_to is the core parent.
+-- The other:<freetext> escape (D5) is materialized here too: when the normalizer encounters an
+-- other:<value>, it UPSERTs a row with tier='other' (so relations.predicate's FK holds AND the
+-- promotion funnel is countable via usage_count). Domain/range is NOT enforced for tier='other'
+-- rows until a periodic job promotes them (registries §4/§7).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE predicates (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  predicate       text NOT NULL,               -- 'works_for',... ; 'other:<freetext>' rows live here as tier='other'
+  parent_predicate text,                        -- optional predicate-side extend-never-fork anchor (default parent 'related_to', D18)
+  description     text NOT NULL,               -- meaning rendered into normalization prompts
+  examples        text[] NOT NULL DEFAULT '{}',
+  synonyms        text[] NOT NULL DEFAULT '{}',-- surface variants the normalizer maps onto this predicate (works_at/employed_by → works_for) — D5
+  schema_org_ref  text,
+  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated
+  pack_id         text REFERENCES extension_packs,
+  scope_id        uuid,
+  usage_count     bigint NOT NULL DEFAULT 0,   -- cached count of relations using this predicate; ranks tier='other' values for promotion (D5 funnel)
+  is_change_prone boolean NOT NULL DEFAULT false, -- employment/affiliation/location change over time ⇒ supersession-relevant (D18)
+  exclude_from_graph_distance boolean NOT NULL DEFAULT false, -- causal/promiscuous predicates excluded from graph-distance reranking (registries §4)
+  status          ontology_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, predicate),
+  FOREIGN KEY (deployment_id, parent_predicate) REFERENCES predicates (deployment_id, predicate),
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
+);
+COMMENT ON TABLE predicates IS
+  'Governed predicate vocabulary (D5/D18). Extraction is constrained to these names with an other:<freetext> escape, which the normalizer upserts as tier=other rows (FK holds; usage_count makes the promotion funnel queryable). related_to is the permissive core parent.';
+CREATE INDEX ix_predicates_other ON predicates (deployment_id, usage_count DESC) WHERE tier = 'other'; -- promotion-candidate ranking
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- predicate_signatures — the domain/range gate (Graphiti edge_type_map shape, D18).
+-- A child table because a predicate may allow several (subject_type,object_type) pairs. ENFORCEMENT
+-- is by the NORMALIZER at E3 write time (application-enforced, not a per-insert DB trigger — at 10⁸
+-- relations a trigger walking the type hierarchy on every write is too costly): the normalizer
+-- resolves the subject/object entity types, walks each up its parent chain (extend-never-fork), and
+-- accepts the relation only if some signature matches at any ancestor level. A relation that fails
+-- is DROPPED — and is re-derivable from its immutable claim if the entity is later retyped, so no
+-- quarantine table is needed (registries §4). (An optional BEFORE INSERT trigger may be added as a
+-- belt-and-braces backstop in low-throughput deployments.)
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE predicate_signatures (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  predicate       text NOT NULL,               -- the predicate this signature constrains
+  subject_type    text NOT NULL,               -- allowed subject entity_type (matched at this level OR any descendant via the normalizer's parent walk)
+  object_type     text NOT NULL,               -- allowed object entity_type
+  PRIMARY KEY (deployment_id, predicate, subject_type, object_type),
+  FOREIGN KEY (deployment_id, predicate)    REFERENCES predicates (deployment_id, predicate) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, subject_type) REFERENCES entity_types (deployment_id, type),
+  FOREIGN KEY (deployment_id, object_type)  REFERENCES entity_types (deployment_id, type)
+);
+COMMENT ON TABLE predicate_signatures IS
+  'Allowed (subject_type → object_type) pairs per predicate — the one structural ontology gate (D18), enforced by the normalizer (parent-chain walk) at E3 write time. Subtypes inherit a parent''s signatures; a relation matching none is dropped (re-derivable from its claim).';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- scope_interests — registry-declared scope views + extraction interests (D16).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE scope_interests (
+  interest_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  scope_id        uuid NOT NULL,
+  interest_type   scope_interest_kind NOT NULL, -- entity_type | predicate | metadata | keyword
+  value           text NOT NULL,                -- the type name / predicate / metadata key / keyword
+  UNIQUE (scope_id, interest_type, value),
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE scope_interests IS
+  'Per-scope interest list (D16): the predicate/type footprint that defines the scope''s PROJECT_GRAPH_CYPHER view and what its K2 compilation selects. A query/compile-time selection over fully-extracted facts — never a promotion trigger (D28 withdrawn).';
+```
+
+The **seed core** (D18) — 8 entity types and 14 predicates with signatures — is data inserted by a
+migration, not schema. Its authoritative list is in `registries_design.md` §4; the seeding
+migration cites that section rather than duplicating it here (avoids drift).
+
+---
+
+## 4. Entity registry & resolution (D17–D24)
+
+The identity authority. The **transcript/verdict** epistemics of D2/D3 apply (`entity_registry.md`
+§4): **mentions are evidence** (immutable), **entities are verdicts** (re-adjudicable),
+**resolution is replayable**. The governing asymmetry is **under-merging degrades gradually;
+over-merging poisons catastrophically**, so everything is recall-conservative and reversible.
+"Blocking" (cheaply narrowing the candidate-match set so you avoid an all-pairs comparison) is
+defined in `concepts.md` §6.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- entities — the canonical registry. entity_id is NEVER reused; a merge is a redirect
+-- (merged_into), never a rewrite (Wikidata model). UNIQUE(deployment_id, entity_id) is the
+-- composite-FK target that keeps every entity reference inside one deployment (§0).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE entities (
+  entity_id       uuid PRIMARY KEY,            -- canonical identity; never reused (D17); flows downstream to Lance/Ladybug
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  type            text NOT NULL,               -- canonical type = majority/highest-confidence vote across mentions (registries §4)
+  canonical_name  text NOT NULL,               -- preferred display/blocking name; mirrored as an alias row (invariant below)
+  normalized_name text NOT NULL,               -- unaccent+lower(canonical_name)
+  status          entity_status NOT NULL DEFAULT 'active', -- active | merged | retired
+  merged_into     uuid,                        -- redirect target when status=merged; follow the chain to the survivor (D21)
+  type_confidence real,                        -- confidence of the type vote; low + cross-mention disagreement ⇒ over-merge signal (registries §4)
+  profile_summary text,                        -- short registry-maintained blurb; improves future LLM adjudication (Graphiti lesson)
+  profile_embedding_ref text,                  -- opaque Lance key for the profile embedding used in T3 (no vectors in PG/graph — D6/D8)
+  mention_count   integer NOT NULL DEFAULT 0,  -- cached |mentions|; half of blast_radius (registries §6) and a health metric
+  graph_degree    integer NOT NULL DEFAULT 0,  -- cached relation degree from the LATEST PUBLISHED P2 snapshot (§9); other half of blast_radius
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, entity_id),           -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, type) REFERENCES entity_types (deployment_id, type),
+  FOREIGN KEY (deployment_id, merged_into) REFERENCES entities (deployment_id, entity_id), -- same-deployment redirect only
+  CHECK ((status = 'merged') = (merged_into IS NOT NULL))  -- merged iff it redirects; an active/retired entity must NOT redirect
+);
+COMMENT ON TABLE entities IS
+  'Canonical entity registry (D17/D21). entity_id never reused; merges are redirects via merged_into (un-mergeable), not rewrites. type is the cross-mention vote; mention_count+graph_degree cache the blast-radius inputs for review gating (registries §6/§8).';
+CREATE INDEX ix_entities_type     ON entities (deployment_id, type);
+CREATE INDEX ix_entities_redirect ON entities (merged_into) WHERE merged_into IS NOT NULL;
+-- entities is searchable by name but the PRIMARY blocking index lives on aliases (below). This
+-- composite GIN (deployment_id leading, via btree_gin) keeps name search tenant-scoped:
+CREATE INDEX ix_entities_name_trgm ON entities USING gin (deployment_id, normalized_name gin_trgm_ops);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- aliases — surface forms per entity, the BLOCKING TARGET (D23). Includes the LLM-emitted
+-- canonical form (provenance=llm_canonical) on which T0 exact-match runs. INVARIANT: each entity's
+-- canonical_name exists as an alias row, so the cascade scans aliases only. Deliberately NOT
+-- partitioned (≤10⁷, D23) so its GIN trigram/phonetic indexes can live on it.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE aliases (
+  alias_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  entity_id       uuid NOT NULL,               -- composite FK below (same-deployment)
+  alias_text      text NOT NULL,               -- surface form as seen / as canonicalized
+  normalized_lemma text NOT NULL,              -- unaccent+lower (and LLM nominative form for inflected langs, registries §5); the indexed match key
+  provenance      alias_provenance NOT NULL,   -- source (observed in a document) | llm_canonical (extractor-emitted nominative form)
+  confidence      real,                        -- confidence this surface really names this entity
+  first_seen      timestamptz NOT NULL DEFAULT now(),
+  last_seen       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, entity_id, normalized_lemma, provenance),
+  FOREIGN KEY (deployment_id, entity_id) REFERENCES entities (deployment_id, entity_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE aliases IS
+  'Surface forms per entity and the blocking target for resolution (D17/D23). T0 exact-matches the llm_canonical lemma; T1 trigram-blocks and T2 phonetic-blocks on normalized_lemma. Not partitioned so its GIN indexes are usable.';
+-- The two blocking indexes (D17/D23). Composite (deployment_id leading, via btree_gin) so a
+-- per-deployment blocking query — `WHERE deployment_id=$d AND normalized_lemma % $1` (trigram) or
+-- `WHERE deployment_id=$d AND daitch_mokotoff(normalized_lemma) && daitch_mokotoff($1)` (phonetic)
+-- — is satisfied inside the index, never scanning other deployments' aliases (tenancy + selectivity,
+-- §0). [Refines the single-column form in D23/registries §9 for the single-DB realization — see §17.]
+CREATE INDEX ix_aliases_lemma_trgm  ON aliases USING gin (deployment_id, normalized_lemma gin_trgm_ops);
+CREATE INDEX ix_aliases_lemma_dm    ON aliases USING gin (deployment_id, daitch_mokotoff(normalized_lemma));
+CREATE INDEX ix_aliases_lemma_exact ON aliases (deployment_id, normalized_lemma);  -- T0 exact match
+CREATE INDEX ix_aliases_entity      ON aliases (entity_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- generic_identifier_guard — the Senzing "promiscuous signal" guard (D21/registries §6).
+-- Keyed by the normalized string (not a single alias row): the property "links to MANY distinct
+-- entities ⇒ generic not identifying" is about the string across the registry.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE generic_identifier_guard (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  normalized_lemma text NOT NULL,              -- the suspect surface string
+  distinct_entity_count integer NOT NULL,      -- how many distinct entities it currently links — the tell
+  is_downweighted boolean NOT NULL DEFAULT true, -- stop trusting it as a blocking/match signal
+  reason          text,                        -- 'role-address' | 'placeholder' | 'common-name' | ...
+  evaluated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, normalized_lemma)
+);
+COMMENT ON TABLE generic_identifier_guard IS
+  'Surfaces that link too many entities to be identifying (D21). Down-weighted so they stop driving merges; the merges they already caused are re-evaluated — enumerated via merge_events.trigger_lemmas (below).';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- resolution_exclusions — negative/"these are NOT the same" edges (D21).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE resolution_exclusions (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  entity_id_low   uuid NOT NULL,               -- least(a,b) — canonical ordering keeps the pair unique
+  entity_id_high  uuid NOT NULL,               -- greatest(a,b)
+  reason          text,                        -- why they are known-distinct (evidence / reviewer note)
+  created_by      decision_actor NOT NULL,     -- auto | human
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, entity_id_low, entity_id_high),
+  CHECK (entity_id_low < entity_id_high),
+  FOREIGN KEY (deployment_id, entity_id_low)  REFERENCES entities (deployment_id, entity_id),
+  FOREIGN KEY (deployment_id, entity_id_high) REFERENCES entities (deployment_id, entity_id)
+);
+COMMENT ON TABLE resolution_exclusions IS
+  'Adjudicated non-match constraints (D21): block re-proposing a merge the clusterer or a human ruled out (two J. Smiths, father/son). Consulted by the cascade and clustering.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- resolver_versions — per-version tier config + per-type thresholds (D17/D22).
+-- Also the home of the review-routing band boundaries (auto-accept ceiling / hub-merge floor, D24).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE resolver_versions (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  resolver_version text NOT NULL,              -- e.g. 'resolver-2026-03a'
+  tier_config     jsonb NOT NULL,              -- T0–T4 enable/order, blocking floors, escalation bands, review band boundaries + hub-merge blast-radius cutoff (D24)
+  thresholds_by_type jsonb NOT NULL,           -- per-entity-type accept/reject bands (golden-set-measured, D22) — starting points, not constants
+  configured_at   timestamptz NOT NULL DEFAULT now(),
+  notes           text,
+  PRIMARY KEY (deployment_id, resolver_version)
+);
+COMMENT ON TABLE resolver_versions IS
+  'Versioned, per-type resolution thresholds + tier config + review-routing bands (D17/D22/D24). Block-loose/decide-tight; thresholds are golden-set-measured starting points to be re-measured, never committed constants.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- mentions — the immutable transcript: every entity mention as extracted (D17). ~10⁸ rows ⇒
+-- monthly RANGE partition by created_at; btree-only; logical FKs (D23). Queried by id/claim_id/
+-- doc_id, never fuzzy-scanned (the fuzzy index lives on aliases). Partition pruning for id lookups:
+-- §12.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE mentions (
+  mention_id      uuid NOT NULL,               -- PK component (with created_at)
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  surface_form    text NOT NULL,               -- the mention exactly as it appeared
+  normalized_lemma text NOT NULL,              -- unaccent+lower of surface_form
+  canonical_name_form text,                    -- LLM-emitted nominative/canonical form at extraction (registries §5) — feeds T0 + becomes an llm_canonical alias
+  emitted_type    text,                        -- entity type the extractor emitted for this mention (registry-constrained)
+  type_confidence real,                        -- extractor confidence in emitted_type
+  context         text,                        -- short surrounding snippet for adjudication/audit (not the document body)
+  language        text,                        -- mention language (per-deployment multilingual path, registries §5)
+  claim_id        uuid,                        -- LOGICAL FK → claims; the claim this mention occurs in
+  chunk_id        uuid,                        -- LOGICAL FK → chunks
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents
+  char_start      integer,                     -- mention offset into the document markdown
+  char_end        integer,
+  created_at      timestamptz NOT NULL DEFAULT now(),  -- partition key (ingest month)
+  PRIMARY KEY (mention_id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE mentions IS
+  'Immutable transcript of entity mentions (D17). Evidence for resolution verdicts; never edited. Monthly-partitioned, btree-only, logical FKs (D23). canonical_name_form is the LLM nominative form feeding T0 (registries §5).';
+CREATE INDEX ix_mentions_claim ON mentions (claim_id);
+CREATE INDEX ix_mentions_doc   ON mentions (deployment_id, doc_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- resolution_decisions — append-only verdict (D17). A better resolver SUPERSEDES (superseded_by),
+-- never overwrites. ~10⁸ rows ⇒ monthly partition by decided_at; logical FKs (D23).
+-- method ∈ {T0,T3,T4_small,T4_frontier,human}: T1/T2 are BLOCKING (candidate generation), never a
+-- decision (D17 block-loose/decide-tight) — enforced by the CHECK below; which blocking tier
+-- surfaced a candidate is recorded inside features.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE resolution_decisions (
+  decision_id     uuid NOT NULL,
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  mention_id      uuid NOT NULL,               -- LOGICAL FK → mentions
+  entity_id       uuid NOT NULL,               -- LOGICAL FK → entities; the resolved canonical id
+  method          resolution_tier NOT NULL,    -- T0 | T3 | T4_small | T4_frontier | human (NOT T1/T2 — see CHECK)
+  confidence      real NOT NULL,               -- tier confidence; bands per resolver_versions.thresholds_by_type
+  is_new_entity   boolean NOT NULL DEFAULT false, -- true if this decision minted a new entity (no confident match)
+  features        jsonb,                       -- evidence used (trigram/phonetic/cosine scores incl. the surfacing blocking tier, LLM rationale)
+  resolver_version text NOT NULL,              -- LOGICAL FK → resolver_versions; pins the thresholds in force
+  decided_by      decision_actor NOT NULL DEFAULT 'auto',
+  decided_at      timestamptz NOT NULL DEFAULT now(),  -- partition key
+  superseded_by   uuid,                        -- LOGICAL FK → resolution_decisions; set when a later decision replaces this one
+  PRIMARY KEY (decision_id, decided_at),
+  CHECK (method NOT IN ('T1','T2'))            -- T1/T2 are candidate generation, never a verdict (D17)
+) PARTITION BY RANGE (decided_at);
+COMMENT ON TABLE resolution_decisions IS
+  'Append-only resolution verdicts (D17/D21). Replaced by superseded_by, never overwritten — re-adjudicable. Monthly-partitioned, logical FKs (D23). method excludes the blocking tiers T1/T2 (block-loose/decide-tight); features keeps the per-tier evidence for audit.';
+CREATE INDEX ix_resdec_mention ON resolution_decisions (mention_id);
+CREATE INDEX ix_resdec_entity  ON resolution_decisions (deployment_id, entity_id);
+CREATE INDEX ix_resdec_live    ON resolution_decisions (mention_id) WHERE superseded_by IS NULL;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- merge_events — append-only reversibility record (D21). Snapshots pre-merge membership so
+-- un-merge replays it. trigger_lemmas makes the generic-identifier-guard re-evaluation queryable
+-- (registries §6: "the merges a downweighted signal caused are re-evaluated"). Not huge ⇒ real
+-- composite FKs, no partition.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE merge_events (
+  merge_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  survivor_id     uuid NOT NULL,               -- the entity that absorbed the other
+  absorbed_id     uuid NOT NULL,               -- the entity redirected into survivor (keeps its id, status=merged)
+  trigger_lemmas  text[] NOT NULL DEFAULT '{}',-- the blocking lemma(s) that drove this merge — enumerated for guard re-evaluation (D21, registries §6)
+  evidence        jsonb,                       -- why the merge fired (scores, reviewer note)
+  blast_radius    integer,                     -- combined mention_count+degree at merge time (registries §6) — never auto-merge above threshold
+  pre_merge_membership_snapshot jsonb NOT NULL,-- which mentions belonged to which entity BEFORE the merge — replay to un-merge (D21)
+  decided_by      decision_actor NOT NULL DEFAULT 'auto', -- hub merges never auto (registries §6/§8)
+  decided_at      timestamptz NOT NULL DEFAULT now(),
+  reversed_by     uuid REFERENCES merge_events,-- the un-merge event that undid this one, if any
+  FOREIGN KEY (deployment_id, survivor_id) REFERENCES entities (deployment_id, entity_id),
+  FOREIGN KEY (deployment_id, absorbed_id) REFERENCES entities (deployment_id, entity_id)
+);
+COMMENT ON TABLE merge_events IS
+  'Append-only merge log enabling un-merge (D21) — the capability no OSS ER system ships. pre_merge_membership_snapshot is the "before" picture replayed to reverse; trigger_lemmas lets the generic-identifier guard re-evaluate affected merges; P2 rebuild re-points the graph for free.';
+CREATE INDEX ix_merge_survivor ON merge_events (survivor_id);
+CREATE INDEX ix_merge_absorbed ON merge_events (absorbed_id);
+CREATE INDEX ix_merge_trigger  ON merge_events USING gin (trigger_lemmas); -- guard re-evaluation by lemma
+```
+
+---
+
+## 5. Review queue, golden set & evaluation (D22, D24, O6)
+
+Resolution quality is a *measured pipeline property*. Three first-class assets: the **cluster-
+review queue** (D24 — review clusters, not pairs; route only the middle impact band to humans), the
+**golden EVAL set** (D22 — unbiased, human-adjudicated, held separate from any future training
+set), and the **eval-run history** (per-tier metrics with Wilson confidence intervals).
+
+> **Wilson interval** (used below) = a small-sample-robust error bar on a proportion like precision
+> or recall, so a P/R figure measured on only ~200 golden pairs is not read as more precise than
+> the sample supports (D22). **Splink waterfall** (used in the review payload) = the per-feature
+> score breakdown a reviewer sees — how each signal (trigram, phonetic, embedding, shared context)
+> raised or lowered the match score — which is what a human needs to adjudicate a cluster.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- review_queue — the thin Postgres-backed CLUSTER review queue (D24). An action here appends to
+-- resolution_decisions / merge_events (the verdict tables); the queue holds proposals + status.
+-- Band boundaries (auto-accept ceiling / review band / hub-merge no-auto-accept floor) live,
+-- versioned, in resolver_versions.tier_config (so routing thresholds are auditable per version).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE review_queue (
+  review_id       uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  item_kind       review_item_kind NOT NULL,   -- merge_cluster | split_cluster | type_conflict | generic_identifier | contradiction
+  candidate       jsonb NOT NULL,              -- the cluster: entity/mention ids + the Splink-style per-feature score waterfall + cluster card
+  blast_radius    integer NOT NULL,            -- combined size/connectedness if wrong (registries §6)
+  confidence      real NOT NULL,               -- model confidence in the proposal
+  expected_impact real NOT NULL,               -- blast_radius × (1−confidence) — the routing/ranking score (D24)
+  status          review_status NOT NULL DEFAULT 'pending', -- pending | accepted | rejected | deferred | auto_resolved
+  verdict         review_verdict,              -- outcome appropriate to item_kind (merge/split/pick_a/downweight/retype/...) ; non-merge kinds use the matching enum value or verdict_note
+  verdict_note    text,
+  assigned_to     text,                        -- reviewer handle
+  result_decision_id uuid,                     -- LOGICAL FK → the resolution_decisions / merge_events row the verdict produced
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  resolved_at     timestamptz
+);
+COMMENT ON TABLE review_queue IS
+  'Cluster-level human review queue (D24). Only the middle expected_impact band (boundaries in resolver_versions.tier_config) is routed to humans; hub merges never auto-accept. Verdicts append reversible, provenance-stamped rows to resolution_decisions/merge_events. verdict covers all item_kinds, not only merges.';
+CREATE INDEX ix_review_pending ON review_queue (deployment_id, expected_impact DESC) WHERE status = 'pending';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- golden_pairs — the unbiased ER eval set (D22). Human-adjudicated (the cascade/LLM may propose,
+-- only humans label — breaks circularity). expected_blocking_tier records the stratum so blocking
+-- recall is measurable per tier (the "blocking-stratified" intent).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE golden_pairs (
+  pair_id         uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  entity_type     text NOT NULL,               -- the type stratum this pair tests
+  surface_a       text NOT NULL,               -- mention/alias A (stored as text so the set survives re-resolution)
+  surface_b       text NOT NULL,
+  context_a       text,                        -- disambiguating context for A
+  context_b       text,
+  label           golden_label NOT NULL,       -- match | no_match — the ground truth
+  hardness        golden_hardness NOT NULL,    -- hard_positive | hard_negative | easy
+  expected_blocking_tier resolution_tier,      -- which tier should surface this pair (exact/trigram/phonetic/embedding) — for per-stratum recall (D22)
+  is_synthetic    boolean NOT NULL DEFAULT false, -- planted father/son/inflection/married-name case
+  adjudicated_by  text NOT NULL,               -- human adjudicator (circularity guard, D22)
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE golden_pairs IS
+  'Human-adjudicated ER evaluation pairs (D22). Measures P/R and tunes per-type thresholds; never used for training. expected_blocking_tier supports blocking-stratified recall. Stored as surface+context so it survives re-resolution.';
+CREATE INDEX ix_golden_type ON golden_pairs (deployment_id, entity_type);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- golden_claim_labels — the E2 Selection verifiability golden set (D22/D25/D35).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE golden_claim_labels (
+  label_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  proposition     text NOT NULL,               -- the candidate proposition under test
+  context         text,                        -- the bundle context it was judged in
+  expected_outcome selection_outcome NOT NULL, -- keep | rewrite | drop | kept_flagged (D31/D35)
+  protected_class text,                        -- never-drop class if any: 'quantity'|'date'|'named_entity_predicate'|'change_of_state' (D35)
+  adjudicated_by  text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE golden_claim_labels IS
+  'Human-labelled Selection cases (D22/D35): the verifiability golden set + planted never-drop canaries that fail CI if Selection drops them. Tunes per-fact false-drop, not a corpus average.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- eval_runs — metrics history per resolver/extractor version, all suites (D22, O6 both halves).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE eval_runs (
+  eval_run_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  suite           eval_suite NOT NULL,         -- resolution | selection | grounding | retrieval | contradiction
+  component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions / resolver_versions; what was measured
+  metrics         jsonb NOT NULL,              -- per-tier/per-type P/R with Wilson CIs; recall@k per recipe; rerank weights; per-fact false-drop
+  passed          boolean,                     -- did the canary regression pass for this version?
+  ran_at          timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE eval_runs IS
+  'Evaluation history (D22/O6). Per-tier/per-type metrics with Wilson intervals for resolution; recall@k + rerank tuning for retrieval; per-fact false-drop for selection. A canary regression re-runs per version.';
+CREATE INDEX ix_eval_suite_ver ON eval_runs (deployment_id, suite, ran_at);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- canary_cases — known-tricky regressions re-run per resolver/extractor version (registries §10).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE canary_cases (
+  canary_id       uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  suite           eval_suite NOT NULL,
+  description     text NOT NULL,               -- what tricky behavior this guards (e.g. 'inflected Czech surname must merge')
+  input           jsonb NOT NULL,              -- the case input
+  expected        jsonb NOT NULL,              -- the required outcome
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE canary_cases IS 'Regression canaries (registries §10): tricky cases re-run per version; a regression blocks the version from shipping.';
+```
+
+---
+
+## 6. E0 — documents, sections, cross-references (D36–D40)
+
+Bodies live in GCS (raw + artifacts buckets); Postgres holds **identity, versions, processing
+state, artifact URIs, hashes, costs, and the section index** (D37) — never the body. Each E0
+sub-worker (ingest → convert → structure → crossref, D36) is **separately versioned** and
+idempotent on `content_hash + its own version`.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- documents — one row per ingested document. ID-addressed (doc_id + content_hash), never
+-- title-addressed (D37). content_hash = sha256(raw bytes) is the idempotency key and the only
+-- surviving dedup (D25). A hard-delete SOFT-TOMBSTONES the row (status='deleted', URIs nulled,
+-- deleted_at set) rather than physically removing it (§13) — so the 'deleted' enum value and the
+-- ix_documents_live partial index are meaningful, and logical-FK auditors can tell "forgotten"
+-- from "never existed".
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE documents (
+  doc_id          uuid PRIMARY KEY,            -- stable opaque document identity (used in GCS paths)
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  content_hash    text NOT NULL,               -- sha256 of raw bytes — idempotency key (D12); re-ingesting an identical file is a no-op
+  document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity for this file (see note below); composite FK
+  title           text,                        -- best-effort title (the human name lives in P3, not the canonical path)
+  source          text,                        -- provenance label (uploader, connector, feed)
+  source_uri      text,                        -- original location, if any
+  mime            text NOT NULL,               -- detected MIME, drives the conversion router (D38)
+  byte_size       bigint,                      -- raw size in bytes
+  language        text,                        -- detected primary language
+  published_at    timestamptz,                 -- document's own date (resolves "last year"; orders ingestion); world-time origin
+  -- GCS object URIs (bodies live here, not in PG — D37):
+  raw_uri         text NOT NULL,               -- gs://…-raw/<doc_id>/<content_hash>/original.<ext> (immutable, never mounted)
+  markdown_uri    text,                        -- gs://…-artifacts/…/document.md
+  pageindex_uri   text,                        -- gs://…-artifacts/…/pageindex.json (structure sidecar)
+  conversion_uri  text,                        -- gs://…-artifacts/…/conversion.json (blocks + page/char offsets — load-bearing for grounding, D32/D38)
+  meta_uri        text,                        -- gs://…-artifacts/…/meta.json (per-doc metadata sidecar, e0 §2)
+  -- conversion provenance (D38):
+  converter_name  text,                        -- which converter the router picked (ocr/markitdown/passthrough/…)
+  converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump re-converts + rebuilds downstream (D7)
+  -- structure provenance (LLM-derived, non-deterministic — versioned + replayed on rebuild, D39/D7):
+  structurer_name text,
+  structurer_version text,                      -- LOGICAL FK → pipeline_component_versions (structurer)
+  structurer_model text,
+  structurer_prompt_version text,
+  pageindex_hash  text,                        -- hash of the structure output (change detection)
+  placement_version text,                      -- LOGICAL FK → pipeline_component_versions (placement-hint producer, D39 → P3 input)
+  section_index_version text,                  -- LOGICAL FK → pipeline_component_versions (document_sections projector)
+  crossref_version text,                       -- LOGICAL FK → pipeline_component_versions (crossreferencer, D36) — the 4th E0 sub-worker's version
+  status          document_status NOT NULL DEFAULT 'ingesting', -- ingesting | converting | structuring | ready | failed | deleted
+  error           text,                        -- terminal error summary, if status=failed
+  ingested_at     timestamptz NOT NULL DEFAULT now(),  -- system-time origin for everything derived from this doc
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  deleted_at      timestamptz,                 -- tombstone timestamp for hard-delete/forget (D37); row retained as a soft tombstone (§13)
+  UNIQUE (deployment_id, content_hash),         -- per-deployment dedup; NEVER dedup across deployments (D37)
+  UNIQUE (deployment_id, doc_id),               -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, document_entity_id) REFERENCES entities (deployment_id, entity_id) ON DELETE SET NULL (document_entity_id)
+);
+COMMENT ON TABLE documents IS
+  'E0 document index (D37). Bodies live in GCS (raw+artifacts); PG holds identity/versions/URIs/hashes/state only. content_hash is the sole dedup (idempotency, D25). A forget soft-tombstones the row (deleted_at + status=deleted + nulled URIs) so the K-plane cascade and auditors can reference it.';
+CREATE INDEX ix_documents_status   ON documents (deployment_id, status) WHERE status <> 'ready';
+CREATE INDEX ix_documents_hash     ON documents (deployment_id, content_hash);
+CREATE INDEX ix_documents_live     ON documents (deployment_id) WHERE deleted_at IS NULL;
+CREATE INDEX ix_documents_entity   ON documents (document_entity_id) WHERE document_entity_id IS NOT NULL;
+```
+
+> **Document ↔ entity bridge (D18, Codex review).** D18 makes `Document ⊂ CreativeWork` a core
+> *entity* type with predicates `authored: Person → Document` and `about: Document → any`, so
+> documents participate in relations as entities. The corpus's *ingested files* and the *registry's
+> Document entities* are distinct but linkable: `documents.document_entity_id` points an ingested
+> file at its registry entity **when one exists**. Policy: an ingested document gets a Document
+> entity when it is referenced as the subject/object of a relation (e.g. "Alice authored this
+> report") or by a deployment-configured default; a Document entity may also exist for a
+> *cited-but-not-ingested* paper (created from a `document_crossrefs` row with no `to_doc_id`),
+> which has a registry entity but no `documents` row. So the bridge is nullable in both directions
+> and neither side is mandatory.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- document_sections — the queryable PageIndex section index (D39). Every document gets rows here
+-- unconditionally (a short doc gets one synthetic root section). Summaries are kept as context,
+-- never facts. parent_section_id cascades on delete so a hard-delete removes the whole subtree (§13).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE document_sections (
+  section_id      uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  doc_id          uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE
+  parent_section_id uuid REFERENCES document_sections ON DELETE CASCADE, -- tree structure; NULL for root; cascades the subtree
+  node_path       text NOT NULL,               -- materialized path, e.g. '0.2.1' — cheap ancestor/subtree queries
+  title           text,
+  role            section_role NOT NULL,       -- body|abstract|introduction|...|references|nav|boilerplate|legal (D39)
+  char_start      integer NOT NULL,            -- section span start, char offset into document.md
+  char_end        integer NOT NULL,            -- section span end
+  page_start      integer,                     -- source page span (from conversion blocks), if paginated
+  page_end        integer,
+  ordinal         integer NOT NULL,            -- order among siblings
+  summary         text,                        -- per-section summary (D39): context for E1 prefixes/navigation/Selection-explainability; NOT a fact source
+  placement_path  text,                        -- per-section placement hint for P3 (advisory; D39/D40)
+  structurer_version text,                     -- LOGICAL FK → pipeline_component_versions; matches documents.structurer_version
+  UNIQUE (doc_id, node_path),
+  FOREIGN KEY (deployment_id, doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE document_sections IS
+  'Per-document section tree (D39): path/role/span/summary/placement per section. Drives section-aware chunking (E1), the E2 role signal (Selection drops references/boilerplate at proposition grain), and P3 placement. Summaries are context, never facts.';
+CREATE INDEX ix_sections_doc    ON document_sections (doc_id);
+CREATE INDEX ix_sections_role   ON document_sections (deployment_id, role);
+CREATE INDEX ix_sections_parent ON document_sections (parent_section_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- document_crossrefs — citations / inter-document links (the crossref sub-worker, D36). to_doc_id
+-- is NULL until/unless the cited target resolves to an ingested document. ON DELETE SET NULL uses
+-- the PG15+ column-list form so only to_doc_id is cleared (deployment_id stays). Projected to graph
+-- CITES edges (p2 §2).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE document_crossrefs (
+  crossref_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  from_doc_id     uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE
+  to_doc_id       uuid,                        -- composite FK below, ON DELETE SET NULL(to_doc_id); NULL if cited doc not (yet) ingested
+  kind            crossref_kind NOT NULL,      -- cites | links_to | attaches | replies_to
+  raw_citation    text,                        -- the citation text as found; RETAINED even when resolved, so a forgotten target can be re-resolved (§13)
+  context         text,                        -- surrounding context of the reference
+  resolved        boolean NOT NULL DEFAULT false, -- whether to_doc_id was matched
+  crossref_version text,                       -- LOGICAL FK → pipeline_component_versions (crossreferencer); a bump re-extracts (D36/D7)
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (deployment_id, from_doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, to_doc_id)   REFERENCES documents (deployment_id, doc_id) ON DELETE SET NULL (to_doc_id)
+);
+COMMENT ON TABLE document_crossrefs IS
+  'Cross-document references from the E0 crossref sub-worker (D36), versioned by crossref_version (D7 replay). Projected to graph CITES edges; raw_citation is retained even after resolution so a forgotten/re-ingested target can be re-resolved.';
+CREATE INDEX ix_crossrefs_from ON document_crossrefs (from_doc_id);
+CREATE INDEX ix_crossrefs_to   ON document_crossrefs (to_doc_id) WHERE to_doc_id IS NOT NULL;
+```
+
+---
+
+## 7. E1 — chunks
+
+Retrieval-sized units that preserve context and trace back to position. Chunk **text and embedding
+live in Lance (P1)**; Postgres holds metadata, offsets, the section link, and the **generated
+context prefix** (LLM-derived, so it is *replayed* on rebuild, not regenerated — D7 — and therefore
+stored as derived metadata, not body text).
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- chunks — semchunk units, section-aware (never split mid-section, D39). Body = markdown_uri sliced
+-- by [char_start,char_end] (NOT stored in PG, D37). Embedding in Lance keyed by chunk_id. Large
+-- (tens of millions) ⇒ monthly partition by created_at; logical FKs (D23). Pruning: §12.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE chunks (
+  chunk_id        uuid NOT NULL,
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents
+  section_id      uuid,                        -- LOGICAL FK → document_sections; section (role/path signal for E2)
+  ordinal         integer NOT NULL,            -- position within the document
+  char_start      integer NOT NULL,            -- chunk span start, offset into document.md
+  char_end        integer NOT NULL,            -- chunk span end
+  token_count     integer,                     -- token length (sizing/budget)
+  context_prefix  text,                        -- generated "where this sits" sentence (E1); replayed on rebuild — derived metadata, not body
+  prefixer_version text,                       -- LOGICAL FK → pipeline_component_versions (context_prefixer)
+  chunker_version text,                        -- LOGICAL FK → pipeline_component_versions (semchunk config)
+  embedding_ref   text,                        -- opaque Lance row key for this chunk's vector (vectors live in P1, not PG — D8)
+  embedding_version text,                       -- LOGICAL FK → pipeline_component_versions (embedder); scopes re-embedding batches
+  created_at      timestamptz NOT NULL DEFAULT now(),  -- partition key
+  PRIMARY KEY (chunk_id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE chunks IS
+  'E1 retrieval units (semchunk, section-aware). Text+embedding live in Lance (P1); PG stores offsets, section link, the replayable context prefix, and version stamps. Monthly-partitioned, logical FKs (D23).';
+CREATE INDEX ix_chunks_doc     ON chunks (deployment_id, doc_id);
+CREATE INDEX ix_chunks_section ON chunks (section_id);
+```
+
+---
+
+## 8. E2 — claims, the extraction decision ledger, grounding audits (D31–D35)
+
+A **claim** is an atomic, standalone, verifiable assertion (Claimify-staged extraction). Claims are
+**immutable, append-only** — they record *what a source said* and are never superseded
+(supersession is on *relations*, D3). The model stores both the standalone `claim_text` and the
+verbatim `source_span` + offsets + the `added_context` substrings (D32), so grounding is
+**provenance + entailment**, not verbatim-substring matching.
+
+> **Reconciliation note (claim "type").** `requirements_v3` (an earlier conception) said claims are
+> "typed (fact / opinion / prediction)". The current binding design (D31/D34 Claimify Selection)
+> **drops** opinions / advice / hypotheticals at Selection rather than storing them as typed claims
+> — so the *stored* claim space collapses to "verifiable proposition", and opinion/prediction
+> material lives only in the **drop ledger** (`claim_extraction_decisions`), not as a
+> `claims.claim_type` value. We therefore carry no fact/opinion/prediction column; we carry
+> `temporal_class` (the "temporally classified" half) and the grounding/recall-envelope fields the
+> binding design names. Intentional simplification (CLAUDE.md), recorded so a reader does not think
+> the column was forgotten.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- claims — immutable verifiable propositions (D31/D32). Two clocks (concepts §5): asserted_at =
+-- when the SOURCE asserted it (world/valid-time, a point not an interval — claims are assertions);
+-- ingested_at = when WE extracted it (transaction-time). Neither ever changes.
+-- A row in claims is an ACCEPTED claim: the deterministic grounding gate (anchor + window
+-- membership, D32 layers 1-2) MUST pass, enforced by the CHECK — a claim that fails the gate is
+-- never produced (it becomes a ledger entry or is discarded), so the flags exist for audit and are
+-- always true here. Large (~5×10⁷) ⇒ monthly partition by ingested_at; logical FKs (D23).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE claims (
+  claim_id        uuid NOT NULL,
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (provenance always attached — requirements_v3)
+  chunk_id        uuid NOT NULL,               -- LOGICAL FK → chunks (the target chunk of the context bundle)
+  section_id      uuid,                        -- LOGICAL FK → document_sections (denormalized role/path; explains a Selection decision)
+  claim_text      text NOT NULL,               -- the STANDALONE assertion — what retrieval/E3/reasoning use (decontextualized, D32)
+  source_span     text NOT NULL,               -- the verbatim slice of the chunk the claim derives from (provenance/audit, D32)
+  char_start      integer NOT NULL,            -- source_span offset into document.md (anchor check: a real in-bounds slice, D32 layer 1)
+  char_end        integer NOT NULL,
+  added_context   jsonb NOT NULL DEFAULT '[]', -- [{text, source_kind: header|neighbour|prefix|hint, source_ref}] — each substring decontextualization ADDED (D32 layer 2)
+  temporal_class  claim_temporal_class,        -- static | dynamic | atemporal — the "temporally classified" requirement (see reconciliation note)
+  is_attributed   boolean NOT NULL DEFAULT false, -- preserves a "X said Y" attribution (entailment rule: entails "X said Y", not "Y" — D32)
+  -- grounding verdicts (D32). Deterministic layers 1-2 are an ACCEPTANCE GATE (must be true here);
+  -- the LLM layers 3-4 are advisory/sampled and may be false on a kept-but-borderline claim:
+  anchor_ok       boolean NOT NULL,            -- layer 1: source_span is a real in-bounds slice of the chunk (deterministic)
+  window_membership_ok boolean NOT NULL,       -- layer 2: every added_context substring verbatim-exists in its declared bundle source (deterministic; rejects fabrication)
+  entailment_self_verdict boolean,             -- layer 3: in-call self-assertion the bundle entails the claim (~free, optimistic)
+  audit_status    grounding_audit_status NOT NULL DEFAULT 'unaudited', -- layer 4: unaudited | sampled_pass | sampled_fail | escalated (sampled, not per-claim)
+  kept_flagged    boolean NOT NULL DEFAULT false, -- D35 low-confidence Selection outcome: kept but marked-for-review (mirrors a selection_keep_flagged ledger row — see invariant below)
+  asserted_at     timestamptz,                 -- ASSERTION-time (the claim-grain valid-time point): when the source asserted this (from documents.published_at) — immutable
+  extractor_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions (extractor); replay-on-rebuild key (D33)
+  embedding_ref   text,                        -- opaque Lance key (claims are searchable in P1)
+  embedding_version text,                       -- LOGICAL FK → pipeline_component_versions (embedder)
+  ingested_at     timestamptz NOT NULL DEFAULT now(),  -- transaction-time + partition key; immutable
+  PRIMARY KEY (claim_id, ingested_at),
+  CHECK (char_end >= char_start),
+  CHECK (anchor_ok AND window_membership_ok)   -- a claims row is an ACCEPTED claim; the deterministic grounding gate passed (D32)
+) PARTITION BY RANGE (ingested_at);
+COMMENT ON TABLE claims IS
+  'E2 immutable verifiable propositions (D31/D32). Stores standalone claim_text + verbatim source_span + offsets + added_context for provenance-and-entailment grounding. Two clocks: asserted_at (source) and ingested_at (system); never superseded (supersession is on relations, D3). A row here passed the deterministic grounding gate. Monthly-partitioned, logical FKs.';
+CREATE INDEX ix_claims_doc      ON claims (deployment_id, doc_id);
+CREATE INDEX ix_claims_chunk    ON claims (chunk_id);
+CREATE INDEX ix_claims_flagged  ON claims (deployment_id) WHERE kept_flagged = true;        -- review surface (D35)
+CREATE INDEX ix_claims_audit    ON claims (deployment_id) WHERE audit_status = 'sampled_fail'; -- grounding regressions
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- claim_extraction_decisions — the append-only, version-stamped extraction transcript (D33). It
+-- records every Selection DROP (with reason), every low-confidence KEEP-FLAG, and every
+-- decontextualization EDIT. Plain keeps are NOT recorded (they ARE the claims row) — keeping the
+-- table sized for drops+flags+edits, not every keep. Rebuild reads stored claims + these decisions
+-- and never re-calls the model (D7). Large ⇒ monthly partition by decided_at.
+-- INVARIANT: a kept_flagged claim is the pair (claims row with kept_flagged=true) + (a
+-- selection_keep_flagged decision here); the ledger is the replay source from which
+-- claims.kept_flagged is reconstituted on rebuild.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE claim_extraction_decisions (
+  decision_id     uuid NOT NULL,
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents
+  chunk_id        uuid NOT NULL,               -- LOGICAL FK → chunks
+  claim_id        uuid,                        -- LOGICAL FK → claims; set for decontext edits + selection_keep_flagged; NULL for selection_drop (no claim produced)
+  decision_type   extraction_decision_type NOT NULL, -- selection_drop | selection_keep_flagged | decontext_edit
+  source_span     text,                        -- the proposition/sentence the decision was about
+  reason          selection_drop_reason,       -- for drops: opinion|advice|hypothetical|generic|question|intro|conclusion|no_info|ambiguous|references_boilerplate (D31)
+  edit_detail     jsonb,                        -- for decontext edits: what was resolved/added and from which bundle source
+  protected_class text,                        -- never-drop class checked/applied (quantity|date|named_entity_predicate|change_of_state) — D35
+  extractor_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions; the version that made this decision
+  decided_at      timestamptz NOT NULL DEFAULT now(),  -- partition key
+  PRIMARY KEY (decision_id, decided_at)
+) PARTITION BY RANGE (decided_at);
+COMMENT ON TABLE claim_extraction_decisions IS
+  'Append-only Selection-drop + keep-flag + decontextualization-edit ledger (D33); plain keeps are not recorded. Makes aggressive Selection auditable and recoverable: a better prompt re-examines only the drops; rebuild replays from here without re-calling the model (D7). Monthly-partitioned.';
+CREATE INDEX ix_cxd_chunk ON claim_extraction_decisions (chunk_id);
+CREATE INDEX ix_cxd_drops ON claim_extraction_decisions (deployment_id, reason) WHERE decision_type = 'selection_drop';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- grounding_audits — the sampled independent entailment audit (D32 layer 4). Not per-claim
+-- (self-grading is optimistic; a separate judge re-checks a sample; only a borderline band
+-- escalates). claims.audit_status caches the latest result.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE grounding_audits (
+  audit_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims (partitioned)
+  verdict         grounding_audit_status NOT NULL, -- sampled_pass | sampled_fail | escalated
+  judge_version   text NOT NULL,               -- LOGICAL FK → pipeline_component_versions (independent judge)
+  rationale       text,
+  sampled_at      timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE grounding_audits IS
+  'Sampled independent entailment audits of claims (D32 layer 4). Offline, not per-claim; feeds claims.audit_status and the grounding eval suite.';
+CREATE INDEX ix_grounding_claim ON grounding_audits (claim_id);
+```
+
+---
+
+## 9. E3 — relations, evidence, supersession adjudications (D2–D4, D8)
+
+A **relation** is a distinct fact `(subject_entity, predicate, object_entity)` — its identity is the
+*fact itself*. Relations are the unit of **supersession** and **contradiction** and carry the
+**bi-temporal** windows. **Evidence** is the many-to-many join from relations back to the claims
+that support or contradict them — where corpus redundancy collapses into `evidence_count` (a free
+confidence/salience signal, D2). **One claim may yield several relations, and one relation may be
+evidenced by many claims** (`concepts.md` §2): the same `claim_id` therefore legitimately appears in
+several `relation_evidence` rows for *different* `relation_id`s; uniqueness is per `(relation_id,
+claim_id)` only.
+
+Objects are **always entities** (entity→entity). Attribute / single-entity / literal facts ("Acme
+was founded in 1998") yield **no relation** and stay E2-only, fully retrievable via P1
+(D2/`concepts.md` §2). Time is bi-temporal edge metadata, **never** a predicate or Date-entity
+(D18).
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- relations — distinct bi-temporal facts (D2/D3). The (entity_id,predicate) blocking key for
+-- supersession is the composite index below; it is small (distinct facts, not assertions) —
+-- what makes supersession affordable at scale (concepts §6). The canonical fact LABEL + its
+-- embedding live in Lance (D8); PG keeps the label text + version + a Lance ref. Not partitioned.
+--
+-- "Live belief" = invalidated_at IS NULL (transaction-time), regardless of valid_until: a
+-- believed-historical fact ("Alice worked at Acme 2020-2022", valid_until set, invalidated_at NULL)
+-- is still currently believed. status is a GENERATED mirror of invalidated_at so validity has
+-- exactly one authoritative home (D6) and cannot drift.
+--
+-- Uniqueness: a GiST EXCLUSION constraint forbids two BELIEVED, non-contradictory relations with
+-- the same (s,p,o) AND OVERLAPPING valid-time windows. This is more correct than a partial unique
+-- index: it permits re-occurring facts with non-overlapping windows (Alice worked at Acme twice)
+-- and permits contradictions (carved out via contradiction_group), while forbidding duplicate
+-- overlapping beliefs. Evidence-collapse (D2) finds the believed relation whose window covers the
+-- new claim's time.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE relations (
+  relation_id     uuid PRIMARY KEY,            -- the fact's identity; provenance handle in the graph/Lance projections
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  subject_entity_id uuid NOT NULL,             -- canonical subject (composite FK below; only canonical entities enter relations/graph — p2 §2)
+  predicate       text NOT NULL,               -- governed predicate; composite FK below
+  object_entity_id uuid NOT NULL,              -- canonical object (entity→entity only; literals stay in claims — D2)
+  -- bi-temporality (concepts §5): two clocks, different questions.
+  valid_from      timestamptz,                 -- VALID-time start: when the fact began holding in the world (NULL = unknown/always)
+  valid_until     timestamptz,                 -- VALID-time end: closed by supersession when the fact stops holding ("Alice left Acme")
+  ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed this fact
+  invalidated_at  timestamptz,                 -- TRANSACTION-time: when the system learned it was superseded (NULL = still believed)
+  evidence_count  integer NOT NULL DEFAULT 0,  -- cached COUNT of supporting evidence rows — free confidence/salience signal (D2); K3 candidate filter
+  contradict_count integer NOT NULL DEFAULT 0, -- cached COUNT of contradicting evidence rows
+  confidence      real,                        -- aggregate confidence over evidence (not an extraction-time guess — concepts §3)
+  contradiction_group uuid,                    -- shared id when two live relations contradict and can't be adjudicated — retrieval shows both sides (concepts §4)
+  status          relation_status GENERATED ALWAYS AS  -- DERIVED mirror of invalidated_at (single validity home, D6): active iff invalidated_at IS NULL, else invalidated
+                    (CASE WHEN invalidated_at IS NOT NULL THEN 'invalidated'::relation_status ELSE 'active'::relation_status END) STORED,
+  -- fact label (D8): the human-readable sentence embedded in Lance; regenerated only on material adjudication change.
+  fact_label      text,                        -- "Alice Novak works at Acme as VP of Engineering"
+  fact_label_version text,                     -- LOGICAL FK → pipeline_component_versions (fact_labeler)
+  fact_label_embedding_ref text,               -- opaque Lance key for the fact-label vector (P1; no vectors in PG/graph — D8)
+  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions (normalizer); replay-on-rebuild
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, relation_id),          -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, predicate) REFERENCES predicates (deployment_id, predicate) ON UPDATE CASCADE,
+  FOREIGN KEY (deployment_id, subject_entity_id) REFERENCES entities (deployment_id, entity_id),
+  FOREIGN KEY (deployment_id, object_entity_id)  REFERENCES entities (deployment_id, entity_id),
+  CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from),
+  CHECK (invalidated_at IS NULL OR invalidated_at >= ingested_at),  -- can't un-learn before learning
+  -- At most one BELIEVED, non-contradictory relation per (s,p,o) with overlapping world-time:
+  EXCLUDE USING gist (
+    deployment_id WITH =, subject_entity_id WITH =, predicate WITH =, object_entity_id WITH =,
+    tstzrange(valid_from, valid_until) WITH &&
+  ) WHERE (invalidated_at IS NULL AND contradiction_group IS NULL)
+);
+COMMENT ON TABLE relations IS
+  'E3 distinct bi-temporal facts (D2/D3). Identity = (subject,predicate,object) + validity interval; the unit of supersession/contradiction. evidence_count caches corpus redundancy as a confidence signal (D2). status is a generated mirror of invalidated_at (validity has one home, D6). The GiST EXCLUDE forbids overlapping duplicate beliefs while allowing re-occurring facts and carved-out contradictions. fact_label+embedding live in Lance (D8).';
+-- The supersession blocking key (D4) — small, distinct facts; THE index that makes supersession
+-- detection affordable (concepts §6):
+CREATE INDEX ix_relations_block_subj ON relations (deployment_id, subject_entity_id, predicate, object_entity_id);
+CREATE INDEX ix_relations_block_obj  ON relations (deployment_id, object_entity_id, predicate);  -- reverse blocking ("who works_at acme?")
+CREATE INDEX ix_relations_predicate  ON relations (deployment_id, predicate);
+CREATE INDEX ix_relations_contradiction ON relations (contradiction_group) WHERE contradiction_group IS NOT NULL;
+CREATE INDEX ix_relations_live       ON relations (deployment_id, subject_entity_id) WHERE invalidated_at IS NULL;
+```
+
+> **Contradiction insert protocol (concepts §4; resolves the §17 spike on the EXCLUDE WHERE
+> clause).** When the adjudicator cannot resolve a conflict between two same-`(s,p,o)` facts with
+> overlapping windows (murky dates), both stay live with a shared `contradiction_group`. Because the
+> EXCLUDE constraint ignores rows where `contradiction_group IS NOT NULL`, the second open row must
+> be inserted **with its `contradiction_group` already set** (assigned in the same transaction that
+> detects the conflict and stamps the group onto the existing row too). The constraint therefore
+> never sees two live `contradiction_group IS NULL` rows for the same overlapping `(s,p,o)`.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- relation_evidence — the many-to-many join claims ⇄ relations (D2). "Where corpus redundancy goes
+-- to die": 200 documents asserting the same fact = one relation + 200 rows here. ~10⁸ rows.
+--
+-- Partitioned by HASH(relation_id), NOT by ingest month — because every hot access is by
+-- relation_id (hydration) and the evidence-once invariant is on (relation_id, claim_id). With the
+-- partition key = relation_id: relation hydration prunes to ONE partition, AND a real
+-- PRIMARY KEY (relation_id, claim_id) enforces "a claim evidences a relation at most once" in-DB
+-- (so relations.evidence_count cannot be inflated by a retry — a re-link is an ON CONFLICT no-op).
+-- This deliberately refines D23 (which named relation_evidence for monthly partitioning) for this
+-- one table — see §17. Hash partitions are STATIC (created at migration, e.g. 64), so no pg_partman
+-- rolling-window is needed. The claim_id reverse lookup ("which relations does this claim evidence")
+-- scans all partitions but is the cold path. FKs remain logical (D23 btree-only/write-amplification).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE relation_evidence (
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  relation_id     uuid NOT NULL,               -- LOGICAL FK → relations; HASH partition key
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence MANY relations.
+  stance          evidence_stance NOT NULL,    -- supports | contradicts (concepts §3/§4)
+  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions; which normalizer linked them
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (relation_id, claim_id)          -- evidence-once, DB-enforced (partition key relation_id is included); re-link via ON CONFLICT DO NOTHING is a no-op
+) PARTITION BY HASH (relation_id);
+COMMENT ON TABLE relation_evidence IS
+  'Many-to-many evidence links (D2). Corpus redundancy collapses here into relations.evidence_count. Partitioned by HASH(relation_id) so relation hydration prunes to one partition and PRIMARY KEY (relation_id, claim_id) enforces evidence-once in-DB (refines D23 for this table — §17). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
+CREATE INDEX ix_relevidence_claim ON relation_evidence (claim_id);  -- reverse lookup: relations a claim evidences (all-partition scan)
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- relation_adjudications — append-only supersession/contradiction transcript (D3/D4). Records WHY a
+-- relation's window closed, a contradiction was flagged, or a merge proposed — by which cascade
+-- rung, with what confidence/evidence. Makes the non-deterministic adjudication replayable on
+-- rebuild (D7) and answers "why did valid_until close on 2026-01-15?". Real composite FK; the
+-- deletion GC retires (not deletes) relations referenced here so the audit trail survives (§13).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE relation_adjudications (
+  adjudication_id uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  relation_id     uuid NOT NULL,               -- the relation acted upon (composite FK below)
+  related_relation_id uuid,                    -- the other relation in a supersede/contradict pair, if any (composite FK below)
+  outcome         adjudication_outcome NOT NULL, -- add | noop | supersede | contradict | same_as_merge_proposal (D4 write-time outcomes)
+  method          adjudication_method NOT NULL,  -- novelty_gate | exact | fuzzy | embedding | small_model | frontier_llm (cheap-first cascade, D4)
+  confidence      real,
+  triggering_claim_id uuid,                     -- LOGICAL FK → claims; the new claim that triggered adjudication
+  features        jsonb,                        -- scores/rationale the decision used (audit); scrubbed on hard-forget (§13)
+  adjudicator_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
+  decided_by      decision_actor NOT NULL DEFAULT 'auto',
+  decided_at      timestamptz NOT NULL DEFAULT now(),
+  superseded_by   uuid REFERENCES relation_adjudications, -- a later adjudication that overrode this one
+  FOREIGN KEY (deployment_id, relation_id)         REFERENCES relations (deployment_id, relation_id),
+  FOREIGN KEY (deployment_id, related_relation_id) REFERENCES relations (deployment_id, relation_id)
+);
+COMMENT ON TABLE relation_adjudications IS
+  'Append-only supersession/contradiction decision log (D3/D4). Explains every window closure / contradiction flag / merge proposal, by cascade rung + evidence; replayed on P2 rebuild and used for "what did we believe at T / why" audits.';
+CREATE INDEX ix_adjud_relation ON relation_adjudications (relation_id);
+CREATE INDEX ix_adjud_live     ON relation_adjudications (relation_id) WHERE superseded_by IS NULL;
+```
+
+---
+
+## 10. Graph analytics writeback (D11) & projection snapshots (D7, D40)
+
+P1/P2/P3 are **derived projections**; two things flow *back into* Postgres because the rest of the
+system reads them: (1) **community detection + centrality** (D11 — Louvain/Leiden run externally;
+PageRank/K-Core/WCC natively), serving K1 refresh triggers and salience priors; and (2) a
+**snapshot registry** for P1/P2/P3 (D7/D40) — observability, validation gating, reader
+coordination. Per-entity analytics are **regenerated each rebuild** and **garbage-collected** when
+their snapshot is superseded — without GC these tables grow by ~entities-per-cycle forever at the
+6-hourly cadence, which contradicts their disposable intent.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- projection_snapshots — registry of P1/P2/P3 rebuilds (D7/D40). Immutable versioned snapshots;
+-- a validation gate must pass before is_latest flips (failure ⇒ previous snapshot keeps serving).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE projection_snapshots (
+  snapshot_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  plane           projection_plane NOT NULL,   -- P1_search | P2_graph | P3_corpusfs
+  version         text NOT NULL,               -- monotonic/timestamped snapshot version (also the GCS path segment)
+  gcs_uri         text NOT NULL,               -- gs://…/snapshots/<version>/
+  status          snapshot_status NOT NULL DEFAULT 'building', -- building | validating | published | superseded | failed
+  is_latest       boolean NOT NULL DEFAULT false, -- the pointer readers follow; exactly one per (deployment,plane)
+  row_counts      jsonb,                       -- per-table counts validated against Postgres (D7 validation gate)
+  validation      jsonb,                       -- validation report (pass/fail per check)
+  built_from_watermark timestamptz,            -- max ingested_at included — bounds projection staleness (freshness SLA = cadence, D7)
+  built_at        timestamptz NOT NULL DEFAULT now(),
+  published_at    timestamptz,
+  UNIQUE (deployment_id, plane, version),
+  UNIQUE (deployment_id, snapshot_id)           -- composite-FK target (tenancy isolation, §0)
+);
+COMMENT ON TABLE projection_snapshots IS
+  'Registry of immutable P1/P2/P3 snapshots (D7/D40). Validation gates is_latest; old snapshots are free point-in-time debugging artifacts. Mirrors the GCS latest pointer for operators/workers.';
+CREATE UNIQUE INDEX ux_snapshot_latest ON projection_snapshots (deployment_id, plane) WHERE is_latest;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- communities — detected entity communities per P2 snapshot (D11). Recomputed each rebuild.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE communities (
+  community_id    uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  snapshot_id     uuid NOT NULL,               -- which (P2_graph) rebuild produced this partition (composite FK below)
+  label           text,                        -- optional human/LLM topic label (K1 hint)
+  size            integer NOT NULL,            -- member count; an emerging giant community can signal over-merge (health metric, registries §10)
+  algorithm       community_algorithm NOT NULL,-- leiden | louvain (external pass) — D11
+  detected_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, community_id),         -- composite-FK target
+  FOREIGN KEY (deployment_id, snapshot_id) REFERENCES projection_snapshots (deployment_id, snapshot_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE communities IS
+  'Externally-detected communities per P2 graph snapshot (D11). Feed K1 refresh triggers ("claims in community C changed") and salience; recomputed each rebuild and GC''d with their snapshot (graph stays a projection). FK references must be a plane=P2_graph snapshot (invariant; the writer only inserts P2 snapshots here).';
+CREATE INDEX ix_communities_snapshot ON communities (snapshot_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- entity_graph_metrics — per-entity centrality + community membership per snapshot (D11). PageRank
+-- = salience prior; degree feeds entities.graph_degree (blast-radius) — refreshed ONLY from the
+-- currently-published is_latest P2 snapshot, after the validation gate passes, so the auto-merge
+-- gate is never computed from a stale/unvalidated projection. component_id is a synthetic
+-- per-snapshot WCC grouping label (NOT an FK).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE entity_graph_metrics (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  entity_id       uuid NOT NULL,               -- composite FK below
+  snapshot_id     uuid NOT NULL,               -- composite FK below (a P2_graph snapshot)
+  community_id    uuid,                        -- this entity's community in this snapshot (composite FK below)
+  pagerank        double precision,            -- salience prior (retrieval rank + K3 filter)
+  degree          integer,                     -- relation degree — copied into entities.graph_degree from the latest published snapshot only
+  k_core          integer,                     -- k-core number (hub-ness)
+  component_id    uuid,                        -- synthetic per-snapshot weakly-connected-component label (NOT an FK; scoped to snapshot_id)
+  computed_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, entity_id, snapshot_id),
+  FOREIGN KEY (deployment_id, entity_id)    REFERENCES entities (deployment_id, entity_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, snapshot_id)  REFERENCES projection_snapshots (deployment_id, snapshot_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, community_id) REFERENCES communities (deployment_id, community_id) ON DELETE SET NULL (community_id)
+);
+COMMENT ON TABLE entity_graph_metrics IS
+  'Per-entity graph analytics written back from each P2 rebuild (D11): PageRank salience, degree (blast-radius), k-core, community, WCC. Read by retrieval ranking, K3 filtering, ER health checks. GC''d when its snapshot is superseded. entities.graph_degree is refreshed only from the published is_latest snapshot.';
+CREATE INDEX ix_egm_entity   ON entity_graph_metrics (entity_id);
+CREATE INDEX ix_egm_snapshot ON entity_graph_metrics (snapshot_id);
+```
+
+**Retention/GC (D7 disposability).** On a successful publish (the `is_latest` flip), the rebuild's
+finalize step **deletes `communities` and `entity_graph_metrics` rows of superseded snapshots**
+(keeping the latest, or latest-N for debugging) — the `ON DELETE CASCADE` from
+`projection_snapshots` does this when a superseded snapshot row is pruned, or the finalize step
+deletes them directly. The lightweight `projection_snapshots` registry rows and the GCS snapshot
+objects are retained as point-in-time debugging artifacts independently of this per-entity GC.
+
+---
+
+## 11. K-plane provenance & refresh triggers (D1, D12)
+
+The K plane (K1/K2/K3) is **compiled markdown whose source of truth is the git repo**, backed up
+independently (D1). Postgres stores only **provenance** (which compiled artifact references which
+claims/relations/documents) and **triggers** (the debounced refresh queue) — needed for
+**incremental refresh** ("recompile only artifacts whose referenced claims changed", D12) and the
+**deletion cascade** (a removed input emits a tombstone signal to the K layer, D37).
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_artifacts — the PG handle on a K-plane git file (provenance/trigger target, D1).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_artifacts (
+  artifact_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  layer           knowledge_layer NOT NULL,    -- K1 | K2 | K3
+  scope_id        uuid,                        -- non-null for K2 scope artifacts (composite FK below)
+  git_path        text NOT NULL,               -- path of the markdown file in the K repo
+  kind            text,                        -- 'summary' | 'profile' | 'belief' | 'decision_log' | ...
+  content_hash    text,                        -- hash of the git file at last compile (change detection)
+  compiler_version text,                       -- LOGICAL FK → pipeline_component_versions (knowledge_compiler — Codex/OpenCode session config)
+  last_compiled_at timestamptz,
+  status          knowledge_artifact_status NOT NULL DEFAULT 'active', -- active | stale | tombstoned
+  UNIQUE (deployment_id, git_path),
+  UNIQUE (deployment_id, artifact_id),          -- composite-FK target
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
+);
+COMMENT ON TABLE knowledge_artifacts IS
+  'Provenance handle on each K-plane git file (D1). PG holds the handle + evidence links + compile state; git holds the content. Enables incremental recompile and deletion tombstones without making PG authoritative for K.';
+CREATE INDEX ix_kartifacts_scope ON knowledge_artifacts (scope_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_artifact_evidence — the belief/summary ⇄ evidence links (K3 requirement + cascade).
+-- "every belief links its supporting and contradicting evidence" (requirements_v3 K3). Also lets a
+-- deleted document/claim find the K artifacts to tombstone/recompile. A single link targets EXACTLY
+-- ONE of claim/relation/doc (the others NULL) — so a surrogate PK + a num_nonnulls CHECK + a
+-- NULL-tolerant unique index, NOT an all-columns PK (PK columns cannot be NULL).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_artifact_evidence (
+  evidence_link_id uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  artifact_id     uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE
+  claim_id        uuid,                        -- LOGICAL FK → claims (partitioned)
+  relation_id     uuid,                        -- composite FK below, ON DELETE CASCADE (real, relations is not partitioned)
+  doc_id          uuid,                        -- LOGICAL FK → documents
+  role            knowledge_evidence_role NOT NULL, -- supports | contradicts | cites (K3 links supporting AND contradicting evidence)
+  CHECK (num_nonnulls(claim_id, relation_id, doc_id) = 1),  -- exactly one target per link
+  FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, relation_id) REFERENCES relations (deployment_id, relation_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE knowledge_artifact_evidence IS
+  'Links K artifacts (esp. K3 beliefs) to the ONE claim/relation/document each evidence row supports or contradicts (requirements_v3 K3). Drives "recompile artifacts whose evidence changed" (D12) and the deletion-cascade tombstone signal (D37). Exactly-one-target enforced by CHECK; surrogate PK because the targets are nullable alternatives.';
+-- NULL-tolerant dedup (one link per (artifact, target, role)); NULLS NOT DISTINCT treats the two
+-- NULL targets as equal so the populated one is the discriminator:
+CREATE UNIQUE INDEX ux_kae_link ON knowledge_artifact_evidence (artifact_id, role, claim_id, relation_id, doc_id) NULLS NOT DISTINCT;
+CREATE INDEX ix_kae_claim    ON knowledge_artifact_evidence (claim_id)    WHERE claim_id IS NOT NULL;
+CREATE INDEX ix_kae_relation ON knowledge_artifact_evidence (relation_id) WHERE relation_id IS NOT NULL;
+CREATE INDEX ix_kae_doc      ON knowledge_artifact_evidence (doc_id)      WHERE doc_id IS NOT NULL;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_refresh_queue — the debounced aggregate-layer trigger (D12). K1/K2/K3 fire on
+-- windows/debounce ("N new claims or T minutes") + "claims in community C changed" (D11). Hot files
+-- (root index.md) use a rolling-window delay (not_before).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_refresh_queue (
+  refresh_id      uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  artifact_id     uuid,                        -- composite FK below (nullable); NULL = "decide which" at processing time
+  scope_id        uuid,                        -- composite FK below
+  trigger         knowledge_trigger NOT NULL,  -- claims_changed | community_changed | debounce_timer | manual | tombstone
+  payload         jsonb,                       -- e.g. {changed_claim_ids:[…]} | {community_id:…} | {deleted_doc_id:…}
+  not_before      timestamptz,                 -- rolling-window delay for hot files (D12) — don't process before this
+  status          refresh_status NOT NULL DEFAULT 'pending', -- pending | running | done | failed
+  enqueued_at     timestamptz NOT NULL DEFAULT now(),
+  processed_at    timestamptz,
+  FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, scope_id)    REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE knowledge_refresh_queue IS
+  'Debounced refresh triggers for the aggregate K layers (D12). Coalesces "N new claims or T minutes" + community-change + tombstone signals; not_before implements the hot-file rolling-window delay.';
+CREATE INDEX ix_krefresh_runnable ON knowledge_refresh_queue (deployment_id, status, not_before) WHERE status = 'pending';
+```
+
+---
+
+## 12. Partitioning & partition pruning (D23)
+
+Six append-only E-plane tables are partitioned for scale (D23). **Five** are **RANGE-partitioned by
+month** (`pg_partman`) on their transaction-time column; **`relation_evidence` is HASH-partitioned by
+`relation_id`** (rationale below). Monthly RANGE caps btree size, makes "drop the oldest month from
+the *hot* set" a partition detach, and aligns with projection archival (p2 §8). **This is binding**
+(the schema is partitioned as stated); a load-test (registries §11 spike 4, sized against *ungated*
+volume per D25) may change the *cadence* or the hash *partition count* — any such change is a
+documented revision to D23 and to this section, not an open "maybe".
+
+| Table | Partition key | FK policy |
+|---|---|---|
+| `mentions` | `created_at` (monthly RANGE) | logical (D23-named) |
+| `resolution_decisions` | `decided_at` (monthly RANGE) | logical (D23-named) |
+| `relation_evidence` | **`HASH(relation_id)`** | logical (refines D23 — §17) |
+| `claims` | `ingested_at` (monthly RANGE) | logical |
+| `claim_extraction_decisions` | `decided_at` (monthly RANGE) | logical |
+| `chunks` | `created_at` (monthly RANGE) | logical |
+
+D23 explicitly names the first three (sized at 10⁸); the other three are partitioned on the same
+principle (large, append-only, queried by id/parent not fuzzy-scanned). **`entities` and `aliases`
+are deliberately NOT partitioned** (≤10⁷, the blocking targets whose GIN trigram/phonetic indexes
+must span the whole set, D23). `relations` and `relation_adjudications` are not partitioned (distinct
+facts + their adjudications are far smaller than the assertion-grain tables).
+
+**Partition pruning on ID lookups.** Most hot queries select by id/parent (`doc_id → claims`,
+`mention_id → resolution_decisions`, `relation_id → relation_evidence`), which do *not* mention the
+partition key, so a naive query scans every monthly partition's local index. The mitigation, applied
+by the data-access layer: **UUIDv7 ids embed their creation timestamp**, and a child row's creation
+time is closely correlated with its parent's ingest time, so the application derives a time bound
+from the id (or from the parent's `ingested_at`) and adds it as a predicate (e.g.
+`AND ingested_at BETWEEN $lo AND $hi`), pruning to 1–2 partitions. This works for every
+ingest-time-correlated table (`claims`, `mentions`, `chunks`, `claim_extraction_decisions`, and —
+for the first-resolution pass — `resolution_decisions`).
+
+**`relation_evidence` is the exception, and is the reason it is hash-partitioned:** evidence for a
+popular fact accrues over the fact's whole life, so an id-derived time bound would *not* prune a
+`relation_id → evidence` lookup. Partitioning by `HASH(relation_id)` instead prunes relation
+hydration to one partition *and* makes the real `PRIMARY KEY (relation_id, claim_id)` evidence-once
+guarantee enforceable in-DB (a partitioned PK must include the partition key, which `relation_id` now
+is). This refines D23 (which named it for monthly partitioning) for this one table — §17 records the
+recommended D23 update. The `claim_id` reverse lookup still fans across hash partitions, but it is the
+cold path.
+
+**Partition-key consequences in the DDL:** a partitioned table's PRIMARY KEY/UNIQUE must include the
+partition key, so the five RANGE tables use composite PKs `(id, <time>)` and `relation_evidence` uses
+`(relation_id, claim_id)`. The application treats the UUIDv7 alone as identity (globally unique by
+construction); the composite is the Postgres mechanical requirement.
+
+---
+
+## 13. Deletion / forget cascade (D37, requirements_v3)
+
+Removing an input propagates through every derived layer, and **hard delete** of the original bytes
+must be supported (GDPR forget, D37). Deletion is executed by a **deletion worker in batches**
+(the large tables are partitioned and logical-FK, so there is no single giant `ON DELETE CASCADE`
+transaction); the real composite FKs on the smaller tables are the integrity backstop. Two modes:
+
+### 13.1 Normal delete (remove a document; retain audit history)
+
+1. **K tombstone first.** Before touching evidence, enqueue a `knowledge_refresh_queue` row with
+   `trigger='tombstone'` carrying the doc/claim ids (found via `knowledge_artifact_evidence`), so
+   the K compiler recompiles/removes affected artifacts in git (the tombstone signal, D37). Doing
+   this first ensures the links are still present to discover.
+2. **GCS**: purge the document's raw + artifacts objects.
+3. **`documents`**: **soft-tombstone** — set `status='deleted'`, null the artifact URIs, set
+   `deleted_at`; **keep the row** (so the `deleted` enum value and `ix_documents_live` are
+   meaningful, the logical-FK auditor distinguishes "forgotten" from "never existed", and crossref
+   targets resolve sanely). The worker then clears the document's `document_sections` (cascade) and
+   sets dependent `document_crossrefs.to_doc_id = NULL, resolved = false` while **retaining
+   `raw_citation`** so the link can be re-resolved if the target is re-ingested.
+4. **`chunks`** (logical FK): the worker deletes the doc's chunks (their Lance vectors drop on the
+   next P1 maintenance/rebuild). It deletes a document's chunks in the **same batch as / before** the
+   `document_sections` rows, so the auditor never flags a transient orphaned `chunk.section_id`
+   (and the auditor ignores rows for documents with `deleted_at` set).
+5. **`claims`** (logical FK): deleted with their chunks; the worker deletes the dependent
+   `mentions`, `claim_extraction_decisions`, `grounding_audits`, and `relation_evidence` rows.
+   `mentions → resolution_decisions` are deleted likewise.
+6. **`relations`**: **not** deleted with one document's claims — a relation is a *shared* fact. The
+   worker recomputes `evidence_count`/`contradict_count` (a `COUNT(DISTINCT claim_id)`, so duplicates
+   cannot inflate it). A relation whose supporting evidence drops to zero is **retired by setting
+   `invalidated_at`** (so the generated `status` becomes `invalidated` and the projection stops
+   emitting it) — it is **not physically deleted**, because `relation_adjudications` and
+   `knowledge_artifact_evidence` reference it and the audit trail is retained. A
+   `relation_adjudications` row records the retirement reason so it is distinguishable from a
+   supersession in audit.
+7. **`entities`**: not deleted; a separate GC **retires** (`status='retired'`) entities with zero
+   surviving mentions. They are **not physically deleted**, because `merge_events`,
+   `resolution_exclusions`, `relation_adjudications`, and `entity_graph_metrics` reference them and
+   D21 mandates retaining merge history for un-merge. Retired entities are not emitted on rebuild.
+8. **P1/P2/P3**: cascade "for free" — projections don't materialize removed/retired data on the next
+   rebuild (D40).
+
+### 13.2 Hard forget (GDPR — erase the bytes *and* the derived text)
+
+Normal delete already purges the GCS bytes and the document row's text-bearing URIs. A full forget
+additionally **scrubs or deletes the source-bearing payloads** that normal delete retains for audit:
+`relation_adjudications.features`, `merge_events.evidence`, `mentions.context`/`surface_form`, and
+any `claim_text`/`source_span` already removed with the claims. Because those audit rows reference
+`relations`/`entities` via real composite FKs, a forget that *physically* deletes a relation/entity
+must first delete or anonymize the referencing audit rows (or rely on the retire-don't-delete model
+of §13.1 and scrub the free-text fields in place). The worker performs this as an explicit forget
+pass, distinct from normal delete, and records it in `processing_state` (`stage`-scoped) for audit
+of the erasure itself.
+
+The logical-FK **auditor** (run periodically) catches any orphan or duplicate-`(relation_id,
+claim_id)` the worker missed, and ignores rows belonging to documents with `deleted_at` set (a
+delete in flight).
+
+---
+
+## 14. How a write flows through the schema (worked example)
+
+From `concepts.md`'s running example — *Doc C (Jan 2026): "Alice Novak left Acme to found Beacon
+Labs."*
+
+1. **E0** `documents` row (`ingesting`→`ready`), `document_sections` rows; `processing_state` tracks
+   each sub-worker; `cost_ledger` logs the OCR/structure calls (idempotent per attempt).
+2. **E1** `chunks` rows with offsets + `context_prefix`; vectors land in Lance keyed by `chunk_id`.
+3. **E2 Selection** keeps the two verifiable propositions (any drop/edit → `claim_extraction_decisions`).
+   Kept propositions → `claims` (`c3`, `c4`) with `source_span`, offsets, `added_context`,
+   `anchor_ok`/`window_membership_ok` true (the CHECK); mentions of "Alice Novak", "Acme", "Beacon
+   Labs" → `mentions` with `canonical_name_form`.
+4. **Resolution** (T0–T4) writes `resolution_decisions` (method ∈ {T0,T3,T4_*,human}) linking each
+   mention to an `entities` row via the `aliases` blocking indexes; "Beacon Labs" is new
+   (`is_new_entity`).
+5. **E3 normalize**: `c4` → `(alice, founded, beacon_labs)` — new `relations` row (passes
+   domain/range via the normalizer's parent-walk), one `relation_evidence(supports)` row keyed
+   `(relation_id, claim_id)` (a re-link is an `ON CONFLICT` no-op). `c3` triggers **supersession** on `(alice, works_for, acme)`: the
+   blocking index `ix_relations_block_subj` finds it, the cascade adjudicates `supersede`, a
+   `relation_adjudications` row records why, and the relation's `valid_until`/`invalidated_at` close
+   (the GiST EXCLUDE permits this — the closed window no longer overlaps a live one; `c1`,`c2` claims
+   untouched, D3). `status` flips to `invalidated` automatically (generated column).
+6. **Projections**: next P2 rebuild re-points edges; `entity_graph_metrics`/`communities` write back
+   (old snapshot's rows GC'd); `projection_snapshots` records the new version and flips `is_latest`
+   after validation. `knowledge_refresh_queue` fires `claims_changed` for any K artifact whose
+   evidence referenced the Acme employment fact.
+
+---
+
+## 15. Non-goals (scope boundaries, not deferrals)
+
+- **No `graph_events` outbox / incremental-sync state.** P2 is rebuild-first (D7); incremental is a
+  *documented alternative* (`p2_graph_design.md` §5), not built.
+- **No value/salience-gate state** (`gate_decisions` / `document_extraction_state` /
+  `salience_gate_versions`) — D25–D30 withdrawn. Junk-control is in-call E2 Selection
+  (`claim_extraction_decisions`) + D2 redundancy-collapse + content-hash idempotency.
+- **No `external_ids` table.** Resolution is registry-self-contained (D20); future internal/domain
+  authoritative IDs would attach as *aliases*, never as the canonical `entity_id`.
+- **No vectors in Postgres.** All embeddings live in Lance (P1); PG stores opaque `*_ref` keys +
+  model/version. HNSW never in OLTP (D8/D23).
+- **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
+- **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
+  claims (§8 reconciliation note).
+
+---
+
+## 16. Decision → table map
+
+| Decision | Realized by |
+|---|---|
+| D1 split source of truth; versioned processing | `pipeline_component_versions`; K-plane provenance §11; `*_version` columns |
+| D2 claims/relations distinct, M:N evidence | `claims`, `relations`, `relation_evidence` (+ `evidence_count`) |
+| D3 supersession at relation level, bi-temporal | `relations` 4 temporal columns + GiST EXCLUDE; `relation_adjudications`; claims immutable |
+| D4 supersession blocking + cheap-first cascade | `ix_relations_block_subj/obj`; `relation_adjudications.method` (incl. `novelty_gate`) |
+| D5 governed predicate registry + `other:` | `predicates` (`synonyms`, `tier='other'` upsert, `usage_count` funnel) |
+| D6 graph is a projection; validity has one home | validity only on `relations`; generated `status`; analytics writeback §10 |
+| D7 rebuild-first; immutable snapshots | `projection_snapshots`; replay via `*_version` + decision ledgers; snapshot GC |
+| D8 relation fact-label embeddings in Lance | `relations.fact_label*` + `*_embedding_ref` (no PG vectors) |
+| D9 search/rerank; evidence-count + graph-distance | `relations.evidence_count`; `entity_graph_metrics.pagerank/degree` |
+| D11 communities external → write back to PG | `communities`, `entity_graph_metrics` (+ GC) |
+| D12 idempotency, retries, DLQ, debounced K triggers | `processing_state`, `cost_ledger`, `knowledge_refresh_queue` |
+| D15/D18 ontology core+extensions, domain/range | `entity_types`, `predicates`, `predicate_signatures` (normalizer-enforced), `extension_packs` |
+| D16 one graph, scope views | `scopes`, `scope_interests` |
+| D17 T0–T4 cascade, block-loose/decide-tight | `aliases` composite GIN indexes; `resolution_decisions.method` (CHECK excludes T1/T2); `resolver_versions` |
+| D19 coref in-call | `mentions.canonical_name_form` (no coref model/table) |
+| D20 no external authority | non-goal §15 |
+| D21 clustering, reversibility, generic-id guard | `merge_events` (+ `trigger_lemmas`), `resolution_exclusions`, `generic_identifier_guard`, `superseded_by` |
+| D22 golden set + eval | `golden_pairs` (+ `expected_blocking_tier`), `golden_claim_labels`, `eval_runs`, `canary_cases` |
+| D23 partition the big tables; btree-only; GIN on aliases | §12; `aliases` composite GIN trigram + Daitch-Mokotoff |
+| D24 cluster review queue | `review_queue` (band boundaries in `resolver_versions.tier_config`) |
+| D25 no value gate | non-goal §15 |
+| D31/D32 Claimify staged extraction + grounding | `claims` (`source_span`, `added_context`, grounding flags + gate CHECK), `grounding_audits` |
+| D33 extraction decision ledger | `claim_extraction_decisions` |
+| D35 Selection recall envelope | `claims.kept_flagged`, `selection_drop_reason`, `protected_class`, `golden_claim_labels` |
+| D36/D37 E0 sub-workers (incl. crossref version), storage split | `documents` (URIs + all four sub-worker versions), `document_crossrefs.crossref_version` |
+| D39 PageIndex sections + placement | `document_sections` (path/role/span/summary/placement) |
+| D40 P3 corpus filesystem | `projection_snapshots (plane='P3_corpusfs')` + `document(_sections).placement*` |
+
+---
+
+## 17. Open spikes / recommended decision revisits (measure before locking)
+
+Per CLAUDE.md, numbers are starting points. Items that may move the schema or a decision:
+
+1. **`relation_evidence` partitioning — D23 amendment applied; update the decision text.** All
+   three reviewers flagged that monthly time-partitioning defeats the `relation_id → evidence`
+   lookup (time-uncorrelated, §12) *and* prevents a DB-level evidence-once guarantee. The schema
+   therefore partitions `relation_evidence` by **`HASH(relation_id)`** with `PRIMARY KEY
+   (relation_id, claim_id)` — relation hydration prunes to one partition and evidence-once is
+   DB-enforced (no worker-invariant/auditor needed for *this* duplicate class). D23 names monthly
+   partitioning for this table; **D23 should be updated** to record the hash-by-`relation_id`
+   choice. Confirm the partition count (start 64) on a corpus-slice load-test.
+2. **GIN blocking index shape — reconcile with D23/registries §9.** The schema makes the `aliases`
+   blocking GIN indexes **composite (deployment_id-leading, via `btree_gin`)** to deliver the §0
+   tenancy invariant and selectivity in the single-DB realization. D23/registries §9 currently
+   describe single-column GIN on `normalized_lemma`. Update those texts to match, or, if
+   schema-per-deployment (realization b) is mandated, drop the `btree_gin` extension and revert to
+   single-column GIN. Decide on the realization.
+3. **Embedding dimension** (questions Q3): pins `pipeline_component_versions.embedding_dim` and the
+   re-embedding batch path — the hardest thing to change later.
+4. **Logical-FK auditor cost**: the periodic orphan + duplicate-`(relation_id, claim_id)` check over
+   the partitioned tables — confirm it stays cheap enough to run often; else reconsider selective
+   real FKs (or spike #1's hash-partition, which removes the duplicate check).
+5. **K-provenance granularity**: whether `knowledge_artifact_evidence` at claim grain is affordable,
+   or should coarsen to relation/community grain for the largest K1 summaries.
+6. **Un-merge ↔ supersession ripple** (registries §11 spike 3): verify replaying
+   `merge_events.pre_merge_membership_snapshot` correctly re-adjudicates relation windows closed
+   under a merged identity (`relation_adjudications.superseded_by` supports it; the procedure needs a
+   test).
+7. **P3/D40 wording reconciliation.** D40 in `decisions.md` lists "the K-plane structure" as a P3
+   build input; the binding `e0_files_design.md` §6 scopes K to a *cross-link*, not a structural
+   dependency (so P3 stays rebuildable from the E spine + artifacts). This schema follows the binding
+   design (P3 is `projection_snapshots` + placement columns, no K dependency); D40's phrasing should
+   be corrected to match.
+8. **Snapshot retention depth** (latest-only vs latest-N for `communities`/`entity_graph_metrics`):
+   pick the debugging-history depth against storage cost.
+
+## References
+
+Designs: `overall_design.md` (§3 data model, §9 index), `registries_design.md` (D15–D24),
+`e0_files_design.md` (D36–D40), `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md`
+(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D40). Requirements:
+`requirements/requirements_v3.md`. Open items: `questions.md`.
