@@ -335,12 +335,14 @@ model).
 
 ---
 
-> **D17–D24 provenance.** D17–D24 formalize the entity-registry research
-> (`plan/analysis/registry_research/SYNTHESIS.md`, objection O5) — 12 systems read at source +
-> literature, with adversarial fact-checkers. Where a number is involved it is a **placeholder
-> to be measured on a golden set / corpus slice**, not a committed constant — the spikes are
-> listed in SYNTHESIS §5. (D25–D30, formalizing the value-gate research / objection O3, follow
-> in a separate PR.)
+> **D17–D30 provenance.** D17–D24 formalize the entity-registry research
+> (`plan/analysis/registry_research/SYNTHESIS.md`, objection O5); **D25 records the rejection of the
+> value-gate mechanism** (O3 premise accepted, gate-as-answer rejected —
+> `plan/analysis/value_gate_research/SYNTHESIS.md` + `plan/analysis/claimify_research/SYNTHESIS.md`);
+> **D26–D30 are withdrawn-in-place** (folded into D25). Both
+> efforts read 12 systems at source + literature, with adversarial fact-checkers. Where a
+> number is involved it is a **placeholder to be measured on a golden set / corpus slice**, not
+> a committed constant — the spikes are listed in each SYNTHESIS §5.
 
 ## D17. Canonical resolution tier cascade (T0–T4), block-loose / decide-tight
 
@@ -453,8 +455,9 @@ tuning, contradiction-detection precision). A learned matcher + active-learning 
 a documented **optional extension** of the cascade (D17), kept strictly separate from the eval
 set — the core design resolves with the deterministic + LLM tiers, not a learned matcher.
 
-**Context.** Closes O6's ER half concretely; the eval set is also the seed for the value gate's
-salience classifier (D26). (R7, O6.)
+**Context.** Closes O6's ER half concretely; the same eval set also seeds E2 Selection's
+claim-verifiability golden set (D25 — junk-control moved to in-call Selection, not a salience gate).
+(R7, O6.)
 
 ## D23. Registry scale & schema
 
@@ -481,3 +484,75 @@ OpenRefine's cluster-card-with-exclude (interaction). Every action appends a rev
 provenance-stamped, redirect-preserving record (D21). The design is the CLI queue; a web UI /
 Argilla is an optional addition if review volume ever justifies it, not part of the core design.
 (R10.)
+
+## D25. No pre-extraction value/salience gate — junk-control is in-call at E2 Selection + D2
+
+**Decision.** There is **no E1.5 stage and no value/salience gate**. Plane E is `E0 → E1 → E2 → E3`;
+every document that survives chunking is fully extracted. Junk-control moves to where junk is cheapest
+and safest to identify: **E2 Selection** (Claimify proposition-level verifiability KEEP/REWRITE/DROP,
+in-call, zero marginal LLM calls — the ablation-proven highest-leverage stage, element-coverage
+macro-F1 83.7→54.4 when removed) and **D2** (corpus redundancy collapses into one relation +
+`evidence_count`, so duplicate *facts* cost nothing in the graph). Exact-content-hash dedup remains as
+the **D12/D7 idempotency** mechanism (a `content_hash` short-circuit at the worker boundary), never as a
+value tier. The E0 **PageIndex section path/role is fed into the E2 call** so Selection can drop
+references/boilerplate/intro/conclusion at proposition grain (the structural signal is *absorbed into*
+extraction, not used as a binary pre-skip).
+
+**Context.** O3's *premise* (most raw content is low-value; junk poisons downstream) is **accepted**;
+its proposed *mechanism* (a pre-extraction gate) is **rejected**. The only "value" rung (a distilled
+salience classifier) is unbuilt and golden-set-dependent; the novelty rung is a corpus-scale ANN at 10⁸
+claims (the gate's own #1 self-defeat risk — it becomes a new fleet-scale stage); the honest cost lever
+is ~1.5–2×, not 10×, and the 10× lived entirely in the DEFERRED tier whose two Postgres state tables +
+transactional outbox + `SKIP LOCKED` queue + heartbeat reconciler + four promotion triggers are pure
+complexity for that 1.5–2×. Claimify's Selection ablation makes the in-call verifiability filter the
+highest-leverage junk control and it is free; D2 already neutralizes redundant-fact cost. The gate also
+concentrated the system's highest-severity correctness risk (the zombie-fact / supersession-skip case —
+silently withholding the only superseding evidence) and the circular never-defer-by-predicate problem;
+extracting every section removes that failure mode at its root. (O3 premise; value_gate_research V1–V6;
+claimify_research C4/C8.)
+
+**Consequences.**
+- Plane E reverts to `E0→E1→E2→E3` (`overall_design.md` §4). Paying E2 on everything is the ~1.5–2× the
+  gate would have saved; Selection's in-call precision means that spend buys *clean* claims.
+- **R9 / D23 re-stamp:** the three 10⁸ tables (`mentions` / `resolution_decisions` /
+  `relation_evidence`) are sized against **full extraction** again (`f_full = 1`); the favorable gate
+  shrink is withdrawn and R9's partition/index load-test plans against ungated volume.
+- The E1.5 design doc is retired; `plan/designs/e2_value_control_non_goal.md` records the non-goal and
+  what handles junk instead.
+- The recall-conservative discipline (defer-don't-DROP) relocates one grain down, to E2 Selection (the
+  claim-layer D35 proposal): conservative KEEP bias, never-drop lexical classes, `kept_flagged` (no hard
+  delete), DROP ledger, per-fact canary CI.
+- **Future option (documented, not built):** if a corpus slice ever shows extraction cost is dominated
+  by structurally-skippable sections, a *trivial deterministic* section filter
+  (`pageindex_node_type NOT IN {references, bibliography, nav, boilerplate, legal}` on E2 entry — no
+  classifier, no ANN, no defer machinery) is the cheap add-back, gated on a measured break-even. This is
+  explicitly **not** a smart gate.
+
+## D26. *(withdrawn — folded into D25)*
+
+Was "the gate is a nested cheap-first cascade" (T-dup → T-struct → T-novel → T-salience). Withdrawn
+with the gate (D25). The cheap-first philosophy survives unchanged in D4 (supersession) and D17
+(resolution). Exact-content-hash dedup survives as plain D12/D7 idempotency, not a value tier.
+
+## D27. *(withdrawn — folded into D25)*
+
+Was "defer decision is durable, versioned Postgres state." There is no defer decision; the
+`gate_decisions` / `document_extraction_state` / `salience_gate_versions` tables are not built.
+
+## D28. *(withdrawn — folded into D25)*
+
+Was "lazy promotion triggers." No DEFERRED tier, so no promotion. K2 scope-interest (D16) remains a
+query/compile-time selection over fully-extracted facts, never a promotion trigger.
+
+## D29. *(withdrawn — folded into D25)*
+
+Was "defer-don't-DROP recall envelope." The recall-conservative discipline relocates one grain down to
+E2 Selection (the claim-layer D35 proposal): conservative KEEP bias, never-drop lexical classes,
+`kept_flagged` (no hard delete), an append-only DROP ledger, per-fact canary CI — defer-don't-DROP at
+the proposition grain, where junk is actually identifiable.
+
+## D30. *(withdrawn — folded into D25)*
+
+Was "gate cost & break-even discipline." No gate to cost. The break-even discipline survives as a
+property of E2 spend (the claimify cost model) and of the documented trivial structural-skip add-back
+(D25, future option).
