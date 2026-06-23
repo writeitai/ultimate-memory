@@ -10,7 +10,7 @@ at a million documents.
 > architecture, research, decisions, and the open questions — that has to be settled *before*
 > implementation. If you're looking for a working library, it isn't here yet.
 
-## TL;DR for first-time visitors
+## TL;DR
 
 Imagine pouring a million documents into a system and being able to ask it not just "where did
 I read this?" but "what do we actually know, and what changed our mind?" That's the goal.
@@ -21,10 +21,37 @@ The design is organized as **three planes** — a useful mental model for the wh
 |---|---|---|---|
 | **E — Evidence** | *what we ingested* | Raw inputs broken down step by step: files → chunks → atomic claims → relations (facts) | No — it's the ground truth |
 | **K — Knowledge** | *what we concluded* | LLM-distilled and human-editable summaries and beliefs, version-controlled like code | No — authored/curated |
-| **P — Projections** | *what we query* | Search indexes and a knowledge graph, derived from the evidence spine | Yes — regenerate any time |
+| **P — Projections** | *how we reach it* | Search indexes, a knowledge graph, and a browsable filesystem, derived from the evidence spine | Yes — regenerate any time |
 
-The one-line version: **E** is what we ingested, **K** is what we concluded, **P** is what we
-query — and **P can always be rebuilt from E.**
+The one-line version: **E** is what we ingested, **K** is what we concluded, **P** is how we
+reach it — and **P can always be rebuilt from E.**
+
+Each plane breaks into a handful of layers:
+
+**E — Evidence** *(per-document chain; Postgres is truth)*
+
+| | What it is | Backed by | Holds |
+|---|---|---|---|
+| **E0** | Files / document layer | GCS (raw + artifacts) + Postgres | original bytes, markdown, per-doc section structure (PageIndex) |
+| **E1** | Chunks | Postgres + Lance | retrieval-sized units with context prefixes |
+| **E2** | Claims | Postgres | atomic, verifiable natural-language assertions (immutable) |
+| **E3** | Relations | Postgres | normalized `(subject, predicate, object)` facts, bi-temporal |
+
+**K — Knowledge** *(LLM-compiled markdown; git is truth)*
+
+| | What it is | Backed by | Holds |
+|---|---|---|---|
+| **K1** | General knowledge | git repo | progressive-disclosure summaries over the claims |
+| **K2** | Special-purpose scopes | git repo | pluggable domain layers (people profiles, projects, …) |
+| **K3** | Core beliefs | git repo | ultra-distilled beliefs, each linked to its evidence |
+
+**P — Projections** *(derived from E + K; rebuildable, hold no source-of-truth)*
+
+| | What it is | Backed by | Serves |
+|---|---|---|---|
+| **P1** | Search indexes | LanceDB | vector (semantic) + FTS/BM25 search over chunks, claims, relation fact-labels |
+| **P2** | Graph | LadybugDB | neighborhood / path / as-of traversal over entities + relations |
+| **P3** | Corpus filesystem | GCS directory tree | agents browsing the memory as a mounted filesystem (`ls`/`cat`/`grep`) |
 
 A few ideas give the design its character:
 
@@ -74,7 +101,6 @@ and flow downward.
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |
 | [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | Claim extraction + relation normalization; why there is no value gate (D31–D35, D25) |
 | [plan/designs/e0_files_design.md](plan/designs/e0_files_design.md) | E0 document layer + P3 corpus filesystem (D36–D40) |
-| [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | E2/E3 claim extraction + relation normalization (D31–D35) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
