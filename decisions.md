@@ -517,8 +517,8 @@ claimify_research C4/C8.)
 - **R9 / D23 re-stamp:** the three 10⁸ tables (`mentions` / `resolution_decisions` /
   `relation_evidence`) are sized against **full extraction** again (`f_full = 1`); the favorable gate
   shrink is withdrawn and R9's partition/index load-test plans against ungated volume.
-- The E1.5 design doc is retired; `plan/designs/e2_value_control_non_goal.md` records the non-goal and
-  what handles junk instead.
+- The E1.5 design doc is retired; `plan/designs/e2_e3_claims_relations_design.md` §4 records the
+  non-goal (why there is no value gate) and what handles junk instead.
 - The recall-conservative discipline (defer-don't-DROP) relocates one grain down, to E2 Selection (the
   claim-layer D35 proposal): conservative KEEP bias, never-drop lexical classes, `kept_flagged` (no hard
   delete), DROP ledger, per-fact canary CI.
@@ -556,3 +556,76 @@ the proposition grain, where junk is actually identifiable.
 Was "gate cost & break-even discipline." No gate to cost. The break-even discipline survives as a
 property of E2 spend (the claimify cost model) and of the documented trivial structural-skip add-back
 (D25, future option).
+
+---
+
+> **D31–D35 provenance.** D31–D35 formalize the Claimify E2 research
+> (`plan/analysis/claimify_research/SYNTHESIS.md`, the de-contextualization + claim-level-selection
+> effort); the binding design is `plan/designs/e2_e3_claims_relations_design.md`. Numbers/thresholds
+> are placeholders to be measured on a golden set / corpus slice (see that SYNTHESIS §4 spikes).
+
+## D31. E2 is a Claimify-staged extractor over a context bundle (two calls)
+
+**Decision.** Claim extraction runs over a **context bundle** (target chunk + document header +
+PageIndex section path + the E1 context prefix + ±N same-section neighbour chunks + entity hints),
+never a bare chunk. The model does three jobs: **Selection** (keep only specific, verifiable
+propositions; drop opinion / advice / hypothetical / generic / intro-conclusion / lack-of-info; keep
+only the verifiable span of a mixed sentence), **Disambiguation/decontextualization** (resolve
+references from the bundle and *only* the bundle; add the minimum context; discard when there is no
+confident reading; coref in-call per D19), and **Decomposition** (atomic, attribution-preserving
+claims). It runs as **two calls** (Selection separate from a fused decontextualize + decompose + ground
+call); a one-call collapse is permitted only after an ablation. The literal three-calls-per-sentence
+loop is not used at scale.
+
+**Context.** Refines D4 (cheap-first) and realizes D19 (coref in-call). Selection is split out because
+it is the highest-leverage stage and carries the opposite instruction to decontextualization. Design +
+worked example: `plan/designs/e2_e3_claims_relations_design.md`. (C1–C8.)
+
+## D32. Claim grounding is layered and dual-field, not verbatim-substring
+
+**Decision.** A claim stores both a standalone `claim_text` and a verbatim `source_span` + character
+offsets, plus an `added_context[]` list naming each added substring's bundle source. Acceptance layers,
+cheapest first: (1) deterministic **anchor** — the source span is a real slice of the chunk; (2)
+deterministic **window-membership** — every added substring verbatim-exists in its declared bundle
+source (rejects fabrication); (3) an in-call **entailment self-verdict** (incl. the "*X said* Y entails
+*X said Y*, not *Y*" rule); (4) a **sampled independent** entailment audit (never per-claim). Replaces
+the verbatim-substring gate, which is incompatible with decontextualization. No external knowledge.
+
+**Context.** A decontextualized claim is a rewrite, so it is never a verbatim substring; grounding must
+be provenance + entailment, as every surveyed decompose-then-verify system does. (C6.)
+
+## D33. E2 selection-drops and decontextualization edits are append-only, versioned state
+
+**Decision.** Every Selection drop (with reason) and every decontextualization edit is written to an
+append-only, version-stamped `claim_extraction_decisions` table. Rebuild reads stored claims +
+decisions and never re-calls the model (the LLM rungs are replay-from-storage, like any
+non-deterministic stage — D7); the per-chunk worker is idempotent on content-hash + extractor version
+(D12). Drops become auditable and recoverable (a better prompt re-examines only the drop set), and the
+eval metrics come for free.
+
+**Context.** The same durable-state discipline the resolution and supersession layers use, applied to
+the extraction transcript. (C8.)
+
+## D34. E2 Selection is the value filter — there is no pre-extraction value gate
+
+**Decision.** Junk-control lives at the **proposition grain**, in-call: Selection (D31) decides
+**verifiability** — not relevance (handled by K2 scope views, D16) and not ambiguity (the
+disambiguation step). Together with **D2** redundancy-collapse (duplicate facts → one relation +
+`evidence_count`) and exact-content-hash idempotency (D12), this replaces the pre-extraction value/
+salience gate, which is **not built** (D25). Selection's metrics stand alone.
+
+**Context.** The chunk-level value gate (former D26–D30) was over-engineered for a ~1.5–2× lever and
+concentrated the worst correctness risk; the in-call verifiability filter is cheaper, safer, and
+ablation-proven. (D25; value_gate_research; claimify_research C4.)
+
+## D35. Selection recall envelope (defer-don't-DROP, one grain down)
+
+**Decision.** Because a Selection drop is a hard delete with no second-copy net for a uniquely-attested
+fact, Selection biases **conservative KEEP**; protects **never-drop classes** (quantities, dates,
+named-entity + predicate, change-of-state language) regardless of phrasing; offers a low-confidence
+**`kept_flagged`** outcome (mark-for-review, not delete); records all drops in the D33 ledger for
+version-filtered re-examination; and is tuned against **per-fact** false-drop (canary CI), never a
+corpus average.
+
+**Context.** Mirrors the recall-conservative discipline the dropped gate carried (former D29), relocated
+to the grain where junk is actually identifiable. (C4; D33.)

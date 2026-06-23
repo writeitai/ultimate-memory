@@ -10,7 +10,7 @@ about what is still a spike.
 > **Post-research reconciliation (the value gate was dropped).** This analysis was written while the
 > E1.5 value/salience gate (then D25–D30) was part of the design, so it frames E2 Selection as the
 > *claim-grain dual* of that section-grain gate. That gate has since been **dropped** — O3 resolved,
-> premise accepted, mechanism rejected (`decisions.md` D25; `plan/designs/e2_value_control_non_goal.md`).
+> premise accepted, mechanism rejected (`decisions.md` D25; `plan/designs/e2_e3_claims_relations_design.md`).
 > With no gate, **Selection is simply THE value filter**: junk-control lives entirely at the proposition
 > grain (verifiability, in-call) + D2 redundancy-collapse. Where this document treats the gate as given,
 > read "the dual of the gate" as "the value filter." The D34 proposal and the §4 decision-change notes

@@ -109,7 +109,7 @@ supersession-skip case). Junk-control instead lives at **E2 Selection** (Claimif
 in-call, ablation-proven 83.7→54.4) + **D2** (redundancy → `evidence_count`), with exact-hash dedup
 retained as idempotency only and the E0 PageIndex role fed into E2 (`claimify_research/`). A trivial
 deterministic structural section-skip is a documented future add-back, not a smart gate.
-→ **D25** (and withdrawn D26–D30); design `plan/designs/e2_value_control_non_goal.md`.
+→ **D25** (and withdrawn D26–D30); design `plan/designs/e2_e3_claims_relations_design.md`.
 
 ---
 
