@@ -18,9 +18,11 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 ### Plane E — Evidence (per-document; relational spine is the source of truth)
 
-- **E0 — Files** *(formerly L0)*: every input tracked and preserved; normalized to a common
-  text form; document structure (hierarchy + summaries) extracted; cross-references between
-  documents (e.g. citations) tracked.
+- **E0 — Files** *(formerly L0)*: every input tracked and preserved (raw bytes kept immutably);
+  normalized to a common text form via a **configurable conversion module** (OCR where needed);
+  per-document **structure** (hierarchy + section roles + summaries) extracted, plus a **placement
+  hint** for the corpus filesystem; cross-references between documents (e.g. citations) tracked.
+  Converted bodies live in object storage; the spine holds only metadata + the queryable structure.
 - **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
   context and trace back to the exact source document and position.
 - **E2 — Claims** *(formerly L2)*: atomic, verifiable natural-language assertions; typed
@@ -50,6 +52,10 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - **P2 — Graph** *(formerly L6)*: relationships between entities; bi-temporal; supports
   as-of queries; ontology starts small and evolves by governance; fully rebuildable from the
   spine.
+- **P3 — Corpus filesystem**: the corpus organized as a navigable **directory tree**, materialized
+  to object storage and **mounted read-only** so agentic workers can browse the memory on their
+  filesystem; built from document placement hints + entities/relations + the K-plane structure;
+  fully rebuildable. Agents read the curated hierarchy and drill into the source documents.
 
 ## Knowledge lifecycle
 
@@ -64,9 +70,11 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 ## Retrieval
 
-- Exposed as **API, CLI, and MCP server**; designed for agents composing hybrid strategies.
+- Exposed as **API, CLI, MCP server, and a mounted filesystem** (the corpus filesystem, P3,
+  mounted read-only) — designed for agents composing hybrid strategies, including browsing the
+  memory as files (`ls`/`cat`/`grep` over a navigable directory tree).
 - Search modes: lexical (FTS/BM25), semantic, structured (filters, exact IDs), file-level
-  (greps), graph (neighborhood, paths, as-of).
+  (greps over the mounted corpus filesystem), graph (neighborhood, paths, as-of).
 - Per-layer and cross-layer search; everything filterable; every result carries exact IDs and
   hydrates down to provenance (claim → evidence → source document).
 - Named search recipes on top of composable primitives.

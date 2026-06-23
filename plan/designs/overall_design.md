@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D35); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D40); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -14,24 +14,26 @@ rules — trigger model, source of truth, mutability, rebuild semantics.
             ┌── registries: entities, predicates ──┐
             ▼                  ▼                    ▼
  inputs ─► E0 files ─► E1 chunks ─► E2 claims ─► E3 relations
-           (GCS, markdown, (semchunk,   (claimify,    (normalization,
-            PageIndex)      ctx prefix)  coref)        evidence, supersession)
-                 │            │            │   │
-                 │            │            │   │      PLANE K — KNOWLEDGE (debounced,
-                 │            │            │   │      LLM-compiled; git is truth)
-                 │            │            ▼   ▼
-                 │            │        K1 general / K2 scopes ─► K3 beliefs
-                 │            │            │   │
-                 ▼            ▼            ▼   ▼      PLANE P — PROJECTIONS (scheduled
+           (raw+md+         (semchunk,   (claimify,    (normalization,
+            PageIndex,      ctx prefix)  coref)        evidence, supersession)
+            placement)      │            │   │
+                 │          │            │   │      PLANE K — KNOWLEDGE (debounced,
+                 │          │            │   │      LLM-compiled; git is truth)
+                 │          │            ▼   ▼
+                 │          │        K1 general / K2 scopes ─► K3 beliefs
+                 │          │            │   │
+                 ▼          ▼            ▼   ▼      PLANE P — PROJECTIONS (scheduled
             ┌─────────────────────────────────────┐  rebuild; derived, no authority)
             │ P1 search indexes (Lance: chunks,   │
             │    claims, relation fact labels)    │
             │ P2 graph snapshot (LadybugDB)       │
+            │ P3 corpus filesystem (GCS tree,     │
+            │    mounted read-only to agents)     │
             └─────────────────────────────────────┘
                               │
                               ▼
-                 RETRIEVAL: API / CLI / MCP
-              entry (P1/PG) → expand (P2) → hydrate (PG → GCS)
+                 RETRIEVAL: API / CLI / MCP / mounted FS
+            entry (P1/PG) → expand (P2) → hydrate (PG → GCS); browse (P3)
 ```
 
 | Plane | Trigger | Source of truth | Mutability | "Rebuild" means |
@@ -44,8 +46,10 @@ rules — trigger model, source of truth, mutability, rebuild semantics.
 
 | Store | Role | Authority | Rebuildable from |
 |---|---|---|---|
-| **Postgres** (Hetzner) | spine: inputs, chunk metadata, claims, entities, predicates, relations, evidence, validity, processing state, costs | **source of truth** for plane E | — (PITR backups) |
-| **GCS** | original files + markdown + P2 snapshots | source of truth for file bytes | — |
+| **Postgres** (Hetzner) | spine: inputs, document/section metadata, chunk metadata, claims, entities, predicates, relations, evidence, validity, processing state, costs | **source of truth** for plane E | — (PITR backups) |
+| **GCS — raw** | immutable original files | source of truth for file bytes | — |
+| **GCS — artifacts** | per-document markdown + `pageindex.json` + conversion sidecars (E0, D37) | source of truth for converted bodies | E0 re-run by `converter_version` |
+| **GCS — corpus fs** | **P3**: corpus organized as a mounted directory tree (D40) | derived | Postgres + artifacts (every cycle) |
 | **LanceDB** | **P1**: vector + FTS indexes over chunks, claims, relation fact labels | derived | Postgres |
 | **git repo** | plane K: K1 general, K2 scopes, K3 beliefs | **source of truth** (LLM-derived, not reproducible) | — (own backups) |
 | **LadybugDB** | **P2**: graph projection of entities + relations | derived | Postgres (every cycle) |
@@ -89,8 +93,11 @@ Each stage is a Cloud Run worker triggered via Cloud Tasks; each completion enqu
 stage for that document. All workers idempotent (content hash + processing version), max 2
 retries then dead-letter into Postgres.
 
-1. **E0**: store original → convert to Markdown → PageIndex (hierarchy + node summaries) →
-   record cross-references (citations).
+1. **E0** (document layer, a chain of idempotent sub-workers — D36; design: `e0_files_design.md`):
+   **ingest** (store raw to GCS + `content_hash`) → **convert** (raw → Markdown via the configurable
+   module, D38) → **structure** (PageIndex tree + roles + spans + summaries + a **placement hint**,
+   D39) → **crossref** (citations). Bodies live in GCS (raw + artifacts buckets); Postgres holds only
+   metadata + the queryable section index (D37).
 2. **E1**: semchunk → LLM context prefix per chunk (contextual-retrieval style; prompt-cached)
    → embed → P1, with references to document + PageIndex node.
 3. **E2 → E3** (every chunked document — there is no pre-extraction value gate, D25): coreference
@@ -124,6 +131,11 @@ minutes"), P rebuilds on schedule; both summarize/project across the corpus.
   `p2_graph_design.md`.
 - **P1**: written inline by plane E (see §4); batch rebuild path exercised for embedding
   migrations and drills.
+- **P3 — corpus filesystem** (D40): a rebuildable GCS directory tree organizing the corpus for
+  agent navigation, **mounted read-only** to agentic workers. Built from E0 placement hints (D39)
+  + entities/relations + the K-plane structure; folders by topic/source/entity, leaves linking to
+  the E0 artifacts, generated `_index.md`/`llms.txt` at each level. Cross-links with K
+  (understanding ↔ source). Full design: `e0_files_design.md` §6.
 
 ## 6. Retrieval architecture (D8, D9)
 
@@ -171,15 +183,15 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | Design doc | Scope | Status |
 |---|---|---|
 | `overall_design.md` | this document | current |
-| `e0_files_design.md` | ingestion, markdown, PageIndex, cross-refs | future |
-| `e1_chunks_design.md` | chunking, context prefixes, P1 layout | future |
+| `e0_files_design.md` | E0 document layer + P3 corpus filesystem (D36–D40) | **current** |
+| `e1_chunks_design.md` | chunking, context prefixes, P1 layout | planned |
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
-| `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | future |
-| `k3_beliefs_design.md` | belief derivation and update rules | future |
+| `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | planned |
+| `k3_beliefs_design.md` | belief derivation and update rules | planned |
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
-| `retrieval_design.md` | API/CLI/MCP, recipes, rerankers | future |
-| `postgres_schema_design.md` | spine schema, migrations, indexes | future |
+| `retrieval_design.md` | API/CLI/MCP, recipes, rerankers | planned |
+| `postgres_schema_design.md` | spine schema, migrations, indexes | planned |
 
 ## 10. Open questions
 
