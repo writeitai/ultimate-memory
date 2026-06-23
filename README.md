@@ -46,12 +46,12 @@ and flow downward.
 | [plan/requirements/requirements_v3.md](plan/requirements/requirements_v3.md) | Requirements (current) |
 | [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design |
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |
-| [plan/designs/e1_5_value_gate_design.md](plan/designs/e1_5_value_gate_design.md) | Value/salience gate, tiers, lazy/deferred extraction (D25–D30) |
+| [plan/designs/e2_value_control_non_goal.md](plan/designs/e2_value_control_non_goal.md) | Why there is no value gate; junk-control at E2 Selection + D2 (D25) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
-| [plan/analysis/value_gate_research/](plan/analysis/value_gate_research/) | O3 value-gate research + SYNTHESIS (→ D25–D30) |
+| [plan/analysis/value_gate_research/](plan/analysis/value_gate_research/) | O3 value-gate research + SYNTHESIS (gate mechanism rejected — see D25 / objections O3) |
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
