@@ -1,23 +1,49 @@
 # Ultimate Memory
 
-A memory system designed to scale to millions of input documents, organized as three planes
-(D14): **E — Evidence** (files → chunks → claims → relations; Postgres is truth),
-**K — Knowledge** (LLM-compiled scopes and beliefs; git is truth), and **P — Projections**
-(search indexes and graph; derived, rebuildable).
+A memory system for AI agents, designed to ingest **millions** of heterogeneous documents and
+distill them into progressively more abstract, navigable knowledge — while keeping everything
+auditable by humans. Scale is a requirement, not an aspiration: it is meant to still be useful
+at a million documents.
 
-## TL;DR — the EKP planes
+> **⚠️ This repository is in the research and design phase. It contains documents, not code.**
+> There is nothing to build or run yet. What lives here is the thinking — requirements,
+> architecture, research, decisions, and the open questions — that has to be settled *before*
+> implementation. If you're looking for a working library, it isn't here yet.
 
-| Plane | What it holds | Source of truth | Rebuildable? |
+## TL;DR for first-time visitors
+
+Imagine pouring a million documents into a system and being able to ask it not just "where did
+I read this?" but "what do we actually know, and what changed our mind?" That's the goal.
+
+The design is organized as **three planes** — a useful mental model for the whole system:
+
+| Plane | Plain-English meaning | What it holds | Can we rebuild it? |
 |---|---|---|---|
-| **E — Evidence** | Raw inputs broken down: files → chunks → claims → relations | Postgres | No (it's the ground truth) |
-| **K — Knowledge** | LLM-compiled scopes and beliefs distilled from evidence | git | No (authored/curated) |
-| **P — Projections** | Search indexes and graph derived from E and K | derived | Yes (regenerate any time) |
+| **E — Evidence** | *what we ingested* | Raw inputs broken down step by step: files → chunks → atomic claims → relations (facts) | No — it's the ground truth |
+| **K — Knowledge** | *what we concluded* | LLM-distilled and human-editable summaries and beliefs, version-controlled like code | No — authored/curated |
+| **P — Projections** | *what we query* | Search indexes and a knowledge graph, derived from the evidence spine | Yes — regenerate any time |
 
-In short: **E** is what we ingested, **K** is what we concluded, **P** is what we query — and P can always be rebuilt from E + K.
+The one-line version: **E** is what we ingested, **K** is what we concluded, **P** is what we
+query — and **P can always be rebuilt from E.**
+
+A few ideas give the design its character:
+
+- **Nothing is silently overwritten.** New information *supersedes* old information by closing a
+  validity window rather than erasing it; contradictions are surfaced, not quietly resolved.
+- **Two notions of time, everywhere.** When a fact was true in the world, and when the system
+  learned it — so you can ask "what did we believe as of last March?"
+- **Built for agents, auditable by humans.** Every conclusion traces back to the exact claims
+  and source documents that support (or contradict) it.
+- **Clear sources of truth.** The evidence spine lives in Postgres (original files in
+  cloud storage), the distilled knowledge in a git repo, and the search and graph layers are
+  derived, rebuildable projections on top.
+
+For the full picture, start with [plan/designs/overall_design.md](plan/designs/overall_design.md).
 
 ## The `plan/` directory
 
-All project planning lives in `plan/`, organized in three levels of abstraction:
+All project planning lives in `plan/`, organized into four areas — three levels of abstraction
+plus the research behind them:
 
 - **`plan/requirements/`** — the highest level of abstraction: *what we want from the system*.
   Mostly bullet points. No technology choices, no architecture — just needs, constraints, and
@@ -27,7 +53,7 @@ All project planning lives in `plan/`, organized in three levels of abstraction:
   one area and traces back to the requirements it satisfies.
 - **`plan/plans/`** — *bringing it all together*: concrete, ordered plans for building the
   system. Plans reference the designs (never duplicate them) and sequence the work — phases,
-  dependencies, deliverables.
+  dependencies, deliverables. *(Empty for now — sequencing begins once the designs settle.)*
 - **`plan/analysis/`** — the working material *behind* the designs: research reports,
   capability surveys (e.g. `ladybug_capabilities.md`), option explorations, worked explainers
   (e.g. `concepts.md`), external-review digests. Analyses are allowed to be messy,
@@ -44,13 +70,14 @@ and flow downward.
 | Doc | Purpose |
 |---|---|
 | [plan/requirements/requirements_v3.md](plan/requirements/requirements_v3.md) | Requirements (current) |
-| [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design |
+| [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design — **best place to start** |
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |
 | [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | Claim extraction + relation normalization; why there is no value gate (D31–D35, D25) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
+| [plan/analysis/entity_typing_research/](plan/analysis/entity_typing_research/) | Entity typing cascade options + SYNTHESIS (→ registries design) |
 | [plan/analysis/value_gate_research/](plan/analysis/value_gate_research/) | O3 value-gate research + SYNTHESIS (gate mechanism rejected — see D25 / objections O3) |
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
