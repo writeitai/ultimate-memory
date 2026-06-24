@@ -80,6 +80,15 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - Named search recipes on top of composable primitives.
 - **No LLM calls on the core search path** — query latency is retrieval-bound.
 - Full flexibility is the goal: agents choose strategies, the system does not impose one.
+- **The query surface must make the claim/relation temporal split explicit to agents.** Claims have
+  **no temporal supersession** — they are immutable evidence (what a source asserted, including the
+  validity interval *it* asserted), never closed or invalidated. **All supersession / current-belief
+  validity lives only on relations.** So the querying system must surface, and its API/recipe naming
+  must enforce, the distinction: a relation as-of query answers *"what does the system currently
+  believe held at T"* (it honors supersession); a claim query answers *"what did sources assert"*
+  (evidence, possibly stale, contradictory, or later superseded at the relation level). An agent must
+  never read a claim's validity as the system's current belief, and "is this still true?" must route
+  through relations, never through claims. (See D3, D6, D41.)
 
 ## Operational properties
 

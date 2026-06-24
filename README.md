@@ -110,5 +110,5 @@ and flow downward.
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D40) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D41) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

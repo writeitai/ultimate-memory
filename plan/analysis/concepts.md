@@ -118,9 +118,21 @@ Each layer carries bi-temporal fields, but they answer **different questions**:
 
 | | Claim's clocks | Relation's clocks |
 |---|---|---|
-| **Question** | When was this *asserted*, and when did *we ingest it*? | When was this fact *true in the world*, and when did *we believe it*? |
-| **Who sets it** | The source document (assertion date) and the pipeline (ingestion) | Adjudication over all evidence |
-| **Ever changes?** | Never — claims are immutable | Yes — windows get closed by supersession |
+| **Question** | When was this *asserted*, when did *we ingest it*, and what world-time interval did the source say it held over? | When was this fact *true in the world*, and when did *we believe it*? |
+| **Who sets it** | The source (assertion date + the asserted-validity interval, D41) and the pipeline (ingestion) | Adjudication over all evidence |
+| **Ever changes?** | Never — claims (incl. their asserted interval) are immutable | Yes — windows get closed by supersession |
+
+**Claims carry a third, immutable axis (D41): the validity interval the source *asserted*** —
+"Alice joined Acme *in March 2024*" freezes an asserted `valid_from` of 2024-03 onto the claim. This
+is *testimony about temporal extent*, not the system's belief: many sources may assert many different
+(even contradictory) windows and all stand forever — that is what makes it evidence, not a second
+authority. Its payoff is the facts that never become relations: "Acme's revenue was \$5M in FY2023"
+yields no relation (revenue is a quantity, not an entity object — §2), so before D41 its world-time
+lived only inside the claim text; now it carries `claim_valid_from`/`until` and is queryable by time
+*as evidence*. The **adjudicated, revisable** window (the relation's `valid_from`/`valid_until`) is
+computed *over* these asserted intervals and remains the single home of current belief — and is the
+*only* place a contradiction between two asserted windows is ever resolved (so two conflicting
+revenue figures for FY2023, having no relation, simply both stand as evidence).
 
 Timeline of the example, system's perspective:
 
