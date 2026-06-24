@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D40); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D41); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -73,8 +73,8 @@ documents ─< chunks                    entities ──< entity_aliases
                                          ingested_at/invalidated_at)
 ```
 
-- **Claims** — immutable NL assertions; identity = assertion-by-a-source; typed + temporally
-  classified; never superseded themselves.
+- **Claims** — immutable NL assertions; identity = assertion-by-a-source; temporally classified and
+  carrying an immutable **source-asserted validity interval** (D41); never superseded themselves.
 - **Relations** — distinct facts; identity = the fact; bi-temporal validity windows; the unit
   of supersession and contradiction (D3).
 - **Evidence** — many-to-many; corpus redundancy collapses into evidence counts (free

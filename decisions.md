@@ -61,6 +61,10 @@ never change; relation windows (valid_from/valid_until + ingested_at/invalidated
 revisable adjudications over evidence. Both time-travel questions ("was it true at T?" /
 "what did we believe at T?") stay answerable.
 
+**Refined by D41.** Claims additionally carry an *immutable* source-asserted validity interval
+(testimony about temporal extent). It never becomes revisable and never introduces claim-level
+supersession — the adjudicated window stays relation-only; this strengthens, not weakens, D3.
+
 ---
 
 ## D4. Supersession detection via entity-keyed blocking + cheap-first cascade
@@ -112,6 +116,10 @@ already paid for adjudication at L2; a second authority would only create disagr
 **Consequences.** The graph writer is dumb and deterministic. Graph corruption is a
 non-event (rebuild). All cross-store consistency questions reduce to "how stale is the
 projection," bounded by rebuild cadence.
+
+**Refined by D41.** Claim-grain asserted-validity is *evidence*, not a second validity home: it is
+immutable and many-valued, lives in Postgres only, and the `claims_as_of` recipe is barred from
+answering current-belief — so validity-as-current-belief still has exactly one home.
 
 ---
 
@@ -382,6 +390,10 @@ OWL but enforces no domain/range. The "familiar names help extraction" claim is 
 system-provided **extension pack**, enabled per deployment — full entity status without a core
 commitment; `Decision` standing rides on bi-temporal relations, so reversals are ordinary
 supersession (`registries_design.md` §4, extension packs).
+
+**Scope clarification (D41).** "Time is never a predicate or Date-node" governs the **relation/graph**
+representation of time. A claim's immutable asserted-validity interval (D41) is *claim metadata*, not
+a relation object/predicate or a Date-node, so it is fully compatible — D18 is unchanged.
 
 ## D19. Coref is satisfied inside the E2 extraction call (no dedicated model)
 
@@ -722,3 +734,64 @@ a mounted bucket tree" design.
 **Consequences.** Agents browse a stable, navigable hierarchy and drill into raw sources; the tree
 reorganizes as the corpus grows without touching truth (placement hints are inputs). New projection in
 plane P alongside P1 (search) and P2 (graph).
+
+---
+
+## D41. Claims carry an immutable, source-asserted validity interval (asserted vs. adjudicated time)
+
+**Decision.** A claim gains a structured **world-time interval as the source asserted it** —
+`claim_valid_from` / `claim_valid_until`, plus a `claim_valid_precision` (year/quarter/day/…/open/
+unknown) and a `claim_valid_kind` (proposition-validity vs. event-time vs. measurement-period). It is
+the structured form of the date decontextualization already resolves into the claim text ("launched
+*in 2024*"), emitted in the same E2 call and **grounded** by the existing window-membership check (the
+date must verbatim-exist in the bundle, D32). It is **evidence about *when***, epistemically identical
+to `claim_text` (evidence about *what*) and `source_span` (evidence about *where in the source*).
+Adjudicated, current-belief validity stays **exclusively on relations** (`valid_from`/`valid_until` +
+`invalidated_at`, D3).
+
+**Why this is not a second validity authority** (stated so a future reader need not re-derive it).
+Three *mechanical* properties — not the `_asserted_` naming — keep claim-validity from competing with
+the relation window:
+
+1. **Immutable** — no `UPDATE` path, no `invalidated_at`, no `status`, no `superseded_by`. A column
+   that cannot be revised cannot be "current belief."
+2. **Many-valued per fact** — N sources may assert N different, even contradictory, windows and *all
+   stand forever*. Many-valued-by-source is the signature of *evidence* (like `evidence_count`'s N
+   rows); a belief authority is single-valued-by-fact.
+3. **No fact-identity** — keyed only by `claim_id`, never addressable as "the validity of fact F," so
+   it structurally cannot answer "fact F is true at T."
+
+So D3's "absurd task" never returns: a contradicting source makes a **new** claim with its own
+immutable window; nothing ever closes an existing claim's window. The relation adjudicator **may
+consult** `claim_valid_*` as one evidence input (better than re-parsing claim text) but the relation
+window stays its *computed, recorded, monotonic* verdict — never a reduction over claim columns, never
+read back to override the verdict, never reopened by a late-arriving retrospective.
+
+**Context.** World-validity windows previously lived only on relations, but **many claims yield no
+relation by design** (D2: n-ary facts; single-entity / attribute facts; literal- or quantity-object
+facts like "revenue was \$5M in FY2023" — objects must be entities and time is never a value, D18). For
+those, the fact's world-time survived only inside NL claim text, unqueryable. An immutable asserted
+interval on the claim closes that gap without a Date-node, a literal-object relation, or claim
+supersession. Converged recommendation of an independent Codex analysis, a four-angle internal design
+workflow, and an adversarial "amend-the-decisions" review — the last of which, tasked to argue *for*
+restructuring, concluded the claim/relation split, D6, and relation-only supersession should all stay.
+
+**Consequences.**
+- New evidence-grain retrieval: a `claims_as_of(t)` search recipe answers "what did sources assert held
+  over T," over Lance scalar columns, zero LLM (D9). Belief-as-of stays relations-only (D10); the recipe
+  registry/linter **bars** `claims_as_of` from answering "currently true."
+- The relation adjudicator gets structured temporal inputs (a claim "Alice joined in March 2024" can
+  seed `works_for.valid_from`; "Alice left in January 2026" can seed closure) instead of re-parsing
+  text — with a monotonicity guard so a late retrospective cannot move an adjudicated window.
+- **Refines D3 and D6 in wording, not substance**: claims may carry an *immutable* interval, never a
+  *revisable* one; validity-as-current-belief still has exactly one home. **Compatible with D18** —
+  the interval lives on the claim, not as a relation object/predicate or Date-node (D18 governs
+  relation/edge time and is untouched).
+- **Residual non-goal (documented):** two sources asserting *incompatible* windows for a
+  **non-relational** fact both stand as evidence with no relation to host a contradiction/verdict;
+  retrieval surfaces both. Structured *supersession of non-relational restatements* is **not** in the
+  claims plane — a fact that needs an adjudicated current value is promoted to a relation (the D5
+  `other:` funnel), or a future "E3 proposition-fact layer" is added. Recurrence ("every Q4") and
+  un-datable anchor-events ("as of the merger") are out of the single-interval model; the documented
+  upgrade is an expressivity child table (btree-indexed, D23-restamped), built only on measured demand.
+  Full detail: `e2_e3_claims_relations_design.md` §5/§7, `postgres_schema_design.md` §8/§15/§17.
