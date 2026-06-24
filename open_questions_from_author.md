@@ -85,6 +85,23 @@ embedding version is bumped (`questions.md` #11). A decision is also needed on *
 topology belongs in the binding design set at all, or stays an implementation concern. Connects to:
 `questions.md` #11, requirements §Imposed constraints, `overall_design.md`.
 
+## Q7. How do we deal with a "golden-eval set" for entity merging — how do we build it, and approach the problem as the system is being used?
+
+**Context.** Entity merging is entity resolution: deciding when two mentions resolve to the *same*
+canonical entity (the T0–T4 cascade — exact → fuzzy → phonetic → embedding → LLM, D17). Getting it
+wrong is expensive in both directions: a false **merge** conflates distinct entities (two different
+people both named "John Smith"; a company and its subsidiary), and a false **split** fragments one
+entity across many records. Evaluating this needs a *golden set* — labeled ground truth of which
+pairs must merge and which must stay separate. D22 names ER eval but does not say how that golden set
+is **built or kept current**. The hard part the author is flagging is the *online* one: the entity
+space is open and constantly growing, so a one-time labeled set goes stale immediately, and the
+adversarial cases that matter most (near-duplicate-but-distinct entities) are exactly what a static,
+hand-picked set under-samples. Open: how to bootstrap ground truth and continuously refresh it *while
+the system runs* — e.g. sampling the low-confidence/borderline decisions from the resolution-decision
+ledger for human adjudication, hard-negative mining of confusable pairs, or treating disagreement
+between cascade tiers as a labeling signal — and how to keep all of that cheap (ties to Q2). Connects
+to: D17, D22, `registries_design.md`, `questions.md` #14, and Q2 above.
+
 ---
 
 ## How these map to the consolidated register (`questions.md`)
@@ -98,3 +115,4 @@ is where they are tracked once triaged. Rough mapping:
 - **Q4** — not yet in the register; a concrete extraction-context parameter under D31–D35. Candidate to add.
 - **Q5** ↔ #16 (retrieval) and #23 (mixed-freshness).
 - **Q6** ↔ #11 (backfill/reprocessing orchestration) — broadens it to the whole worker/queue topology, currently undesigned.
+- **Q7** ↔ #14 / D22 (eval) — the entity-merging slice specifically, with the online "build ground truth as the system runs" twist; closely tied to Q2.
