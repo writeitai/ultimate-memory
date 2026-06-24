@@ -358,6 +358,25 @@ operation is *splitting* a heavily-used predicate** (D15 flags it; D7 retro-clea
 splits cleanly) — hence start strict with a small core. *(Open: the promotion workflow owner +
 the split cost are under-researched — registry SYNTHESIS G5.)*
 
+### 7.1 The attributes registry — governance & promotion (D42)
+
+The **`attributes` registry** is a third governed vocabulary alongside entity types and predicates —
+a *peer* of the predicate registry, holding the literal-range properties D18 keeps off predicates
+(`fiscal_revenue`, `founded_date`, `headcount`, …; design: `nonrelational_facts_design.md`). It runs
+the **same governance machinery** as predicates: constrained extraction (the extractor emits a
+registered `attribute_key`, never free text), an `other:<freetext>` escape, a periodic review job that
+maps or promotes frequent `other:` values, tiers (`core | extension | other | deprecated`), and a
+small strict-first core. Two differences from predicates: (1) each attribute declares a typed
+`value_domain` driving **deterministic value normalization** (so unit/currency/fiscal-calendar
+variants are not mistaken for conflicts — the silent-false-agreement risk); (2) its **promotion signal
+is different** — the funnel here is "*this attribute conflicts often and matters*": `usage_count` plus
+the **conflict hit-rate per `(subject, attribute)`** flags an attribute that should be **promoted to a
+relation** (so its conflicts gain an adjudicated current value), exactly when an entity object can be
+manufactured for it (D42 §6). A pure-literal attribute is never promoted; it stays surfaced-only. The
+same caution applies: start strict (free-text attribute keys fragment and silently miss conflicts,
+exactly as free-text predicates break blocking), and *splitting* a heavily-used attribute is the one
+expensive op.
+
 ## 8. Review tooling (D24)
 
 **Build** a thin CLI cluster-review queue over Postgres (no OSS tool offers cluster-queue +

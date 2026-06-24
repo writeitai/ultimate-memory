@@ -183,6 +183,14 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 - **Adjudicate supersession (D3, D4).** New facts close the validity windows of the ones they replace,
   via `(entity_id, predicate)` blocking + a cheap-first cascade — adjudicated on **relations**, never on
   claims (claims stay immutable records of what was asserted).
+- **Group non-relational facts & surface conflicts (D42).** As a *sibling branch* to relation
+  normalization, a claim that yields **no** relation but is a single-subject attribute/measurement
+  ("Acme's FY2023 revenue was $5M") emits a structured `(subject_entity, attribute_key,
+  normalized_value, unit)` against the governed **`attributes` registry** (grounded by the same D32
+  window-membership check the D41 date uses), which a derived **`claim_attribute_facts`** projection
+  groups by `(subject, attribute, world-time bucket)` and flags when sources disagree (`conflict_state`
+  + a shared `conflict_group`). This **surfaces** non-relational contradictions; it never resolves them
+  (no winner, no validity, no supersession). Full design: `nonrelational_facts_design.md` (D42).
 
 ## 6. End-to-end, in one example
 
@@ -204,7 +212,9 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 dual-field grounding), **D33** (append-only versioned decision ledger), **D34** (E2 Selection is the
 value filter — no pre-extraction gate), **D35** (Selection recall envelope), **D41** (claims carry an
 immutable, source-asserted validity interval — extracted in-call here, grounded by window-membership;
-asserted vs. adjudicated time). Foundations: D2, D3, D4, D5, D7, D12, D17–D19, D25.
+asserted vs. adjudicated time), **D42** (non-relational facts that yield no relation are grouped into
+a derived attribute-conflict index and their disagreements *surfaced, never resolved* — the sibling
+branch above; `nonrelational_facts_design.md`). Foundations: D2, D3, D4, D5, D7, D12, D17–D19, D25.
 
 **Spikes to clear before locking numbers** (full list in `claimify_research/SYNTHESIS.md` §4):
 

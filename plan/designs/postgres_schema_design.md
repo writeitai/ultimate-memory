@@ -11,7 +11,7 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 `registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
 `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
 `concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
-(D1–D41). Where a table or column exists *because of* a decision, the decision is cited inline.
+(D1–D42). Where a table or column exists *because of* a decision, the decision is cited inline.
 
 > **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
 > conversation. Each module opens with what it stores and *why it has the shape it has*; each
@@ -154,11 +154,11 @@ CREATE TYPE alias_provenance       AS ENUM ('source','llm_canonical');
 CREATE TYPE resolution_tier        AS ENUM ('T0','T1','T2','T3','T4_small','T4_frontier','human');
 CREATE TYPE decision_actor         AS ENUM ('auto','human');
 
-CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','type_conflict','generic_identifier','contradiction');
+CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','type_conflict','generic_identifier','contradiction','attribute_conflict');  -- attribute_conflict (D42): a non-relational conflict_group; verdict restricted to both_stand/promote_to_relation (CHECK on review_queue)
 CREATE TYPE review_status          AS ENUM ('pending','accepted','rejected','deferred','auto_resolved');
 -- Covers all review_item_kinds (D24), not just merges: pick_a/pick_b/both_stand for contradictions,
 -- downweight/keep_signal for generic_identifier, retype for type_conflict.
-CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype','downweight','keep_signal','pick_a','pick_b','both_stand','uncertain');
+CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype','downweight','keep_signal','pick_a','pick_b','both_stand','promote_to_relation','uncertain');  -- promote_to_relation (D42): with both_stand and the non-resolving uncertain, the only legal verdicts for an attribute conflict; pick_a/pick_b are CHECK-illegal there (a "pick" would write the forbidden claim-side current-value verdict)
 CREATE TYPE golden_label           AS ENUM ('match','no_match');
 CREATE TYPE golden_hardness        AS ENUM ('hard_positive','hard_negative','easy');
 CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding','retrieval','contradiction');
@@ -172,6 +172,9 @@ CREATE TYPE claim_temporal_class   AS ENUM ('static','dynamic','atemporal');
 -- D41 source-asserted validity on claims (immutable; never a relation-style revisable window):
 CREATE TYPE claim_valid_precision  AS ENUM ('unknown','instant','day','month','quarter','year','open');
 CREATE TYPE claim_valid_kind       AS ENUM ('proposition_validity','event_time','measurement_period','effective_period');
+-- D42 non-relational attribute facts (conflict surfacing):
+CREATE TYPE attribute_value_domain AS ENUM ('money','date','quantity','count','ratio','string_enum','boolean'); -- typed domain that drives DETERMINISTIC value normalization ("$5M" == "5,000,000 USD")
+CREATE TYPE attribute_conflict_state AS ENUM ('single','corroborated','value_disagreement','restatement','refinement','indeterminate'); -- deterministically computed grouping state; NEVER a verdict
 CREATE TYPE grounding_audit_status AS ENUM ('unaudited','sampled_pass','sampled_fail','escalated');
 -- The ledger records DROPs, low-confidence keeps (flags), and decontextualization EDITs.
 -- Plain keeps are NOT persisted (they ARE the claims row); see §8.
@@ -441,6 +444,41 @@ COMMENT ON TABLE predicate_signatures IS
   'Allowed (subject_type → object_type) pairs per predicate — the one structural ontology gate (D18), enforced by the normalizer (parent-chain walk) at E3 write time. Subtypes inherit a parent''s signatures; a relation matching none is dropped (re-derivable from its claim).';
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- attributes — the governed ATTRIBUTE/MEASURE vocabulary (D42), a PEER of `predicates`.
+-- A predicate relates two ENTITIES (D18 bars literal objects); an attribute attaches a LITERAL/
+-- quantity to ONE entity — the literal-range home D18 deliberately keeps off predicates ("founded_date",
+-- "fiscal_revenue", "headcount"). Same D5 governance as predicates (synonyms, tier, other:-escape,
+-- usage_count promotion funnel). The typed value_domain drives DETERMINISTIC value normalization so
+-- "$5M" and "5,000,000 USD" are recognized as the same value (not a phantom conflict). Needed because
+-- detecting "is this the same attribute?" (revenue vs net revenue vs sales) is an ontology question —
+-- free-text keys would fragment like free-text predicates and SILENTLY miss conflicts (D42 §3.1).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE attributes (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  attribute_key   text NOT NULL,               -- 'fiscal_revenue','founded_date',... ; 'other:<freetext>' rows live here as tier='other'
+  parent_attribute text,                        -- optional extend-never-fork anchor (D15-style)
+  description     text NOT NULL,               -- meaning rendered into the extraction prompt (D5/D15)
+  value_domain    attribute_value_domain NOT NULL, -- money|date|quantity|count|ratio|string_enum|boolean — drives normalization + conflict rule
+  unit_dimension  text,                        -- e.g. 'currency','persons','percent' — guards against cross-unit false conflict
+  default_valid_kind claim_valid_kind,         -- typical time semantics: measurement_period (revenue) | event_time (founded_date) | effective_period (status)
+  identity_qualifiers text[] NOT NULL DEFAULT '{}', -- qualifier keys that are IDENTITY-bearing (e.g. {geography, accounting_basis}); differing ones are NOT a conflict (D42 §3.2)
+  synonyms        text[] NOT NULL DEFAULT '{}',-- surface variants the extractor maps onto this attribute (D5)
+  examples        text[] NOT NULL DEFAULT '{}',
+  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated (start strict, D5)
+  pack_id         text REFERENCES extension_packs,
+  scope_id        uuid,
+  usage_count     bigint NOT NULL DEFAULT 0,   -- cached count of attribute assertions; ranks tier='other' + drives the promote-to-relation signal (D42 §6)
+  status          ontology_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, attribute_key),
+  FOREIGN KEY (deployment_id, parent_attribute) REFERENCES attributes (deployment_id, attribute_key),
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
+);
+COMMENT ON TABLE attributes IS
+  'Governed attribute/measure vocabulary (D42) — peer of predicates, the literal-range home D18 keeps off predicates. value_domain drives deterministic value normalization; identity_qualifiers say which qualifiers are conflict-bearing. Same governance + other:-escape + usage_count promotion funnel as predicates (D5).';
+CREATE INDEX ix_attributes_other ON attributes (deployment_id, usage_count DESC) WHERE tier = 'other'; -- promotion-candidate ranking
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- scope_interests — registry-declared scope views + extraction interests (D16).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE scope_interests (
@@ -698,8 +736,8 @@ set), and the **eval-run history** (per-tier metrics with Wilson confidence inte
 CREATE TABLE review_queue (
   review_id       uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  item_kind       review_item_kind NOT NULL,   -- merge_cluster | split_cluster | type_conflict | generic_identifier | contradiction
-  candidate       jsonb NOT NULL,              -- the cluster: entity/mention ids + the Splink-style per-feature score waterfall + cluster card
+  item_kind       review_item_kind NOT NULL,   -- merge_cluster | split_cluster | type_conflict | generic_identifier | contradiction | attribute_conflict (D42)
+  candidate       jsonb NOT NULL,              -- the cluster: entity/mention ids + the Splink-style per-feature score waterfall + cluster card; for attribute_conflict: the conflict_group + member attr_fact_ids
   blast_radius    integer NOT NULL,            -- combined size/connectedness if wrong (registries §6)
   confidence      real NOT NULL,               -- model confidence in the proposal
   expected_impact real NOT NULL,               -- blast_radius × (1−confidence) — the routing/ranking score (D24)
@@ -707,9 +745,13 @@ CREATE TABLE review_queue (
   verdict         review_verdict,              -- outcome appropriate to item_kind (merge/split/pick_a/downweight/retype/...) ; non-merge kinds use the matching enum value or verdict_note
   verdict_note    text,
   assigned_to     text,                        -- reviewer handle
-  result_decision_id uuid,                     -- LOGICAL FK → the resolution_decisions / merge_events row the verdict produced
+  result_decision_id uuid,                     -- LOGICAL FK → the resolution_decisions / merge_events / attribute conflict_group the verdict produced
   created_at      timestamptz NOT NULL DEFAULT now(),
-  resolved_at     timestamptz
+  resolved_at     timestamptz,
+  -- D42: an attribute conflict is surface-not-resolve — a human may confirm both sides stand or
+  -- promote the fact to a relation, but may NEVER pick a winning value (that would be a forbidden
+  -- claim-side current-value verdict; the believed value's only home is a promoted relation):
+  CHECK (item_kind <> 'attribute_conflict' OR verdict IS NULL OR verdict IN ('both_stand','promote_to_relation','uncertain'))
 );
 COMMENT ON TABLE review_queue IS
   'Cluster-level human review queue (D24). Only the middle expected_impact band (boundaries in resolver_versions.tier_config) is routed to humans; hub merges never auto-accept. Verdicts append reversible, provenance-stamped rows to resolution_decisions/merge_events. verdict covers all item_kinds, not only merges.';
@@ -1246,6 +1288,89 @@ CREATE INDEX ix_adjud_relation ON relation_adjudications (relation_id);
 CREATE INDEX ix_adjud_live     ON relation_adjudications (relation_id) WHERE superseded_by IS NULL;
 ```
 
+### 9.A Non-relational attribute facts & conflict surfacing (D42)
+
+The non-relational sibling of relations: a **derived, rebuildable** grouping projection over the
+claims that yield no relation, so that two sources disagreeing about a single-entity attribute /
+literal-quantity fact (revenue, founding date, headcount) are **grouped and flagged**, never silently
+returned one-sided (`requirements_v3` "contradictions are surfaced, never silently resolved"). Design:
+`nonrelational_facts_design.md`. It is the **fourth derived projection of claims** (alongside relations
+truth, P1 vectors, P2 graph): rebuildable from immutable claims + the `attributes` registry, holding
+**no source of truth**. Its load-bearing invariant — the *sole* structural D6 guarantee once a
+fact-identity exists (D42) — is **no belief axis**: no winner pointer, no `valid_until`/`status`/
+`invalidated_at`, no supersession; it groups and describes, never resolves. A CI schema-test + the
+recipe linter forbid ever adding such a column.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- claim_attribute_facts — DERIVED grouping projection (D42). One row per value cluster in a fact
+-- "slot" (deployment, subject_entity, attribute, world-time bucket); rows of one slot share a
+-- conflict_group when ≥2 incompatible value clusters occupy it. Materialized at E3 write-time on the
+-- zero-relation residue (reuses D17 entity resolution + the D4 cheap-first block shape), recomputed
+-- on entity merge / attribute promotion / normalizer-version change. NOT a query-time GROUP BY over
+-- the hot claims table (that would force a D23-forbidden btree / full-table aggregation — D25).
+-- NO belief axis (the D6 guarantee): no believed_claim_id, no valid_until/invalidated_at/status, no
+-- supersede. Buckets on the D41 NORMALIZED window, never the label string (FY2023 ≠ CY2023).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE claim_attribute_facts (
+  attr_fact_id    uuid PRIMARY KEY,            -- the value-cluster's id; addressable as "evidence cluster", NEVER as "the value of F"
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  subject_entity_id uuid NOT NULL,             -- composite FK below (canonical subject, D17)
+  attribute_key   text NOT NULL,               -- composite FK below (governed attribute, D42 §3.1)
+  valid_kind      claim_valid_kind NOT NULL,   -- measurement_period | event_time | effective_period | proposition_validity (drives the block shape)
+  bucket_from     timestamptz,                 -- normalized world-time bucket start (NULL = unbounded/unknown); for event_time the date is the VALUE, the bucket is the qualifier set — DISPLAY/AUDIT, not the dedup key
+  bucket_until    timestamptz,                 -- normalized world-time bucket end — DISPLAY/AUDIT, not the dedup key
+  bucket_precision claim_valid_precision NOT NULL DEFAULT 'unknown',
+  bucket_key      text NOT NULL,               -- CANONICAL bucket identity (deterministic over normalized bucket incl. precision; 'unknown' when unbounded) — used in the dedup key so NULL bounds don't make slots distinct-by-NULL
+  qualifiers_hash text NOT NULL DEFAULT '',    -- hash of the identity-bearing qualifiers (attributes.identity_qualifiers); different qualifiers ⇒ different slot, not a conflict
+  normalized_value jsonb,                      -- the typed normalized value of THIS cluster (e.g. {amount:5000000,currency:USD}); NULL only when conflict_state=indeterminate
+  value_identity  text NOT NULL,               -- CANONICAL hash of (normalized_value, value_unit/currency, value_precision) — THE dedup key, so "$5M" and "5,000,000 USD" map to ONE cluster (for indeterminate, a per-assertion token so non-normalizable values never falsely merge)
+  value_text      text,                        -- source-facing rendered value — DISPLAY/AUDIT ONLY, never the dedup key
+  value_precision text,                        -- exact | rounded | approximate | range | unknown
+  conflict_group  uuid,                        -- shared across the value-cluster rows of one slot when they conflict; NULL when the slot is single/corroborated
+  conflict_state  attribute_conflict_state NOT NULL, -- single | corroborated | value_disagreement | restatement | refinement | indeterminate (deterministic, §3.3)
+  evidence_count  integer NOT NULL DEFAULT 0,  -- claims corroborating THIS value cluster (a free salience signal; NOT a verdict)
+  earliest_asserted_at timestamptz,            -- for restatement ordering (asserted_at, NOT world-time)
+  latest_asserted_at   timestamptz,
+  detector_version text NOT NULL,              -- LOGICAL FK → pipeline_component_versions; this projection is replay/rebuild-versioned (D7)
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- One row per distinct value cluster in a slot, keyed by the CANONICAL normalized identities
+  -- (bucket_key + value_identity), NOT the display text — so unit/currency variants of one value
+  -- collapse and NULL bounds don't fragment a slot. All key columns are NOT NULL:
+  UNIQUE (deployment_id, subject_entity_id, attribute_key, valid_kind, bucket_key, qualifiers_hash, value_identity),
+  UNIQUE (deployment_id, attr_fact_id),         -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, subject_entity_id) REFERENCES entities (deployment_id, entity_id),
+  FOREIGN KEY (deployment_id, attribute_key)     REFERENCES attributes (deployment_id, attribute_key)
+  -- INTENTIONALLY ABSENT (the no-belief-axis invariant, enforced by CI schema-test + recipe linter):
+  --   no believed_claim_id / winner, no valid_until / invalidated_at / status, no superseded_by.
+);
+COMMENT ON TABLE claim_attribute_facts IS
+  'D42 derived grouping projection: clusters the non-relational claims occupying one (subject, attribute, world-time) slot and flags conflicts (conflict_group + conflict_state). NO belief axis — it never stores a winner, a current value, or validity; that is the sole structural D6 guarantee here and is mechanically enforced. Rebuildable from claims + the attributes registry (D7). The only home of a believed non-relational value is a promoted relation (D42 §6).';
+CREATE INDEX ix_caf_slot      ON claim_attribute_facts (deployment_id, subject_entity_id, attribute_key); -- attribute_value_as_of / attribute_conflicts recipes
+CREATE INDEX ix_caf_conflict  ON claim_attribute_facts (conflict_group) WHERE conflict_group IS NOT NULL; -- attribute_conflicts recipe + review routing
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- attribute_evidence — many-to-many join from a value cluster back to its asserting claims (D42),
+-- mirroring relation_evidence: HASH-partitioned by attr_fact_id, PK (attr_fact_id, claim_id) so the
+-- cluster→claims hydration prunes to one partition and "a claim corroborates a cluster at most once"
+-- is DB-enforced. ~10⁸ at scale; logical FK to claims (partitioned). Stance distinguishes a claim that
+-- asserts THIS value (supports) vs. one explicitly denying it (contradicts).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE attribute_evidence (
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  attr_fact_id    uuid NOT NULL,               -- LOGICAL FK → claim_attribute_facts; HASH partition key
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence)
+  stance          evidence_stance NOT NULL,    -- supports | contradicts
+  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (attr_fact_id, claim_id)         -- evidence-once, DB-enforced (partition key attr_fact_id included)
+) PARTITION BY HASH (attr_fact_id);
+COMMENT ON TABLE attribute_evidence IS
+  'Many-to-many join (D42) from a claim_attribute_facts value cluster to the claims asserting it — the non-relational mirror of relation_evidence. HASH(attr_fact_id), evidence-once PK. A single claim_id may appear under several attr_fact_ids (it may assert several attributes).';
+CREATE INDEX ix_attrevidence_claim ON attribute_evidence (claim_id);  -- reverse lookup (cold path)
+```
+
 ---
 
 ## 10. Graph analytics writeback (D11) & projection snapshots (D7, D40)
@@ -1577,11 +1702,18 @@ Labs."*
 - **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
 - **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
   claims (§8 reconciliation note).
-- **No structured supersession of non-relational restatements (D41).** Two sources asserting
-  incompatible windows for a fact that yields no relation ("revenue \$5M" vs "\$7M" for FY2023) both
-  stand as immutable evidence; with no relation there is no `contradiction_group` and no adjudicated
-  verdict — `claims_as_of` surfaces both. Closing this needs a fact-identity + adjudicator, i.e.
-  promoting the fact to a relation (the D5 `other:` funnel) or a future "E3 proposition-fact layer".
+- **No *resolution* of non-relational conflicts — but they are now DETECTED and SURFACED (D42).**
+  Two sources asserting incompatible content for a fact that yields no relation ("$5M" vs "$7M" for
+  FY2023) are grouped and flagged by the D42 conflict index (`claim_attribute_facts.conflict_group` +
+  `conflict_state`) and shown together (`attribute_conflicts` recipe + inline tags on `claims_as_of`).
+  What stays a non-goal is *picking a winner*: there is no believed-value column, no `valid_until`, no
+  supersession — the only home of an adjudicated current value is a **promoted relation** (D5 `other:`
+  funnel). A **pure-literal** attribute that conflicts stays surfaced-only forever (D42 §9).
+- **No structured supersession of non-relational *restatements* (D42).** A later source correcting an
+  earlier figure ("$5M"→"$5.2M" for the same period) is grouped with `conflict_state='restatement'`
+  and surfaced as an `asserted_at`-ordered hint — not a relation `valid_until` closure, not a stored
+  verdict; both values stand forever (D41). A believed working value is K3 narrative or a promoted
+  relation, never an E-plane verdict.
 - **No multi-interval / recurring / un-datable claim validity (D41).** The single
   `claim_valid_from`/`until` interval does not model recurrence ("every Q4") or anchor-events that
   can't be dated at extraction ("as of the merger"); D31 decomposition absorbs most multi-span
@@ -1622,6 +1754,7 @@ Labs."*
 | D39 PageIndex sections + placement | `document_sections` (path/role/span/summary/placement) |
 | D40 P3 corpus filesystem | `projection_snapshots (plane='P3_corpusfs')` + `document(_sections).placement*` |
 | D41 claim-grain source-asserted validity | `claims.claim_valid_from/until/precision/kind` (immutable); `claims_as_of` recipe (evidence-only); Lance scalar projection |
+| D42 non-relational conflicts detected/surfaced, never resolved | `attributes` registry (§3); `claim_attribute_facts` + `attribute_evidence` (§9.A, no belief axis); enums `attribute_value_domain`/`attribute_conflict_state`; `review_verdict='promote_to_relation'` + attribute-conflict CHECK; `attribute_conflicts`/`attribute_value_as_of` recipes |
 
 ---
 
@@ -1669,10 +1802,19 @@ Per CLAUDE.md, numbers are starting points. Items that may move the schema or a 
    needed (vs. Lance-only filtering) — load-test write-amplification against D23 first. (d) If
    recurrence / un-datable anchor-events prove load-bearing, the expressivity child table (btree-only,
    D23-restamped) is the documented upgrade — a named alternative, not a deferral.
+10. **Non-relational conflict index (D42) — measure before locking.** (a) **Conflict-row sizing**:
+    load-test the conflict subset of `claim_attribute_facts` + the `attribute_evidence` volume on a
+    corpus slice — conflict rows are exactly the ones the "distinct facts not assertions" collapse does
+    *not* shrink, so the naive distinct-cell count under-estimates. (b) **Attribute-vocabulary
+    fragmentation** P/R + canaries on `eval_suite='contradiction'` (do `revenue`/`net revenue`/`sales`
+    co-register?). (c) **Value normalization incl. fiscal calendars** — the silent false-agreement risk
+    (FY≠CY; "$5M" vs "$5MM" vs "$5bn"). (d) **Precision-subsumption** golden coverage
+    (refinement-vs-conflict on dates/quantities). (e) Confirm the **no-belief-axis CI schema-test** and
+    the recipe-linter bar are in the test suite (the sole structural D6 guard for non-relational facts).
 
 ## References
 
 Designs: `overall_design.md` (§3 data model, §9 index), `registries_design.md` (D15–D24),
 `e0_files_design.md` (D36–D40), `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md`
-(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D41). Requirements:
+(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D42). Requirements:
 `requirements/requirements_v3.md`. Open items: `questions.md`.

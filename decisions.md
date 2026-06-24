@@ -121,6 +121,14 @@ projection," bounded by rebuild cadence.
 immutable and many-valued, lives in Postgres only, and the `claims_as_of` recipe is barred from
 answering current-belief — so validity-as-current-belief still has exactly one home.
 
+**Refined by D42.** The non-relational conflict index (D42) *manufactures* a derived fact-identity
+for non-relational facts (its grouping key), which D41's "no second belief home" proof had leaned on
+not existing. For that case the proof therefore rests on a single structural guarantee — the
+**no-belief-axis**: the `claim_attribute_facts` projection carries no winner/value/validity column,
+enforced by a CI schema-test + the recipe linter (not by convention). A grouping handle that can only
+return "which claims occupy fact slot F", never "the value of F", is not current belief — so D6's
+one-home rule still holds (the only home of a *believed* non-relational value is a promoted relation).
+
 ---
 
 ## D7. Rebuild-first sync; immutable GCS snapshots; read-only readers
@@ -787,11 +795,74 @@ restructuring, concluded the claim/relation split, D6, and relation-only superse
   *revisable* one; validity-as-current-belief still has exactly one home. **Compatible with D18** —
   the interval lives on the claim, not as a relation object/predicate or Date-node (D18 governs
   relation/edge time and is untouched).
-- **Residual non-goal (documented):** two sources asserting *incompatible* windows for a
-  **non-relational** fact both stand as evidence with no relation to host a contradiction/verdict;
-  retrieval surfaces both. Structured *supersession of non-relational restatements* is **not** in the
-  claims plane — a fact that needs an adjudicated current value is promoted to a relation (the D5
-  `other:` funnel), or a future "E3 proposition-fact layer" is added. Recurrence ("every Q4") and
-  un-datable anchor-events ("as of the merger") are out of the single-interval model; the documented
-  upgrade is an expressivity child table (btree-indexed, D23-restamped), built only on measured demand.
-  Full detail: `e2_e3_claims_relations_design.md` §5/§7, `postgres_schema_design.md` §8/§15/§17.
+- **Conflict between non-relational facts — now DETECTED and SURFACED by D42** (no longer "invisible
+  until query," as this bullet originally said). Two sources asserting incompatible content for the
+  same non-relational fact are grouped and flagged by the D42 attribute-conflict index and shown
+  together. What stays a non-goal is *resolving* them: the system never picks a believed value for a
+  pure-literal fact unless it is **promoted to a relation** (D42). Pillar (3) above (no fact-identity)
+  is the one D42 relaxes — it adds a *derived* fact-identity (a grouping key, no winner column), so for
+  non-relational facts D41's three-pillar proof reduces to two (immutable + no-belief-axis); see the
+  D6 "Refined by D42" note. Narrowed residuals (D42): untagged/unregistered attributes, mis-normalized
+  false agreement, irreducible n-ary, and — by design — no believed current value for a pure-literal
+  fact. Recurrence ("every Q4") and un-datable anchor-events remain on the expressivity child-table
+  ramp. Full detail: `nonrelational_facts_design.md`, `postgres_schema_design.md` §3/§9/§15/§17.
+
+---
+
+## D42. Non-relational conflicts are detected, grouped, and surfaced — never resolved
+
+**Decision.** The system gains a **conflict index** for facts that yield no relation — **single-entity
+attributes and reducible literal/quantity facts** (D2/D18); *irreducible* n-ary facts have no clean
+`(subject, attribute)` key and remain surfaced-only at claim grain (a documented residual,
+`nonrelational_facts_design.md` §9). It has three parts: (1) a governed
+**`attributes` registry** — a *peer* of the predicate registry (D5) holding the literal-range
+properties D18 keeps off predicates (`fiscal_revenue`, `founded_date`, `headcount`, …), each with a
+typed `value_domain` driving deterministic value normalization; (2) a **derived, no-belief-axis
+grouping projection** `claim_attribute_facts` (+ an `attribute_evidence` join), materialized at E3
+write-time on the zero-relation residue, keyed `(deployment_id, subject_entity_id, attribute_key,
+valid_bucket)`, that collects the claims occupying one fact slot and computes a deterministic
+`conflict_state ∈ {single, corroborated, value_disagreement, restatement, refinement, indeterminate}`;
+(3) **retrieval recipes** (`attribute_conflicts`, `attribute_value_as_of`) + a **linter rule** that
+surface all sides and *forbid* the API from returning a single value for a non-relational fact. The
+index **groups and describes; it never resolves** — no winner, no `valid_until`, no `status`, no
+supersession. Binding design: `nonrelational_facts_design.md`; schema: `postgres_schema_design.md`
+§3/§9.
+
+**Why this is not a second validity authority (D6).** Closing the gap *requires* a fact-identity (the
+grouping key) — without it "$5M FY2023" and "$7M FY2023" have no handle on which to meet. That
+relaxes D41 pillar (3) "no fact-identity," so for non-relational facts the no-second-home proof rests
+on the remaining **no-belief-axis** pillar: the projection carries no winner/value/validity column,
+enforced **mechanically** (a CI schema-test + the recipe linter), not by convention. A grouping handle
+that returns only "which claims occupy slot F", never "the value of F", cannot be current belief. The
+*only* home of a believed non-relational value is a **promoted relation** (below).
+
+**Context.** D41 made non-relational facts time-*filterable* as evidence but gave them no fact-identity,
+so incompatible assertions for the same entity+attribute+period were neither grouped nor flagged —
+violating "contradictions are surfaced, never silently resolved" (requirements_v3). A full
+"proposition-fact" adjudication layer (a sibling of relations with its own validity + supersession)
+was considered and **rejected** as the base design: it re-imports a second belief authority (D6) and
+the supersession complexity D3 removed, at 10⁸ scale. Converged recommendation of an independent Codex
+analysis and a 5-angle internal workflow with adversarial critiques
+(`plan/analysis/nonrelational_conflict_research/`).
+
+**Consequences.**
+- **Detection** reuses entity resolution (D17) and the cheap-first cascade shape (D4); it is
+  deterministic (no query-path LLM, D9), buckets on D41's *normalized* window (never the "FY2023"
+  string — off-calendar fiscal years), and fails *safe* toward surfacing on ambiguity.
+- **Handling** is surface-all. High-impact conflicts route to the D24 review queue
+  (`review_item_kind='attribute_conflict'`) with verdicts `both_stand`, a new `promote_to_relation`,
+  or the non-resolving `uncertain` — `pick_a`/`pick_b` are illegal (a human "pick" would write the
+  forbidden claim-side current-value verdict), enforced by a CHECK.
+- **Promotion to a relation** (D5 `other:` funnel) is the only path to an adjudicated current value,
+  and only when an entity object genuinely exists; a **pure-literal** attribute stays surfaced-only
+  forever (the terminal non-goal). **K3** narrates conflicts with citations but is never the structured
+  verdict home.
+- **Temporal restatement** ("$5M"→"$5.2M" for the same period) is the same conflict group with
+  `conflict_state='restatement'`, surfaced as an `asserted_at`-ordered hint — *not* supersession, *not*
+  a stored verdict; both values stand forever (D41). This is why D41 separated `asserted_at` from
+  `claim_valid_*`.
+- **Refines D41** (three-pillar → two-pillar proof for non-relational facts) and **D6** (the
+  no-belief-axis is the structural guard); a real new governance surface (the attribute registry,
+  with the same fragmentation/promotion discipline as predicates, plus value normalization). Residual
+  non-goals (untagged/n-ary attributes, mis-normalized false agreement, no believed pure-literal value)
+  are documented in `nonrelational_facts_design.md` §9.
