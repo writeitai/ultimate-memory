@@ -1028,7 +1028,9 @@ CREATE TABLE claims (
   CHECK (claim_valid_until IS NULL OR claim_valid_from IS NULL OR claim_valid_until >= claim_valid_from),
   CHECK (claim_valid_precision <> 'unknown' OR (claim_valid_from IS NULL AND claim_valid_until IS NULL)),
   CHECK (claim_valid_precision <> 'open'    OR (claim_valid_from IS NOT NULL AND claim_valid_until IS NULL)),
-  CHECK (claim_valid_precision <> 'instant' OR (claim_valid_from IS NOT NULL AND claim_valid_until = claim_valid_from))
+  CHECK (claim_valid_precision <> 'instant' OR (claim_valid_from IS NOT NULL AND claim_valid_until = claim_valid_from)),
+  -- a bounded precision must actually carry both bounds (else it silently degrades to unknown/open):
+  CHECK (claim_valid_precision NOT IN ('day','month','quarter','year') OR (claim_valid_from IS NOT NULL AND claim_valid_until IS NOT NULL))
 ) PARTITION BY RANGE (ingested_at);
 COMMENT ON TABLE claims IS
   'E2 immutable verifiable propositions (D31/D32). Stores standalone claim_text + verbatim source_span + offsets + added_context for provenance-and-entailment grounding. Three immutable time axes (D41): asserted_at (assertion event), claim_valid_from/until (+precision/kind = source-asserted world-interval — evidence, not belief), ingested_at (system); never superseded (supersession is on relations, D3). A row here passed the deterministic grounding gate. Monthly-partitioned, logical FKs.';
