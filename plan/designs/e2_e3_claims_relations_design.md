@@ -167,9 +167,13 @@ into `(subject, predicate, object)` records and is where redundancy and superses
 internals (entity resolution, predicate registry, the supersession cascade) are designed in
 `registries_design.md` (D17–D24); the pipeline view:
 
-- **Normalize.** Each claim yields 0..n relations via the governed predicate registry (D5, D18). "Project
-  Atlas launched in 2024" → `(Project Atlas, launched_in_year, 2024)`. A claim that is pure opinion or a
-  single-entity attribute may yield no relation — and that is fine; the claim still exists as evidence.
+- **Normalize.** Each claim yields 0..n relations via the governed predicate registry (D5, D18). A
+  two-entity claim like "Alice joined Acme" → `(alice, works_for, acme)`. A claim that is pure opinion,
+  n-ary, or a single-entity / temporal attribute — e.g. "Project Atlas launched in 2024" (no second
+  entity; the year is not an entity, and time is never a relation object or predicate, D18) — yields
+  **no relation**, and that is fine: the claim still exists as evidence, and (D41) its asserted
+  world-time interval is captured *on the claim itself* (`claim_valid_from = 2024`, precision year), so
+  the fact's temporal scope is queryable even with no relation.
 - **Resolve entities.** Subjects/objects are resolved to canonical entities through the tiered T0–T4
   cascade (D17). This is *why* decontextualization matters: "Project Atlas" resolves; "It" cannot. A
   claim with a dangling reference is dead weight here — which is the whole point of §3.2.
@@ -190,16 +194,17 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 | **E1** | chunk + a context prefix ("…from the Results section of the Project Atlas 2024 memo…") |
 | **E2 Selection** | keep "launched last year in three markets"; **drop** "considers it a runaway success" (opinion) → logged |
 | **E2 Decontextualize** | "It"→Project Atlas (neighbour), "last year"→2024 (header) → *"Project Atlas launched in 2024 in three markets"* |
-| **E2 Decompose** | `"Project Atlas launched in 2024."` + `"Project Atlas launched in three markets."` |
-| **E2 Grounding** | each accepted: anchor span present, additions trace to bundle, entailed |
-| **E3** | `(Project Atlas, launched_in_year, 2024)`; if a later memo says it launched in 2023, that relation's window is closed — the original claim is untouched |
+| **E2 Decompose** | `"Project Atlas launched in 2024."` (emits `claim_valid_from = 2024`, precision year — D41) + `"Project Atlas launched in three markets."` |
+| **E2 Grounding** | each accepted: anchor span present, additions trace to bundle, entailed; the date "2024" verbatim-exists in the bundle, so the asserted interval is grounded (D32) |
+| **E3** | neither decomposed claim yields a relation — "three markets" is a quantity and "2024" a date, neither a second entity (D2/D18); the temporal one carries `claim_valid_from = 2024` (**D41**), queryable as evidence. A later memo asserting 2023 makes a *second* immutable claim (`claim_valid_from = 2023`); with no relation to host them, **both stand** as evidence and there is no adjudicated supersession — the documented non-goal (`postgres_schema_design.md` §15). |
 
 ## 7. Decisions, and what is still a spike
 
 **Decisions:** **D31** (Claimify-staged E2 over a context bundle, two calls), **D32** (layered,
 dual-field grounding), **D33** (append-only versioned decision ledger), **D34** (E2 Selection is the
-value filter — no pre-extraction gate), **D35** (Selection recall envelope). Foundations: D2, D3, D4,
-D5, D7, D12, D17–D19, D25.
+value filter — no pre-extraction gate), **D35** (Selection recall envelope), **D41** (claims carry an
+immutable, source-asserted validity interval — extracted in-call here, grounded by window-membership;
+asserted vs. adjudicated time). Foundations: D2, D3, D4, D5, D7, D12, D17–D19, D25.
 
 **Spikes to clear before locking numbers** (full list in `claimify_research/SYNTHESIS.md` §4):
 
@@ -210,6 +215,12 @@ D5, D7, D12, D17–D19, D25.
 4. **Bundle cost per source-class** — the short-source tail breaks prompt-caching; decide a cheaper
    bundle (section path only, no neighbours) for chat/tool/git inputs.
 5. **The E1 context prefix** — pin its length (or specify the E2 fallback when it is absent).
+6. **Structured asserted-validity (D41)** — measure precision/recall of the extracted `claim_valid_*`
+   interval on a golden slice; add a per-fact canary (D35) for window false-extraction; resolve
+   fiscal-calendar expansion ("FY2023" ≠ calendar 2023 for off-calendar fiscal years — `precision`
+   + the grounded source substring keep a wrong expansion auditable, not silently lossy). Recurrence
+   ("every Q4") and un-datable anchor-events ("as of the merger") are out of the single-interval model;
+   the documented upgrade is an expressivity child table, gated on measured demand.
 
 ## References
 

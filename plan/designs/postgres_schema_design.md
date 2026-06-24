@@ -11,7 +11,7 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 `registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
 `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
 `concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
-(D1–D40). Where a table or column exists *because of* a decision, the decision is cited inline.
+(D1–D41). Where a table or column exists *because of* a decision, the decision is cited inline.
 
 > **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
 > conversation. Each module opens with what it stores and *why it has the shape it has*; each
@@ -46,17 +46,23 @@ These rules apply to every table unless a module overrides them with a stated re
   the id alone (used for partition pruning, §12). UUIDv7 also satisfies "`entity_id` is **never
   reused**" (D17/§4) for free. IDs are worker-minted so the row's identity is known before the
   INSERT (needed for idempotency and for deterministic-id dedup, §9).
-- **Time (bi-temporal vocabulary).** Every timestamp is **`timestamptz`** (UTC). Two distinct
-  *kinds* of time recur and must not be conflated (`concepts.md` §5):
-  - **valid-time** — when a fact held *in the world*. On **relations** this is
-    `valid_from`/`valid_until`; on **claims** the world-axis is the single point `asserted_at`
-    (when the source asserted it) — claims are assertions, not intervals, so they carry one
-    valid-time stamp, not a window.
-  - **transaction-time** — when the *system* learned/un-learned it: `ingested_at` (claims,
-    relations) and `invalidated_at` (relations only). Never revised on claims; revisable on
-    relations (supersession).
-  The pair = "bi-temporal". A relation answers both "true in the world at T?" and "believed by us
-  at T?"; a claim answers "asserted when / ingested when?" and never changes.
+- **Time vocabulary.** Every timestamp is **`timestamptz`** (UTC). Distinct *kinds* of time recur
+  and must not be conflated (`concepts.md` §5):
+  - **valid-time** — when a fact held *in the world*. On **relations** this is the revisable,
+    adjudicated window `valid_from`/`valid_until`. On **claims** it is the **immutable,
+    source-asserted** interval `claim_valid_from`/`claim_valid_until` (+ `claim_valid_precision`,
+    `claim_valid_kind`) — *the window the source attributed to the proposition* (D41). Claim
+    valid-time is *evidence* (immutable, many-valued per fact); relation valid-time is *current
+    belief* (revisable, one per fact). They never write to each other.
+  - **assertion-time** — `asserted_at` (claims only): when the **source** asserted the claim (≈
+    `documents.published_at`). This is the assertion *event*, **not** the fact's world-time — "in
+    2024 a report said FY2023 revenue was \$5M" has `asserted_at`=2024 but `claim_valid_*`=FY2023.
+  - **transaction-time** — when the *system* learned/un-learned it: `ingested_at` (claims, relations)
+    and `invalidated_at` (relations only). Never revised on claims; revisable on relations
+    (supersession, D3).
+  The relation pair (valid + transaction) = "bi-temporal". A relation answers "true in the world at
+  T?" and "believed by us at T?"; a claim answers "asserted when / ingested when / asserted to hold
+  over what world-interval?" — all three immutable.
 - **Tenancy (`deployment_id`) and cross-deployment isolation.** The system runs as **N independent
   deployments**, one per problem domain (personal assistant, agency, a manufacturer's migration, a
   legal engine); entity spaces are **never shared across deployments** (`registries_design.md` §1,
@@ -163,6 +169,9 @@ CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','re
 CREATE TYPE crossref_kind          AS ENUM ('cites','links_to','attaches','replies_to');
 
 CREATE TYPE claim_temporal_class   AS ENUM ('static','dynamic','atemporal');
+-- D41 source-asserted validity on claims (immutable; never a relation-style revisable window):
+CREATE TYPE claim_valid_precision  AS ENUM ('unknown','instant','day','month','quarter','year','open');
+CREATE TYPE claim_valid_kind       AS ENUM ('proposition_validity','event_time','measurement_period','effective_period');
 CREATE TYPE grounding_audit_status AS ENUM ('unaudited','sampled_pass','sampled_fail','escalated');
 -- The ledger records DROPs, low-confidence keeps (flags), and decontextualization EDITs.
 -- Plain keeps are NOT persisted (they ARE the claims row); see §8.
@@ -970,9 +979,11 @@ verbatim `source_span` + offsets + the `added_context` substrings (D32), so grou
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
--- claims — immutable verifiable propositions (D31/D32). Two clocks (concepts §5): asserted_at =
--- when the SOURCE asserted it (world/valid-time, a point not an interval — claims are assertions);
--- ingested_at = when WE extracted it (transaction-time). Neither ever changes.
+-- claims — immutable verifiable propositions (D31/D32). THREE immutable time axes (concepts §5, D41):
+-- asserted_at = assertion-EVENT time (when the source spoke, ≈ published_at); claim_valid_from/until
+-- (+ precision/kind) = the world-time interval the SOURCE asserted the proposition held (valid-time
+-- as EVIDENCE, not current belief); ingested_at = when WE extracted it (transaction-time). None ever
+-- change, and claim validity is never superseded (D3) — adjudicated validity lives only on relations.
 -- A row in claims is an ACCEPTED claim: the deterministic grounding gate (anchor + window
 -- membership, D32 layers 1-2) MUST pass, enforced by the CHECK — a claim that fails the gate is
 -- never produced (it becomes a ledger entry or is discarded), so the flags exist for audit and are
@@ -998,21 +1009,41 @@ CREATE TABLE claims (
   entailment_self_verdict boolean,             -- layer 3: in-call self-assertion the bundle entails the claim (~free, optimistic)
   audit_status    grounding_audit_status NOT NULL DEFAULT 'unaudited', -- layer 4: unaudited | sampled_pass | sampled_fail | escalated (sampled, not per-claim)
   kept_flagged    boolean NOT NULL DEFAULT false, -- D35 low-confidence Selection outcome: kept but marked-for-review (mirrors a selection_keep_flagged ledger row — see invariant below)
-  asserted_at     timestamptz,                 -- ASSERTION-time (the claim-grain valid-time point): when the source asserted this (from documents.published_at) — immutable
+  asserted_at     timestamptz,                 -- ASSERTION-EVENT time: when the source asserted this (≈ documents.published_at) — immutable; NOT the fact's world-time (that is claim_valid_*, D41)
+  -- D41 source-asserted world-validity INTERVAL — immutable evidence about WHEN (not current belief).
+  -- Overlap of these intervals across sources is EXPECTED (it is evidence), so there is deliberately
+  -- NO uniqueness/EXCLUDE, NO invalidated_at, NO status here — the opposite of relations (§9):
+  claim_valid_from timestamptz,                -- world-time start the SOURCE attributed (NULL = unbounded-before/unknown); immutable
+  claim_valid_until timestamptz,               -- world-time end (NULL = open-per-source OR unknown; disambiguated by claim_valid_precision)
+  claim_valid_precision claim_valid_precision NOT NULL DEFAULT 'unknown', -- unknown|instant|day|month|quarter|year|open — "FY2023" stores a normalized [start,end] without lying about granularity
+  claim_valid_kind claim_valid_kind,           -- which world-interval this is: proposition_validity|event_time|measurement_period|effective_period (so a measurement period is never conflated with an event date or with asserted_at)
   extractor_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions (extractor); replay-on-rebuild key (D33)
   embedding_ref   text,                        -- opaque Lance key (claims are searchable in P1)
   embedding_version text,                       -- LOGICAL FK → pipeline_component_versions (embedder)
   ingested_at     timestamptz NOT NULL DEFAULT now(),  -- transaction-time + partition key; immutable
   PRIMARY KEY (claim_id, ingested_at),
   CHECK (char_end >= char_start),
-  CHECK (anchor_ok AND window_membership_ok)   -- a claims row is an ACCEPTED claim; the deterministic grounding gate passed (D32)
+  CHECK (anchor_ok AND window_membership_ok),  -- a claims row is an ACCEPTED claim; the deterministic grounding gate passed (D32)
+  -- D41 precision/bounds coherence (claim validity carries no status/invalidated_at — it is immutable):
+  CHECK (claim_valid_until IS NULL OR claim_valid_from IS NULL OR claim_valid_until >= claim_valid_from),
+  CHECK (claim_valid_precision <> 'unknown' OR (claim_valid_from IS NULL AND claim_valid_until IS NULL)),
+  CHECK (claim_valid_precision <> 'open'    OR (claim_valid_from IS NOT NULL AND claim_valid_until IS NULL)),
+  CHECK (claim_valid_precision <> 'instant' OR (claim_valid_from IS NOT NULL AND claim_valid_until = claim_valid_from))
 ) PARTITION BY RANGE (ingested_at);
 COMMENT ON TABLE claims IS
-  'E2 immutable verifiable propositions (D31/D32). Stores standalone claim_text + verbatim source_span + offsets + added_context for provenance-and-entailment grounding. Two clocks: asserted_at (source) and ingested_at (system); never superseded (supersession is on relations, D3). A row here passed the deterministic grounding gate. Monthly-partitioned, logical FKs.';
+  'E2 immutable verifiable propositions (D31/D32). Stores standalone claim_text + verbatim source_span + offsets + added_context for provenance-and-entailment grounding. Three immutable time axes (D41): asserted_at (assertion event), claim_valid_from/until (+precision/kind = source-asserted world-interval — evidence, not belief), ingested_at (system); never superseded (supersession is on relations, D3). A row here passed the deterministic grounding gate. Monthly-partitioned, logical FKs.';
 CREATE INDEX ix_claims_doc      ON claims (deployment_id, doc_id);
 CREATE INDEX ix_claims_chunk    ON claims (chunk_id);
 CREATE INDEX ix_claims_flagged  ON claims (deployment_id) WHERE kept_flagged = true;        -- review surface (D35)
 CREATE INDEX ix_claims_audit    ON claims (deployment_id) WHERE audit_status = 'sampled_fail'; -- grounding regressions
+-- D41 claim-validity is projected to Lance (P1) as filterable scalar columns (claim_valid_from/until/
+-- precision) beside the claim embedding (same pattern as relation windows, D8); the time-filter path
+-- is Lance, so there is NO new Postgres index by default (preserves D23's btree-light mandate on this
+-- ~5×10⁷ partitioned table). A `claims_as_of(t)` search recipe (D9) answers "what did sources assert
+-- held over T" at the EVIDENCE grain; belief-as-of stays relations-only (D10) and the recipe registry
+-- BARS claims_as_of from answering "currently true". An OPTIONAL partial btree on (deployment_id,
+-- claim_valid_from, claim_valid_until) WHERE claim_valid_precision <> 'unknown' is added only if
+-- PG-side temporal claim filtering is ever load-tested against D23 — a spike (§17), not a default.
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- claim_extraction_decisions — the append-only, version-stamped extraction transcript (D33). It
@@ -1544,6 +1575,16 @@ Labs."*
 - **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
 - **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
   claims (§8 reconciliation note).
+- **No structured supersession of non-relational restatements (D41).** Two sources asserting
+  incompatible windows for a fact that yields no relation ("revenue \$5M" vs "\$7M" for FY2023) both
+  stand as immutable evidence; with no relation there is no `contradiction_group` and no adjudicated
+  verdict — `claims_as_of` surfaces both. Closing this needs a fact-identity + adjudicator, i.e.
+  promoting the fact to a relation (the D5 `other:` funnel) or a future "E3 proposition-fact layer".
+- **No multi-interval / recurring / un-datable claim validity (D41).** The single
+  `claim_valid_from`/`until` interval does not model recurrence ("every Q4") or anchor-events that
+  can't be dated at extraction ("as of the merger"); D31 decomposition absorbs most multi-span
+  sentences into atomic single-interval claims. The documented upgrade is an expressivity child table
+  (btree-indexed, D23-restamped), built only on measured demand (§17).
 
 ---
 
@@ -1553,10 +1594,10 @@ Labs."*
 |---|---|
 | D1 split source of truth; versioned processing | `pipeline_component_versions`; K-plane provenance §11; `*_version` columns |
 | D2 claims/relations distinct, M:N evidence | `claims`, `relations`, `relation_evidence` (+ `evidence_count`) |
-| D3 supersession at relation level, bi-temporal | `relations` 4 temporal columns + GiST EXCLUDE; `relation_adjudications`; claims immutable |
+| D3 supersession at relation level, bi-temporal | `relations` 4 temporal columns + GiST EXCLUDE; `relation_adjudications`; claims immutable (incl. their D41 asserted-validity interval) |
 | D4 supersession blocking + cheap-first cascade | `ix_relations_block_subj/obj`; `relation_adjudications.method` (incl. `novelty_gate`) |
 | D5 governed predicate registry + `other:` | `predicates` (`synonyms`, `tier='other'` upsert, `usage_count` funnel) |
-| D6 graph is a projection; validity has one home | validity only on `relations`; generated `status`; analytics writeback §10 |
+| D6 graph is a projection; validity has one home | adjudicated validity only on `relations`; generated `status`; claim-validity is evidence, not a second home (D41); analytics writeback §10 |
 | D7 rebuild-first; immutable snapshots | `projection_snapshots`; replay via `*_version` + decision ledgers; snapshot GC |
 | D8 relation fact-label embeddings in Lance | `relations.fact_label*` + `*_embedding_ref` (no PG vectors) |
 | D9 search/rerank; evidence-count + graph-distance | `relations.evidence_count`; `entity_graph_metrics.pagerank/degree` |
@@ -1578,6 +1619,7 @@ Labs."*
 | D36/D37 E0 sub-workers (incl. crossref version), storage split | `documents` (URIs + all four sub-worker versions), `document_crossrefs.crossref_version` |
 | D39 PageIndex sections + placement | `document_sections` (path/role/span/summary/placement) |
 | D40 P3 corpus filesystem | `projection_snapshots (plane='P3_corpusfs')` + `document(_sections).placement*` |
+| D41 claim-grain source-asserted validity | `claims.claim_valid_from/until/precision/kind` (immutable); `claims_as_of` recipe (evidence-only); Lance scalar projection |
 
 ---
 
@@ -1617,10 +1659,18 @@ Per CLAUDE.md, numbers are starting points. Items that may move the schema or a 
    be corrected to match.
 8. **Snapshot retention depth** (latest-only vs latest-N for `communities`/`entity_graph_metrics`):
    pick the debugging-history depth against storage cost.
+9. **Claim asserted-validity (D41) — measure before locking.** (a) Precision/recall of the extracted
+   `claim_valid_*` interval on a golden slice + a per-fact canary for window false-extraction (D35).
+   (b) Fiscal-calendar expansion ("FY2023" ≠ calendar 2023 for off-calendar years) — `precision` + the
+   grounded source substring keep a wrong expansion auditable, but exact resolution is an
+   extraction-quality spike. (c) Whether the optional PG partial btree on `claim_valid_*` is ever
+   needed (vs. Lance-only filtering) — load-test write-amplification against D23 first. (d) If
+   recurrence / un-datable anchor-events prove load-bearing, the expressivity child table (btree-only,
+   D23-restamped) is the documented upgrade — a named alternative, not a deferral.
 
 ## References
 
 Designs: `overall_design.md` (§3 data model, §9 index), `registries_design.md` (D15–D24),
 `e0_files_design.md` (D36–D40), `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md`
-(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D40). Requirements:
+(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D41). Requirements:
 `requirements/requirements_v3.md`. Open items: `questions.md`.
