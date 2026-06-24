@@ -33,7 +33,9 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   contradiction.
 - **Registries** (cross-cutting substrate of plane E — registries canonicalize, layers
   transform): canonical **entities** with aliases and resolution; governed **predicate**
-  vocabulary with an escape hatch and periodic promotion.
+  vocabulary with an escape hatch and periodic promotion; a governed **attribute** vocabulary (the
+  literal-range properties that attach to a single entity — revenue, dates, headcounts), same
+  governance, used to group and conflict-check facts that yield no relation (D42).
 
 ### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
 
@@ -61,7 +63,13 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 - New information **supersedes** old information without destroying it — validity windows
   close; nothing is silently deleted.
-- **Contradictions are surfaced**, never silently resolved.
+- **Contradictions are surfaced**, never silently resolved — for both relational facts *and*
+  **non-relational facts** (single-entity attributes, quantities, dates that never become a graph
+  relation). When sources disagree about such a fact (e.g. two figures for the same period), the
+  system must **detect and surface all sides**; it must **never** silently pick one as the answer.
+  A *believed* current value for a non-relational fact is only ever produced by promoting it to a
+  relation — the query surface returns the conflicting evidence + an explicit "no adjudicated value"
+  otherwise (D42).
 - **Two time axes** everywhere knowledge lives: when a fact was true in the world, and when
   the system learned/believed it.
 - **Time-travel**: reconstruct both "what was true at T" and "what did we believe at T".
