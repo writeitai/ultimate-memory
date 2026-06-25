@@ -35,7 +35,7 @@ Each plane breaks into a handful of layers:
 | **E0** | Files / document layer | GCS (raw + artifacts) + Postgres | original bytes, markdown, per-doc section structure (PageIndex) |
 | **E1** | Chunks | Postgres + Lance | retrieval-sized units with context prefixes |
 | **E2** | Claims | Postgres | atomic, verifiable natural-language assertions (immutable) |
-| **E3** | Relations | Postgres | normalized `(subject, predicate, object)` facts, bi-temporal |
+| **E3** | Relations + Observations | Postgres | **relations**: normalized `(subject, predicate, object)` entity↔entity facts (graph-projected); **observations**: untyped, entity-anchored non-graph facts (a value/statement about one entity) — both bi-temporal (D43) |
 
 **K — Knowledge** *(LLM-compiled markdown; git is truth)*
 
@@ -49,7 +49,7 @@ Each plane breaks into a handful of layers:
 
 | | What it is | Backed by | Serves |
 |---|---|---|---|
-| **P1** | Search indexes | LanceDB | vector (semantic) + FTS/BM25 search over chunks, claims, relation fact-labels |
+| **P1** | Search indexes | LanceDB | vector (semantic) + FTS/BM25 search over chunks, claims, relation + observation labels |
 | **P2** | Graph | LadybugDB | neighborhood / path / as-of traversal over entities + relations |
 | **P3** | Corpus filesystem | GCS directory tree | agents browsing the memory as a mounted filesystem (`ls`/`cat`/`grep`) |
 
@@ -110,5 +110,5 @@ and flow downward.
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D41) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D43) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

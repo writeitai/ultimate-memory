@@ -1109,10 +1109,11 @@ evidenced by many claims** (`concepts.md` §2): the same `claim_id` therefore le
 several `relation_evidence` rows for *different* `relation_id`s; uniqueness is per `(relation_id,
 claim_id)` only.
 
-Objects are **always entities** (entity→entity). Attribute / single-entity / literal facts ("Acme
-was founded in 1998") yield **no relation** and stay E2-only, fully retrievable via P1
-(D2/`concepts.md` §2). Time is bi-temporal edge metadata, **never** a predicate or Date-entity
-(D18).
+Objects are **always entities** (entity→entity). Attribute / single-entity / literal facts ("Acme's
+headcount is 600") yield **no relation**; under **D43** they become **observations** (§9.A) — a
+separate, untyped, entity-anchored layer with the same bi-temporal validity, so non-relational facts
+get first-class temporal validity and supersession too. Time is bi-temporal edge metadata, **never** a
+predicate or Date-entity (D18).
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
@@ -1244,6 +1245,148 @@ COMMENT ON TABLE relation_adjudications IS
   'Append-only supersession/contradiction decision log (D3/D4). Explains every window closure / contradiction flag / merge proposal, by cascade rung + evidence; replayed on P2 rebuild and used for "what did we believe at T / why" audits.';
 CREATE INDEX ix_adjud_relation ON relation_adjudications (relation_id);
 CREATE INDEX ix_adjud_live     ON relation_adjudications (relation_id) WHERE superseded_by IS NULL;
+```
+
+## 9.A E3 — observations: non-graph facts with temporal validity (D43)
+
+An **observation** is a believed fact about **one entity** whose object is a *value or statement*, not
+another entity — "Acme's headcount is 600", "Acme's FY2023 revenue was \$5M". It is the non-graph
+sibling of a relation: same bi-temporal windows, same evidence-collapse, but **anchored to a resolved
+entity** and **not typed by any governed attribute vocabulary**. Design + worked examples:
+`observations_design.md` (D43).
+
+The contrast with `relations` is deliberate and is the whole point of D43:
+
+- A relation's supersession slot is the exact `(subject, predicate, object)` key; an observation has **no
+  typed slot** — the supersession blocking key is just the **resolved entity**, and the
+  same-thing/supersede-vs-coexist decision is made by the **adjudicator** (entity-block → semantic-narrow
+  → cheap-first cascade, D4), not by a schema constraint. So there is **no `value_domain`/`cardinality`
+  registry and no typed EXCLUDE arm here** and **no DB-level uniqueness/overlap guard.**
+- **"Never silently resolve" is a binding adjudicator contract, not a schema invariant — and the design
+  is honest that this is policy, not a DDL guarantee.** The binding rules (verdict-critical, eval-gated):
+  (a) a `supersede` (capping a prior `valid_until`) is allowed **only** on a *positively matched* prior
+  with adjudicator margin above an explicit threshold, and **every** cap writes an
+  `observation_adjudications` reason row; (b) below threshold, or on any incomplete comparison, the
+  outcome **must** be `coexist`/`new`, never `supersede`; (c) same-`about_period` conflicting values
+  always coexist under a shared `contradiction_group`. A contradiction precision/recall **eval gate**
+  on the golden set is an acceptance criterion for shipping the adjudicator (the E2/E3 eval harness,
+  `questions.md`). Net: a wrong call degrades to *coexist* (both surfaced) — never a silent overwrite.
+- **Recall, precisely.** The entity block makes **all** of an entity's live observations *available*
+  (exact key — no clustering can hide one). For a hub entity, semantic similarity only **orders** which
+  to compare first; because `supersede` requires a *positive* match (above), a prior that top-k ranking
+  skips results at worst in a **duplicate coexisting observation**, never a wrong supersede. So the only
+  residual cost of imperfect narrowing is a redundant row to reconcile later — the safe direction.
+- Observations **never project to the graph** (D18 — a value is not a node); they project to **P1/Lance**
+  only (semantic + value search, entity-anchored timelines).
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- observations — non-graph facts about ONE entity (D43): entity-anchored, bi-temporal, UNTYPED. The
+-- supersession blocking key is subject_entity_id alone (exact, exhaustive per entity); the same-slot /
+-- supersede-vs-coexist judgment is the adjudicator's (D4 cascade), fail-safe to coexist. No governed
+-- attribute vocabulary, no value_domain/cardinality, no typed EXCLUDE. status is a GENERATED mirror of
+-- invalidated_at (one validity home, D6). The observation LABEL + its embedding live in Lance (D8);
+-- the optional structured `value` is best-effort (for value-range queries), NOT registry-validated.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE observations (
+  observation_id  uuid PRIMARY KEY,            -- the observation's identity; provenance handle in Lance
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  subject_entity_id uuid NOT NULL,            -- the ANCHOR + supersession blocking key (a resolved canonical entity); composite FK below
+  statement       text NOT NULL,              -- canonical NL form of the observed fact ("Acme's headcount is 600"); embedded in Lance (D8)
+  value           jsonb,                       -- OPTIONAL best-effort normalized value (recommended shapes in observations_design.md §2); enables value-range queries; NOT required, NOT registry-typed
+  value_fingerprint text,                      -- OPTIONAL hash of (normalized value + about_period_range); a candidate-LOOKUP aid for evidence-collapse only — NEVER sufficient to merge (different properties can share value+period), so the adjudicator must still confirm a positive same-property match before collapsing
+  about_period    text,                        -- OPTIONAL raw reporting/reference period label a value DESCRIBES ('FY2023', 'fiscal 2023', 'year ended 2023-12-31'); distinct from world-validity below. ONE dimension of the conflict slot, NOT the whole slot.
+  about_period_range tstzrange,                -- OPTIONAL best-effort canonical normalization of about_period to a date range (FY2023 → [2023-01-01,2024-01-01)); lets equivalent labels match and handles containment (Q1-2023 ⊂ FY2023). Raw label retained above.
+  -- bi-temporality (concepts §5): two clocks. valid_from/until is WORLD-VALIDITY OF THE BELIEF, NOT the
+  -- reporting period (that is about_period): "FY2023 revenue $5M" is believed true from when it held
+  -- until restated, while about_period='FY2023' is what the value describes.
+  valid_from      timestamptz,                 -- VALID-time start: when the belief began holding in the world (NULL = unknown/always); seeded from the claim's asserted validity (D41)
+  valid_until     timestamptz,                 -- VALID-time end: capped only by supersession (a later value for a changing state); a fixed-period figure is NOT capped here — its period lives in about_period
+  ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed it
+  invalidated_at  timestamptz,                 -- TRANSACTION-time: when learned wrong (NULL = still believed). NOT used to "end" a fact — that's valid_until.
+  evidence_count  integer NOT NULL DEFAULT 0,  -- cached COUNT of supporting EVIDENCE rows (stance=supports) — mirrors relations
+  contradict_count integer NOT NULL DEFAULT 0, -- cached COUNT of contradicting EVIDENCE rows (stance=contradicts). NB: conflicting OBSERVATIONS are tracked via contradiction_group, a different concept.
+  confidence      real,                        -- aggregate confidence over evidence
+  contradiction_group uuid,                    -- shared id when two live observations conflict and both must stand (concepts §4)
+  status          relation_status GENERATED ALWAYS AS  -- DERIVED mirror of invalidated_at (single validity home, D6)
+                    (CASE WHEN invalidated_at IS NOT NULL THEN 'invalidated'::relation_status ELSE 'active'::relation_status END) STORED,
+  obs_label       text,                        -- the human-readable sentence embedded in Lance (often = statement); semantic blocking + retrieval
+  obs_label_version text,                      -- LOGICAL FK → pipeline_component_versions (labeler)
+  obs_label_embedding_ref text,                -- opaque Lance key for the label vector (P1; no vectors in PG — D8)
+  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions; replay-on-rebuild
+  adjudicator_version text,                    -- LOGICAL FK → pipeline_component_versions (supersession/contradiction adjudicator, D4)
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, observation_id),       -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, subject_entity_id) REFERENCES entities (deployment_id, entity_id),
+  CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from),
+  CHECK (invalidated_at IS NULL OR invalidated_at >= ingested_at)  -- can't un-learn before learning
+  -- NOTE: intentionally NO EXCLUDE / uniqueness constraint — there is no typed slot to key one on;
+  -- supersession + evidence-collapse are adjudicated (blocking + cascade), "both-stand" is the safe
+  -- default, and value_fingerprint below is a cheap (best-effort) exact-duplicate catch, not a guarantee.
+);
+COMMENT ON TABLE observations IS
+  'D43 non-graph fact layer: a believed value/statement about ONE entity (entity-anchored, bi-temporal, UNTYPED). Sibling of relations; never projects to the graph (D18). Supersession is adjudicated by entity-blocking + the D4 cascade (no typed slot, no value_domain/cardinality, no EXCLUDE); "never silently resolve" is a binding adjudicator contract (supersede only on a positively-matched prior above margin, with a persisted reason; else coexist) + an eval gate, NOT a schema invariant. a contradiction needs same entity + positive same-property match + same canonical period (about_period_range) + incompatible value — about_period is ONE dimension, not the whole slot; it is distinct from valid_from/until (world-validity). status is a generated mirror of invalidated_at (one validity home, D6). label+embedding live in Lance (D8); optional value jsonb is best-effort for value-range queries.';
+-- The supersession blocking key (D4): all live observations for an entity (exact + exhaustive per entity):
+CREATE INDEX ix_observations_block ON observations (deployment_id, subject_entity_id) WHERE invalidated_at IS NULL;
+CREATE INDEX ix_observations_entity ON observations (deployment_id, subject_entity_id);  -- full history incl. capped/invalidated
+CREATE INDEX ix_observations_contradiction ON observations (contradiction_group) WHERE contradiction_group IS NOT NULL;
+CREATE INDEX ix_observations_fingerprint ON observations (deployment_id, subject_entity_id, value_fingerprint) WHERE value_fingerprint IS NOT NULL;  -- cheap exact-duplicate lookup for evidence-collapse (best-effort)
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- observation_evidence — many-to-many join claims ⇄ observations (D2), mirroring relation_evidence.
+-- Corpus redundancy collapses here into observations.evidence_count. HASH(observation_id). Like
+-- relation_evidence (§9), FKs are LOGICAL (D23 — btree-only at 10^8 scale); the integrity guarantee
+-- here is the PRIMARY KEY (evidence-once), NOT referential FKs. (Evidence-collapse of the same value
+-- into ONE observation is adjudicated upstream — best-effort, aided by value_fingerprint — not enforced
+-- by this table, which only dedups a given (observation, claim) pair.)
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE observation_evidence (
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  observation_id  uuid NOT NULL,               -- LOGICAL FK → observations; HASH partition key
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence many observations.
+  stance          evidence_stance NOT NULL,    -- supports | contradicts (concepts §3/§4)
+  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (observation_id, claim_id)       -- evidence-once, DB-enforced; re-link via ON CONFLICT DO NOTHING is a no-op
+) PARTITION BY HASH (observation_id);
+-- Static hash children at migration (e.g. 64), same as relation_evidence (§9):
+DO $$ BEGIN
+  FOR i IN 0..63 LOOP
+    EXECUTE format('CREATE TABLE observation_evidence_p%s PARTITION OF observation_evidence '
+                   'FOR VALUES WITH (MODULUS 64, REMAINDER %s);', i, i);
+  END LOOP;
+END $$;
+COMMENT ON TABLE observation_evidence IS
+  'Many-to-many evidence links claims ⇄ observations (D2/D43), mirroring relation_evidence. Corpus redundancy collapses into observations.evidence_count. HASH(observation_id), 64 static partitions; PRIMARY KEY (observation_id, claim_id) enforces evidence-once. Logical FKs (D23).';
+CREATE INDEX ix_obsevidence_claim ON observation_evidence (claim_id);  -- reverse lookup (all-partition scan, cold path)
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- observation_adjudications — append-only supersession/contradiction transcript (D3/D4), mirroring
+-- relation_adjudications. Records WHY an observation's window closed / a contradiction was flagged, by
+-- cascade rung + confidence; makes the non-deterministic adjudication replayable on rebuild (D7).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE observation_adjudications (
+  adjudication_id uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  observation_id  uuid NOT NULL,               -- the observation acted upon (composite FK below)
+  related_observation_id uuid,                 -- the other observation in a supersede/contradict pair, if any (composite FK below)
+  outcome         adjudication_outcome NOT NULL, -- add | noop | supersede | contradict | same_as_merge_proposal (D4)
+  method          adjudication_method NOT NULL,  -- novelty_gate | exact | fuzzy | embedding | small_model | frontier_llm (cheap-first cascade, D4)
+  confidence      real,
+  triggering_claim_id uuid,                     -- LOGICAL FK → claims; the new claim that triggered adjudication
+  features        jsonb,                        -- scores/rationale (audit); scrubbed on hard-forget (§13)
+  adjudicator_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
+  decided_by      decision_actor NOT NULL DEFAULT 'auto',
+  decided_at      timestamptz NOT NULL DEFAULT now(),
+  superseded_by   uuid REFERENCES observation_adjudications, -- a later adjudication that overrode this one
+  FOREIGN KEY (deployment_id, observation_id)         REFERENCES observations (deployment_id, observation_id),
+  FOREIGN KEY (deployment_id, related_observation_id) REFERENCES observations (deployment_id, observation_id)
+);
+COMMENT ON TABLE observation_adjudications IS
+  'Append-only supersession/contradiction decision log for observations (D3/D4/D43), mirroring relation_adjudications. Explains every window closure / contradiction flag by cascade rung + evidence; replayed on rebuild and used for "what did we believe at T / why" audits.';
+CREATE INDEX ix_obsadjud_observation ON observation_adjudications (observation_id);
+CREATE INDEX ix_obsadjud_live        ON observation_adjudications (observation_id) WHERE superseded_by IS NULL;
 ```
 
 ---
@@ -1577,11 +1720,14 @@ Labs."*
 - **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
 - **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
   claims (§8 reconciliation note).
-- **No structured supersession of non-relational restatements (D41).** Two sources asserting
-  incompatible windows for a fact that yields no relation ("revenue \$5M" vs "\$7M" for FY2023) both
-  stand as immutable evidence; with no relation there is no `contradiction_group` and no adjudicated
-  verdict — `claims_as_of` surfaces both. Closing this needs a fact-identity + adjudicator, i.e.
-  promoting the fact to a relation (the D5 `other:` funnel) or a future "E3 proposition-fact layer".
+- **Non-relational facts now get structured validity + supersession (D43 — no longer a non-goal).** A
+  fact that yields no relation ("Acme's headcount is 600"; "revenue \$5M for FY2023") becomes an
+  **observation** (§9.A) carrying bi-temporal validity: a changing value supersedes (interval-capped),
+  and incompatible **same-period** values ("\$5M" vs "\$7M" for FY2023) both stand under a shared
+  `contradiction_group` — surfaced, never silently resolved. Adjudicated by entity-blocking + the D4
+  cascade, fail-safe to coexist; **no governed attribute typing.** (This was previously a non-goal
+  awaiting an "E3 proposition-fact layer"; the observation layer *is* that layer, kept deliberately
+  untyped — see `observations_design.md`.)
 - **No multi-interval / recurring / un-datable claim validity (D41).** The single
   `claim_valid_from`/`until` interval does not model recurrence ("every Q4") or anchor-events that
   can't be dated at extraction ("as of the merger"); D31 decomposition absorbs most multi-span

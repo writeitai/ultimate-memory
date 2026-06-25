@@ -61,9 +61,11 @@ Claims-to-relations is many-to-many:
 
 - c1 produced **two** relations (one claim, several facts)
 - c2 produced **zero new** relations — the fact already existed
-- some claims (opinions, n-ary facts, attribute statements like "Acme was founded in 1998" with
-  only one entity) produce **none** — and that's fine; they remain fully retrievable in E2 via
-  Lance/FTS
+- some claims produce **no relation**: opinions are dropped at Selection; n-ary facts decompose;
+  and single-entity **attribute statements** like "Acme was founded in 1998" / "Acme's headcount is
+  600" now become **observations** — a separate, untyped, entity-anchored non-graph layer with the same
+  bi-temporal validity and supersession (D43, `../designs/observations_design.md`). Either way the
+  claim stays fully retrievable in E2 via Lance/FTS.
 
 ## 3. Evidence: the join between the two
 
@@ -130,9 +132,11 @@ authority. Its payoff is the facts that never become relations: "Acme's revenue 
 yields no relation (revenue is a quantity, not an entity object — §2), so before D41 its world-time
 lived only inside the claim text; now it carries `claim_valid_from`/`until` and is queryable by time
 *as evidence*. The **adjudicated, revisable** window (the relation's `valid_from`/`valid_until`) is
-computed *over* these asserted intervals and remains the single home of current belief — and is the
-*only* place a contradiction between two asserted windows is ever resolved (so two conflicting
-revenue figures for FY2023, having no relation, simply both stand as evidence).
+computed *over* these asserted intervals and remains the single home of current belief. *(Updated by
+**D43**: such non-relational facts now also become **observations** — entity-anchored, bi-temporal —
+so two conflicting FY2023 revenue figures don't merely "both stand as raw evidence" but become two
+observations with the same `about_period` linked by a shared `contradiction_group`, surfaced as a
+structured conflict and still never silently resolved. See `../designs/observations_design.md`.)*
 
 Timeline of the example, system's perspective:
 

@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D41); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D43); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -75,10 +75,14 @@ documents ─< chunks                    entities ──< entity_aliases
 
 - **Claims** — immutable NL assertions; identity = assertion-by-a-source; temporally classified and
   carrying an immutable **source-asserted validity interval** (D41); never superseded themselves.
-- **Relations** — distinct facts; identity = the fact; bi-temporal validity windows; the unit
-  of supersession and contradiction (D3).
-- **Evidence** — many-to-many; corpus redundancy collapses into evidence counts (free
-  confidence/salience signal).
+- **Relations** — distinct **entity→entity** facts; identity = the fact; bi-temporal validity windows;
+  the unit of supersession and contradiction (D3); the only layer projected to the graph (D18).
+- **Observations** — non-graph facts about **one entity** (a value/statement: headcount, revenue, a
+  status); entity-anchored, **untyped** (no governed attribute vocabulary), same bi-temporal validity;
+  supersession adjudicated by entity-blocking + the D4 cascade, fail-safe to coexist (D43). Never enter
+  the graph; project to P1/Lance only.
+- **Evidence** — many-to-many (for both relations and observations); corpus redundancy collapses into
+  evidence counts (free confidence/salience signal).
 - **Entities** — canonical registry with aliases, types, cached resolutions; only canonical
   IDs flow downstream.
 - **Predicates** — governed vocabulary with `other:` escape and periodic promotion (D5).
@@ -186,6 +190,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `e0_files_design.md` | E0 document layer + P3 corpus filesystem (D36–D40) | **current** |
 | `e1_chunks_design.md` | chunking, context prefixes, P1 layout | planned |
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
+| `observations_design.md` | non-graph facts about one entity — untyped, entity-anchored, bi-temporal; supersession by entity-blocking + adjudication (D43) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
 | `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | planned |
 | `k3_beliefs_design.md` | belief derivation and update rules | planned |
