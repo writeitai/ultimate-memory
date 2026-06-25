@@ -65,36 +65,25 @@ and evidence. The row is deliberately lean (full DDL: `postgres_schema_design.md
 
 - `subject_entity_id` — the **anchor**, always a resolved canonical entity. This is the supersession
   blocking key.
-- `statement` — the canonical natural-language form of the observed fact ("Acme's headcount is 600").
-  This is what gets embedded in Lance for semantic narrowing and retrieval.
-- `value` *(optional, best-effort)* — a structured/normalized value when one is cleanly extractable. It
-  exists only to enable value-range queries and to *help* the adjudicator compare — **not required**,
-  **not** validated against any registry, no `value_domain`/`cardinality` typing. To keep the common
-  cases queryable without a governed vocabulary, the normalizer **recommends** (not enforces) a few JSON
-  shapes: numeric `{amount, unit}`, money `{amount, currency}`, date `{date, precision}`, status
-  `{state}`. Anything that doesn't fit stays in `statement` alone.
-- `about_period` *(optional, raw)* + `about_period_range` *(optional, canonical)* — the
-  **reporting/reference period the value describes** ("FY2023", "fiscal 2023", "year ended 2023-12-31"),
-  kept **distinct from world-validity**. This resolves a real modelling trap: "Acme's FY2023 revenue was
-  \$5M" does *not* stop being true on 2023-12-31 — the value is *about* FY2023 but the belief holds until
-  restated. So `valid_from`/`valid_until` carry the **world-validity of the belief**, while `about_period`
-  carries **what the value describes**. The raw label is matched via a best-effort canonical
-  `about_period_range` (FY2023 → `[2023-01-01, 2024-01-01)`) so equivalent labels ("fiscal 2023", "year
-  ended 2023-12-31") match and containment is explicit (Q1-2023 ⊂ FY2023). **`about_period` is one
-  dimension of the conflict slot, not the whole slot** (see §3).
-- `value_fingerprint` *(optional)* — a hash of (normalized value + `about_period_range`): a **candidate
-  lookup aid only** for evidence-collapse. It is **never sufficient to merge** — different *properties*
-  can share a value and a period — so the adjudicator must still confirm a positive same-property match
-  before collapsing (see §3).
+- `statement` — the canonical natural-language form of the observed fact ("Acme's headcount is 600",
+  "Acme's FY2023 revenue was \$5M"). This holds **everything** the value carries — the number, the unit,
+  and any reporting period ("FY2023") — and is embedded in Lance for semantic narrowing and retrieval.
+  There is deliberately **no structured `value` column, no period column, no fingerprint**: the value and
+  the period are matched *semantically* by the adjudicator, exactly the way the *property* is (see §3).
+  This keeps the layer fully consistent with its own untyped premise — nothing about a fact is given a
+  typed slot. (If cross-entity numeric range queries — "all entities with revenue > \$5M" — ever become a
+  real requirement, an optional structured `value` is a clean, additive change at that point; it is left
+  out now because the core memory use is entity-anchored recall, not cross-entity range scans.)
 - the **bi-temporal** quartet (`valid_from`/`valid_until` = world-validity, `ingested_at`/`invalidated_at`
   = belief-time), a generated `status` mirror of `invalidated_at` (one validity home, D6),
   `evidence_count` (supporting evidence rows) / `contradict_count` (contradicting *evidence* rows — note
   this is distinct from *conflicting observations*, which are linked by `contradiction_group`),
   `confidence`, and `contradiction_group` (set when two observations conflict and both must stand).
 
-There is **no governed attribute key, no `value_domain`, no `unit_dimension`, no `cardinality`, and no
-typed exclusion constraint.** The only DB guards are FK-to-entity and basic temporal sanity. Everything
-about *which observations are the same thing* and *whether a new one supersedes* is decided by the
+There is **no governed attribute key, no `value_domain`, no `unit_dimension`, no `cardinality`, no
+structured value/period column, and no typed exclusion constraint.** The only DB guards are FK-to-entity
+and basic temporal sanity. Everything about *which observations are the same thing* and *whether a new
+one supersedes* is decided by the
 adjudicator (§3), not the schema. (`status` reuses the existing `relation_status` enum — `active` /
 `invalidated` — intentionally, as a common fact-status type shared with relations.)
 
@@ -115,21 +104,29 @@ When a claim asserts a value/property about entity *E*:
    requires a **positive** match (step 3), a prior that top-k ranking happens to skip yields at worst a
    *duplicate coexisting observation* to reconcile later — **never** a wrong supersede. (Contrast pure
    clustering, where a mis-clustered prior is invisible and silently duplicated.)
-3. **Adjudicate (cheap-first cascade, D4).** For each candidate, decide:
-   Every outcome below first requires a **positive same-property match** (the adjudicator confirming the
-   new statement and the candidate are *about the same thing* — `value_fingerprint`/`about_period` only
-   *narrow* candidates, they never decide it). Then:
+3. **Adjudicate (cheap-first cascade, D4).** Every outcome below first requires a **positive match on the
+   same thing** — the adjudicator reading both `statement`s and judging *same property* (and, for a
+   period figure, *same reporting period* and *compatible value*) **semantically**, exactly the way it
+   judges "same property". There is no typed period/value column to lean on; "FY2023" vs "fiscal 2023"
+   is an LLM equivalence call, just like "headcount" vs "staff count". Then:
    - **evidence** — same property, same value, overlapping validity → don't insert a row; add evidence to
-     the existing observation and bump `evidence_count`. This collapse is **adjudicated (best-effort)** —
-     the fingerprint surfaces likely exact dups; the same-property check confirms them.
-   - **supersede** — same property, no reporting period (an *effective state*), value *changed* over time
-     → **cap** the prior observation's `valid_until` at the new `valid_from` and insert the new one. The
-     prior stays *true for its window* (`invalidated_at` stays NULL). (Headcount 500 → 600.)
-   - **contradict / coexist** — same property **and** same canonical period (`about_period_range`),
-     *incompatible* value → both stand, with a shared `contradiction_group`; the recipe surfaces both,
-     the system never picks. (FY2023 *revenue* \$5M vs \$7M conflict; FY2023 *revenue* vs FY2023 *profit*
-     do **not** — different property; FY2023 vs Q1-2023 do **not** — different period.)
+     the existing observation and bump `evidence_count`. Collapse is **adjudicated (best-effort)**.
+   - **supersede** — same property, an **effective state** (headcount/balance/status), value *changed*
+     over time → **cap** the prior observation's `valid_until` at the new `valid_from` and insert the new
+     one. The prior stays *true for its window* (`invalidated_at` stays NULL). (Headcount 500 → 600.)
+   - **contradict / coexist** — same property **and** same reporting period, *incompatible* value → both
+     stand, with a shared `contradiction_group`; the recipe surfaces both, the system never picks. (FY2023
+     *revenue* \$5M vs \$7M conflict; FY2023 *revenue* vs FY2023 *profit* do **not** — different property;
+     FY2023 vs Q1-2023 do **not** — different period.)
    - **new** — a different property, period, or thing → insert independently, no interaction.
+
+   **The no-cap rule (D43).** A `supersede` (capping `valid_until`) applies **only** to a *changing
+   effective state*. A **measurement / fixed-period figure** ("FY2023 revenue") is **never** capped on
+   valid-time — it does not stop being true at period-end; its window stays open, and a conflicting
+   same-period figure goes to *contradict/coexist*, never *supersede*. The adjudicator decides
+   state-vs-measurement from the `statement` (semantic), not from a typed column. This is the rule that
+   replaces the dropped `about_period` columns: rather than recording the period structurally, the
+   system simply never caps a period figure and lets same-period conflicts coexist.
 4. **Fail safe — a binding adjudicator contract (not just a hope).** This is the honest core of the
    untyped design: "never silently resolve" is **policy enforced in E3 + eval**, not a schema invariant.
    The binding rules:
@@ -152,20 +149,21 @@ When a claim asserts a value/property about entity *E*:
 
 | step | what happens |
 |---|---|
-| Doc B → "headcount 500 (year-end 2023)" | block on Acme: none match → insert **O1** (value 500, `about_period`=NULL — an *effective state*, `valid_from`=2023-12-31 normalized from "year-end 2023", open). |
-| Doc C → "≈600" (2025) | block on Acme finds O1; positive same-slot match, later value, no period → **cap O1** (`valid_until` ≈ 2025-01, normalized from "now"/report date), insert **O2** (600, open). An `observation_adjudications` row records `outcome=supersede` with its reason. |
+| Doc B → "headcount 500 (year-end 2023)" | block on Acme: none match → insert **O1** (`statement`="Acme headcount 500", `valid_from`=2023-12-31 normalized from "year-end 2023", open). Headcount is a *changing state*. |
+| Doc C → "≈600" (2025) | block on Acme finds O1; positive same-property match, an effective state, later value → **cap O1** (`valid_until` ≈ 2025-01, normalized from the report date), insert **O2** ("…600", open). An `observation_adjudications` row records `outcome=supersede` with its reason. |
 | query *"headcount mid-2024?"* | `subject=Acme ∧ semantic≈headcount ∧ valid_from ≤ t < valid_until ∧ invalidated_at IS NULL` → **O1 = 500**. |
 
 (`valid_from`/`valid_until` are normalized from the source's temporal language — "year-end 2023", "as
 of", "now" → the report date — via the claim's D41 asserted validity, not from ingestion time.)
 
-**Both-stand — conflicting FY2023 revenue.** Doc B "revenue \$5M" and Doc D "revenue \$7M" each become an
-observation with **`about_period='FY2023'`** (`about_period_range` `[2023-01-01, 2024-01-01)`) and an open
-world-validity (the figure doesn't stop being true at year-end). The adjudicator matches them on
-same-entity + **same property (revenue, positive match)** + **same `about_period_range`** + incompatible
-value → **contradiction**: both kept, shared `contradiction_group`; the recipe returns both. No typed
-`measurement_period`/`cardinality` flag was needed. Correctly **not** a conflict: FY2023 *revenue* vs
-FY2023 *profit* (different property), or FY2023 vs Q1-2023 revenue (different period) — both coexist.
+**Both-stand — conflicting FY2023 revenue.** Doc B "FY2023 revenue \$5M" and Doc D "FY2023 revenue \$7M"
+each become an observation whose `statement` carries the value *and* the period. The adjudicator reads
+both and judges same-entity + **same property (revenue)** + **same period (FY2023)** + incompatible value
+→ and, by the **no-cap rule**, a fixed-period figure is never superseded → **contradiction**: both kept
+with open windows and a shared `contradiction_group`; the recipe returns both. No typed
+period/`measurement_period`/`cardinality` column was needed — the period match is the same kind of
+semantic judgment as the property match. Correctly **not** a conflict: FY2023 *revenue* vs FY2023
+*profit* (different property), or FY2023 vs Q1-2023 revenue (different period) — both coexist.
 
 **No recall hole.** Suppose Acme has 40 observations. A new headcount claim blocks on Acme (all 40 found,
 exact), then semantic-ranks to compare against the existing *headcount* one first. Even if the semantic
@@ -200,27 +198,31 @@ keeps the one hard guarantee intact.
 
 Observations are **storage**; queries go through projections (D9), exactly like everything else:
 
-- **P1 / Lance** — each observation's `statement`/label is embedded for **semantic + value search**:
+- **P1 / Lance** — each observation's `statement`/label is embedded for **semantic search**:
   *"what has Acme's headcount been over time?"* resolves Acme, pulls its observations, orders by
-  `valid_from`. The optional structured `value` supports value-range filters.
+  `valid_from`.
 - **P2 / graph** — observations are **never** projected (a value is not a node — D18). Only relations
   reach the graph.
 - **as-of** — the same bi-temporal filter as relations: valid-time (`valid_from ≤ t < valid_until`) for
   "what was true at T", transaction-time (`ingested_at ≤ t < COALESCE(invalidated_at, ∞)`) for "what did
-  we believe at T". A **period** query ("FY2023 revenue?") filters on `about_period`, not valid-time —
-  it asks for the value *describing* that period, which both `contradiction_group` members satisfy (both
-  surfaced).
+  we believe at T". A **period** query ("FY2023 revenue?") is a *semantic* lookup over `statement`
+  (Acme + revenue + FY2023), not a structured-column filter — and because a period figure is never
+  capped, both conflicting `contradiction_group` members come back (both surfaced).
 
-The one cost of untyped storage shows up here: a query for a *specific* property is **semantic**
-(label/value match), not an exact typed-key lookup. That is precisely what P1/Lance is built for, and
-the optional `value` makes the common numeric cases exact.
+The cost of untyped storage shows up here: a query for a *specific* property or value is **semantic**
+(over `statement`/label), not an exact typed-key or numeric-column lookup. That is what P1/Lance is built
+for. The one thing it does *not* do cheaply is a **cross-entity numeric range scan** ("all entities with
+revenue > \$5M") — there is no structured `value` to range over. That is the explicit price of dropping
+the typed columns; if such scans become a real requirement, an optional structured `value` is a clean
+additive change at that point.
 
 ## 6. Schema essentials
 
 Full DDL in `postgres_schema_design.md` §9.A. Three tables, mirroring the relations trio but leaner:
 
-- **`observations`** — the row in §2; entity-anchored, bi-temporal, generated `status`, optional `value`,
-  `contradiction_group`; FK to `entities` + temporal CHECKs; **no typed EXCLUDE, no attribute FK.**
+- **`observations`** — the row in §2; entity-anchored, bi-temporal, generated `status`,
+  `contradiction_group`, the `statement` + label/embedding refs; FK to `entities` + temporal CHECKs;
+  **no structured value/period columns, no typed EXCLUDE, no attribute FK.**
 - **`observation_evidence`** — many-to-many join to claims (`HASH(observation_id)`, PK
   `(observation_id, claim_id)` = evidence-once); where corpus redundancy collapses into `evidence_count`.
 - **`observation_adjudications`** — the append-only "why" transcript (supersede / contradict / merge),
@@ -245,9 +247,11 @@ are disjoint so they cannot drift); asserted-validity feeds but never overrides 
 2. **Adjudication cost.** Each value-claim does an entity block (cheap, indexed) + occasional semantic
    narrowing + an adjudication call — comparable to relation supersession. Load-test the per-write cost
    and the hub-entity tail (entities with many observations) at corpus scale.
-3. **Specific-property retrieval is semantic, not exact-key.** Measure recall of "what is *E*'s
-   `<property>`?" via the label/value match; tune how aggressively the normalizer fills the optional
-   structured `value` for the common numeric/date cases.
+3. **Specific-property and same-period matching are both semantic.** With no typed property/period
+   column, "is this the same property?" and "is this the same reporting period?" are LLM judgments
+   (e.g. "fiscal 2023" ≡ "FY2023"). Measure this on the contradiction golden set; if same-period recall
+   proves weak, the additive fallback is an optional canonical period field — not a governed vocabulary.
+   No cross-entity numeric range scan is supported (no structured `value`); see §5.
 4. **Observation volume vs. relations.** Size `observations`/`observation_evidence` against full
    extraction; decide partitioning by the same logic as `relation_evidence` (`HASH` by id).
 

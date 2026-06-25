@@ -839,16 +839,18 @@ pattern relations already use — *blocking + cheap-first adjudication* (D4) —
 **resolved entity** (an exact key) instead of a `(subject, predicate)` pair: a new value-claim about
 entity *E* → fetch *E*'s live observations (indexed; exhaustive for that entity) → for a hub entity with
 many, narrow by **semantic similarity** over the observation label (P1/Lance) → the adjudicator decides
-per candidate (each gated on a **positive same-property match** — the adjudicator confirming "same
-thing", which `about_period`/`value_fingerprint` only help *narrow*, never decide): **supersede** (cap
-the prior `valid_until` at the new `valid_from` — a changing headcount/balance), **contradict/coexist**
-(same property **and** same period, incompatible value → both stand, shared `contradiction_group`),
-**evidence** (same property + value → add evidence, collapse redundancy), or **new**. A key modelling
-split: `valid_from`/`valid_until` is the **world-validity of the belief**, while an optional
-**`about_period`** ("FY2023", canonicalized to a date range for equivalence/containment) is the
-**reporting period a value describes** — so a fixed-period figure isn't wrongly capped on valid-time. The
-conflict slot is `entity + same-property + same-period`, **not** `about_period` alone (FY2023 *revenue*
-\$5M vs \$7M conflict; FY2023 revenue vs FY2023 *profit*, or FY2023 vs Q1-2023, do not). The "never silently resolve" property is a
+per candidate (each gated on a **positive same-thing match** judged *semantically* from the `statement` —
+same property, and for a period figure same period and value-compatibility — exactly as relations judge
+"same predicate", with **no typed value/period column**): **supersede** (cap the prior `valid_until` at
+the new `valid_from`), **contradict/coexist** (same property + same period, incompatible value → both
+stand, shared `contradiction_group`), **evidence** (same property + value → add evidence, collapse
+redundancy), or **new**. The **no-cap rule** carries the period distinction without a column:
+`valid_from`/`valid_until` is the **world-validity of the belief**, and only a **changing effective
+state** (headcount/balance/status) is ever capped; a **measurement / fixed-period figure** ("FY2023
+revenue") is **never** capped — it doesn't stop being true at period-end, its window stays open, and a
+conflicting same-period figure coexists. The conflict slot is `entity + same-property + same-period`, all
+matched semantically (FY2023 *revenue* \$5M vs \$7M conflict; FY2023 revenue vs FY2023 *profit*, or FY2023
+vs Q1-2023, do not). The "never silently resolve" property is a
 **binding adjudicator contract** (supersede only on a positively-matched prior above an explicit margin,
 with a persisted reason; otherwise coexist) **plus an eval gate** — not a schema invariant. The design is
 explicit that this is policy, and that it fails toward *duplicate coexisting rows*, never silent
@@ -876,10 +878,12 @@ disjoint canonical layers, not one polymorphic table, is the simpler correct sha
 **Consequences.**
 - **Relations are untouched** — typed, governed, graph-projected, with their existing `(s,p,o)` blocking
   and overlap-EXCLUDE.
-- **Observations are deliberately lean** — entity-anchored, bi-temporal, evidence-linked, with an
-  *optional* best-effort structured `value` (for value-range queries) but **no governed attribute
-  registry, no `value_domain`/`unit_dimension`/`cardinality`, and no typed EXCLUDE arms.** Supersession
-  is the adjudicator's job (CI-gated), not a schema invariant.
+- **Observations are deliberately lean** — entity-anchored, bi-temporal, evidence-linked. The value and
+  any reporting period live in the NL `statement` (matched semantically); there is **no governed
+  attribute registry, no `value_domain`/`unit_dimension`/`cardinality`, no structured value/period
+  column, and no typed EXCLUDE.** Supersession is the adjudicator's job (CI-gated), not a schema
+  invariant. (A structured `value` for cross-entity numeric range scans is an additive change if that
+  need ever becomes real — deliberately omitted now.)
 - **No semantic-clustering recall hole.** Because observations are anchored to a *resolved entity*
   (exact key), every prior observation about that entity is found by the exact block — semantic search
   only *ranks* candidates for a hub entity; it never gates membership. The only residual fuzziness is

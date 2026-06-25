@@ -135,8 +135,9 @@ lived only inside the claim text; now it carries `claim_valid_from`/`until` and 
 computed *over* these asserted intervals and remains the single home of current belief. *(Updated by
 **D43**: such non-relational facts now also become **observations** — entity-anchored, bi-temporal —
 so two conflicting FY2023 revenue figures don't merely "both stand as raw evidence" but become two
-observations with the same `about_period` linked by a shared `contradiction_group`, surfaced as a
-structured conflict and still never silently resolved. See `../designs/observations_design.md`.)*
+two observations (same property + same period, matched semantically) linked by a shared
+`contradiction_group`, surfaced as a structured conflict and still never silently resolved. See
+`../designs/observations_design.md`.)*
 
 Timeline of the example, system's perspective:
 
