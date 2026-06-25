@@ -80,6 +80,15 @@ Keep this current: when something here is decided, move it to a decision and pru
     params, FTS config, inline-write vs. rebuild path).
 20. **Cost / metering.** A stated requirement with no design (per-layer/per-deployment spend tracking
     + budget enforcement). Ties to #2.
+20a. **P2 projection (LadybugDB) — spikes to run before building the worker (D44,
+    `plan/analysis/ladybug_translation_research/SYNTHESIS.md` §6).** The translation is designed (the
+    `v_graph_*` views, §10.A), but verify on the deployed engine: (a) **UUID-as-node-PK** smoke test
+    (source-verified; confirm the packaged build; STRING fallback documented); (b) **ATTACH cross-DB scan
+    throughput + pushdown** at 10⁷–10⁸ rows — gates ATTACH-direct vs. the committed Parquet baseline,
+    esp. the `MENTIONED_IN` aggregation + merge-survivor recursion; (c) **merge-redirect recursion**
+    cycle guard + the pre-snapshot validation gate; (d) **inline multi-hop as-of path-filter performance**
+    (projected-graph `MATCH` is unavailable — §4); (e) **snapshot retention window N** for retracted
+    edges; (f) NULL-`TIMESTAMP` semantics through the Parquet round-trip.
 
 ## 4. Known risks (in decided approaches)
 
@@ -107,10 +116,11 @@ Keep this current: when something here is decided, move it to a decision and pru
     extraction** sizing when the value gate was dropped (and `registries_design.md` agrees), but **D23
     still says** "row counts are contingent on the value gate — size against *gated* volume." Update
     D23.
-27. **P2 graph design ontology is stale vs D18.** `p2_graph_design.md` lists node types
-    (`paper_concept`, `other`) and predicates (`works_at`, `cites`, `collaborates_with`, `advises`)
-    that predate the D18 seed core (8 types + 14 predicates) and the registry vocabulary. Update the
-    P2 examples/schema to the D18/registry names.
+27. ~~**P2 graph design ontology is stale vs D18.**~~ **RESOLVED (D44).** `p2_graph_design.md` §2/§3 now
+    use the D18 seed core (8 types + 14 predicates), `DOC_CROSSREF(kind)` (generalizing the old `CITES`),
+    and the `IS_DOCUMENT` bridge — see the Postgres→LadybugDB translation analysis
+    (`plan/analysis/ladybug_translation_research/SYNTHESIS.md`) and the `v_graph_*` projection views
+    (`postgres_schema_design.md` §10.A).
 28. **E3 worked example contradicts D18.** `e2_e3_claims_relations_design.md` §5 shows
     `"Project Atlas launched in 2024" → (Project Atlas, launched_in_year, 2024)` — but D18 says
     objects are entities, attributes stay in claims, and time is bi-temporal *edge metadata*, never a
