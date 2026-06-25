@@ -795,3 +795,27 @@ restructuring, concluded the claim/relation split, D6, and relation-only superse
   un-datable anchor-events ("as of the merger") are out of the single-interval model; the documented
   upgrade is an expressivity child table (btree-indexed, D23-restamped), built only on measured demand.
   Full detail: `e2_e3_claims_relations_design.md` §5/§7, `postgres_schema_design.md` §8/§15/§17.
+
+---
+
+## D42. E0 records document origin at ingestion (external vs. system-generated)
+
+**Decision.** Every input gets an immutable `origin` stamped at **E0 ingest** — at minimum
+distinguishing **external** (came from outside the system boundary) from **self/system-generated**
+(produced by this deployment's own agents or workers — e.g. an email an operating agent sent).
+Capture only; no consuming logic is built now.
+
+**Context.** Provenance — "did this document come from the world, or from us?" — is knowable *only*
+at the moment of ingestion; once a document is chunked → claimed (E2) → related (E3), self-generated
+and external assertions are indistinguishable. The motivating case is a closed agent-driven loop where
+the system's own outputs are re-ingested: without an origin stamp, an agent's own assertions inflate
+`evidence_count` (D2) and entrench beliefs (K3) as if independently corroborated — a silent
+self-confirmation loop that corrupts the corpus's headline confidence signal. This is the one piece of
+that scenario with a **capture-now-or-lose-it** asymmetry; everything else it raises (operational-state
+scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) is additive later and is
+**deliberately deferred** until an agent-operations loop is actually built.
+
+**Consequences.** A small, mandatory E0 metadata field (extensible to richer origin classes and
+per-action lineage grouping when needed). The intended first consumer — confidence/belief math that
+counts *independent external* evidence rather than raw `evidence_count`, discounting self-generated
+echoes — is a **documented non-goal for now**, unblocked by this capture. No change to D2/D3/D6.
