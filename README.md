@@ -118,6 +118,7 @@ and flow downward.
 | [plan/analysis/entity_typing_research/](plan/analysis/entity_typing_research/) | Entity typing cascade options + SYNTHESIS (→ registries design) |
 | [plan/analysis/value_gate_research/](plan/analysis/value_gate_research/) | O3 value-gate research + SYNTHESIS (gate mechanism rejected — see D25 / objections O3) |
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
+| [plan/analysis/multimodal_research/](plan/analysis/multimodal_research/) | Image + video processing: how media fits the memory system — landscape + design-fit + SYNTHESIS (proposes D45–D56) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [plan/analysis/ladybug_translation_research/SYNTHESIS.md](plan/analysis/ladybug_translation_research/SYNTHESIS.md) | Postgres→LadybugDB translation (the `v_graph_*` projection contract, D44) |
