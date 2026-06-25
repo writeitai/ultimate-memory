@@ -44,6 +44,10 @@ by hundreds of documents; many claims (opinions, n-ary, single-entity attributes
 - Graph edge count scales with distinct facts, not corpus size.
 - Full reasoning in `plan/analysis/concepts.md`.
 
+**Amended by D43.** Relations are the **entity-object view** over the unified `facts` verdict table;
+the object is an entity *or* a typed literal at truth grain (entity-only at graph grain). The
+claim↔fact (transcript↔verdict) split is unchanged; "relations" is now a subset name, not a table.
+
 ---
 
 ## D3. Supersession/contradiction adjudication operates at the relation level
@@ -64,6 +68,11 @@ revisable adjudications over evidence. Both time-travel questions ("was it true 
 **Refined by D41.** Claims additionally carry an *immutable* source-asserted validity interval
 (testimony about temporal extent). It never becomes revisable and never introduces claim-level
 supersession — the adjudicated window stays relation-only; this strengthens, not weakens, D3.
+
+**Amended by D43.** Supersession is now **fact-level** (a strict generalization of relation-level),
+covering supersedable *literal* facts too (a balance/headcount closes its window when the value
+changes). Claims stay immutable; the "absurd task" never returns. The relation-only wording is
+generalized; the claim-immutability half is untouched.
 
 ---
 
@@ -128,6 +137,11 @@ not existing. For that case the proof therefore rests on a single structural gua
 enforced by a CI schema-test + the recipe linter (not by convention). A grouping handle that can only
 return "which claims occupy fact slot F", never "the value of F", is not current belief — so D6's
 one-home rule still holds (the only home of a *believed* non-relational value is a promoted relation).
+
+**Amended by D43.** The belief home is now the single `facts` table for **both** entity- and
+literal-object facts — D6 *strengthened* (one home, not two). The no-belief-axis guard is **re-scoped**
+to the *non-supersedable* literal subset only (the D42 both-stand residue); a *supersedable* literal's
+belief home is simply the `facts` row. The graph still holds no validity authority (it is a projection).
 
 ---
 
@@ -402,6 +416,13 @@ supersession (`registries_design.md` §4, extension packs).
 **Scope clarification (D41).** "Time is never a predicate or Date-node" governs the **relation/graph**
 representation of time. A claim's immutable asserted-validity interval (D41) is *claim metadata*, not
 a relation object/predicate or a Date-node, so it is fully compatible — D18 is unchanged.
+
+**Amended by D43 (truth-shape vs graph-shape).** A typed **literal may be a fact *object*** in the
+Postgres `facts` truth/supersession table (a balance, a revenue figure), but **never** a graph node or
+edge — the `object_kind='entity'` projection filter is the structural guarantee (a LadybugDB
+relationship requires node endpoints anyway). On the **graph**, D18 holds verbatim: no Date/value
+nodes, time is edge metadata. The amendment separates the *truth* representation (literals allowed)
+from the *graph* representation (entities only).
 
 ## D19. Coref is satisfied inside the E2 extraction call (no dedicated model)
 
@@ -807,6 +828,12 @@ restructuring, concluded the claim/relation split, D6, and relation-only superse
   fact. Recurrence ("every Q4") and un-datable anchor-events remain on the expressivity child-table
   ramp. Full detail: `nonrelational_facts_design.md`, `postgres_schema_design.md` §3/§9/§15/§17.
 
+**Amended by D43.** For *supersedable* attributes the believed value now lives in the unified `facts`
+table (D43), not only in claim text — but claim-validity (D41) is *still* never a second authority:
+claims remain immutable evidence; the adjudicated, revisable value is the `facts` row, fed by the
+claims' asserted windows. D41's claim-grain pillars are intact; the "no believed pure-literal value"
+residual is lifted only for supersedable attributes.
+
 ---
 
 ## D42. Non-relational conflicts are detected, grouped, and surfaced — never resolved
@@ -866,3 +893,97 @@ analysis and a 5-angle internal workflow with adversarial critiques
   with the same fragmentation/promotion discipline as predicates, plus value normalization). Residual
   non-goals (untagged/n-ary attributes, mis-normalized false agreement, no believed pure-literal value)
   are documented in `nonrelational_facts_design.md` §9.
+
+> **Superseded/repurposed by D43.** D43 makes the "no believed pure-literal value" non-goal **no longer
+> true for *supersedable* attributes** (a balance/headcount that changes over time now gets a believed,
+> closeable value in the unified `facts` table). D42's surface-only machinery survives, **repurposed**
+> for the *both-stand residue* (same-period multi-source disagreements like `$5M` vs `$7M` for FY2023),
+> which still gets no winner. The `claim_attribute_facts` projection and the `attributes` registry fold
+> into D43's `facts` table and `governed_relationships` registry. Read D42 as "why non-relational
+> conflicts are surfaced," then D43 as "and how the *supersedable* ones additionally get an adjudicated
+> temporal value."
+
+---
+
+## D43. One unified `facts` verdict layer; the object is an entity or a literal; supersession is gated by attribute time-semantics
+
+**Decision.** Replace the separate `relations` table **and** the no-belief-axis `claim_attribute_facts`
+projection (D42) with a single **`facts`** verdict table over immutable claims (D3). A fact is
+`(subject_entity, governed relationship, object)` where the **object is either an entity reference or a
+typed literal** (`object_kind ∈ {entity, literal}`); it carries **one** bi-temporal window
+(`valid_from`/`valid_until` + `ingested_at`/`invalidated_at`), is adjudicated by **one** supersession/
+contradiction engine (the D4 cheap-first cascade, generalized to block on `(subject_entity,
+relationship)` and act on `fact_id`), collapses redundancy through **one** evidence join
+(`fact_evidence`), and records **one** decision transcript (`fact_adjudications`). **`relations`
+becomes a read-only VIEW** over `facts WHERE object_kind='entity'` — the only slice the graph can
+physically project (a LadybugDB relationship requires node endpoints, so a literal can never be an
+edge — D18). The governed **predicate** and **attribute** vocabularies merge into one
+**`governed_relationships`** registry, discriminated by `range_kind ∈ {entity, literal}`. Binding
+design: `fact_layer_design.md`; schema: `postgres_schema_design.md` §9.
+
+**The gate (what makes it correct).** A literal fact gains the **belief axis** — a closable
+`valid_until`, a transaction-time `invalidated_at`, and the literal supersession constraint — **only
+when it is `supersedable`**, which is *mechanically derived* (a NULL-safe generated column, not app-set)
+from the attribute's existing `claim_valid_kind` and cardinality. The gate's *inputs* (`valid_kind`,
+`cardinality`) are **locked from the `governed_relationships` registry by a `BEFORE` trigger**, so
+neither the flag nor what feeds it can be forged by a writer:
+
+- **`effective_period` + single-valued** (a *state*: a balance, headcount, status, current title) ⇒
+  **supersedable** — a later value **caps** the predecessor's `valid_until` at the new `valid_from`
+  (the predecessor stays *true for its window*; `invalidated_at` stays NULL). This is the affirmed
+  must-have: a value asserted open-endedly (`valid_from` only) that is closed when the next value
+  arrives.
+- **`measurement_period`** (a *period figure*: FY2023 revenue) ⇒ **not supersedable** — two sources
+  giving different figures for the **same** period are a **both-stand disagreement** that must **never**
+  get a silent winner. These keep **D42's no-belief-axis**, now DB-enforced by `CHECK (supersedable OR
+  invalidated_at IS NULL)` plus the same trigger (which rejects re-capping an asserted window), not left
+  to linter discipline: they share a `contradiction_group` and both stand, surfaced, never resolved
+  (requirements_v3) — surfacing is by the coexistence query, so a missing group can't hide a conflict.
+  (Their `valid_until` legitimately stores
+  the *asserted* period — FY2023 = `[2023-01-01, 2024-01-01)` — it is just never *re-capped*.)
+- **multi-valued literals** (`cardinality='set'`, e.g. several office locations held at once) ⇒
+  **coexist**, not supersede (the value is *included* in the slot key).
+
+**Context.** D42 was correct for a weaker requirement ("surface non-relational conflicts without
+creating a second belief authority"); its sole D6 safety pillar was the *absence* of a belief axis. The
+user then affirmed that **temporal supersession of non-relational facts is a first-class must-have** — a
+balance/headcount/run-rate that changes over time and must be time-traveled — which *is* a belief axis,
+so D42's projection cannot host it without detonating its own invariant. Two paths were rejected: a
+**separate `proposition_facts` table** (option S) creates a *second belief home* that drifts against
+`relations` for the same fact across the promotion seam — the Mem0-desync class D6 forbids — and
+duplicates the whole verdict apparatus; and a **read-time-only patch** merely restates D42's non-goal
+(a recency hint, `current_belief=false`), not a believed value. Verified LadybugDB facts make the
+projection a *filtered + cast* COPY either way, so the graph does not decide this — D6 (one belief home)
+does, and that points to one table. Converged recommendation of independent **Codex** and
+**Antigravity** analyses + a 5-angle internal workflow, reviewed again by Codex and Antigravity (both
+"sound-with-fixes"). Full record: `plan/analysis/fact_layer_architecture_research/`.
+
+**Consequences.**
+- **Claims stay immutable** (D3 untouched); the believed value lives in `facts`, never on a claim. A
+  contradicting source still makes a *new* claim with its own immutable `claim_valid_*` (D41).
+- **The reframe:** "relation" is no longer the name of the verdict layer — the foundational object is
+  **`fact`**, and a relation is just its graph-projectable (entity-object) subset.
+- **The graph projection gets *simpler*:** the P2 build switches to **ATTACH-direct**
+  (`COPY … FROM SQL_QUERY('pg', …)`, no Parquet hop) via Postgres views that cast `uuid::text` +
+  `timestamptz AT TIME ZONE 'UTC'` and filter `object_kind='entity'`; a Parquet/Arrow export is kept
+  for the D11 community pass and as a verified fallback (D7).
+- **D6 is strengthened, not weakened** — one belief home for both fact kinds; D42's no-belief-axis is
+  preserved, *relocated* to the non-supersedable literal subset (a CHECK + CI test).
+- **Amends** (each a *simplification* — one engine, fewer tables): **D2** (relations are the
+  entity-object view over `facts`; object is entity-or-literal at truth grain, entity-only at graph
+  grain), **D3** (supersession is fact-level), **D4** (cascade blocks on `(subject, relationship)`,
+  acts on `fact_id`), **D5** (predicates + attributes → `governed_relationships`, `range_kind`
+  entity|literal), **D6** (re-scope the no-belief-axis note to the non-supersedable subset), **D7**
+  (optional ATTACH-direct build hop), **D8** (fact-label embeddings cover literal facts too, keyed by
+  `fact_id`; graph search filters `object_kind='entity'`), **D18** (a truth-shape-vs-graph-shape clause:
+  literals may be fact *objects* in Postgres but never graph nodes/edges — the projection filter is the
+  guarantee), **D41** (the believed value lives in `facts`, so claim-validity is still never a second
+  authority), **D42** (superseded for supersedable attributes; repurposed for the both-stand residue).
+- **The single biggest correctness risk** (and a gate before any implementation ships): the
+  **supersedable-vs-both-stand classification** — mis-marking a `measurement_period` attribute as
+  `effective_period` would let the system *silently supersede* figures that must both-stand (the exact
+  requirements_v3 violation). `claim_valid_kind` is governed (start strict, default to the conservative
+  `measurement_period`), golden-gated on `eval_suite='contradiction'`. And **value normalization is now
+  on the verdict path** (a fiscal-calendar or unit error writes a *wrong believed window*) → fail-safe
+  **normalize-or-refuse** (ambiguous values go to `contradiction_group`, never a confident `valid_from`).
+  Full residuals + scale spikes: `fact_layer_design.md` §10, `postgres_schema_design.md` §17.

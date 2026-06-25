@@ -43,6 +43,14 @@ this in March 2024* — even after Alice leaves.
 
 ## 2. Relations: what the system *believes*
 
+> **Updated by D43.** This section describes *relations* — facts whose object is another
+> **entity**. D43 generalizes "what the system believes" into one **`facts`** verdict layer
+> whose object is either an entity (a *relation*, the graph-projectable subset described here) or
+> a **typed literal** (a value like a balance or fiscal revenue — never a graph node). Relations
+> are now the `object_kind='entity'` subset of that layer, and the same supersession/contradiction
+> machinery below applies to *supersedable* literals too. Read this section for the relation
+> mental model, then `plan/designs/fact_layer_design.md` for the unified picture.
+
 A separate normalization step looks at each claim, sees which canonical entities it mentions,
 and asks: *which binary facts does this assert, in our controlled predicate vocabulary?*
 

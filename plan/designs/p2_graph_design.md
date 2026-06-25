@@ -90,10 +90,13 @@ Claims (E2) and graph edges are NOT the same thing, and the mapping is many-to-m
   its identity is the fact itself, independent of who asserted it
 - one claim can yield several relations; one relation can be evidenced by many claims
 
-So Postgres holds a first-class `relations` table (subject_id, predicate, object_id,
-bi-temporal fields) plus `relation_evidence(relation_id, claim_id, stance: supports |
-contradicts)`. A **relation-normalization step** in the E2 pipeline (after claim extraction +
-entity resolution) maps eligible claims onto relations against the predicate registry:
+So Postgres holds a first-class **`facts`** table (the unified verdict layer — D43) with its
+bi-temporal fields, plus `fact_evidence(fact_id, claim_id, stance: supports | contradicts)`.
+**Relations** — facts whose object is another entity — are the `object_kind='entity'` subset,
+exposed as a `relations` view `(subject_id, predicate, object_id, …)`; those are exactly the rows
+the graph projects. (Literal-object facts live in the same table but never become graph rows — see
+§5.) A **relation-normalization step** in the E2 pipeline (after claim extraction + entity
+resolution) maps eligible claims onto facts against the governed-relationship registry:
 
 - `(s, p, o)` already exists with compatible validity → claim added as **evidence**
   (confidence up, no new fact — ten papers asserting the same affiliation = one edge)
@@ -165,12 +168,26 @@ processes** on the same database files. Don't fight this — design around it.
 ### The writer: periodic full rebuild
 
 Instead of incremental event application, the P2 worker **rebuilds the whole graph from
-Postgres on every cycle**:
+Postgres on every cycle**. The projection reads **directly** from Postgres via LadybugDB's
+`ATTACH … (dbtype postgres)` extension — no Parquet staging hop:
 
-1. Export projection inputs from Postgres to Parquet (entities, relations with validity
-   fields + evidence counts, mentions, citations) — straight SQL `COPY`.
-2. `COPY FROM` the Parquet files into a fresh LadybugDB database (LadybugDB's bulk path;
-   tens of millions of rows load in minutes).
+1. `ATTACH` the Postgres database read-only, then `COPY <node/rel table> FROM SQL_QUERY('pg',
+   '…')` once per LadybugDB table. Each query is the projection's contract with the E-plane
+   (D43):
+   - **Nodes** are canonical **entities**.
+   - **Edges** are facts where **`object_kind = 'entity'`** — the relational subset of the
+     unified `facts` verdict layer (D18/D43). Literal facts (balances, revenues, headcounts)
+     are deliberately **not** projected as graph rows; they never become nodes or edges. They
+     reach the graph only as scalar **node properties** when a reader needs them (HNSW/FTS and
+     properties are node-only in LadybugDB), sourced from the same `facts` table.
+   - The query carries the validity fields (`valid_from`/`valid_until`), evidence counts,
+     mentions and citations, and applies two mechanical casts LadybugDB requires: Postgres
+     `timestamptz` → naive UTC `timestamp` (`… AT TIME ZONE 'UTC'`, because LadybugDB has no
+     `timestamptz`), and UUID PKs → `STRING` (UUID is not a valid node-key type). As-of query
+     parameters must use the same UTC-naive convention.
+2. LadybugDB streams the rows straight into the fresh database (its bulk path; tens of
+   millions of rows load in minutes). `ATTACH`-direct removes the export/serialize/parse round
+   trip and keeps a single source of truth for the row set: the SQL query *is* the schema map.
 3. Checkpoint, validate (row counts per table vs. Postgres counts), upload to GCS as an
    **immutable versioned snapshot**: `gs://…/graph/snapshots/<timestamp>/`, then update a
    `latest` pointer.

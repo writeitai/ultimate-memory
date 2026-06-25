@@ -134,6 +134,17 @@ One canonical cascade. Stop at the first confident match. **Registry-self-contai
 Multi-signature predicates list each allowed `(subject_type, object_type)` pair (Graphiti
 `edge_type_map` shape); subtypes inherit a parent's signatures (D15). Schema.org property
 mappings (the `schema_org_ref` column) get a spot-check before freezing (D18).
+
+- **Cardinality (D43).** Each entity predicate also declares a `cardinality` — `single` (*functional*:
+  at most one live object per subject over a given time, e.g. a primary `works_for`/`has_ceo` — a new
+  object supersedes the old) or `set` (*multi-valued*: several live objects coexist, e.g. `member_of`,
+  `affiliated_with`, `located_in` for a multi-site org, `knows`, `related_to`). This drives the D43
+  entity exclusion arms (`postgres_schema_design.md` §9): `single` excludes the object from the slot
+  key so a new object must cap the old; `set` includes it so distinct objects coexist. **The permissive
+  default is `set`** (most relations are multi-valued — only genuinely functional predicates like a
+  primary `has_ceo` are `single`), so a *functional* predicate **opts in** to `single`; a forgotten
+  declaration conservatively coexists (the adjudicator still supersedes, as pre-D43) rather than
+  over-rejecting concurrent edges. The declaration is golden-gated like a promotion.
 - **Extend, never fork:** every user type/predicate declares a core parent → blocking, graph
   queries, and cross-scope retrieval always fall back to the core level.
 - **Domain/range enforced** exactly as Graphiti's `edge_type_map[(src,tgt)→[rel]]` — the only
@@ -358,7 +369,19 @@ operation is *splitting* a heavily-used predicate** (D15 flags it; D7 retro-clea
 splits cleanly) — hence start strict with a small core. *(Open: the promotion workflow owner +
 the split cost are under-researched — registry SYNTHESIS G5.)*
 
-### 7.1 The attributes registry — governance & promotion (D42)
+### 7.1 The attributes registry — governance & promotion (D42; merged under D43)
+
+> **Updated by D43.** D43 merges the predicate registry and this attributes registry into **one**
+> governed vocabulary, **`governed_relationships`**, whose rows carry a `range_kind ∈ {entity,
+> literal}` (entity-range rows are predicates, literal-range rows are attributes). `predicates` and
+> `attributes` remain as compatibility views. Everything in this section still holds — the same
+> governance machinery, the typed `value_domain` for deterministic value normalization, the
+> conflict-driven promotion signal — it now lives in `governed_relationships` rather than a separate
+> table. The one substantive change: a *supersedable* literal attribute (a value that changes over
+> time, e.g. `headcount`) no longer needs to be "promoted to a relation" to gain an adjudicated
+> current value — it gets one **in place** in the `facts` table via the `supersedable` gate (D43).
+> Promotion-to-relation is now reserved for the case where a literal genuinely needs to become an
+> entity object (a manufactured node). See `plan/designs/fact_layer_design.md`.
 
 The **`attributes` registry** is a third governed vocabulary alongside entity types and predicates —
 a *peer* of the predicate registry, holding the literal-range properties D18 keeps off predicates
@@ -388,8 +411,11 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 
 ## 9. Scale & schema (D23)
 
-- RANGE-partition `mentions` / `resolution_decisions` / `relation_evidence` (~10⁸ rows) by
-  ingest month (`pg_partman`); **btree-only** on these hot tables (cap write-amplification).
+- RANGE-partition `mentions` / `resolution_decisions` (~10⁸ rows) by ingest month (`pg_partman`);
+  **btree-only** on these hot tables (cap write-amplification). The evidence join — `fact_evidence`
+  (~10⁸ rows, renamed from `relation_evidence` under D43) — is instead **HASH-partitioned by
+  `fact_id`**, so all evidence for one fact lands in the same partition (the access pattern is
+  "fetch evidence for this fact", not "by month").
   They are never fuzzy-scanned (queried by id/doc_id).
 - Do **not** partition `entities`/`aliases` (≤10⁷, the blocking targets). GIN `gin_trgm_ops` +
   GIN `daitch_mokotoff(name)` on `aliases.normalized_lemma`; btree composite

@@ -180,17 +180,27 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 - **Collapse redundancy (D2).** The same fact asserted by 200 documents becomes **one** relation with
   **200 evidence rows**, not 200 edges. `evidence_count` is then a free confidence/salience signal —
   the thing a value gate tried to compute up-front, obtained for free after the fact.
-- **Adjudicate supersession (D3, D4).** New facts close the validity windows of the ones they replace,
-  via `(entity_id, predicate)` blocking + a cheap-first cascade — adjudicated on **relations**, never on
-  claims (claims stay immutable records of what was asserted).
-- **Group non-relational facts & surface conflicts (D42).** As a *sibling branch* to relation
-  normalization, a claim that yields **no** relation but is a single-subject attribute/measurement
-  ("Acme's FY2023 revenue was $5M") emits a structured `(subject_entity, attribute_key,
-  normalized_value, unit)` against the governed **`attributes` registry** (grounded by the same D32
-  window-membership check the D41 date uses), which a derived **`claim_attribute_facts`** projection
-  groups by `(subject, attribute, world-time bucket)` and flags when sources disagree (`conflict_state`
-  + a shared `conflict_group`). This **surfaces** non-relational contradictions; it never resolves them
-  (no winner, no validity, no supersession). Full design: `nonrelational_facts_design.md` (D42).
+- **Adjudicate supersession (D3, D4, D43).** New facts close the validity windows of the ones they
+  replace, via `(subject_entity_id, relationship)` blocking + a cheap-first cascade — adjudicated on
+  the **`facts`** verdict layer (both `object_kind='entity'` relations and *supersedable* literals),
+  never on claims (claims stay immutable records of what was asserted). Whether a row may supersede is
+  the GENERATED `supersedable` gate, not a per-write decision.
+- **Normalize literal (non-relational) facts into the same verdict layer (D43).** Relation
+  normalization and attribute normalization are no longer two sibling pipelines writing two
+  different homes — they are **one** write into the unified `facts` table. A claim that asserts a
+  value about a single entity ("Acme's FY2023 revenue was $5M") emits a `facts` row with
+  `object_kind = 'literal'` — `(subject_entity, relationship='fiscal_revenue', object_value=$5M,
+  object_value_identity='FY2023')` against the governed **`governed_relationships`** registry
+  (literal-range rows carry the value domain + identity qualifiers; grounded by the same D32
+  window-membership check the D41 date uses). A claim that asserts an entity-to-entity link emits
+  the same row with `object_kind = 'entity'`. Both arms share **one** supersession engine: a
+  *supersedable* literal (a value that legitimately changes over time — a balance, a current
+  headcount; `cardinality='single'`, `valid_kind='effective_period'`) caps the prior interval and
+  takes over, exactly as an entity relation does; a *non-supersedable* literal (a measurement of a
+  fixed period — FY2023 revenue) never supersedes, so $5M and $7M for the same period **both
+  stand** and are surfaced as a conflict, never silently resolved. The `supersedable` flag is a
+  GENERATED column, not a writer choice. Full design: `fact_layer_design.md` (D43, subsuming the
+  D42 surface-only design).
 
 ## 6. End-to-end, in one example
 

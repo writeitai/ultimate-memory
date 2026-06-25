@@ -35,7 +35,7 @@ Each plane breaks into a handful of layers:
 | **E0** | Files / document layer | GCS (raw + artifacts) + Postgres | original bytes, markdown, per-doc section structure (PageIndex) |
 | **E1** | Chunks | Postgres + Lance | retrieval-sized units with context prefixes |
 | **E2** | Claims | Postgres | atomic, verifiable natural-language assertions (immutable) |
-| **E3** | Relations | Postgres | normalized `(subject, predicate, object)` facts, bi-temporal |
+| **E3** | Facts | Postgres | normalized `(subject, relationship, object)` facts, bi-temporal — object is an entity (a *relation*, graph-projectable) or a typed literal (a value, never a node); one verdict layer, one supersession engine (D43) |
 
 **K — Knowledge** *(LLM-compiled markdown; git is truth)*
 
@@ -49,7 +49,7 @@ Each plane breaks into a handful of layers:
 
 | | What it is | Backed by | Serves |
 |---|---|---|---|
-| **P1** | Search indexes | LanceDB | vector (semantic) + FTS/BM25 search over chunks, claims, relation fact-labels |
+| **P1** | Search indexes | LanceDB | vector (semantic) + FTS/BM25 search over chunks, claims, fact-labels (entity & literal facts, D8/D43) |
 | **P2** | Graph | LadybugDB | neighborhood / path / as-of traversal over entities + relations |
 | **P3** | Corpus filesystem | GCS directory tree | agents browsing the memory as a mounted filesystem (`ls`/`cat`/`grep`) |
 
@@ -100,6 +100,7 @@ and flow downward.
 | [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design — **best place to start** |
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |
 | [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | Claim extraction + relation normalization; why there is no value gate (D31–D35, D25) |
+| [plan/designs/fact_layer_design.md](plan/designs/fact_layer_design.md) | The unified `facts` verdict layer — entity & literal objects, the `supersedable` gate, interval-capping, ATTACH-direct graph projection (D43) |
 | [plan/designs/e0_files_design.md](plan/designs/e0_files_design.md) | E0 document layer + P3 corpus filesystem (D36–D40) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
@@ -110,5 +111,5 @@ and flow downward.
 | [plan/analysis/claimify_research/](plan/analysis/claimify_research/) | Claimify E2 research: de-contextualization + claim-level value selection + SYNTHESIS (→ D31–D35) |
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D42) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D43) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D42); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D43); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -65,23 +65,31 @@ Worked explainer with examples: `plan/analysis/concepts.md`.
 ```
 documents ─< chunks                    entities ──< entity_aliases
     │                                      │
-    └─< claims ──< claim_entity_mentions ──┘        predicates (governed registry)
+    └─< claims ──< claim_entity_mentions ──┘    governed_relationships (governed registry)
           │                                              │
-          └──< relation_evidence >── relations ──────────┘
-               (stance: supports        (subject, predicate, object,
-                | contradicts)           valid_from/valid_until,
-                                         ingested_at/invalidated_at)
+          └──< fact_evidence >── facts ──────────────────┘
+               (stance: supports        (subject, relationship, object_kind ∈
+                | contradicts)            {entity, literal}, object_entity_id |
+                                          object_value, valid_from/valid_until,
+                                          ingested_at/invalidated_at)
+          relations = view over facts WHERE object_kind = 'entity'  (D43)
 ```
 
 - **Claims** — immutable NL assertions; identity = assertion-by-a-source; temporally classified and
   carrying an immutable **source-asserted validity interval** (D41); never superseded themselves.
-- **Relations** — distinct facts; identity = the fact; bi-temporal validity windows; the unit
-  of supersession and contradiction (D3).
+- **Facts** — the unified verdict layer (D43): distinct facts whose object is either an **entity**
+  (a *relation*, projected to the graph) or a **typed literal** (a value such as a balance or fiscal
+  revenue — never a graph node). Identity = the fact; bi-temporal validity windows; the single unit
+  of supersession and contradiction (D3) for both kinds. *Supersedable* literals (values that change
+  over time) supersede like relations; same-period measurements both stand. **Relations** are the
+  `object_kind='entity'` subset, exposed as a compatibility view. See `fact_layer_design.md`.
 - **Evidence** — many-to-many; corpus redundancy collapses into evidence counts (free
   confidence/salience signal).
 - **Entities** — canonical registry with aliases, types, cached resolutions; only canonical
   IDs flow downstream.
-- **Predicates** — governed vocabulary with `other:` escape and periodic promotion (D5).
+- **Relationships** — one governed vocabulary with `other:` escape and periodic promotion (D5/D43),
+  covering predicates (entity range) and attributes (literal range); `predicates`/`attributes`
+  remain as compatibility views.
 - **Ontology** — universal schema.org-aligned core + user extensions anchored to it
   (extend-never-fork), with domain/range constraints; lives in the registries (D15).
   K2 scopes share one entity space and one graph; scope views are registry-declared
@@ -186,7 +194,8 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `e0_files_design.md` | E0 document layer + P3 corpus filesystem (D36–D40) | **current** |
 | `e1_chunks_design.md` | chunking, context prefixes, P1 layout | planned |
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
-| `nonrelational_facts_design.md` | non-relational attribute conflicts — detect/group/surface, never resolve (D42) | **current** |
+| `fact_layer_design.md` | the unified `facts` verdict layer — entity & literal objects, the `supersedable` gate, interval-capping, ATTACH-direct projection (D43) | **current** |
+| `nonrelational_facts_design.md` | non-relational attribute conflicts — detect/group/surface (D42; **superseded/subsumed by D43**, see `fact_layer_design.md`) | superseded |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
 | `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | planned |
 | `k3_beliefs_design.md` | belief derivation and update rules | planned |

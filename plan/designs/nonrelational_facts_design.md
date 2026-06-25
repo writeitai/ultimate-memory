@@ -1,5 +1,21 @@
 # Non-Relational Facts — Attribute Conflicts (Design)
 
+> **⚠️ Superseded / subsumed by D43 — read `plan/designs/fact_layer_design.md` first.**
+> This document designed non-relational facts as a *separate, surface-only* mechanism: a derived
+> `claim_attribute_facts` projection that detects and groups disagreements but never assigns
+> validity or supersession. **D43 folds that mechanism into the unified `facts` verdict layer.**
+> Literal-object facts now live in the same `facts` table as relations, share one supersession
+> engine, and split by the GENERATED `supersedable` gate: a *supersedable* literal (a value that
+> changes over time — a balance, a current headcount) now **does** get validity and supersedes its
+> predecessor (the capability this doc explicitly excluded); a *non-supersedable* literal (a
+> measurement of a fixed period — FY2023 revenue) keeps exactly the both-stand / surface-only
+> behavior described here. The governed `attributes` registry is merged into `governed_relationships`
+> (predicates + attributes, one vocabulary). What remains valid here: the §1 gap framing, the
+> "detect/group/surface, never silently resolve" principle for same-period measurements, and the
+> conflict-surfacing UX. What is replaced: the standalone `claim_attribute_facts` projection, the
+> "no validity / no supersession ever" stance, and the separate-table architecture. Citations to
+> this doc should point at `fact_layer_design.md` (D43) for the current binding design.
+
 How the system **detects, groups, and surfaces** disagreements between sources about facts that
 never become graph relations — *without* inventing a second place that decides what is "currently
 true." Binding design for decision **D42**, building on **D41** (claims carry an immutable

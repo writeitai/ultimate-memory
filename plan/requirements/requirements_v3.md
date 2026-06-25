@@ -28,14 +28,19 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - **E2 — Claims** *(formerly L2)*: atomic, verifiable natural-language assertions; typed
   (fact / opinion / prediction) and temporally classified; immutable and append-only;
   provenance always attached; entity mentions resolved to canonical entities.
-- **E3 — Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
-  many-to-many evidence links between claims and relations; the unit of supersession and
-  contradiction.
+- **E3 — Facts**: distinct facts normalized from claims — `(subject_entity, relationship, object)`
+  where the object is an **entity** (a *relation*, projected to the graph) or a **typed literal** (a
+  value such as a balance/revenue/headcount, never a graph node — D18/D43). One verdict layer is the
+  unit of supersession and contradiction for **both**; many-to-many evidence links collapse corpus
+  redundancy. **Temporal supersession of non-relational (literal) facts is first-class** — a value
+  that changes over time is tracked and time-traveled; same-period disagreements both stand, never
+  silently resolved (D43, subsuming D42).
 - **Registries** (cross-cutting substrate of plane E — registries canonicalize, layers
-  transform): canonical **entities** with aliases and resolution; governed **predicate**
-  vocabulary with an escape hatch and periodic promotion; a governed **attribute** vocabulary (the
-  literal-range properties that attach to a single entity — revenue, dates, headcounts), same
-  governance, used to group and conflict-check facts that yield no relation (D42).
+  transform): canonical **entities** with aliases and resolution; one governed **relationship**
+  vocabulary with an escape hatch and periodic promotion, covering **predicates** (entity-range, e.g.
+  `works_for`) and **attributes** (literal-range, e.g. `headcount`/`fiscal_revenue` — with typed value
+  domains driving normalization), used to normalize, supersede, and conflict-check both entity and
+  literal facts (D43).
 
 ### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
 

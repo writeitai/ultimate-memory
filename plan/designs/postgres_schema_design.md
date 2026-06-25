@@ -11,7 +11,7 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 `registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
 `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
 `concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
-(D1–D42). Where a table or column exists *because of* a decision, the decision is cited inline.
+(D1–D43). Where a table or column exists *because of* a decision, the decision is cited inline.
 
 > **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
 > conversation. Each module opens with what it stores and *why it has the shape it has*; each
@@ -183,6 +183,7 @@ CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','g
 
 CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
 CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
+CREATE TYPE fact_object_kind       AS ENUM ('entity','literal');  -- D43: a fact's object is an entity reference (graph-eligible) or a typed literal (Lance/PG only); also governed_relationships.range_kind
 CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal');
 CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
 
@@ -389,35 +390,123 @@ COMMENT ON TABLE entity_types IS
 CREATE INDEX ix_entity_types_parent ON entity_types (deployment_id, parent_type);
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- governed_relationships — the ONE governed relationship vocabulary (D43): predicates (entity-range)
+-- AND attributes (literal-range) in one registry, discriminated by range_kind. The adjudicator and
+-- the facts table see one shape. Same D5 governance for both ranges (synonyms, tier, other:-escape,
+-- usage_count promotion funnel). entity-range rows keep predicate_signatures (the D18 edge_type_map);
+-- literal-range rows carry the value_domain (drives normalization), identity_qualifiers, the
+-- default_valid_kind (the D43 supersedable gate input), and cardinality (single|set).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE governed_relationships (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  rel_key         text NOT NULL,               -- 'works_for' (entity) | 'fiscal_revenue','headcount' (literal) | 'other:<freetext>' (tier='other')
+  range_kind      fact_object_kind NOT NULL,   -- entity => predicate (object is an entity, graph-eligible); literal => attribute (object is a value)
+  parent_key      text,                        -- extend-never-fork anchor (default parent 'related_to' for entity range, D18)
+  description     text NOT NULL,               -- rendered into the extraction/normalization prompt (D5/D15)
+  examples        text[] NOT NULL DEFAULT '{}',
+  synonyms        text[] NOT NULL DEFAULT '{}',-- surface variants the normalizer maps onto this key (works_at/employed_by → works_for) — D5
+  schema_org_ref  text,                        -- entity range: schema.org anchor (D18)
+  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated (three speeds, D5)
+  pack_id         text REFERENCES extension_packs,
+  scope_id        uuid,                        -- composite FK to scopes (set NULL on scope delete)
+  usage_count     bigint NOT NULL DEFAULT 0,   -- cached count of facts using this key; ranks tier='other' for promotion (D5 funnel)
+  is_change_prone boolean NOT NULL DEFAULT false, -- entity range: employment/affiliation change over time ⇒ supersession-relevant (D18)
+  exclude_from_graph_distance boolean NOT NULL DEFAULT false, -- entity range: causal/promiscuous predicates excluded from graph-distance rerank (registries §4)
+  -- literal-range only (NULL for entity range):
+  value_domain    attribute_value_domain,      -- money|date|quantity|count|ratio|string_enum|boolean — drives DETERMINISTIC value normalization
+  unit_dimension  text,                        -- 'currency'|'persons'|'percent' — guards cross-unit false conflict
+  identity_qualifiers text[] NOT NULL DEFAULT '{}', -- qualifier keys that are IDENTITY-bearing (geography, accounting_basis) ⇒ different slot, not a conflict
+  default_valid_kind claim_valid_kind,         -- THE D43 GATE INPUT: effective_period ⇒ supersedable state; measurement_period ⇒ both-stand; event_time ⇒ date-is-value
+  cardinality     text NOT NULL DEFAULT 'set',  -- single (a new value/object supersedes) | set (coexist). PERMISSIVE default 'set': an undeclared relationship coexists (never over-rejects); a stateful one that should supersede DECLARES 'single' (a forgotten 'single' conservatively both-stands, never silently overwrites)
+  status          ontology_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (deployment_id, rel_key),
+  -- (rel_key, range_kind) is unique-by-construction (rel_key already unique); exposed as a constraint so
+  -- parent_key and predicate_signatures can FK on range_kind and thereby never cross entity↔literal:
+  UNIQUE (deployment_id, rel_key, range_kind),
+  -- extend-never-fork parent must be the SAME range_kind (a literal attribute can't parent to an entity
+  -- predicate, which would dangle in the range-filtered compatibility views):
+  FOREIGN KEY (deployment_id, parent_key, range_kind)
+              REFERENCES governed_relationships (deployment_id, rel_key, range_kind),
+  FOREIGN KEY (deployment_id, scope_id)   REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id),
+  CHECK (cardinality IN ('single','set')),   -- single (a new value/object supersedes) | set (coexist); applies to BOTH ranges (D43)
+  -- Full range-kind split (D43) — the registry, not the writer, is the source of truth for a fact's
+  -- time-semantics, so the gate inputs must be present & valid here. A LITERAL relationship MUST declare
+  -- its value_domain (drives normalization) AND its default_valid_kind (the supersedable-gate input); an
+  -- ENTITY relationship MUST NOT carry literal-only fields (they would be meaningless on an edge):
+  CHECK ( (range_kind = 'literal' AND value_domain IS NOT NULL AND default_valid_kind IS NOT NULL)
+       OR (range_kind = 'entity'  AND value_domain IS NULL AND unit_dimension IS NULL
+            AND default_valid_kind IS NULL AND identity_qualifiers = '{}') )
+);
+COMMENT ON TABLE governed_relationships IS
+  'D43 unified relationship vocabulary: predicates (range_kind=entity, keep predicate_signatures/D18 edge_type_map) + attributes (range_kind=literal, carry value_domain + identity_qualifiers + default_valid_kind + cardinality), one registry. predicates/attributes below are D43 COMPATIBILITY VIEWS over this table; facts.rel_key and predicate_signatures FK here. Same D5 governance + other:-escape + usage_count promotion for both ranges.';
+CREATE INDEX ix_govrel_other ON governed_relationships (deployment_id, usage_count DESC) WHERE tier = 'other';  -- promotion-candidate ranking
+CREATE INDEX ix_govrel_range ON governed_relationships (deployment_id, range_kind);
+
+-- GATE-FIELD IMMUTABILITY (D43): facts denormalize valid_kind/cardinality/range_kind from here and are
+-- NOT auto-recomputed, so silently editing a relationship's gate fields would strand existing facts in
+-- the wrong exclusion arm. Reject such edits once any fact uses the key; changing the semantics of a
+-- live relationship is a deliberate, audited rebuild migration (re-derive the affected facts from their
+-- immutable claims — rebuild-first, like the projections), not an in-place UPDATE.
+CREATE FUNCTION govrel_freeze_gate_fields() RETURNS trigger AS $$
+BEGIN
+  -- ALL fields that facts derive from: the gate inputs (range_kind/default_valid_kind/cardinality) AND
+  -- the normalization inputs (value_domain/unit_dimension/identity_qualifiers) — changing the latter
+  -- after facts exist would strand existing object_value_identity / qualifiers_hash under old slot rules.
+  IF (NEW.range_kind, NEW.default_valid_kind, NEW.cardinality,
+      NEW.value_domain, NEW.unit_dimension, NEW.identity_qualifiers)
+     IS DISTINCT FROM
+     (OLD.range_kind, OLD.default_valid_kind, OLD.cardinality,
+      OLD.value_domain, OLD.unit_dimension, OLD.identity_qualifiers)
+     AND EXISTS (SELECT 1 FROM facts
+                  WHERE deployment_id = OLD.deployment_id AND rel_key = OLD.rel_key) THEN
+    RAISE EXCEPTION 'governed_relationships: cannot change fact-derivation fields (range_kind/default_valid_kind/cardinality/value_domain/unit_dimension/identity_qualifiers) of % while facts reference it (rebuild-migrate instead)', OLD.rel_key;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_govrel_freeze_gate BEFORE UPDATE ON governed_relationships
+  FOR EACH ROW EXECUTE FUNCTION govrel_freeze_gate_fields();
+
+-- HARD read-only guard for the D43 compatibility/projection views (`predicates`, `attributes`,
+-- `relations`). A simple view is auto-updatable in PG, and REVOKE is bypassable by a role with direct
+-- grants or by the owner; an INSTEAD OF trigger raises on every write path regardless of role. Each view
+-- below attaches this + a REVOKE belt. All writes go to the base table (one vocabulary/verdict home, D6).
+CREATE FUNCTION reject_view_write() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION '% is a read-only D43 compatibility view — write to the base table (governed_relationships / facts)', TG_TABLE_NAME;
+END $$ LANGUAGE plpgsql;
+
+-- D43 COMPATIBILITY VIEWS (preserve every existing reader): `predicates` and `attributes` are realized
+-- as read-only VIEWS over governed_relationships (defined below), NOT separate tables — there is ONE
+-- vocabulary table. `predicate_signatures` and `facts` FK to governed_relationships (not the views; a
+-- view cannot be an FK target). The view definitions below also document the columns each exposes.
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- predicates — the governed relation vocabulary (D5/D18). related_to is the core parent.
+-- [D43: now a compatibility VIEW over governed_relationships WHERE range_kind='entity' — see above.]
 -- The other:<freetext> escape (D5) is materialized here too: when the normalizer encounters an
 -- other:<value>, it UPSERTs a row with tier='other' (so relations.predicate's FK holds AND the
 -- promotion funnel is countable via usage_count). Domain/range is NOT enforced for tier='other'
 -- rows until a periodic job promotes them (registries §4/§7).
 -- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE predicates (
-  deployment_id   uuid NOT NULL REFERENCES deployments,
-  predicate       text NOT NULL,               -- 'works_for',... ; 'other:<freetext>' rows live here as tier='other'
-  parent_predicate text,                        -- optional predicate-side extend-never-fork anchor (default parent 'related_to', D18)
-  description     text NOT NULL,               -- meaning rendered into normalization prompts
-  examples        text[] NOT NULL DEFAULT '{}',
-  synonyms        text[] NOT NULL DEFAULT '{}',-- surface variants the normalizer maps onto this predicate (works_at/employed_by → works_for) — D5
-  schema_org_ref  text,
-  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated
-  pack_id         text REFERENCES extension_packs,
-  scope_id        uuid,
-  usage_count     bigint NOT NULL DEFAULT 0,   -- cached count of relations using this predicate; ranks tier='other' values for promotion (D5 funnel)
-  is_change_prone boolean NOT NULL DEFAULT false, -- employment/affiliation/location change over time ⇒ supersession-relevant (D18)
-  exclude_from_graph_distance boolean NOT NULL DEFAULT false, -- causal/promiscuous predicates excluded from graph-distance reranking (registries §4)
-  status          ontology_status NOT NULL DEFAULT 'active',
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (deployment_id, predicate),
-  FOREIGN KEY (deployment_id, parent_predicate) REFERENCES predicates (deployment_id, predicate),
-  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
-);
-COMMENT ON TABLE predicates IS
-  'Governed predicate vocabulary (D5/D18). Extraction is constrained to these names with an other:<freetext> escape, which the normalizer upserts as tier=other rows (FK holds; usage_count makes the promotion funnel queryable). related_to is the permissive core parent.';
-CREATE INDEX ix_predicates_other ON predicates (deployment_id, usage_count DESC) WHERE tier = 'other'; -- promotion-candidate ranking
+-- D43: `predicates` is a READ-ONLY VIEW over governed_relationships (the entity-range subset), NOT a
+-- second table. The columns it exposes (and their old names) are mapped below; every pre-D43 reader
+-- (prompt rendering, promotion job, graph build) keeps working unchanged. There is exactly ONE
+-- vocabulary table (governed_relationships); writes/upserts (incl. the other:<freetext> escape) go
+-- there, and `governed_relationships.ix_govrel_other` already ranks tier='other' for promotion.
+CREATE VIEW predicates AS
+  SELECT deployment_id,
+         rel_key                     AS predicate,
+         parent_key                  AS parent_predicate,
+         description, examples, synonyms, schema_org_ref, tier, pack_id, scope_id,
+         usage_count, is_change_prone, exclude_from_graph_distance, status, created_at
+  FROM governed_relationships
+  WHERE range_kind = 'entity';
+COMMENT ON VIEW predicates IS
+  'D43 compatibility view = governed_relationships WHERE range_kind=''entity''. Governed predicate vocabulary (D5/D18); extraction is constrained to these names with an other:<freetext> escape upserted into governed_relationships as tier=other (usage_count makes the promotion funnel queryable). related_to is the permissive core parent. Read-only — write to governed_relationships.';
+CREATE TRIGGER trg_predicates_ro INSTEAD OF INSERT OR UPDATE OR DELETE ON predicates
+  FOR EACH ROW EXECUTE FUNCTION reject_view_write();
+REVOKE INSERT, UPDATE, DELETE ON predicates FROM PUBLIC;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- predicate_signatures — the domain/range gate (Graphiti edge_type_map shape, D18).
@@ -433,18 +522,26 @@ CREATE INDEX ix_predicates_other ON predicates (deployment_id, usage_count DESC)
 CREATE TABLE predicate_signatures (
   deployment_id   uuid NOT NULL REFERENCES deployments,
   predicate       text NOT NULL,               -- the predicate this signature constrains
+  range_kind      fact_object_kind NOT NULL DEFAULT 'entity' CHECK (range_kind = 'entity'),  -- constant: a signature only exists for an ENTITY-range predicate
   subject_type    text NOT NULL,               -- allowed subject entity_type (matched at this level OR any descendant via the normalizer's parent walk)
   object_type     text NOT NULL,               -- allowed object entity_type
   PRIMARY KEY (deployment_id, predicate, subject_type, object_type),
-  FOREIGN KEY (deployment_id, predicate)    REFERENCES predicates (deployment_id, predicate) ON DELETE CASCADE,
+  -- D43: FK targets the ONE vocabulary table (a view cannot be an FK target). Carrying the constant
+  -- range_kind='entity' in the composite FK PROVES the referenced relationship is entity-range — a
+  -- literal attribute can never acquire a domain/range signature:
+  FOREIGN KEY (deployment_id, predicate, range_kind)
+              REFERENCES governed_relationships (deployment_id, rel_key, range_kind) ON DELETE CASCADE,
   FOREIGN KEY (deployment_id, subject_type) REFERENCES entity_types (deployment_id, type),
   FOREIGN KEY (deployment_id, object_type)  REFERENCES entity_types (deployment_id, type)
 );
 COMMENT ON TABLE predicate_signatures IS
-  'Allowed (subject_type → object_type) pairs per predicate — the one structural ontology gate (D18), enforced by the normalizer (parent-chain walk) at E3 write time. Subtypes inherit a parent''s signatures; a relation matching none is dropped (re-derivable from its claim).';
+  'Allowed (subject_type → object_type) pairs per entity-range relationship — the one structural ontology gate (D18), enforced by the normalizer (parent-chain walk) at E3 write time. FK → governed_relationships (D43). Subtypes inherit a parent''s signatures; a relation matching none is dropped (re-derivable from its claim).';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- attributes — the governed ATTRIBUTE/MEASURE vocabulary (D42), a PEER of `predicates`.
+-- [D43: folded into governed_relationships (range_kind='literal') + realized as a compatibility VIEW;
+--  its value_domain/identity_qualifiers/default_valid_kind/cardinality now live on governed_relationships,
+--  and facts.rel_key (literal arm) FKs there. The block below documents the view's columns.]
 -- A predicate relates two ENTITIES (D18 bars literal objects); an attribute attaches a LITERAL/
 -- quantity to ONE entity — the literal-range home D18 deliberately keeps off predicates ("founded_date",
 -- "fiscal_revenue", "headcount"). Same D5 governance as predicates (synonyms, tier, other:-escape,
@@ -453,30 +550,23 @@ COMMENT ON TABLE predicate_signatures IS
 -- detecting "is this the same attribute?" (revenue vs net revenue vs sales) is an ontology question —
 -- free-text keys would fragment like free-text predicates and SILENTLY miss conflicts (D42 §3.1).
 -- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE attributes (
-  deployment_id   uuid NOT NULL REFERENCES deployments,
-  attribute_key   text NOT NULL,               -- 'fiscal_revenue','founded_date',... ; 'other:<freetext>' rows live here as tier='other'
-  parent_attribute text,                        -- optional extend-never-fork anchor (D15-style)
-  description     text NOT NULL,               -- meaning rendered into the extraction prompt (D5/D15)
-  value_domain    attribute_value_domain NOT NULL, -- money|date|quantity|count|ratio|string_enum|boolean — drives normalization + conflict rule
-  unit_dimension  text,                        -- e.g. 'currency','persons','percent' — guards against cross-unit false conflict
-  default_valid_kind claim_valid_kind,         -- typical time semantics: measurement_period (revenue) | event_time (founded_date) | effective_period (status)
-  identity_qualifiers text[] NOT NULL DEFAULT '{}', -- qualifier keys that are IDENTITY-bearing (e.g. {geography, accounting_basis}); differing ones are NOT a conflict (D42 §3.2)
-  synonyms        text[] NOT NULL DEFAULT '{}',-- surface variants the extractor maps onto this attribute (D5)
-  examples        text[] NOT NULL DEFAULT '{}',
-  tier            ontology_tier NOT NULL,      -- core | extension | other | deprecated (start strict, D5)
-  pack_id         text REFERENCES extension_packs,
-  scope_id        uuid,
-  usage_count     bigint NOT NULL DEFAULT 0,   -- cached count of attribute assertions; ranks tier='other' + drives the promote-to-relation signal (D42 §6)
-  status          ontology_status NOT NULL DEFAULT 'active',
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (deployment_id, attribute_key),
-  FOREIGN KEY (deployment_id, parent_attribute) REFERENCES attributes (deployment_id, attribute_key),
-  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE SET NULL (scope_id)
-);
-COMMENT ON TABLE attributes IS
-  'Governed attribute/measure vocabulary (D42) — peer of predicates, the literal-range home D18 keeps off predicates. value_domain drives deterministic value normalization; identity_qualifiers say which qualifiers are conflict-bearing. Same governance + other:-escape + usage_count promotion funnel as predicates (D5).';
-CREATE INDEX ix_attributes_other ON attributes (deployment_id, usage_count DESC) WHERE tier = 'other'; -- promotion-candidate ranking
+-- D43: `attributes` is a READ-ONLY VIEW over governed_relationships (the literal-range subset), NOT a
+-- second table. value_domain/default_valid_kind/identity_qualifiers/cardinality now live on
+-- governed_relationships; writes (incl. the other:<freetext> escape) go there, and ix_govrel_other
+-- ranks tier='other' for promotion.
+CREATE VIEW attributes AS
+  SELECT deployment_id,
+         rel_key             AS attribute_key,
+         parent_key          AS parent_attribute,
+         description, value_domain, unit_dimension, default_valid_kind, identity_qualifiers,
+         cardinality, synonyms, examples, tier, pack_id, scope_id, usage_count, status, created_at
+  FROM governed_relationships
+  WHERE range_kind = 'literal';
+COMMENT ON VIEW attributes IS
+  'D43 compatibility view = governed_relationships WHERE range_kind=''literal''. Governed attribute/measure vocabulary (D42), the literal-range home D18 keeps off predicates. value_domain drives deterministic value normalization; identity_qualifiers say which qualifiers are conflict-bearing; default_valid_kind feeds the supersedable gate. Read-only — write to governed_relationships.';
+CREATE TRIGGER trg_attributes_ro INSTEAD OF INSERT OR UPDATE OR DELETE ON attributes
+  FOR EACH ROW EXECUTE FUNCTION reject_view_write();
+REVOKE INSERT, UPDATE, DELETE ON attributes FROM PUBLIC;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- scope_interests — registry-declared scope views + extraction interests (D16).
@@ -1140,136 +1230,323 @@ CREATE INDEX ix_grounding_claim ON grounding_audits (claim_id);
 
 ---
 
-## 9. E3 — relations, evidence, supersession adjudications (D2–D4, D8)
+## 9. E3 — facts: one verdict layer for entity *and* literal facts (D2–D4, D8, D43)
 
-A **relation** is a distinct fact `(subject_entity, predicate, object_entity)` — its identity is the
-*fact itself*. Relations are the unit of **supersession** and **contradiction** and carry the
-**bi-temporal** windows. **Evidence** is the many-to-many join from relations back to the claims
-that support or contradict them — where corpus redundancy collapses into `evidence_count` (a free
-confidence/salience signal, D2). **One claim may yield several relations, and one relation may be
-evidenced by many claims** (`concepts.md` §2): the same `claim_id` therefore legitimately appears in
-several `relation_evidence` rows for *different* `relation_id`s; uniqueness is per `(relation_id,
-claim_id)` only.
+A **fact** is the system's current, adjudicated belief about one thing in the world —
+`(subject_entity, governed relationship, object)` where the **object is an entity reference OR a typed
+literal** (`object_kind ∈ {entity, literal}`). It is the unit of **supersession** and **contradiction**
+and carries the **bi-temporal** windows. **Evidence** is the many-to-many join back to the claims that
+support/contradict it — where corpus redundancy collapses into `evidence_count` (a free
+confidence/salience signal, D2). One claim may yield several facts, and one fact may be evidenced by
+many claims (`concepts.md` §2); uniqueness is per `(fact_id, claim_id)` in `fact_evidence`.
 
-Objects are **always entities** (entity→entity). Attribute / single-entity / literal facts ("Acme
-was founded in 1998") yield **no relation** and stay E2-only, fully retrievable via P1
-(D2/`concepts.md` §2). Time is bi-temporal edge metadata, **never** a predicate or Date-entity
-(D18).
+A **relation** (*"Alice works at Acme"*) is just a fact whose object is an **entity** — and that
+subset is the only thing the graph can hold (a LadybugDB relationship needs node endpoints, so a
+literal can never be an edge — D18). So **`relations` is a read-only VIEW** over `facts WHERE
+object_kind='entity'`, and P2 projects that view. A **literal** fact (*"Acme's headcount is 600"*,
+*"revenue was \$5M in FY2023"*) lives in the same table, gets the same windows + supersession, but
+never enters the graph. Design + worked examples: `fact_layer_design.md` (D43). The governed
+relationship vocabulary — predicates **and** attributes, merged — is `governed_relationships` (§3).
+
+**The supersedable gate (D43) — what makes one table correct.** A literal fact gets the belief axis (a
+closable `valid_until`, an `invalidated_at`, the literal supersession constraint) **only when
+`supersedable`** — a *generated, NULL-safe* column = `object_kind='entity' OR (valid_kind='effective_period'
+AND cardinality='single')`, whose inputs (`valid_kind`, `cardinality`) are **locked from the registry by
+`trg_facts_lock_gate`** so a writer can forge neither the flag nor what feeds it. So a changing **state**
+(balance/headcount) supersedes (a new value caps the old window); a **period figure** ($5M vs $7M for the
+same FY2023) is **not** supersedable and both values stand (the D42 behavior, DB-enforced by `CHECK
+(supersedable OR invalidated_at IS NULL)` + the same trigger freezing its asserted window); a multi-valued
+literal (`cardinality='set'`) coexists. The **same `cardinality`** splits the *entity* side too —
+functional predicates (`single`, e.g. `has_ceo`) supersede, multi-valued ones (`set`, e.g. `member_of`)
+coexist — via the four exclusion arms below. This is what lets the *one* table deliver supersession
+without ever silently resolving a genuine disagreement (the gate reuses `claim_valid_kind`, D41 — no new
+enum). Objects that are literals never become graph nodes/edges (D18 holds on the graph; the truth table
+may carry them).
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
--- relations — distinct bi-temporal facts (D2/D3). The (entity_id,predicate) blocking key for
--- supersession is the composite index below; it is small (distinct facts, not assertions) —
--- what makes supersession affordable at scale (concepts §6). The canonical fact LABEL + its
--- embedding live in Lance (D8); PG keeps the label text + version + a Lance ref. Not partitioned.
+-- facts — the unified verdict layer (D43): the system's current belief, for entity-object AND
+-- literal-object facts, over immutable claims. Replaces the old `relations` table and the D42
+-- `claim_attribute_facts` projection. The (subject, relationship) blocking key for supersession is
+-- small (distinct facts, not assertions) — what makes supersession affordable at scale (concepts §6).
+-- The fact LABEL + its embedding live in Lance (D8, now incl. literal facts); PG keeps text + ref.
+-- Not partitioned (distinct facts; the heavy assertion-grain tables are claims/evidence).
 --
 -- "Live belief" = invalidated_at IS NULL (transaction-time), regardless of valid_until: a
--- believed-historical fact ("Alice worked at Acme 2020-2022", valid_until set, invalidated_at NULL)
--- is still currently believed. status is a GENERATED mirror of invalidated_at so validity has
--- exactly one authoritative home (D6) and cannot drift.
+-- believed-historical fact ("headcount was 500 in 2023", valid_until capped, invalidated_at NULL) is
+-- still currently believed. status is a GENERATED mirror of invalidated_at (one validity home, D6).
 --
--- Uniqueness: a GiST EXCLUSION constraint forbids two BELIEVED, non-contradictory relations with
--- the same (s,p,o) AND OVERLAPPING valid-time windows. This is more correct than a partial unique
--- index: it permits re-occurring facts with non-overlapping windows (Alice worked at Acme twice)
--- and permits contradictions (carved out via contradiction_group), while forbidding duplicate
--- overlapping beliefs. Evidence-collapse (D2) finds the believed relation whose window covers the
--- new claim's time.
+-- supersedable is GENERATED (D43) — an app cannot mis-mark it: entities are always supersedable
+-- (an edge can always be invalidated); a literal is supersedable only if its attribute is a
+-- single-valued effective_period STATE. valid_kind + cardinality (the gate inputs) are LOCKED from
+-- governed_relationships by trg_facts_lock_gate, so the writer cannot forge the gate. FOUR partial GiST
+-- EXCLUSION constraints enforce "≤1 believed fact per slot over overlapping world-time", split by
+-- cardinality so functional and multi-valued relationships behave correctly (these need the btree_gist
+-- extension — the `=` operator class for uuid/text in a GiST key — created in §1):
+--   • entity FUNCTIONAL (single): object EXCLUDED from key → a new object supersedes (one CEO at a time)
+--   • entity SET (set): object INCLUDED → distinct objects coexist (member of several orgs)
+--   • literal single-valued-supersedable: value EXCLUDED → a new value supersedes (a changing balance)
+--   • literal SET (effective_period + set): value INCLUDED + overlap → concurrent values coexist (offices)
+-- A measurement_period/event_time literal is in NO range-overlap arm (range overlap is the wrong operator
+-- for a period figure — FY2023 vs Q1-2023 overlap but differ); different values for the same period
+-- both-stand (FY2023 $5M vs $7M) and an always-on exact-duplicate UNIQUE bars only a true duplicate. That
+-- UNIQUE also closes the "grouped rows leave every partial arm" hole (the arms are contradiction_group-
+-- aware; the UNIQUE is not). Identity columns are frozen post-insert by trg_facts_lock_gate.
 -- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE relations (
-  relation_id     uuid PRIMARY KEY,            -- the fact's identity; provenance handle in the graph/Lance projections
-  deployment_id   uuid NOT NULL REFERENCES deployments,
-  subject_entity_id uuid NOT NULL,             -- canonical subject (composite FK below; only canonical entities enter relations/graph — p2 §2)
-  predicate       text NOT NULL,               -- governed predicate; composite FK below
-  object_entity_id uuid NOT NULL,              -- canonical object (entity→entity only; literals stay in claims — D2)
-  -- bi-temporality (concepts §5): two clocks, different questions.
-  valid_from      timestamptz,                 -- VALID-time start: when the fact began holding in the world (NULL = unknown/always)
-  valid_until     timestamptz,                 -- VALID-time end: closed by supersession when the fact stops holding ("Alice left Acme")
+CREATE TABLE facts (
+  fact_id           uuid PRIMARY KEY,            -- the fact's identity; provenance handle in the graph/Lance projections
+  deployment_id     uuid NOT NULL REFERENCES deployments,
+  subject_entity_id uuid NOT NULL,               -- canonical subject (always an entity — D2 subject rule); composite FK below
+  rel_key           text NOT NULL,               -- governed relationship (predicate OR attribute); composite FK → governed_relationships (§3)
+  object_kind       fact_object_kind NOT NULL,   -- entity => graph-eligible relation; literal => Lance/PG only, never a graph edge (D18)
+  object_entity_id  uuid,                          -- set IFF object_kind='entity' (canonical object); composite FK below
+  object_value      jsonb,                          -- set IFF object_kind='literal' — typed normalized value, e.g. {amount:5000000,currency:'USD'}
+  object_value_identity text,                       -- set IFF literal — canonical hash(normalized value+unit+precision): "$5M" == "5,000,000 USD"; the literal dedup key
+  qualifiers_hash   text NOT NULL DEFAULT '',     -- identity-bearing qualifiers (IFRS vs GAAP, global vs US ⇒ DIFFERENT slot, not a conflict)
+  valid_kind        claim_valid_kind,             -- DENORMALIZED + LOCKED from governed_relationships.default_valid_kind by trg_facts_lock_gate (below); gate input
+  cardinality       text NOT NULL DEFAULT 'set',  -- DENORMALIZED + LOCKED from the registry by trg_facts_lock_gate: single (supersede) | set (coexist); EXCLUDEs can't join the registry
+  -- MECHANICAL gate (D43), not app-set. COALESCE→false makes it NULL-SAFE: a literal whose valid_kind is
+  -- somehow NULL falls to the SAFE side (non-supersedable ⇒ coexist/both-stand), never escaping every
+  -- EXCLUDE arm. NOT NULL so the partial-index predicates and the CHECK below are never UNKNOWN.
+  supersedable      boolean GENERATED ALWAYS AS
+                      (COALESCE(object_kind = 'entity'
+                                OR (valid_kind = 'effective_period' AND cardinality = 'single'), false)) STORED NOT NULL,
+  -- bi-temporality (concepts §5): two clocks. For a NON-supersedable literal, valid_from/valid_until
+  -- is the ASSERTED measurement period (FY2023 = [2023-01-01, 2024-01-01)) — set once, never re-capped:
+  valid_from      timestamptz,                   -- VALID-time start: when the fact began holding in the world (NULL = unknown/always)
+  valid_until     timestamptz,                   -- VALID-time end: capped by supersession (supersedable) OR the asserted period bound (non-supersedable)
   ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed this fact
-  invalidated_at  timestamptz,                 -- TRANSACTION-time: when the system learned it was superseded (NULL = still believed)
-  evidence_count  integer NOT NULL DEFAULT 0,  -- cached COUNT of supporting evidence rows — free confidence/salience signal (D2); K3 candidate filter
-  contradict_count integer NOT NULL DEFAULT 0, -- cached COUNT of contradicting evidence rows
-  confidence      real,                        -- aggregate confidence over evidence (not an extraction-time guess — concepts §3)
-  contradiction_group uuid,                    -- shared id when two live relations contradict and can't be adjudicated — retrieval shows both sides (concepts §4)
-  status          relation_status GENERATED ALWAYS AS  -- DERIVED mirror of invalidated_at (single validity home, D6): active iff invalidated_at IS NULL, else invalidated
+  invalidated_at  timestamptz,                   -- TRANSACTION-time: when the system learned it was superseded (NULL = still believed)
+  evidence_count  integer NOT NULL DEFAULT 0,    -- cached COUNT of supporting evidence rows — free confidence/salience signal (D2); K3 candidate filter
+  contradict_count integer NOT NULL DEFAULT 0,   -- cached COUNT of contradicting evidence rows
+  confidence      real,                          -- aggregate confidence over evidence (not an extraction-time guess — concepts §3)
+  contradiction_group uuid,                      -- shared id when two live facts conflict and can't be adjudicated — retrieval shows both sides (concepts §4)
+  status          relation_status GENERATED ALWAYS AS
                     (CASE WHEN invalidated_at IS NOT NULL THEN 'invalidated'::relation_status ELSE 'active'::relation_status END) STORED,
-  -- fact label (D8): the human-readable sentence embedded in Lance; regenerated only on material adjudication change.
-  fact_label      text,                        -- "Alice Novak works at Acme as VP of Engineering"
-  fact_label_version text,                     -- LOGICAL FK → pipeline_component_versions (fact_labeler)
-  fact_label_embedding_ref text,               -- opaque Lance key for the fact-label vector (P1; no vectors in PG/graph — D8)
-  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions (normalizer); replay-on-rebuild
+  fact_label      text,                          -- "Alice Novak works at Acme as VP of Engineering" / "Acme headcount = 600 since 2025" — embedded in Lance (D8)
+  fact_label_version text,                       -- LOGICAL FK → pipeline_component_versions (fact_labeler)
+  fact_label_embedding_ref text,                 -- opaque Lance key for the fact-label vector (P1; no vectors in PG/graph — D8)
+  normalizer_version text NOT NULL,              -- LOGICAL FK → pipeline_component_versions; replay-on-rebuild
+  adjudicator_version text,                      -- LOGICAL FK → pipeline_component_versions (supersession/contradiction adjudicator, D4)
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (deployment_id, relation_id),          -- composite-FK target (tenancy isolation, §0)
-  FOREIGN KEY (deployment_id, predicate) REFERENCES predicates (deployment_id, predicate) ON UPDATE CASCADE,
+  UNIQUE (deployment_id, fact_id),               -- composite-FK target (tenancy isolation, §0)
+  FOREIGN KEY (deployment_id, rel_key)           REFERENCES governed_relationships (deployment_id, rel_key) ON UPDATE CASCADE,
   FOREIGN KEY (deployment_id, subject_entity_id) REFERENCES entities (deployment_id, entity_id),
   FOREIGN KEY (deployment_id, object_entity_id)  REFERENCES entities (deployment_id, entity_id),
-  CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until >= valid_from),
+  -- ONE exclusive-arc CHECK: an entity row can never leak literal columns, and vice-versa:
+  CHECK ( (object_kind='entity'  AND object_entity_id IS NOT NULL AND object_value IS NULL     AND object_value_identity IS NULL)
+       OR (object_kind='literal' AND object_entity_id IS NULL     AND object_value IS NOT NULL AND object_value_identity IS NOT NULL) ),
+  CHECK (cardinality IN ('single','set')),
+  -- a literal MUST carry its time-semantics (the gate input) so `supersedable` is never decided on a
+  -- NULL valid_kind — trg_facts_lock_gate copies it from the registry; this CHECK is the floor:
+  CHECK (object_kind = 'entity' OR valid_kind IS NOT NULL),
+  -- intervals are STRICTLY POSITIVE: tstzrange(t,t) is EMPTY under the default [) bounds and overlaps
+  -- nothing, which would let two identical instantaneous facts both slip past every EXCLUDE arm. An
+  -- instant (event_time) is stored as its non-empty asserted-precision window (a day/second, D41),
+  -- never as a zero-length range:
+  CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until > valid_from),
   CHECK (invalidated_at IS NULL OR invalidated_at >= ingested_at),  -- can't un-learn before learning
-  -- At most one BELIEVED, non-contradictory relation per (s,p,o) with overlapping world-time:
+  -- the relocated D42 no-belief-axis guard: a NON-supersedable literal may keep its ASSERTED period
+  -- (valid_until) but NEVER a transaction-time invalidation/supersession close. The companion half —
+  -- "never RE-CAP an already-asserted window" — is DB-enforced by trg_facts_lock_gate (below), NOT
+  -- left to worker/linter discipline (D43 verdict-critical safety belongs in the schema):
+  CHECK (supersedable OR invalidated_at IS NULL),
+  -- ENTITY FUNCTIONAL arm (cardinality='single', e.g. has_ceo, headquartered_in) — object EXCLUDED from
+  -- the key ⇒ ANY two overlapping live edges for the same (subject, rel, qualifiers) conflict, so a NEW
+  -- object must cap/close the old: DB-enforced functional supersession, symmetric with the literal-single
+  -- arm. cardinality is an EXPLICIT per-predicate declaration in the seed (registries §4); the permissive
+  -- default is 'set' (most relations are multi-valued), so a functional predicate must OPT IN to 'single'.
+  -- A forgotten 'single' therefore coexists (the adjudicator still supersedes, as pre-D43) rather than
+  -- over-rejecting legitimate concurrent edges — the conservative direction:
   EXCLUDE USING gist (
-    deployment_id WITH =, subject_entity_id WITH =, predicate WITH =, object_entity_id WITH =,
-    tstzrange(valid_from, valid_until) WITH &&
-  ) WHERE (invalidated_at IS NULL AND contradiction_group IS NULL)
+    deployment_id WITH =, subject_entity_id WITH =, rel_key WITH =, qualifiers_hash WITH =,
+    (tstzrange(valid_from, valid_until)) WITH &&
+  ) WHERE (object_kind='entity' AND cardinality='single' AND invalidated_at IS NULL AND contradiction_group IS NULL),
+  -- ENTITY SET arm (cardinality='set', e.g. member_of, located_in) — object INCLUDED ⇒ distinct objects
+  -- COEXIST (a person member_of several orgs at once); only an exact-duplicate overlapping edge is barred.
+  -- qualifiers_hash is in the key so IFRS-vs-GAAP-style qualified edges are distinct slots (concern parity
+  -- with literals); it defaults to '' so unqualified relations are unaffected:
+  EXCLUDE USING gist (
+    deployment_id WITH =, subject_entity_id WITH =, rel_key WITH =, qualifiers_hash WITH =, object_entity_id WITH =,
+    (tstzrange(valid_from, valid_until)) WITH &&
+  ) WHERE (object_kind='entity' AND cardinality='set' AND invalidated_at IS NULL AND contradiction_group IS NULL),
+  -- LITERAL SINGLE-VALUED SUPERSEDABLE arm — VALUE EXCLUDED from the key ⇒ a new value closes the old
+  -- window (supersession). The affirmed must-have (a balance/headcount over time):
+  EXCLUDE USING gist (
+    deployment_id WITH =, subject_entity_id WITH =, rel_key WITH =, qualifiers_hash WITH =,
+    (tstzrange(valid_from, valid_until)) WITH &&
+  ) WHERE (object_kind='literal' AND supersedable AND cardinality='single'
+           AND invalidated_at IS NULL AND contradiction_group IS NULL),
+  -- LITERAL SET arm — a multi-valued effective_period STATE (e.g. several office locations held at once):
+  -- VALUE INCLUDED + range overlap ⇒ distinct concurrent values COEXIST, while a re-asserted same value
+  -- over an overlapping window is folded (overlapping duplicate barred). RESTRICTED to effective_period:
+  -- a measurement_period figure is not a stateful interval, so range-overlap is the WRONG operator for it
+  -- (FY2023 and Q1-2023 overlap yet are different measurements). measurement_period / event_time literals
+  -- are in NO range-overlap arm — they rely on the exact-identity UNIQUE below, which lets different
+  -- values for the SAME period both-stand while still barring an exact duplicate:
+  EXCLUDE USING gist (
+    deployment_id WITH =, subject_entity_id WITH =, rel_key WITH =, qualifiers_hash WITH =,
+    object_value_identity WITH =, (tstzrange(valid_from, valid_until)) WITH &&
+  ) WHERE (object_kind='literal' AND valid_kind='effective_period' AND cardinality='set'
+           AND invalidated_at IS NULL AND contradiction_group IS NULL),
+  -- EXACT-DUPLICATE FLOOR (applies to EVERY row, grouped or not). The GiST arms above all carry
+  -- `contradiction_group IS NULL`, so once two conflicting rows are grouped they leave every arm — this
+  -- always-on UNIQUE still bars a *true* exact duplicate (same subject+rel+qualifiers+object+window) of any
+  -- row, and is the sole dup-guard for measurement_period / event_time literals (different values or
+  -- periods coexist; an identical one cannot). NULLS NOT DISTINCT so open windows and the absent object
+  -- column (entity vs literal) compare equal:
+  UNIQUE NULLS NOT DISTINCT
+    (deployment_id, subject_entity_id, rel_key, qualifiers_hash, object_entity_id, object_value_identity,
+     valid_from, valid_until)
 );
-COMMENT ON TABLE relations IS
-  'E3 distinct bi-temporal facts (D2/D3). Identity = (subject,predicate,object) + validity interval; the unit of supersession/contradiction. evidence_count caches corpus redundancy as a confidence signal (D2). status is a generated mirror of invalidated_at (validity has one home, D6). The GiST EXCLUDE forbids overlapping duplicate beliefs while allowing re-occurring facts and carved-out contradictions. fact_label+embedding live in Lance (D8).';
+COMMENT ON TABLE facts IS
+  'D43 unified verdict layer: current belief for entity- AND literal-object facts, over immutable claims. relation_id concept → fact_id. Object is an entity (→ graph) or a typed literal (Lance/PG only, D18). One bi-temporal window; status + supersedable are GENERATED, valid_kind/cardinality LOCKED from the registry by trg_facts_lock_gate (one validity home D6; the gate cannot be forged). Four partial GiST EXCLUDEs (entity-functional / entity-set / literal-single-supersede / literal-set, effective_period only) gate supersession by cardinality, plus an always-on exact-duplicate UNIQUE that also de-dupes measurement_period/event_time literals (which otherwise both-stand). Identity columns are immutable post-insert (trg_facts_lock_gate). Replaces relations + claim_attribute_facts (D42).';
 -- The supersession blocking key (D4) — small, distinct facts; THE index that makes supersession
--- detection affordable (concepts §6):
-CREATE INDEX ix_relations_block_subj ON relations (deployment_id, subject_entity_id, predicate, object_entity_id);
-CREATE INDEX ix_relations_block_obj  ON relations (deployment_id, object_entity_id, predicate);  -- reverse blocking ("who works_at acme?")
-CREATE INDEX ix_relations_predicate  ON relations (deployment_id, predicate);
-CREATE INDEX ix_relations_contradiction ON relations (contradiction_group) WHERE contradiction_group IS NOT NULL;
-CREATE INDEX ix_relations_live       ON relations (deployment_id, subject_entity_id) WHERE invalidated_at IS NULL;
+-- detection affordable (concepts §6); covers both arms via object_kind:
+CREATE INDEX ix_facts_block_subj ON facts (deployment_id, subject_entity_id, rel_key, object_kind);
+CREATE INDEX ix_facts_block_obj  ON facts (deployment_id, object_entity_id, rel_key) WHERE object_kind='entity';  -- reverse blocking ("who works_at acme?")
+CREATE INDEX ix_facts_contradiction ON facts (contradiction_group) WHERE contradiction_group IS NOT NULL;
+CREATE INDEX ix_facts_live       ON facts (deployment_id, subject_entity_id) WHERE invalidated_at IS NULL;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- GATE INTEGRITY (D43) — the supersedable gate is only as trustworthy as its inputs, so valid_kind and
+-- cardinality are NOT app-set: this BEFORE trigger COPIES them from the row's governed_relationships
+-- entry on every write and LOCKS them (a fact's time-semantics come from its REGISTERED relationship,
+-- never from the writer). It also (a) verifies object_kind matches the relationship's range_kind, and
+-- (b) makes the asserted window of a NON-supersedable literal immutable after insert — the "never re-cap
+-- a period figure" invariant, moved out of worker/linter discipline into the DB. NOTE: supersedable is a
+-- GENERATED column and is computed AFTER before-row triggers, so the gate is recomputed locally here
+-- (from the just-locked inputs) rather than read off NEW.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE FUNCTION facts_lock_gate_inputs() RETURNS trigger AS $$
+DECLARE
+  r              governed_relationships%ROWTYPE;
+  v_supersedable boolean;
+BEGIN
+  SELECT * INTO r FROM governed_relationships
+    WHERE deployment_id = NEW.deployment_id AND rel_key = NEW.rel_key;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'facts: unknown relationship % (deployment %)', NEW.rel_key, NEW.deployment_id;
+  END IF;
+  IF r.range_kind <> NEW.object_kind THEN
+    RAISE EXCEPTION 'facts: object_kind % conflicts with %.range_kind %', NEW.object_kind, NEW.rel_key, r.range_kind;
+  END IF;
+  -- copy + lock the gate inputs from the registry (any app-supplied value is overwritten):
+  NEW.valid_kind  := r.default_valid_kind;     -- NULL for entity range; NOT NULL for literal (registry CHECK)
+  NEW.cardinality := r.cardinality;
+  IF TG_OP = 'UPDATE' THEN
+    -- IDENTITY IS IMMUTABLE post-insert: a fact's id/tenant/subject/relationship/object/qualifiers never
+    -- change — only its belief axis (valid_until cap on a supersedable row, invalidated_at, evidence/
+    -- labels) may move. Freezing identity also closes the bypass where rel_key is flipped to a supersedable
+    -- kind to mutate the window and flipped back. fact_id is included because fact_evidence's FK is logical
+    -- (D23) — re-keying a fact would silently orphan its evidence:
+    IF NEW.fact_id            IS DISTINCT FROM OLD.fact_id
+       OR NEW.deployment_id      IS DISTINCT FROM OLD.deployment_id
+       OR NEW.subject_entity_id  IS DISTINCT FROM OLD.subject_entity_id
+       OR NEW.rel_key            IS DISTINCT FROM OLD.rel_key
+       OR NEW.object_kind        IS DISTINCT FROM OLD.object_kind
+       OR NEW.object_entity_id   IS DISTINCT FROM OLD.object_entity_id
+       OR NEW.object_value          IS DISTINCT FROM OLD.object_value
+       OR NEW.object_value_identity IS DISTINCT FROM OLD.object_value_identity
+       OR NEW.qualifiers_hash    IS DISTINCT FROM OLD.qualifiers_hash THEN
+      RAISE EXCEPTION 'facts: identity columns are immutable after insert (fact %)', OLD.fact_id;
+    END IF;
+    -- "never re-cap an asserted window" — judged on the row's OWN (now-immutable, registry-locked) kind:
+    v_supersedable := COALESCE(NEW.object_kind = 'entity'
+                               OR (NEW.valid_kind = 'effective_period' AND NEW.cardinality = 'single'), false);
+    IF NOT v_supersedable
+       AND (NEW.valid_from IS DISTINCT FROM OLD.valid_from OR NEW.valid_until IS DISTINCT FROM OLD.valid_until) THEN
+      RAISE EXCEPTION 'facts: cannot re-cap the asserted window of non-supersedable fact %', NEW.fact_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_facts_lock_gate BEFORE INSERT OR UPDATE ON facts
+  FOR EACH ROW EXECUTE FUNCTION facts_lock_gate_inputs();
+
+-- relations VIEW — the entity-object subset; the ONLY slice the graph projects (D18/D43). Preserves
+-- every existing reader (graph rebuild, (entity,predicate) blocking, recipes) unchanged. READ-ONLY:
+-- a simple view like this is auto-updatable in PG, so writes are revoked from app roles below — every
+-- write goes to `facts`, keeping one verdict home (D6). (Add INSTEAD OF triggers if a role needs the
+-- view writable.)
+CREATE VIEW relations AS
+  SELECT fact_id AS relation_id, deployment_id, subject_entity_id, rel_key AS predicate, object_entity_id,
+         valid_from, valid_until, ingested_at, invalidated_at, evidence_count, contradict_count,
+         confidence, contradiction_group, status, fact_label, fact_label_version,
+         fact_label_embedding_ref, normalizer_version, created_at, updated_at
+  FROM facts WHERE object_kind = 'entity';
+CREATE TRIGGER trg_relations_ro INSTEAD OF INSERT OR UPDATE OR DELETE ON relations
+  FOR EACH ROW EXECUTE FUNCTION reject_view_write();   -- hard read-only (auto-updatable view otherwise)
+REVOKE INSERT, UPDATE, DELETE ON relations FROM PUBLIC;  -- belt: read-only compatibility view; write to facts
+COMMENT ON VIEW relations IS
+  'D43 read-only compatibility view = facts WHERE object_kind=''entity'' (the graph-projectable subset). Writes hard-blocked (INSTEAD OF trigger + REVOKE) — go to facts. "relation" is now a subset of "fact", not a table.';
 ```
 
-> **Contradiction insert protocol (concepts §4; resolves the §17 spike on the EXCLUDE WHERE
-> clause).** When the adjudicator cannot resolve a conflict between two same-`(s,p,o)` facts with
-> overlapping windows (murky dates), both stay live with a shared `contradiction_group`. Because the
-> EXCLUDE constraint ignores rows where `contradiction_group IS NOT NULL`, the second open row must
-> be inserted **with its `contradiction_group` already set** (assigned in the same transaction that
-> detects the conflict and stamps the group onto the existing row too). The constraint therefore
-> never sees two live `contradiction_group IS NULL` rows for the same overlapping `(s,p,o)`.
+> **Contradiction insert protocol (concepts §4).** When the adjudicator cannot resolve a conflict
+> between two same-`(subject, rel, object/value)` facts with overlapping windows (murky dates), both
+> stay live with a shared `contradiction_group`. Because every EXCLUDE arm ignores rows where
+> `contradiction_group IS NOT NULL`, the second open row must be inserted **with its
+> `contradiction_group` already set** (assigned in the same transaction that detects the conflict and
+> stamps the group onto the existing row too). The arms therefore never see two live
+> `contradiction_group IS NULL` rows for the same overlapping slot. (For non-supersedable literals —
+> the both-stand period figures — the *coexist* arm keeps the distinct values, and **surfacing does not
+> depend on a `contradiction_group` being set**: the `attribute_conflicts` recipe finds them directly —
+> ≥2 distinct live values for the same `(subject, rel, qualifiers, period)` slot — so a missing group
+> can never make a disagreement invisible. The `contradiction_group` is the adjudicator's *optional
+> annotation* that links the two once it has run; the coexistence query is the floor, D42 behavior
+> preserved.)
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
--- relation_evidence — the many-to-many join claims ⇄ relations (D2). "Where corpus redundancy goes
--- to die": 200 documents asserting the same fact = one relation + 200 rows here. ~10⁸ rows.
+-- fact_evidence — the many-to-many join claims ⇄ facts (D2; merges relation_evidence +
+-- attribute_evidence). "Where corpus redundancy goes to die": 200 documents asserting the same fact =
+-- one fact + 200 rows here. ~10⁸ rows.
 --
--- Partitioned by HASH(relation_id), NOT by ingest month — because every hot access is by
--- relation_id (hydration) and the evidence-once invariant is on (relation_id, claim_id). With the
--- partition key = relation_id: relation hydration prunes to ONE partition, AND a real
--- PRIMARY KEY (relation_id, claim_id) enforces "a claim evidences a relation at most once" in-DB
--- (so relations.evidence_count cannot be inflated by a retry — a re-link is an ON CONFLICT no-op).
--- This deliberately refines D23 (which named relation_evidence for monthly partitioning) for this
--- one table — see §17. Hash partitions are STATIC (created at migration, e.g. 64), so no pg_partman
--- rolling-window is needed. The claim_id reverse lookup ("which relations does this claim evidence")
--- scans all partitions but is the cold path. FKs remain logical (D23 btree-only/write-amplification).
+-- Partitioned by HASH(fact_id), NOT by ingest month — because every hot access is by fact_id
+-- (hydration) and the evidence-once invariant is on (fact_id, claim_id). With the partition key =
+-- fact_id: fact hydration prunes to ONE partition, AND a real PRIMARY KEY (fact_id, claim_id) enforces
+-- "a claim evidences a fact at most once" in-DB (so facts.evidence_count cannot be inflated by a retry
+-- — a re-link is an ON CONFLICT no-op). Refines D23 (monthly) for this table — see §17. Hash
+-- partitions are STATIC (created at migration, e.g. 64). The claim_id reverse lookup ("which facts
+-- does this claim evidence") scans all partitions but is the cold path. FKs remain logical (D23).
 -- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE relation_evidence (
+CREATE TABLE fact_evidence (
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
-  relation_id     uuid NOT NULL,               -- LOGICAL FK → relations; HASH partition key
-  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence MANY relations.
+  fact_id         uuid NOT NULL,               -- LOGICAL FK → facts; HASH partition key
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence MANY facts.
   stance          evidence_stance NOT NULL,    -- supports | contradicts (concepts §3/§4)
   normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions; which normalizer linked them
   created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (relation_id, claim_id)          -- evidence-once, DB-enforced (partition key relation_id is included); re-link via ON CONFLICT DO NOTHING is a no-op
-) PARTITION BY HASH (relation_id);
-COMMENT ON TABLE relation_evidence IS
-  'Many-to-many evidence links (D2). Corpus redundancy collapses here into relations.evidence_count. Partitioned by HASH(relation_id) so relation hydration prunes to one partition and PRIMARY KEY (relation_id, claim_id) enforces evidence-once in-DB (refines D23 for this table — §17). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
-CREATE INDEX ix_relevidence_claim ON relation_evidence (claim_id);  -- reverse lookup: relations a claim evidences (all-partition scan)
+  PRIMARY KEY (fact_id, claim_id)              -- evidence-once, DB-enforced (partition key fact_id is included); re-link via ON CONFLICT DO NOTHING is a no-op
+) PARTITION BY HASH (fact_id);
+-- The N child partitions are part of the migration contract — a partitioned parent with NO children
+-- rejects every insert ("no partition of relation found for row"). This block is EXECUTABLE DDL (not
+-- illustrative): create the fixed modulus at migration and never repartition live (rebuild-first, like
+-- the graph). The per-partition PK + indexes are inherited automatically:
+DO $$ BEGIN
+  FOR i IN 0..63 LOOP
+    EXECUTE format('CREATE TABLE fact_evidence_p%s PARTITION OF fact_evidence '
+                   'FOR VALUES WITH (MODULUS 64, REMAINDER %s);', i, i);
+  END LOOP;
+END $$;
+COMMENT ON TABLE fact_evidence IS
+  'Many-to-many evidence links (D2; D43 merge of relation_evidence + attribute_evidence). Corpus redundancy collapses here into facts.evidence_count. Partitioned by HASH(fact_id), 64 static child partitions created at migration, so fact hydration prunes to one partition and PRIMARY KEY (fact_id, claim_id) enforces evidence-once in-DB (refines D23 — §17). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
+CREATE INDEX ix_factevidence_claim ON fact_evidence (claim_id);  -- reverse lookup: facts a claim evidences (all-partition scan)
 
 -- ─────────────────────────────────────────────────────────────────────────
--- relation_adjudications — append-only supersession/contradiction transcript (D3/D4). Records WHY a
--- relation's window closed, a contradiction was flagged, or a merge proposed — by which cascade
--- rung, with what confidence/evidence. Makes the non-deterministic adjudication replayable on
--- rebuild (D7) and answers "why did valid_until close on 2026-01-15?". Real composite FK; the
--- deletion GC retires (not deletes) relations referenced here so the audit trail survives (§13).
+-- fact_adjudications — append-only supersession/contradiction transcript (D3/D4; generalizes
+-- relation_adjudications to fact_id). Records WHY a fact's window closed (entity OR literal supersession),
+-- a contradiction flagged, or a merge proposed — by which cascade rung, with what confidence/evidence.
+-- Makes the non-deterministic adjudication replayable on rebuild (D7) and answers "why did headcount's
+-- valid_until close on 2025-03-01?". Real composite FK; the deletion GC retires (not deletes) facts
+-- referenced here so the audit trail survives (§13).
 -- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE relation_adjudications (
+CREATE TABLE fact_adjudications (
   adjudication_id uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  relation_id     uuid NOT NULL,               -- the relation acted upon (composite FK below)
-  related_relation_id uuid,                    -- the other relation in a supersede/contradict pair, if any (composite FK below)
+  fact_id         uuid NOT NULL,               -- the fact acted upon (composite FK below)
+  related_fact_id uuid,                        -- the other fact in a supersede/contradict pair, if any (composite FK below)
   outcome         adjudication_outcome NOT NULL, -- add | noop | supersede | contradict | same_as_merge_proposal (D4 write-time outcomes)
   method          adjudication_method NOT NULL,  -- novelty_gate | exact | fuzzy | embedding | small_model | frontier_llm (cheap-first cascade, D4)
   confidence      real,
@@ -1278,98 +1555,38 @@ CREATE TABLE relation_adjudications (
   adjudicator_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
   decided_by      decision_actor NOT NULL DEFAULT 'auto',
   decided_at      timestamptz NOT NULL DEFAULT now(),
-  superseded_by   uuid REFERENCES relation_adjudications, -- a later adjudication that overrode this one
-  FOREIGN KEY (deployment_id, relation_id)         REFERENCES relations (deployment_id, relation_id),
-  FOREIGN KEY (deployment_id, related_relation_id) REFERENCES relations (deployment_id, relation_id)
+  superseded_by   uuid REFERENCES fact_adjudications, -- a later adjudication that overrode this one
+  FOREIGN KEY (deployment_id, fact_id)         REFERENCES facts (deployment_id, fact_id),
+  FOREIGN KEY (deployment_id, related_fact_id) REFERENCES facts (deployment_id, fact_id)
 );
-COMMENT ON TABLE relation_adjudications IS
-  'Append-only supersession/contradiction decision log (D3/D4). Explains every window closure / contradiction flag / merge proposal, by cascade rung + evidence; replayed on P2 rebuild and used for "what did we believe at T / why" audits.';
-CREATE INDEX ix_adjud_relation ON relation_adjudications (relation_id);
-CREATE INDEX ix_adjud_live     ON relation_adjudications (relation_id) WHERE superseded_by IS NULL;
+COMMENT ON TABLE fact_adjudications IS
+  'Append-only supersession/contradiction decision log (D3/D4; D43 generalizes relation_adjudications to fact_id, covering literal supersession). Explains every window closure / contradiction flag / merge proposal; replayed on P2 rebuild and used for "what did we believe at T / why" audits.';
+CREATE INDEX ix_adjud_fact ON fact_adjudications (fact_id);
+CREATE INDEX ix_adjud_live ON fact_adjudications (fact_id) WHERE superseded_by IS NULL;
 ```
 
-### 9.A Non-relational attribute facts & conflict surfacing (D42)
+### 9.A Non-relational facts are now `facts` rows (D43 supersedes the D42 projection)
 
-The non-relational sibling of relations: a **derived, rebuildable** grouping projection over the
-claims that yield no relation, so that two sources disagreeing about a single-entity attribute /
-literal-quantity fact (revenue, founding date, headcount) are **grouped and flagged**, never silently
-returned one-sided (`requirements_v3` "contradictions are surfaced, never silently resolved"). Design:
-`nonrelational_facts_design.md`. It is the **fourth derived projection of claims** (alongside relations
-truth, P1 vectors, P2 graph): rebuildable from immutable claims + the `attributes` registry, holding
-**no source of truth**. Its load-bearing invariant — the *sole* structural D6 guarantee once a
-fact-identity exists (D42) — is **no belief axis**: no winner pointer, no `valid_until`/`status`/
-`invalidated_at`, no supersession; it groups and describes, never resolves. A CI schema-test + the
-recipe linter forbid ever adding such a column.
+D42 introduced a **derived, no-belief-axis** `claim_attribute_facts` projection that could only
+*surface* non-relational conflicts (never resolve them). **D43 retires it.** Non-relational facts are
+now first-class **literal-object rows of the unified `facts` table** (§9), with the same bi-temporal
+windows, evidence join, and adjudicator as entity facts — gated by `supersedable` so that:
 
-```sql
--- ─────────────────────────────────────────────────────────────────────────
--- claim_attribute_facts — DERIVED grouping projection (D42). One row per value cluster in a fact
--- "slot" (deployment, subject_entity, attribute, world-time bucket); rows of one slot share a
--- conflict_group when ≥2 incompatible value clusters occupy it. Materialized at E3 write-time on the
--- zero-relation residue (reuses D17 entity resolution + the D4 cheap-first block shape), recomputed
--- on entity merge / attribute promotion / normalizer-version change. NOT a query-time GROUP BY over
--- the hot claims table (that would force a D23-forbidden btree / full-table aggregation — D25).
--- NO belief axis (the D6 guarantee): no believed_claim_id, no valid_until/invalidated_at/status, no
--- supersede. Buckets on the D41 NORMALIZED window, never the label string (FY2023 ≠ CY2023).
--- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE claim_attribute_facts (
-  attr_fact_id    uuid PRIMARY KEY,            -- the value-cluster's id; addressable as "evidence cluster", NEVER as "the value of F"
-  deployment_id   uuid NOT NULL REFERENCES deployments,
-  subject_entity_id uuid NOT NULL,             -- composite FK below (canonical subject, D17)
-  attribute_key   text NOT NULL,               -- composite FK below (governed attribute, D42 §3.1)
-  valid_kind      claim_valid_kind NOT NULL,   -- measurement_period | event_time | effective_period | proposition_validity (drives the block shape)
-  bucket_from     timestamptz,                 -- normalized world-time bucket start (NULL = unbounded/unknown); for event_time the date is the VALUE, the bucket is the qualifier set — DISPLAY/AUDIT, not the dedup key
-  bucket_until    timestamptz,                 -- normalized world-time bucket end — DISPLAY/AUDIT, not the dedup key
-  bucket_precision claim_valid_precision NOT NULL DEFAULT 'unknown',
-  bucket_key      text NOT NULL,               -- CANONICAL bucket identity (deterministic over normalized bucket incl. precision; 'unknown' when unbounded) — used in the dedup key so NULL bounds don't make slots distinct-by-NULL
-  qualifiers_hash text NOT NULL DEFAULT '',    -- hash of the identity-bearing qualifiers (attributes.identity_qualifiers); different qualifiers ⇒ different slot, not a conflict
-  normalized_value jsonb,                      -- the typed normalized value of THIS cluster (e.g. {amount:5000000,currency:USD}); NULL only when conflict_state=indeterminate
-  value_identity  text NOT NULL,               -- CANONICAL hash of (normalized_value, value_unit/currency, value_precision) — THE dedup key, so "$5M" and "5,000,000 USD" map to ONE cluster (for indeterminate, a per-assertion token so non-normalizable values never falsely merge)
-  value_text      text,                        -- source-facing rendered value — DISPLAY/AUDIT ONLY, never the dedup key
-  value_precision text,                        -- exact | rounded | approximate | range | unknown
-  conflict_group  uuid,                        -- shared across the value-cluster rows of one slot when they conflict; NULL when the slot is single/corroborated
-  conflict_state  attribute_conflict_state NOT NULL, -- single | corroborated | value_disagreement | restatement | refinement | indeterminate (deterministic, §3.3)
-  evidence_count  integer NOT NULL DEFAULT 0,  -- claims corroborating THIS value cluster (a free salience signal; NOT a verdict)
-  earliest_asserted_at timestamptz,            -- for restatement ordering (asserted_at, NOT world-time)
-  latest_asserted_at   timestamptz,
-  detector_version text NOT NULL,              -- LOGICAL FK → pipeline_component_versions; this projection is replay/rebuild-versioned (D7)
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  -- One row per distinct value cluster in a slot, keyed by the CANONICAL normalized identities
-  -- (bucket_key + value_identity), NOT the display text — so unit/currency variants of one value
-  -- collapse and NULL bounds don't fragment a slot. All key columns are NOT NULL:
-  UNIQUE (deployment_id, subject_entity_id, attribute_key, valid_kind, bucket_key, qualifiers_hash, value_identity),
-  UNIQUE (deployment_id, attr_fact_id),         -- composite-FK target (tenancy isolation, §0)
-  FOREIGN KEY (deployment_id, subject_entity_id) REFERENCES entities (deployment_id, entity_id),
-  FOREIGN KEY (deployment_id, attribute_key)     REFERENCES attributes (deployment_id, attribute_key)
-  -- INTENTIONALLY ABSENT (the no-belief-axis invariant, enforced by CI schema-test + recipe linter):
-  --   no believed_claim_id / winner, no valid_until / invalidated_at / status, no superseded_by.
-);
-COMMENT ON TABLE claim_attribute_facts IS
-  'D42 derived grouping projection: clusters the non-relational claims occupying one (subject, attribute, world-time) slot and flags conflicts (conflict_group + conflict_state). NO belief axis — it never stores a winner, a current value, or validity; that is the sole structural D6 guarantee here and is mechanically enforced. Rebuildable from claims + the attributes registry (D7). The only home of a believed non-relational value is a promoted relation (D42 §6).';
-CREATE INDEX ix_caf_slot      ON claim_attribute_facts (deployment_id, subject_entity_id, attribute_key); -- attribute_value_as_of / attribute_conflicts recipes
-CREATE INDEX ix_caf_conflict  ON claim_attribute_facts (conflict_group) WHERE conflict_group IS NOT NULL; -- attribute_conflicts recipe + review routing
+- **supersedable literals** (single-valued `effective_period` *states* — a balance, headcount, status)
+  get a real **closeable validity window**: a later value caps the predecessor. This is the affirmed
+  must-have that D42 could not deliver.
+- **non-supersedable literals** (`measurement_period` period figures; the D42 *both-stand residue*)
+  keep the **no-belief-axis** behavior — the *coexist* EXCLUDE arm lets distinct same-period values
+  both stand, `CHECK (supersedable OR invalidated_at IS NULL)` + the CI schema-test forbid a stored
+  winner, and the `attribute_conflicts` / `attribute_value_as_of` recipes + the recipe linter surface
+  them without ever returning a single value. **D42's surfacing semantics are preserved**, now living
+  as rows of `facts` instead of a separate projection.
 
--- ─────────────────────────────────────────────────────────────────────────
--- attribute_evidence — many-to-many join from a value cluster back to its asserting claims (D42),
--- mirroring relation_evidence: HASH-partitioned by attr_fact_id, PK (attr_fact_id, claim_id) so the
--- cluster→claims hydration prunes to one partition and "a claim corroborates a cluster at most once"
--- is DB-enforced. ~10⁸ at scale; logical FK to claims (partitioned). Stance distinguishes a claim that
--- asserts THIS value (supports) vs. one explicitly denying it (contradicts).
--- ─────────────────────────────────────────────────────────────────────────
-CREATE TABLE attribute_evidence (
-  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
-  attr_fact_id    uuid NOT NULL,               -- LOGICAL FK → claim_attribute_facts; HASH partition key
-  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence)
-  stance          evidence_stance NOT NULL,    -- supports | contradicts
-  normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (attr_fact_id, claim_id)         -- evidence-once, DB-enforced (partition key attr_fact_id included)
-) PARTITION BY HASH (attr_fact_id);
-COMMENT ON TABLE attribute_evidence IS
-  'Many-to-many join (D42) from a claim_attribute_facts value cluster to the claims asserting it — the non-relational mirror of relation_evidence. HASH(attr_fact_id), evidence-once PK. A single claim_id may appear under several attr_fact_ids (it may assert several attributes).';
-CREATE INDEX ix_attrevidence_claim ON attribute_evidence (claim_id);  -- reverse lookup (cold path)
-```
+So `claim_attribute_facts` and `attribute_evidence` are **removed** (their evidence merges into
+`fact_evidence`); the `attributes` registry merges into `governed_relationships` (§3). The D42 design
+doc (`nonrelational_facts_design.md`) is read as the *why-we-surface* rationale; `fact_layer_design.md`
+(D43) is the *how supersedable ones additionally get a value*. Full reasoning + the reviewer round:
+`plan/analysis/fact_layer_architecture_research/`.
 
 ---
 
@@ -1702,18 +1919,22 @@ Labs."*
 - **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
 - **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
   claims (§8 reconciliation note).
-- **No *resolution* of non-relational conflicts — but they are now DETECTED and SURFACED (D42).**
-  Two sources asserting incompatible content for a fact that yields no relation ("$5M" vs "$7M" for
-  FY2023) are grouped and flagged by the D42 conflict index (`claim_attribute_facts.conflict_group` +
-  `conflict_state`) and shown together (`attribute_conflicts` recipe + inline tags on `claims_as_of`).
-  What stays a non-goal is *picking a winner*: there is no believed-value column, no `valid_until`, no
-  supersession — the only home of an adjudicated current value is a **promoted relation** (D5 `other:`
-  funnel). A **pure-literal** attribute that conflicts stays surfaced-only forever (D42 §9).
-- **No structured supersession of non-relational *restatements* (D42).** A later source correcting an
-  earlier figure ("$5M"→"$5.2M" for the same period) is grouped with `conflict_state='restatement'`
-  and surfaced as an `asserted_at`-ordered hint — not a relation `valid_until` closure, not a stored
-  verdict; both values stand forever (D41). A believed working value is K3 narrative or a promoted
-  relation, never an E-plane verdict.
+- **Supersedable literal facts NOW get a believed, closeable value (D43 — was a D42 non-goal).** A
+  single-valued `effective_period` *state* (a balance, headcount, status) is a `supersedable` literal
+  row of `facts` with a real `valid_from`/`valid_until` that a later value caps — so "headcount as of
+  mid-2024" has a structured answer. This **lifts** D42's "no believed pure-literal value" non-goal for
+  the supersedable subset.
+- **No *resolution* of same-period non-relational disagreements (D42, preserved by D43).** Two sources
+  giving different figures for the **same closed period** ("$5M" vs "$7M" for FY2023) are
+  **non-supersedable** literal facts: the *coexist* EXCLUDE arm keeps both, `CHECK (supersedable OR
+  invalidated_at IS NULL)` + the CI test forbid a stored winner, and the linter bars a single-value
+  answer. Picking a winner stays a non-goal; both stand, surfaced (`attribute_conflicts` recipe + a
+  `contradiction_group`).
+- **No structured supersession of non-relational *restatements* (D42, preserved).** A later source
+  correcting an earlier figure for the **same** period ("$5M"→"$5.2M" FY2023) is a same-period
+  disagreement (`conflict_state='restatement'`), surfaced as an `asserted_at`-ordered hint — *not*
+  supersession (that closes a *state* window, not a restated period). A believed working value for a
+  restated period is K3 narrative, never an E-plane verdict.
 - **No multi-interval / recurring / un-datable claim validity (D41).** The single
   `claim_valid_from`/`until` interval does not model recurrence ("every Q4") or anchor-events that
   can't be dated at extraction ("as of the merger"); D31 decomposition absorbs most multi-span
@@ -1727,13 +1948,13 @@ Labs."*
 | Decision | Realized by |
 |---|---|
 | D1 split source of truth; versioned processing | `pipeline_component_versions`; K-plane provenance §11; `*_version` columns |
-| D2 claims/relations distinct, M:N evidence | `claims`, `relations`, `relation_evidence` (+ `evidence_count`) |
-| D3 supersession at relation level, bi-temporal | `relations` 4 temporal columns + GiST EXCLUDE; `relation_adjudications`; claims immutable (incl. their D41 asserted-validity interval) |
+| D2 claims/facts distinct, M:N evidence | `claims`, `facts` (`relations` = entity view), `fact_evidence` (+ `evidence_count`) |
+| D3 supersession at fact level, bi-temporal | `facts` 4 temporal columns + 3 GiST EXCLUDE arms; `fact_adjudications`; claims immutable (incl. their D41 asserted-validity interval) |
 | D4 supersession blocking + cheap-first cascade | `ix_relations_block_subj/obj`; `relation_adjudications.method` (incl. `novelty_gate`) |
 | D5 governed predicate registry + `other:` | `predicates` (`synonyms`, `tier='other'` upsert, `usage_count` funnel) |
 | D6 graph is a projection; validity has one home | adjudicated validity only on `relations`; generated `status`; claim-validity is evidence, not a second home (D41); analytics writeback §10 |
 | D7 rebuild-first; immutable snapshots | `projection_snapshots`; replay via `*_version` + decision ledgers; snapshot GC |
-| D8 relation fact-label embeddings in Lance | `relations.fact_label*` + `*_embedding_ref` (no PG vectors) |
+| D8 fact-label embeddings in Lance (entity + literal) | `facts.fact_label*` + `*_embedding_ref` keyed by `fact_id` (no PG vectors); graph search filters `object_kind='entity'` |
 | D9 search/rerank; evidence-count + graph-distance | `relations.evidence_count`; `entity_graph_metrics.pagerank/degree` |
 | D11 communities external → write back to PG | `communities`, `entity_graph_metrics` (+ GC) |
 | D12 idempotency, retries, DLQ, debounced K triggers | `processing_state`, `cost_ledger`, `knowledge_refresh_queue` |
@@ -1754,7 +1975,8 @@ Labs."*
 | D39 PageIndex sections + placement | `document_sections` (path/role/span/summary/placement) |
 | D40 P3 corpus filesystem | `projection_snapshots (plane='P3_corpusfs')` + `document(_sections).placement*` |
 | D41 claim-grain source-asserted validity | `claims.claim_valid_from/until/precision/kind` (immutable); `claims_as_of` recipe (evidence-only); Lance scalar projection |
-| D42 non-relational conflicts detected/surfaced, never resolved | `attributes` registry (§3); `claim_attribute_facts` + `attribute_evidence` (§9.A, no belief axis); enums `attribute_value_domain`/`attribute_conflict_state`; `review_verdict='promote_to_relation'` + attribute-conflict CHECK; `attribute_conflicts`/`attribute_value_as_of` recipes |
+| D42 non-relational conflicts surfaced (subsumed by D43) | both-stand residue = non-supersedable literal rows of `facts` (coexist EXCLUDE arm + `CHECK (supersedable OR invalidated_at IS NULL)`); enums `attribute_value_domain`/`attribute_conflict_state`; `review_verdict='promote_to_relation'`; `attribute_conflicts`/`attribute_value_as_of` recipes |
+| D43 unified `facts` verdict layer; supersedable gate | `governed_relationships` (§3); `facts` + `fact_evidence` + `fact_adjudications` + `relations` view (§9); enum `fact_object_kind`; generated `supersedable`/`status`; 3 GiST EXCLUDE arms; ATTACH-direct projection (p2 §5) |
 
 ---
 
@@ -1802,19 +2024,37 @@ Per CLAUDE.md, numbers are starting points. Items that may move the schema or a 
    needed (vs. Lance-only filtering) — load-test write-amplification against D23 first. (d) If
    recurrence / un-datable anchor-events prove load-bearing, the expressivity child table (btree-only,
    D23-restamped) is the documented upgrade — a named alternative, not a deferral.
-10. **Non-relational conflict index (D42) — measure before locking.** (a) **Conflict-row sizing**:
-    load-test the conflict subset of `claim_attribute_facts` + the `attribute_evidence` volume on a
-    corpus slice — conflict rows are exactly the ones the "distinct facts not assertions" collapse does
-    *not* shrink, so the naive distinct-cell count under-estimates. (b) **Attribute-vocabulary
+10. **Non-relational extraction quality (D42 → D43) — measure before locking.** *(Under D43 the
+    structures are the literal subset of `facts` + `fact_evidence`, not `claim_attribute_facts`/
+    `attribute_evidence`; conflict-row sizing + the supersession write path moved to spike #11(d). The
+    remaining items are extraction-quality concerns that hold regardless of table shape.)* (a) **Conflict-row
+    sizing**: load-test the non-supersedable literal (both-stand) subset of `facts` + the `fact_evidence`
+    volume on a corpus slice — conflict rows are exactly the ones the "distinct facts not assertions"
+    collapse does *not* shrink, so the naive distinct-cell count under-estimates. (b) **Attribute-vocabulary
     fragmentation** P/R + canaries on `eval_suite='contradiction'` (do `revenue`/`net revenue`/`sales`
     co-register?). (c) **Value normalization incl. fiscal calendars** — the silent false-agreement risk
     (FY≠CY; "$5M" vs "$5MM" vs "$5bn"). (d) **Precision-subsumption** golden coverage
-    (refinement-vs-conflict on dates/quantities). (e) Confirm the **no-belief-axis CI schema-test** and
-    the recipe-linter bar are in the test suite (the sole structural D6 guard for non-relational facts).
+    (refinement-vs-conflict on dates/quantities). (e) Confirm the **no-belief-axis** is enforced — under
+    D43 it is now DB-level (`CHECK (supersedable OR invalidated_at IS NULL)` + `trg_facts_lock_gate`
+    freezing the asserted window), with the recipe-linter bar (no single-value answer for a both-stand
+    figure) as the application-side companion; a CI schema-test pins both.
+11. **Unified `facts` layer (D43) — measure before locking.** (a) **Supersedable-vs-both-stand
+    classification** is now verdict-critical (a mis-marked `measurement_period` would *silently
+    supersede* figures that must both-stand) — golden-gate `claim_valid_kind`/`default_valid_kind` on
+    `eval_suite='contradiction'`, start strict (default `measurement_period`). **The biggest correctness
+    risk.** (b) **Value normalization is now on the verdict path** (a FY≠CY / `$5M`-vs-`$5MM` error
+    writes a wrong *believed* window) — verify **normalize-or-refuse** (ambiguous ⇒ `contradiction_group`,
+    never a confident `valid_from`). (c) **Cardinality** (`single`/`set`) golden coverage — a wrong
+    branch fabricates conflicts or hides supersession. (d) **Scale**: load-test the unified-table
+    conflict-row sizing + the supersession write path; verify the planner uses the partial
+    `WHERE object_kind='entity'` indexes *through the `relations` view*; load-test **ATTACH bulk-COPY
+    throughput** at 10⁸ before deleting the Parquet build path (attach scanner un-vendored,
+    `ladybug_capabilities.md` §5). (e) Confirm the `supersedable`/`status` GENERATED columns are usable
+    in the partial-index predicates as written.
 
 ## References
 
 Designs: `overall_design.md` (§3 data model, §9 index), `registries_design.md` (D15–D24),
 `e0_files_design.md` (D36–D40), `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md`
-(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D42). Requirements:
+(D6–D11). Explainer: `concepts.md`. Decisions: `decisions.md` (D1–D43); fact layer: `fact_layer_design.md`. Requirements:
 `requirements/requirements_v3.md`. Open items: `questions.md`.
