@@ -899,3 +899,48 @@ disjoint canonical layers, not one polymorphic table, is the simpler correct sha
 Design: `plan/designs/observations_design.md`. Schema: `postgres_schema_design.md` §9.A. Normalization:
 `e2_e3_claims_relations_design.md` §5. Open items (qualitative/opinion belief — still an *upstream* E2
 question; the enforcement dial) tracked in `questions.md`.
+
+---
+
+## D44. The P2 projection contract — Postgres `v_graph_*` views are the LadybugDB COPY boundary; merge-redirect + keep-retracted + casts live in Postgres
+
+**Decision.** The Postgres→LadybugDB (P2) projection is defined by a set of read-only **Postgres views**
+(`v_graph_entities`, `v_graph_documents`, `v_graph_relates`, `v_graph_mentioned_in`, `v_graph_crossref`,
+`v_graph_is_document`, + the shared `v_graph_survivor`) — `postgres_schema_design.md` §10.A. The LadybugDB
+side is then a trivial `COPY <T> FROM SQL_QUERY('pg', 'SELECT * FROM v_graph_<t>')` (or the same view via
+the Parquet hop). The graph model is **one `Entity` node + one `Document` node**, and **one generic
+`RELATES` rel table with `predicate` as a property** (+ structural `MENTIONED_IN`, `DOC_CROSSREF`,
+`IS_DOCUMENT`) — *not* per-type node tables or per-predicate rel tables (the vocabulary is governed,
+extensible registry data, not DDL; D5/D15/D18). Entity ids stay native **`UUID`** primary keys.
+
+**Context.** A full multi-agent analysis (Codex + Antigravity, both source-verified against the LadybugDB
+tree, + an internal multi-angle workflow, both review rounds) confirmed the Postgres structures transfer
+**cleanly** *because* the graph is a dumb projection (D6): it inherits outcomes (a believed
+`(subject, predicate, object)` fact + validity windows), never constraints — so generated columns, EXCLUDE
+arms, composite FKs, and the D18 domain/range signatures correctly **stay in Postgres**. The transfer
+reduces to three mechanical transforms (cast `timestamptz` → naive UTC; cast Postgres ENUM → text; drop
+graph-irrelevant columns) — which belong in the **views**, the single auditable boundary. Full record:
+`plan/analysis/ladybug_translation_research/SYNTHESIS.md`.
+
+**Consequences.**
+- **Two correctness rules the projection MUST obey** (a naive `WHERE status='active'` projection is
+  *wrong*): (1) **merge-redirect** — `entities.merged_into` is a redirect, not a rewrite, and relations
+  are not re-pointed in PG, so endpoints must be recursively resolved to their surviving entity (cycle-safe;
+  a pre-snapshot validation gate aborts on cycles/dangling endpoints) or every edge touching a merged
+  entity is silently dropped; (2) **keep retracted edges** within a retention window for *transaction-time*
+  as-of (not `invalidated_at IS NULL`), while **aligning node/edge retention** — an edge whose endpoint was
+  retired/forgotten (§13) is dropped (its endpoint can't be a node). Parallel edges (distinct `relation_id`)
+  are preserved, never blind-`DISTINCT`-collapsed (same-(s,p,o) collapse is E3's job, D43).
+- **`observations` and claims never project** (D43/D18): a value is not a node, and a LadybugDB REL
+  endpoint must be a node table — the engine rule and the design rule are the same constraint.
+- **As-of (refines D10).** LadybugDB has no native temporal semantics, **and you cannot `MATCH`-traverse a
+  projected graph** — `PROJECT_GRAPH[_CYPHER]` feeds GDS algorithms only (it is `(STRING,STRING)`; there is
+  no `MATCH … IN GRAPH`). As-of is therefore **inline path-predicate filtering** (`WHERE all(r IN rels(p)
+  …)`) for correctness, or a **materialized persistent `CREATE GRAPH`/`USE GRAPH`** for heavy/repeat
+  analytics. D10's "as-of via projected graphs" holds for *algorithms*, not path traversal — note added.
+- **Transport.** `COPY <Node|Rel> FROM SQL_QUERY('pg', …)` is verified, but the **committed transport
+  stays the Parquet hop (D7)** until cross-DB attach throughput at 10⁷–10⁸ rows is measured; both
+  transports consume the same views. Graph-derived metrics (`pagerank`/`graph_degree`) are computed
+  post-load (D11), never reprojected.
+- **Spikes** (none blocking): UUID-PK smoke test on the deployed build; attach scan-pushdown/throughput;
+  the merge-recursion cycle gate; inline multi-hop path-filter performance. Tracked in `questions.md`.

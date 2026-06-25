@@ -1479,6 +1479,105 @@ objects are retained as point-in-time debugging artifacts independently of this 
 
 ---
 
+## 10.A P2 projection views — the LadybugDB COPY contract (D7, D43, D44)
+
+The P2 graph is a dumb projection (D6) rebuilt from Postgres (D7). To keep that projection **mechanical
+and auditable**, the entire Postgres→LadybugDB boundary is a set of read-only **views** — one per graph
+node/rel table — that pre-cast, pre-filter, survivor-redirect, and pre-aggregate, so the LadybugDB side is
+a trivial `COPY <T> FROM SQL_QUERY('pg', 'SELECT * FROM v_graph_<t>')` (or the Parquet equivalent — same
+views). Full analysis + LadybugDB-side DDL: `plan/analysis/ladybug_translation_research/SYNTHESIS.md`;
+decision **D44**. The three transforms (timestamptz→naive-UTC, enum→text, drop graph-irrelevant columns)
+and two correctness rules (merge-redirect, keep-retracted) live here, **not** in the graph worker.
+
+The graph consumes a thin slice: `entities`→`Entity`, `documents`→`Document`, `relations`→`RELATES`,
+`mentions⋈resolution_decisions`→`MENTIONED_IN`, `document_crossrefs`→`DOC_CROSSREF`,
+`documents.document_entity_id`→`IS_DOCUMENT`. **Observations and claims never project** (D43/D18 — a value
+is not a graph node). One snapshot = one deployment (D16: separate Postgres per deployment), so the views
+take no `deployment_id` parameter.
+
+```sql
+-- Resolve every entity id to its final merge SURVIVOR. A merge is a REDIRECT, not a rewrite
+-- (entities.merged_into; entity_id never reused) and relations are NOT re-pointed in PG — so endpoints
+-- MUST be redirected here, or the rebuild silently drops every edge touching a merged entity. Cycle-safe
+-- (merged_into acyclicity is not schema-enforced); the rebuild's validation gate (below) aborts the
+-- snapshot if any retained endpoint fails to resolve to exactly one emitted survivor.
+CREATE VIEW v_graph_survivor AS
+WITH RECURSIVE chain(entity_id, cur, depth) AS (
+  SELECT entity_id, entity_id, 0 FROM entities
+  UNION ALL
+  SELECT c.entity_id, e.merged_into, c.depth + 1
+  FROM chain c JOIN entities e ON e.entity_id = c.cur
+  WHERE e.merged_into IS NOT NULL AND c.depth < 64          -- cycle / runaway guard
+)
+SELECT entity_id,
+       (SELECT cur FROM chain x WHERE x.entity_id = chain.entity_id ORDER BY depth DESC LIMIT 1) AS survivor
+FROM chain GROUP BY entity_id;   -- survivor = the terminal (merged_into IS NULL) node of each chain
+
+-- Nodes: survivors only; cast timestamps. Graph-derived metrics (pagerank/graph_degree) are NOT loaded —
+-- they are computed POST-load (D11); reprojecting a stored value is circular. entity_id stays native UUID
+-- (PK verified in LadybugDB source/tests; STRING fallback = entity_id::text, applied uniformly to the PK
+-- AND every endpoint).
+CREATE VIEW v_graph_entities AS
+SELECT entity_id AS id, type, canonical_name AS name, normalized_name,
+       profile_summary AS summary, (created_at AT TIME ZONE 'UTC') AS created_at
+FROM   entities WHERE status = 'active';                    -- merged/retired entities are not nodes
+
+CREATE VIEW v_graph_documents AS
+SELECT doc_id AS id, title, source_uri,
+       (published_at AT TIME ZONE 'UTC')::date AS published_at   -- tz-cast AND date-truncate
+FROM   documents WHERE deleted_at IS NULL;
+
+-- Edges: endpoints are the FIRST TWO columns (FROM, TO), survivor-redirected and guarded so both
+-- endpoints exist as emitted nodes (else COPY-REL throws). Keep RETRACTED edges within retention for
+-- transaction-time as-of (NOT `invalidated_at IS NULL`); a closed valid-time fact is unaffected. Parallel
+-- edges with distinct relation_id are PRESERVED (no blind DISTINCT — same-(s,p,o) collapse is E3's job, D43).
+CREATE VIEW v_graph_relates AS
+SELECT s1.survivor AS "from", s2.survivor AS "to",
+       r.relation_id, r.predicate, r.fact_label AS fact,
+       r.evidence_count::bigint AS evidence_count, r.contradict_count::bigint AS contradict_count,
+       r.confidence::float8 AS confidence, r.contradiction_group,
+       (r.valid_from AT TIME ZONE 'UTC') AS valid_from, (r.valid_until AT TIME ZONE 'UTC') AS valid_until,
+       (r.ingested_at AT TIME ZONE 'UTC') AS ingested_at, (r.invalidated_at AT TIME ZONE 'UTC') AS invalidated_at
+FROM   relations r
+JOIN   v_graph_survivor s1 ON s1.entity_id = r.subject_entity_id
+JOIN   v_graph_survivor s2 ON s2.entity_id = r.object_entity_id
+JOIN   entities e1 ON e1.entity_id = s1.survivor AND e1.status = 'active'   -- endpoint emitted as a node
+JOIN   entities e2 ON e2.entity_id = s2.survivor AND e2.status = 'active'
+WHERE  r.invalidated_at IS NULL
+   OR  r.invalidated_at > now() - interval '<retention>';   -- N to measure (p2 §8)
+-- relations.status (GENERATED) is DROPPED — liveness is derived in Cypher (invalidated_at IS NULL), D6.
+
+CREATE VIEW v_graph_mentioned_in AS                          -- aggregate: no (entity,doc) base table
+SELECT s.survivor AS "from", m.doc_id AS "to",
+       COUNT(*)::bigint AS mention_count, (MIN(m.created_at) AT TIME ZONE 'UTC') AS first_seen
+FROM   mentions m
+JOIN   resolution_decisions rd ON rd.mention_id = m.mention_id AND rd.superseded_by IS NULL   -- live verdict
+JOIN   v_graph_survivor s ON s.entity_id = rd.entity_id
+JOIN   entities e ON e.entity_id = s.survivor AND e.status = 'active'
+WHERE  EXISTS (SELECT 1 FROM documents d WHERE d.doc_id = m.doc_id AND d.deleted_at IS NULL)
+GROUP  BY s.survivor, m.doc_id;
+
+CREATE VIEW v_graph_crossref AS
+SELECT from_doc_id AS "from", to_doc_id AS "to", kind::text AS kind, context
+FROM   document_crossrefs WHERE to_doc_id IS NOT NULL;       -- nullable = cited-but-not-ingested → no edge
+
+CREATE VIEW v_graph_is_document AS                           -- bridge: Document-typed Entity ↔ its E0 doc
+SELECT s.survivor AS "from", d.doc_id AS "to"
+FROM   documents d
+JOIN   v_graph_survivor s ON s.entity_id = d.document_entity_id
+JOIN   entities e ON e.entity_id = s.survivor AND e.status = 'active'
+WHERE  d.document_entity_id IS NOT NULL AND d.deleted_at IS NULL;
+```
+
+**Rebuild gate (D44).** Before the snapshot pointer-swap (D7), the worker asserts: (1) every retained edge
+endpoint resolved to exactly one emitted survivor (no merge cycle, no dangling endpoint); (2) per-table
+graph row-count vs. view row-count match. A failure **aborts** the snapshot rather than publishing a
+corrupt graph. `COPY <Node|Rel> FROM SQL_QUERY('pg', …)` is verified; the committed transport stays the
+**Parquet hop** (D7) until cross-DB attach throughput at 10⁷–10⁸ is measured — both transports consume
+these same views.
+
+---
+
 ## 11. K-plane provenance & refresh triggers (D1, D12)
 
 The K plane (K1/K2/K3) is **compiled markdown whose source of truth is the git repo**, backed up

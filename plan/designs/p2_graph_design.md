@@ -38,47 +38,59 @@ What the graph IS for:
 
 ## 2. Ontology and schema
 
-LadybugDB is schema-full (typed node/rel tables), which conflicts with "evolve the ontology
-over time" if every predicate becomes its own table. Resolution: **structural relations get
-dedicated tables; semantic relations share one generic table with `predicate` as a property.**
-Promoting a hot predicate to its own table later is a cheap migration (graph is rebuildable).
+LadybugDB is schema-full (typed node/rel tables). Resolution (**D44**): **one `Entity` node table with
+`type` as a property** (not per-type tables) and **one generic `RELATES` table with `predicate` as a
+property** (not per-predicate tables) — the vocabulary is governed, extensible *registry data*, not DDL
+(D5/D18). `UUID` is a valid node primary key (verified in LadybugDB source/tests). The whole projection is
+defined by Postgres `v_graph_*` views (`postgres_schema_design.md` §10.A), loaded via `COPY … FROM
+SQL_QUERY('pg', …)` or the Parquet hop. Full translation analysis:
+`../analysis/ladybug_translation_research/SYNTHESIS.md`.
 
 ```cypher
 // Nodes
 CREATE NODE TABLE Entity(
-  id UUID PRIMARY KEY,          // canonical ID from the Postgres entity registry
-  name STRING,
-  type STRING,                  // enum from registry: person | organization | paper_concept |
-                                //   project | place | product | event | other
-  summary STRING,               // short registry-maintained blurb (optional)
-  created_at TIMESTAMP
+  id UUID PRIMARY KEY,          // canonical entity_id — survivors only (merged entities redirected, §10.A)
+  name STRING,                  // canonical_name
+  type STRING,                  // registry value: 8 D18 core types (Person|Organization|Place|Document|
+                                //   Event|Concept|Project|Product) + extension subtypes — DATA, not schema
+  summary STRING,               // short registry blurb (optional)
+  created_at TIMESTAMP          // entities.created_at AT TIME ZONE 'UTC'
 );
 
 CREATE NODE TABLE Document(
-  id UUID PRIMARY KEY,          // E0 input ID
+  id UUID PRIMARY KEY,          // documents.doc_id (distinct id-space from Entity)
   title STRING,
   source_uri STRING,
-  published_at DATE
+  published_at DATE             // (documents.published_at AT TIME ZONE 'UTC')::date
 );
 
-// Semantic edges — projections of RELATIONS (normalized facts), not of claims directly
+// Semantic edges — projections of RELATIONS (entity→entity facts), not of claims
 CREATE REL TABLE RELATES(
   FROM Entity TO Entity,
-  predicate STRING,             // normalized vocabulary, see §3
-  relation_id UUID,             // provenance — hydrate relation + evidence claims from Postgres
-  fact STRING,                  // short human-readable label, NOT the full claim text
-  evidence_count INT64,         // number of supporting claims (cheap salience signal)
+  predicate STRING,             // governed predicate vocabulary, see §3 (D18)
+  relation_id UUID,             // provenance — hydrate relation + evidence from Postgres
+  fact STRING,                  // short label, NOT the full claim text
+  evidence_count INT64, contradict_count INT64, confidence DOUBLE,
+  contradiction_group UUID,     // both live sides of an unresolved contradiction share it
   valid_from TIMESTAMP,         // ┐
-  valid_until TIMESTAMP,        // │ bi-temporal, inherited verbatim
-  ingested_at TIMESTAMP,        // │ from the relation record
-  invalidated_at TIMESTAMP,     // ┘
-  confidence DOUBLE
-);
+  valid_until TIMESTAMP,        // │ bi-temporal, inherited verbatim (cast AT TIME ZONE 'UTC')
+  ingested_at TIMESTAMP,        // │
+  invalidated_at TIMESTAMP      // ┘  (relations.status, a GENERATED column, is NOT projected — liveness
+);                              //     is derived in Cypher: invalidated_at IS NULL — D6)
 
 // Structural edges — from E0/E1 metadata, not claims
-CREATE REL TABLE MENTIONED_IN(FROM Entity TO Document, mention_count INT64, first_seen TIMESTAMP);
-CREATE REL TABLE CITES(FROM Document TO Document, context STRING);
+CREATE REL TABLE MENTIONED_IN(FROM Entity TO Document, mention_count INT64, first_seen TIMESTAMP); // aggregate, §10.A
+CREATE REL TABLE DOC_CROSSREF(FROM Document TO Document, kind STRING, context STRING); // cites|links_to|attaches|replies_to
+CREATE REL TABLE IS_DOCUMENT(FROM Entity TO Document);  // bridge: a Document-typed entity ↔ its E0 doc row
 ```
+
+> **Observations and claims do NOT project (D43/D18).** A non-relational fact (a value about one entity —
+> "Acme's headcount is 600") has no entity object, so it cannot be a REL (a LadybugDB endpoint must be a
+> node, never a literal); it lives in Postgres + Lance only. Two correctness rules govern the projection
+> (§10.A / D44): **merge-redirect** endpoints to surviving entities (a merge is a redirect, not a rewrite,
+> so a naive `status='active'` join silently drops merged-endpoint edges), and **keep recently-retracted
+> edges** (`invalidated_at` set, within retention) for transaction-time as-of — dropping only edges whose
+> endpoint was retired/forgotten (§13).
 
 ### Relations vs. claims — distinct concepts, distinct records
 
@@ -123,8 +135,11 @@ both entity-keyed blocking and graph queries. So:
   hatch.
 - A periodic job reviews frequent `other:` values and promotes them (or maps them to existing
   predicates). The ontology evolves by governance, not by accretion.
-- Seed vocabulary: `works_at, member_of, authored, cites, located_in, part_of, collaborates_with,
-  founded, advises, related_to` — extend per K2 domains.
+- Seed vocabulary = the **14 D18 core predicates** (`works_for, member_of, affiliated_with, founded,
+  located_in, part_of, authored, created, about, knows_about, knows, participated_in, works_on,
+  related_to`); the authoritative list + domain/range signatures live in `registries_design.md` §4.
+  Extend per K2 domain via packs. (The graph stores `predicate` as a property — D18 domain/range is
+  enforced upstream by the E3 normalizer, not in the graph.)
 
 ## 4. Bi-temporality and as-of queries
 
@@ -151,6 +166,24 @@ WHERE r.ingested_at <= $as_of
   AND (r.valid_until IS NULL OR r.valid_until > $as_of)
 ```
 
+**Multi-hop as-of (D44 correction to the mechanism).** For variable-length traversal, apply the same
+predicate as an `all(r IN rels(p) …)` path filter — **inline filtering is the working mechanism**:
+
+```cypher
+MATCH p = (a:Entity {id:$id})-[rs:RELATES* SHORTEST 1..3]-(b:Entity)
+WHERE all(r IN rels(p) WHERE r.ingested_at <= $as_of
+      AND (r.invalidated_at IS NULL OR r.invalidated_at > $as_of)
+      AND (r.valid_from IS NULL OR r.valid_from <= $as_of)
+      AND (r.valid_until IS NULL OR r.valid_until > $as_of))
+RETURN p;
+```
+
+You **cannot** `MATCH`-traverse a `PROJECT_GRAPH[_CYPHER]` projection — projected graphs feed GDS
+algorithms only (PageRank/components/paths); path `MATCH` runs on the persistent catalog (`USE GRAPH`).
+For heavy/repeat as-of analytics, materialize a persistent as-of graph (`CREATE GRAPH` at rebuild). This
+**refines D10**, whose "as-of via projected graphs" holds for *algorithms*, not path traversal. (Source-
+verified; `../analysis/ladybug_translation_research/SYNTHESIS.md` §4.)
+
 Supersession never deletes an edge — adjudication closes the **relation's** window in
 Postgres, the projection mirrors it into the edge's `valid_until`/`invalidated_at`. The
 evidence claims keep their own bi-temporal record (when asserted / when ingested) — two
@@ -165,15 +198,26 @@ processes** on the same database files. Don't fight this — design around it.
 ### The writer: periodic full rebuild
 
 Instead of incremental event application, the P2 worker **rebuilds the whole graph from
-Postgres on every cycle**:
+Postgres on every cycle**. The projection inputs are the Postgres **`v_graph_*` views** (D44,
+`postgres_schema_design.md` §10.A) — they encapsulate the casts (timestamptz→UTC, enum→text), the
+**merge-redirect** of endpoints to surviving entities, the **keep-retracted** retention filter, and the
+`MENTIONED_IN` aggregation, so the worker is dumb:
 
-1. Export projection inputs from Postgres to Parquet (entities, relations with validity
-   fields + evidence counts, mentions, citations) — straight SQL `COPY`.
-2. `COPY FROM` the Parquet files into a fresh LadybugDB database (LadybugDB's bulk path;
-   tens of millions of rows load in minutes).
-3. Checkpoint, validate (row counts per table vs. Postgres counts), upload to GCS as an
-   **immutable versioned snapshot**: `gs://…/graph/snapshots/<timestamp>/`, then update a
-   `latest` pointer.
+1. Read the projection views. Two transports consume the *same* views:
+   - **Parquet hop (committed baseline, D7):** `COPY (SELECT * FROM v_graph_<t>) TO '<t>.parquet'`, then
+     `COPY <T> FROM '<t>.parquet'` into a fresh LadybugDB DB (bulk path; tens of millions of rows in
+     minutes). **Load order: all node tables before any rel table** (endpoints resolve against node PKs
+     at COPY time — a missing endpoint throws).
+   - **ATTACH-direct (optimization, spike before adopting):** `ATTACH '<pg-ro-conn>' AS pg (dbtype
+     postgres)` then `COPY <T> FROM SQL_QUERY('pg', 'SELECT * FROM v_graph_<t>')` — no Parquet hop. Both
+     `COPY <Node|Rel> FROM SQL_QUERY` are verified; pending: cross-DB scan throughput/pushdown at 10⁷–10⁸.
+2. **Validation gate before publish:** every retained edge endpoint resolved to exactly one emitted
+   survivor (no merge cycle, no dangling endpoint), and per-table graph-count == view-count. A failure
+   **aborts** the snapshot.
+3. Checkpoint, upload to GCS as an **immutable versioned snapshot**
+   (`gs://…/graph/snapshots/<timestamp>/`), then update the `latest` pointer. Graph-derived analytics
+   (PageRank/communities, D11) are computed **after** load and written back to Postgres — never
+   reprojected into the node tables (that would be circular).
 
 Why rebuild-first instead of incremental:
 
