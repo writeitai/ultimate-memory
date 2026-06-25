@@ -987,3 +987,19 @@ does, and that points to one table. Converged recommendation of independent **Co
   on the verdict path** (a fiscal-calendar or unit error writes a *wrong believed window*) → fail-safe
   **normalize-or-refuse** (ambiguous values go to `contradiction_group`, never a confident `valid_from`).
   Full residuals + scale spikes: `fact_layer_design.md` §10, `postgres_schema_design.md` §17.
+
+**Re-evaluation (2026-06, `plan/analysis/qualitative_belief_research/SYNTHESIS.md`).** A 17-agent
+evaluation (4 candidate verdict layers × 3 adversarial lenses) **confirmed D43 as the verdict layer** —
+it is the simplest of the candidates and the only one whose "never silently resolve" guarantee is a
+schema invariant rather than a model judgment; the alternatives (emergent semantic slots / validity-
+bearing claims) buy flexibility by putting a drifting clustering key into plane-E truth, which breaks the
+deterministic-rebuild contract (D1/D6/D7) and opens silent-overwrite paths. **Two open forks** (tracked in
+`questions.md` #4a/#4b, not yet decided): (1) **qualitative/sentiment belief** ("Jiri is the best boss" →
+"terrible boss") is an **upstream** concern, not a verdict-layer one — pure sentiment is dropped at E2
+Selection (D31/D34) and never becomes a claim, so the decision is whether to retain opinion as a claim
+kind + a coexist-by-default **stance layer** in the K/P projection plane (surfacing the distribution over
+time, never auto-capping), or to make structured qualitative supersession a documented non-goal; this
+also surfaces a `requirements_v3` ↔ D31/D34 contradiction to reconcile (`questions.md` #30). (2) the
+**enforcement dial** — whether the verdict-layer invariants stay schema-enforced (current §9) or move to
+a **lean-pragmatic** split (cheap guards in schema, the rest on the E3 adjudicator + CI; concrete DDL +
+diff in the analysis Appendix A). D43's structure is unaffected either way.

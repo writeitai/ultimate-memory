@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D40).
+- **`decisions.md`** — what *is* decided (D1–D43).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -26,6 +26,22 @@ Keep this current: when something here is decided, move it to a decision and pru
    Lance" is already decided — the *model* is not).
 4. **LLM per stage** — concrete picks for extraction (E2 Claimify), supersession/resolution
    adjudication (the cheap→frontier residue), and the K-plane compilers.
+
+**Verdict layer & qualitative belief (D43 re-evaluation — `plan/analysis/qualitative_belief_research/SYNTHESIS.md`)**
+4a. **Does qualitative/sentiment belief get a structured, time-traveled verdict — or stay narrative?**
+    The affirmed must-have is temporal validity for *any* claim, including qualitative ones ("Jiri is the
+    best boss" June-2026 → "terrible boss" Jan-2027). A 17-agent evaluation found this is **not** a
+    verdict-layer problem: pure sentiment is *dropped at E2 Selection* (D31/D34) before it becomes a
+    claim, so no verdict layer can serve it. D43 is confirmed as the verdict layer; the fork is upstream:
+    **(a)** retain opinion as a claim kind + a coexist-by-default **stance layer** in the K/P projection
+    plane that surfaces the *distribution over time* (never auto-caps); or **(b)** make structured
+    qualitative supersession a **documented non-goal** (qualitative = time-filterable evidence + K3
+    narrative). Decision pending; (a) reverses "the single biggest quality lever" (E2 opinion-drop) and
+    must be measured first.
+4b. **How much of D43 is schema-enforced vs application-enforced?** A separate dial: maximal (current §9
+    — every invariant a schema invariant), **lean-pragmatic** (cheap guards in schema, the rest on the E3
+    adjudicator + CI; see SYNTHESIS Appendix A for the concrete DDL + diff), or minimal. Trades
+    safe-by-construction for readability. Decision pending.
 
 **Knowledge plane (K) — the least-decided area**
 5. **K3 belief shape** — plain markdown statements with claim links, or a numeric stance score with
@@ -118,6 +134,11 @@ Keep this current: when something here is decided, move it to a decision and pru
 29. **E3 claim→predicate mapping is thin.** §5 delegates internals to the registries but doesn't
     specify how the governed predicate is *chosen* from claim text or where domain/range is enforced
     in the flow.
+30. **`requirements_v3` vs D31/D34 — are opinions claims or not?** `requirements_v3.md` (line 29)
+    classifies claims as **fact / opinion / prediction** (opinions *are* claims), but **D31/D34** have
+    E2 Selection **drop** opinions. These contradict. Reconciliation is bound to the §1 fork (#4a):
+    option (a) retains opinion as a claim kind (amend D31/D34); option (b) removes "opinion" from the
+    taxonomy (amend `requirements_v3`). See `plan/analysis/qualitative_belief_research/SYNTHESIS.md` §4.
 
 ## Resolved since the last version of this file (moved to decisions)
 
