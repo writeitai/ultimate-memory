@@ -160,20 +160,23 @@ structurally-skippable sections, the cheap fix is a single deterministic filter 
 `references / bibliography / nav / boilerplate / legal` PageIndex node-types out of E2 — a metadata
 branch, **not** a salience classifier and **not** a deferred-extraction machine.
 
-## 5. E3 — claims become relations
+## 5. E3 — claims become relations and observations
 
 Claims are *what a source said*; relations are *the distinct facts*. E3 normalizes eligible claims
 into `(subject, predicate, object)` records and is where redundancy and supersession are handled. The
 internals (entity resolution, predicate registry, the supersession cascade) are designed in
 `registries_design.md` (D17–D24); the pipeline view:
 
-- **Normalize.** Each claim yields 0..n relations via the governed predicate registry (D5, D18). A
-  two-entity claim like "Alice joined Acme" → `(alice, works_for, acme)`. A claim that is pure opinion,
-  n-ary, or a single-entity / temporal attribute — e.g. "Project Atlas launched in 2024" (no second
-  entity; the year is not an entity, and time is never a relation object or predicate, D18) — yields
-  **no relation**, and that is fine: the claim still exists as evidence, and (D41) its asserted
-  world-time interval is captured *on the claim itself* (`claim_valid_from = 2024`, precision year), so
-  the fact's temporal scope is queryable even with no relation.
+- **Normalize.** Each claim yields 0..n **relations** *and/or* **observations**. A two-entity claim
+  like "Alice joined Acme" → a relation `(alice, works_for, acme)` via the governed predicate registry
+  (D5, D18). A claim asserting a **value/property about one entity** — "Acme's headcount is 600",
+  "Acme's FY2023 revenue was \$5M" — yields **no relation** but becomes an **observation** (D43): an
+  entity-anchored, *untyped*, bi-temporal fact (`observations_design.md`; schema §9.A). So
+  non-relational facts are no longer merely "kept as evidence" — they get first-class validity and
+  supersession too. Time is still never a relation object or predicate (D18). (Pure opinion is still
+  dropped at Selection — §3/§4 — and becomes neither a relation nor an observation; the open
+  qualitative-belief question is tracked in `questions.md`.) A claim's asserted world-time interval
+  (D41) seeds the initial window of whatever it produces.
 - **Resolve entities.** Subjects/objects are resolved to canonical entities through the tiered T0–T4
   cascade (D17). This is *why* decontextualization matters: "Project Atlas" resolves; "It" cannot. A
   claim with a dangling reference is dead weight here — which is the whole point of §3.2.
@@ -183,6 +186,12 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 - **Adjudicate supersession (D3, D4).** New facts close the validity windows of the ones they replace,
   via `(entity_id, predicate)` blocking + a cheap-first cascade — adjudicated on **relations**, never on
   claims (claims stay immutable records of what was asserted).
+- **Adjudicate observations (D43).** Non-relational facts supersede by the *same* cascade, but block on
+  the **resolved entity** (an exact, exhaustive key) instead of `(entity, predicate)`, narrowing a hub
+  entity's observations by semantic similarity (P1/Lance). The adjudicator decides supersede (cap the
+  prior window) / contradict (both stand, shared `contradiction_group`) / evidence / new, and **fails
+  safe to coexist** when unsure — so a both-stand figure is never silently overwritten without any typed
+  attribute vocabulary. Full design: `observations_design.md`.
 
 ## 6. End-to-end, in one example
 

@@ -819,3 +819,83 @@ scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) i
 per-action lineage grouping when needed). The intended first consumer — confidence/belief math that
 counts *independent external* evidence rather than raw `evidence_count`, discounting self-generated
 echoes — is a **documented non-goal for now**, unblocked by this capture. No change to D2/D3/D6.
+
+---
+
+## D43. Two canonical layers — typed relations for the graph, an untyped entity-anchored observation layer for non-graph facts; supersession by entity-blocking + adjudication
+
+**Decision.** Plane E keeps **two** canonical fact layers, split by what they *are*, not merged:
+
+1. **Relations** (unchanged, D2–D5/D18) — distinct **entity→entity** facts with a *governed predicate*.
+   Typed because a graph needs typed edges; this is the only layer that projects to P2 (the graph).
+2. **Observations** (new) — facts asserted about **one entity** whose object is a *value or a statement*,
+   not another entity ("Acme's headcount is 600", "Acme's FY2023 revenue was \$5M"). An observation is
+   **anchored to a resolved entity** and is **not typed by any governed attribute vocabulary**. It
+   carries the same **bi-temporal** validity windows as a relation, so non-relational facts finally get
+   first-class temporal validity and supersession (the gap relations-only left).
+
+**The slot is found, not declared.** Supersession/contradiction among observations reuses the exact
+pattern relations already use — *blocking + cheap-first adjudication* (D4) — but blocks on the
+**resolved entity** (an exact key) instead of a `(subject, predicate)` pair: a new value-claim about
+entity *E* → fetch *E*'s live observations (indexed; exhaustive for that entity) → for a hub entity with
+many, narrow by **semantic similarity** over the observation label (P1/Lance) → the adjudicator decides
+per candidate (each gated on a **positive same-thing match** judged *semantically* from the `statement` —
+same property, and for a period figure same period and value-compatibility — exactly as relations judge
+"same predicate", with **no typed value/period column**): **supersede** (cap the prior `valid_until` at
+the new `valid_from`), **contradict/coexist** (same property + same period, incompatible value → both
+stand, shared `contradiction_group`), **evidence** (same property + value → add evidence, collapse
+redundancy), or **new**. The **no-cap rule** carries the period distinction without a column:
+`valid_from`/`valid_until` is the **world-validity of the belief**, and only a **changing effective
+state** (headcount/balance/status) is ever capped; a **measurement / fixed-period figure** ("FY2023
+revenue") is **never** capped — it doesn't stop being true at period-end, its window stays open, and a
+conflicting same-period figure coexists. The conflict slot is `entity + same-property + same-period`, all
+matched semantically (FY2023 *revenue* \$5M vs \$7M conflict; FY2023 revenue vs FY2023 *profit*, or FY2023
+vs Q1-2023, do not). The "never silently resolve" property is a
+**binding adjudicator contract** (supersede only on a positively-matched prior above an explicit margin,
+with a persisted reason; otherwise coexist) **plus an eval gate** — not a schema invariant. The design is
+explicit that this is policy, and that it fails toward *duplicate coexisting rows*, never silent
+overwrite.
+
+**Context.** Non-relational facts (values, measures, single-entity properties) need temporal validity
+and supersession — relations couldn't hold them (a relation's object must be an entity), and surfacing
+them statelessly is information-lossy. Two fuller alternatives were explored and **rejected** (their
+work is preserved in closed PRs, not on main):
+- *A unified, typed `facts` table* (one table for entity- and literal-object facts, supersession gated
+  by a registered relationship type + a governed `value_domain`/`cardinality` vocabulary). Rejected:
+  it merges graph and non-graph data under one roof — a heavy mental model — and the per-attribute
+  typing (`value_domain`, `unit_dimension`, `cardinality`) must be LLM-inferred, is brittle, and adds
+  registry-maintenance cost. The typing existed only to make literal supersession *schema-enforced*; if
+  supersession is adjudicated (as relations always have been), the typing is unnecessary.
+- *Mutating claims to carry validity.* Rejected (D3): it destroys the immutable evidence record and
+  faces the "absurd task" of closing every prior claim. The observation row is the right unit of
+  supersession — one window closes, N immutable claims stay as evidence.
+
+The **D6 "one belief home"** objection does **not** apply to two tables here: a relation and an
+observation can never represent the *same* belief (entity-object vs value-object are disjoint), so they
+cannot drift against each other the way a relation and a duplicate "proposition-fact" could. Two
+disjoint canonical layers, not one polymorphic table, is the simpler correct shape.
+
+**Consequences.**
+- **Relations are untouched** — typed, governed, graph-projected, with their existing `(s,p,o)` blocking
+  and overlap-EXCLUDE.
+- **Observations are deliberately lean** — entity-anchored, bi-temporal, evidence-linked. The value and
+  any reporting period live in the NL `statement` (matched semantically); there is **no governed
+  attribute registry, no `value_domain`/`unit_dimension`/`cardinality`, no structured value/period
+  column, and no typed EXCLUDE.** Supersession is the adjudicator's job (CI-gated), not a schema
+  invariant. (A structured `value` for cross-entity numeric range scans is an additive change if that
+  need ever becomes real — deliberately omitted now.)
+- **No semantic-clustering recall hole.** Because observations are anchored to a *resolved entity*
+  (exact key), every prior observation about that entity is found by the exact block — semantic search
+  only *ranks* candidates for a hub entity; it never gates membership. The only residual fuzziness is
+  the supersede-vs-coexist *judgment*, which fails safe to coexist.
+- **Retrieval is through projections** (D9): observations are embedded in P1/Lance (semantic + value
+  search; entity-anchored timelines); they **never** enter the P2 graph (D18 holds — a value is not a
+  node). The canonical layer is storage; projections serve queries.
+- **Claims stay immutable** (D2/D3), entity-linked (mentions), with asserted validity (D41) feeding an
+  observation's initial window.
+- The "never silently resolve" guarantee moves from a (would-be) schema gate to an **adjudicator
+  fail-safe + eval gate** — the rigor lives in E3/eval, not the DDL.
+
+Design: `plan/designs/observations_design.md`. Schema: `postgres_schema_design.md` §9.A. Normalization:
+`e2_e3_claims_relations_design.md` §5. Open items (qualitative/opinion belief — still an *upstream* E2
+question; the enforcement dial) tracked in `questions.md`.
