@@ -172,6 +172,81 @@ worst the adjudicator spends a bit more. Contrast a pure semantic-cluster approa
 prior headcount would be **invisible** and silently duplicated. Anchoring to the resolved entity is what
 buys this.
 
+### Supersession appends — an observation is a time-slice, never an in-place edit
+
+An observation is **a time-slice of belief, not a mutable current-state record.** Supersession does two
+things, *neither of which touches the old `statement`*: it (1) **caps** the prior observation's
+`valid_until` (to the successor's `valid_from`) and (2) **inserts a new row** for the new value. The old
+row persists, `statement` intact:
+
+| | id | statement | valid_from | valid_until | invalidated_at | status |
+|---|---|---|---|---|---|---|
+| after Doc B | O1 | "Acme headcount 500" | 2023-12-31 | NULL | NULL | active |
+| after Doc C supersedes | O1 | "Acme headcount 500" *(unchanged)* | 2023-12-31 | **2025-01 (capped)** | NULL | active |
+|  | O2 | "Acme headcount 600" | 2025-01 | NULL | NULL | active |
+
+- **The "current state" is a query, not a row.** The live value is `valid_until IS NULL` (or covering
+  `now`) `AND invalidated_at IS NULL` (→ O2 = 600); the history is the *set* of rows (→ "headcount in
+  2024?" = O1 = 500). Overwriting O1's statement would destroy that history — the whole reason
+  supersession appends rather than rewrites (same as relations, D3, and the immutable-claims principle).
+- **`status='active'` ≠ "current value".** `status` only mirrors `invalidated_at` — *"do we still
+  believe this was true?"*. O1 stays `active` after being superseded, because we still believe Acme had
+  500 *then* (it *ended*, it wasn't *wrong*). "Is it the value now?" is the valid-time question; "was it
+  ever retracted as a mistake?" is `status`/`invalidated_at`.
+- **Never changes:** `statement` and the identity it carries. **Can change:** `valid_until` (the cap),
+  `invalidated_at` (only on learning it was *wrong*, not merely ended), the cached
+  `evidence_count`/`contradict_count`/`confidence`, `contradiction_group`. A *correction* to a value is a
+  **new** observation (or invalidate + new), not an edit. (By the no-cap rule, a fixed-period figure is
+  never even capped — a conflicting figure becomes a second coexisting row.)
+
+### The add-observation worker, cheapest-first
+
+Governing principle (from D4): **write-side LLM cost scales with *ambiguity*, not volume** — most writes
+resolve with zero LLM calls; only the ambiguous residue escalates. The worker arrives with upstream work
+already done in the E2/E3 extraction call — **don't redo it**: the **subject entity resolved** (the ER
+T0–T4 cascade), the `statement`, the **asserted validity** (D41), the routing decision (single-entity
+value → observation), and often the claim's embedding (E2 embeds claims for P1).
+
+1. **Block (indexed, no LLM).** Fetch the entity's live observations via the `ix_observations_block`
+   partial index (`subject_entity_id` + `invalidated_at IS NULL`). One lookup; few rows for most
+   entities — the exact, exhaustive candidate set.
+2. **Novelty gate (cheap signals, no LLM — most volume exits here).**
+   - **zero candidates** → **new**: insert + link evidence.
+   - **exact / near-exact** match (same property + value + overlapping window, via precomputed-embedding
+     or lexical compare) → **evidence**: add an `observation_evidence` row, bump `evidence_count`, **no
+     new observation**. *(The "200 docs say the same thing" corpus-redundancy case — the biggest saver.)*
+   - **clear novelty** (similarity below a low, golden-tuned threshold) → **new**: insert + link.
+   - For a **hub entity**, the same vector step top-k ranks *which* candidates to compare (cheap math); a
+     skipped far candidate costs at most a duplicate row, never a wrong supersede.
+3. **Adjudicate the residue only (cheap → frontier).** Only similar-but-not-identical candidates escalate
+   the D4 cascade: deterministic value/period compare → small model → frontier LLM for the survivors. The
+   adjudicator decides same-property (+ same-period for a figure) and the outcome under the no-cap rule
+   (state → supersede; measurement → contradict/coexist; same value → evidence; else new), and **fails
+   safe to coexist** below the supersede margin.
+4. **Write (one transaction).** Apply the outcome — an evidence row; or cap + new observation +
+   `observation_adjudications` reason (supersede); or new observation + shared `contradiction_group` +
+   adjudication (contradict); or new (new). The `(observation_id, claim_id)` PK makes retries no-ops.
+5. **Label + embed (batched/deferred).** Reuse `statement` as the label where possible (no extra call);
+   batch the embeddings that *future* blocking will compare against.
+
+**Where each write lands (the cost ladder):**
+
+| case | frequency | cost |
+|---|---|---|
+| entity has no live observations (first mention) | high | **0 LLM** — insert |
+| exact / near-exact re-assertion (corpus redundancy) | **highest** | **0 LLM** — evidence-collapse |
+| clearly novel | high | **0 LLM** — insert |
+| similar-but-not-identical | low | deterministic → small model |
+| genuinely ambiguous | lowest | frontier LLM |
+
+**Cost levers:** the block is one indexed lookup, not a scan; the two no-LLM exits (first-mention and
+exact-duplicate) absorb the bulk of volume; precomputed embeddings drive the novelty gate and hub
+narrowing; upstream work (entity, embedding, asserted validity) is reused; claims are **batched per
+entity** (a doc naming Acme 5× → one block fetch + batched adjudication); and the
+`observation_adjudications` log makes decisions **replayable on rebuild** instead of re-calling the LLM
+(D7). It is deliberately the *same* cascade and thresholds as relation supersession (D4) — blocked on the
+resolved entity instead of `(subject, predicate)` — so it's one engine shared across both layers.
+
 ## 4. Why no typing (the honest rationale)
 
 A fuller design — a **unified, typed `facts` table** with a governed attribute vocabulary
