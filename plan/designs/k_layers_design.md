@@ -72,7 +72,7 @@ one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, t
 |---|---|---|---|
 | **Planner** (LLM) | maintains the *structure*: which pages exist, the tree, each page's routing rules | page existence, splits/merges/moves, rule changes — all as append-only `knowledge_plan_decisions` | write page content |
 | **Writer** (LLM, per page — Codex/OpenCode) | compiles **one page per invocation** from its inputs (§6); may be agentic (§7) | the body of *compiled* pages | touch any other file; leave inputs uncited |
-| **Driver** (deterministic worker) | computes staleness (SQL), schedules writers in dependency order, validates outputs, syncs Postgres, commits | the git *commit* — it is the repo's **only automated committer** | generate content; override curation |
+| **Driver** (deterministic worker) | computes staleness (SQL), schedules writers in dependency order, validates outputs, syncs Postgres, dispatches subscriptions (§5), commits | the git *commit* — it is the repo's **only automated committer** | generate content; override curation |
 
 **Authors** — humans or operating agents (in the named deployments, almost always agents) —
 own the fourth surface: **authored pages and curation sidecars** (§4), committed through
@@ -112,10 +112,12 @@ destroyed; it is moved to where it survives regeneration.
 
 **Authored pages still participate in the manifest system.** An authored page's frontmatter
 declares its citations (`cites:` — the evidence IDs the author relied on) and optional
-**watch rules** (`watch:` — routing rules whose consequence is a *flag*, not a recompile:
-"tell me when anything new lands about module X"). The driver syncs frontmatter to Postgres.
-This is what makes authored content safe at scale: decisions are automatically alerted when
-the ground they stand on moves (§9).
+**watch rules** (`watch:` — whose consequence is a *flag*, not a recompile: "tell me when
+anything new lands about module X"). A watch target may be an evidence key or **another page**
+(`watch: page:to-be/ordering-flow`, §5), and in agent-operated deployments a watch can bind to
+a **dispatch subscription** (§5) so the owning agent's workflow is invoked instead of a queued
+flag. The driver syncs frontmatter to Postgres. This is what makes authored content safe at
+scale: decisions are automatically alerted when the ground they stand on moves (§9).
 
 ### How a page gets its kind — and how it changes
 
@@ -313,6 +315,55 @@ _compiled 2026-07-05 · evidence as of 2026-07-05T06:00Z_
   (`kind='fact_sheet'`) — zero writer cost for low-importance entities, upgraded to full prose
   when evidence volume or demonstrated demand justifies it (an ordinary plan decision).
 
+### The K plane as a trigger surface — watches, subscriptions, dispatch
+
+The routing layer (rules + the inverted key index) is the system's **attention mechanism**,
+and attention is worth more than recompiles. A routing rule's *consequence* depends on what
+owns it:
+
+| Rule owner | Consequence | What happens |
+|---|---|---|
+| a **compiled page** | recompile | the page goes stale; its writer regenerates it (§6) |
+| an **authored page** | flag | an `authored_review` item routes to the page's author (§4) |
+| a **subscription** | **dispatch** | a registered agentic workflow is invoked |
+
+Two mechanisms complete the surface:
+
+- **Page-level watches.** A watch target may be an evidence key *or another page*
+  (`watch: page:to-be/ordering-flow`): subscribe to a page's recompiles instead of
+  re-declaring its rules. It is the same edge the compile DAG already uses (parents consume
+  children), with a flag/dispatch consequence — and the right ergonomics for a **paired
+  workbench**: a gap-analysis page watches the compiled to-be page it judges, and stays
+  correctly subscribed even as the planner adjusts that page's rules underneath.
+- **Subscriptions.** A per-deployment registry binds match criteria (a routing rule of its
+  own, and/or watched pages) to a **workflow endpoint**: *"anything about competitor X or our
+  unit economics → run the replanning workflow."* Dispatch is **debounced per subscription**
+  and delivered with the D12 worker discipline (Cloud Tasks, retries, DLQ, idempotent
+  consumers). The payload carries the **delta, never a bare ping** — matched evidence IDs, the
+  citation/validity changes (the compile transcript computes them anyway), and the affected
+  page refs — so the subscriber wakes knowing *what* moved, not just that something did.
+
+**The closed loop, without circularity.** The motivating consumer is an agent-operated
+deployment's **planning module** (an autonomous company's planner): it subscribes to what its
+plans depend on; when relevant evidence lands it is dispatched, reads the memory (compiled
+pages first — that is what they are for), revises its plan files, and commits. The driver
+syncs those back as **authored pages** with fresh citations and watches — plans are authored
+content par excellence: commitments no evidence attests yet, premised on evidence that must
+alert them when it moves. If a ratified plan is later ingested as a source (the §9 promotion
+loop), **D42's origin stamp** marks it system-generated, so the company's own plans can never
+masquerade as independent external evidence.
+
+**The boundary.** The memory system's job ends at *reliable attention and served context*: it
+recognizes relevant arrivals, notifies the right subscriber with the right delta, and serves
+the compiled context the subscriber reasons against. It runs no planning logic, owns no
+subscriber workflows, and evaluates no plans — subscribers are operating agents outside the
+system boundary, which is what keeps the system reusable across deployments.
+
+*(This subsection is the design of the "E→K signal/interrupt channel" that D42 named and
+scoped out pending an agent-operations deployment — which is now a named target. D42's origin
+capture is unchanged; the other items D42 listed — operational-state scopes,
+decision↔evidence-snapshot links — remain non-goals here.)*
+
 ## 6. The compile cycle
 
 Triggered by the D12 debounce window ("N changed evidence items or T minutes"). One cycle:
@@ -321,7 +372,7 @@ Triggered by the D12 debounce window ("N changed evidence items or T minutes"). 
    frontmatter (`cites:`/`watch:`) to Postgres; quarantine any direct edits to compiled bodies.
 2. **Route**: consume queued evidence events → `knowledge_rule_keys` lookups →
    re-materialize derived rule keys where needed → stale set (compiled) + review flags
-   (authored) + orphan aggregates.
+   (authored) + debounced dispatch batches (subscriptions, §5) + orphan aggregates.
 3. **Plan** (only when structural triggers fire): planner emits `knowledge_plan_decisions`;
    auto-apply the low-blast-radius band, queue the rest for review.
 4. **Compile** stale pages in dependency order — the scope's shared model page first if stale,
@@ -457,8 +508,11 @@ any other; only content no source yet attests must be authored.
   B." Plane E records it; routing marks the module X as-is page and the affected compiled
   to-be pages stale (recompiled next window) — and any still-authored draft citing the old
   fact gets a **review flag** routed to its author (in these deployments, the operating
-  agent): *a commitment on this page rests on evidence that changed.* Nothing is silently
-  rewritten and nothing goes silently stale.
+  agent — or its dispatch subscription invokes the authoring workflow directly, §5): *a
+  commitment on this page rests on evidence that changed.* Nothing is silently rewritten and
+  nothing goes silently stale. A colleague's evolving **gap analysis** is the same pattern —
+  an authored page watching the compiled as-is and to-be pages it judges, its owner dispatched
+  with the delta when they move.
 - **Structure without a human.** The scope's tree (an `as-is/` subtree mirroring the system
   landscape; a `to-be/` decision-log + target-architecture layout) is planner-maintained
   state, seeded and periodically challenged by the reflection/reviewer agent (§7) — recorded
@@ -519,6 +573,9 @@ structurally (one committer, disjoint writes, DAG order).
    `Decision` entities + future-dated D41 windows, and how planned flows normalize
    (future-dated `uses`/`depends_on` relations vs Decision-mediated) — measure on a corpus
    slice; gates how much of a `to-be/` subtree can be compiled.
+8. **Dispatch semantics** (§5): per-subscription debounce windows, payload size caps,
+   at-least-once delivery + consumer idempotency, dead-letter policy for failing subscriber
+   workflows — measure with the first agent-operated scope.
 
 ## References
 

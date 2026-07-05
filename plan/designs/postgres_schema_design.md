@@ -202,6 +202,7 @@ CREATE TYPE rule_key_kind          AS ENUM ('entity','predicate','community','do
 CREATE TYPE plan_action            AS ENUM ('create_page','split_page','merge_pages','move_page','retire_page','adjust_rule','convert_kind');
 CREATE TYPE plan_trigger           AS ENUM ('orphan_evidence','size_overflow','community_change','reflection','writer_suggestion','human');
 CREATE TYPE plan_decision_status   AS ENUM ('proposed','applied','rejected');
+CREATE TYPE subscription_status    AS ENUM ('active','paused','retired');  -- dispatch consumers (k_layers §5)
 -- 'authored_review' = cited/watched evidence changed under an AUTHORED page → review flag for
 -- the page's author (human or agent), never an auto-recompile (D46):
 CREATE TYPE knowledge_trigger      AS ENUM ('evidence_changed','community_changed','debounce_timer','manual','tombstone','authored_review');
@@ -1599,9 +1600,10 @@ irreducibly the human-authored content — D46). Postgres holds the **control pl
 compile system: what pages exist (`knowledge_artifacts`), what each page is *about* (the routing
 rules + their inverted key index), what each page *rests on* (the citations), why structure
 changed (the planner's append-only decisions), what each compile did (the compile transcript),
-and the debounced trigger queue (D12). Everything the driver computes — staleness, deletion
-reach, orphan evidence — is SQL over these tables; git holds only content. Binding design:
-`k_layers_design.md`.
+who else is *listening* (subscriptions, page watches, and the dispatch transcript — the trigger
+surface, k_layers §5), and the debounced trigger queue (D12). Everything the driver computes —
+staleness, deletion reach, orphan evidence, dispatch batches — is SQL over these tables; git
+holds only content. Binding design: `k_layers_design.md`.
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
@@ -1665,26 +1667,56 @@ COMMENT ON TABLE knowledge_plan_decisions IS
 CREATE INDEX ix_kplan_proposed ON knowledge_plan_decisions (deployment_id, decided_at) WHERE status = 'proposed';
 
 -- ─────────────────────────────────────────────────────────────────────────
--- knowledge_page_rules — the ROUTING RULES (D45): the planner's recorded answer to "what
--- evidence belongs to this page". Mechanical: each rule_kind has ONE fixed SQL evaluation
+-- knowledge_subscriptions — the DISPATCH consumers (the K trigger surface, k_layers §5; the
+-- E→K signal channel D42 deferred, now designed). Binds match criteria — an owned routing rule
+-- (below) and/or page watches — to a workflow endpoint. Dispatch is DEBOUNCED per subscription
+-- and delivered with the D12 worker discipline (Cloud Tasks, retries, DLQ, idempotent
+-- consumers); the payload carries the delta (matched evidence + citation/validity changes),
+-- never a bare ping. The memory system only notifies + serves context — it never runs the
+-- subscriber's logic (subscribers are operating agents outside the system boundary).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_subscriptions (
+  subscription_id uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  scope_id        uuid,                        -- optional owning scope (composite FK below)
+  name            text NOT NULL,               -- e.g. 'planning-module-replan'
+  workflow_endpoint text NOT NULL,             -- the agentic workflow invoked on dispatch (Cloud Tasks target)
+  debounce_seconds integer NOT NULL,           -- per-subscription batch window (starting point, measure — k_layers §11 spike 8)
+  status          subscription_status NOT NULL DEFAULT 'active', -- active | paused | retired
+  created_by      text,                        -- registering agent/human
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, name),
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE knowledge_subscriptions IS
+  'Dispatch consumers of the K trigger surface (k_layers §5). Match criteria = owned routing rules and/or page watches; consequence = debounced workflow invocation carrying the evidence delta. The E→K signal channel D42 deferred.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_page_rules — the ROUTING RULES (D45): the recorded answer to "what evidence
+-- belongs to this OWNER". Mechanical: each rule_kind has ONE fixed SQL evaluation
 -- (k_layers_design.md §5); an LLM chooses the rule, SQL evaluates it — no LLM on the routing
--- path (the D9 rule applied to routing). A page may hold several rules (union). The rule's
--- CONSEQUENCE is derived from the page's kind: compiled → stale/recompile; authored → an
--- 'authored_review' flag (a watch rule, D46).
+-- path (the D9 rule applied to routing). An owner may hold several rules (union). The owner is
+-- EXACTLY ONE of a page or a subscription, and the rule's CONSEQUENCE derives from it:
+-- compiled page → stale/recompile; authored page → an 'authored_review' flag (a watch rule,
+-- D46); subscription → dispatch (k_layers §5). Page-owned rules require a plan decision;
+-- subscription-owned rules are accounted by the subscription's created_by.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE knowledge_page_rules (
   rule_id         uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  artifact_id     uuid NOT NULL,               -- the one page this rule feeds (composite FK below)
+  artifact_id     uuid,                        -- the page this rule feeds (XOR subscription_id; composite FK below)
+  subscription_id uuid REFERENCES knowledge_subscriptions (subscription_id) ON DELETE CASCADE,
   rule_kind       knowledge_rule_kind NOT NULL,
   params          jsonb NOT NULL,              -- e.g. {"entity_id": …, "predicates": ["works_for"], "layers": ["relations","observations","claims"]}
   status          ontology_status NOT NULL DEFAULT 'active',
-  plan_decision_id uuid NOT NULL REFERENCES knowledge_plan_decisions (decision_id),  -- who created it and why
+  plan_decision_id uuid REFERENCES knowledge_plan_decisions (decision_id),  -- who created it and why (page-owned rules)
   created_at      timestamptz NOT NULL DEFAULT now(),
+  CHECK (num_nonnulls(artifact_id, subscription_id) = 1),          -- exactly one owner
+  CHECK ((artifact_id IS NOT NULL) = (plan_decision_id IS NOT NULL)), -- plan-decided iff page-owned
   FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE knowledge_page_rules IS
-  'D45 routing rules: the planner-chosen, SQL-evaluated definition of what evidence belongs to a page. Closed kind set; params per kind; union across a page''s rules. manual = the editorial escape hatch. Evidence matching NO rule in a scope = orphan → a planner trigger.';
+  'D45 routing rules, owned by a page XOR a subscription (the trigger surface, k_layers §5). Closed kind set; params per kind; union across an owner''s rules. manual = the editorial escape hatch. Evidence matching NO rule in a scope = orphan → a planner trigger.';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_rule_keys — the routing INVERTED INDEX (D45): rule match keys materialized so that
@@ -1702,7 +1734,50 @@ CREATE TABLE knowledge_rule_keys (
 );
 CREATE INDEX ix_krule_keys_lookup ON knowledge_rule_keys (deployment_id, key_kind, key_value);
 COMMENT ON TABLE knowledge_rule_keys IS
-  'Inverted index over rule match keys (D45): new evidence → its E-plane labels (entities, predicate, community, doc source) → the rules (pages) it affects, in one lookup. The key set of a derived-membership rule is re-materialized when its inputs change.';
+  'Inverted index over rule match keys (D45): new evidence → its E-plane labels (entities, predicate, community, doc source) → the rules (page- or subscription-owned) it affects, in one lookup. The key set of a derived-membership rule is re-materialized when its inputs change.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_page_watches — PAGE-LEVEL watch targets (k_layers §5): subscribe to another page's
+-- recompiles instead of re-declaring its rules (the paired-workbench ergonomics — a gap
+-- analysis watches the compiled to-be page it judges, and stays subscribed as the planner
+-- adjusts that page's rules). Watcher is EXACTLY ONE of an authored page (consequence: an
+-- 'authored_review' flag) or a subscription (consequence: dispatch). Same edge type as the
+-- compile DAG's parent→child dependency, different consequence.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_page_watches (
+  watch_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL,
+  watcher_artifact_id uuid,                    -- an authored page … (XOR subscription_id)
+  subscription_id uuid REFERENCES knowledge_subscriptions (subscription_id) ON DELETE CASCADE,
+  watched_artifact_id uuid NOT NULL,           -- the page whose recompiles are watched
+  CHECK (num_nonnulls(watcher_artifact_id, subscription_id) = 1),
+  FOREIGN KEY (deployment_id, watcher_artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, watched_artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX ux_kwatch ON knowledge_page_watches (watcher_artifact_id, subscription_id, watched_artifact_id) NULLS NOT DISTINCT;
+CREATE INDEX ix_kwatch_watched ON knowledge_page_watches (watched_artifact_id);
+COMMENT ON TABLE knowledge_page_watches IS
+  'Page-level watches (k_layers §5): a watcher (authored page XOR subscription) subscribes to a watched page''s recompiles. Consequence derives from the watcher: flag or dispatch. Synced from authored frontmatter (watch: page:<path>) or registered with a subscription.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_dispatches — the append-only DISPATCH transcript (k_layers §5). The driver
+-- coalesces a subscription's matches over its debounce window into ONE row whose payload
+-- carries the delta (matched evidence IDs, citation/validity changes, affected page refs);
+-- delivery is at-least-once (Cloud Tasks, D12 retries/DLQ) — subscriber workflows must be
+-- idempotent per dispatch_id.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_dispatches (
+  dispatch_id     uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  subscription_id uuid NOT NULL REFERENCES knowledge_subscriptions (subscription_id) ON DELETE CASCADE,
+  payload         jsonb NOT NULL,              -- {matched_evidence_ids, deltas, page_refs} — the delta, never a bare ping
+  status          refresh_status NOT NULL DEFAULT 'pending', -- pending | running | done | failed
+  enqueued_at     timestamptz NOT NULL DEFAULT now(),
+  delivered_at    timestamptz
+);
+CREATE INDEX ix_kdispatch_pending ON knowledge_dispatches (deployment_id, status) WHERE status = 'pending';
+COMMENT ON TABLE knowledge_dispatches IS
+  'Append-only dispatch transcript (k_layers §5): one debounce-coalesced row per subscription window, delta-carrying payload, at-least-once delivery with idempotent consumers (keyed by dispatch_id). Makes the E→K trigger surface auditable like every other non-deterministic boundary (D33 discipline).';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_compilations — the append-only COMPILE transcript (D45; D33 for content).
@@ -2001,6 +2076,7 @@ Labs."*
 | D45 planned K compilation (planner/writer/driver; mechanical routing; manifest staleness) | `knowledge_page_rules`, `knowledge_rule_keys`, `knowledge_plan_decisions`, `knowledge_compilations`; `knowledge_artifacts.inputs_hash/page_summary/parent_artifact_id` |
 | D46 compiled vs authored pages; ownership + quarantine | `knowledge_artifacts.page_kind/curation_path/content_hash` (+ `status='quarantined'`); citations binding in `knowledge_artifact_evidence`; authored review flags via `knowledge_refresh_queue ('authored_review')` |
 | D47 one K mechanism, N scopes; belief tier | `knowledge_artifacts.layer` (K1/K2/K3 as content tiers); belief tier = `knowledge_page_rules` selecting high-evidence uncontradicted facts; scope model page = an artifact all scope pages depend on |
+| E→K trigger surface (k_layers §5; the signal channel D42 deferred) | `knowledge_subscriptions`, `knowledge_page_watches`, `knowledge_dispatches`; rules owned by page XOR subscription; D42 `origin` guards re-ingested plans |
 
 ---
 

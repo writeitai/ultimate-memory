@@ -831,6 +831,15 @@ per-action lineage grouping when needed). The intended first consumer — confid
 counts *independent external* evidence rather than raw `evidence_count`, discounting self-generated
 echoes — is a **documented non-goal for now**, unblocked by this capture. No change to D2/D3/D6.
 
+**Refined by D45–D47 (the K trigger surface).** One of the deferred items — the **E→K
+signal/interrupt channel** — is now designed, its condition met (an agent-operated deployment is a
+named target): routing-rule **subscriptions** with a **dispatch** consequence invoke registered
+agentic workflows with debounced, delta-carrying payloads; page-level watches serve authored
+consumers (`k_layers_design.md` §5). Origin capture itself is unchanged, and it is what keeps the
+resulting loop non-circular — a re-ingested plan is stamped system-generated and never counts as
+independent external evidence. The other deferred items (operational-state scopes,
+decision↔evidence-snapshot links) remain non-goals.
+
 ---
 
 ## D43. Two canonical layers — typed relations for the graph, an untyped entity-anchored observation layer for non-graph facts; supersession by entity-blocking + adjudication
