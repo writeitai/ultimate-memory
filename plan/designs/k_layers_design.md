@@ -66,6 +66,29 @@ A scope is: a subtree of the repo, its registry rows, its pages (compiled and au
 one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, truth doesn't"
 (D16) holds: scopes own compiled markdown and authored documents, never facts.
 
+### Relationship to the original K1–K3 conception
+
+A reader arriving from older documents (requirements v1/v2, decisions D1/D12 as originally
+written, early discussions) should read the K1/K2/K3 names the way L-numbers are read after
+D14: **the names survive; the machinery behind them is superseded.** The original conception
+treated K1/K2/K3 as three *layers* — implicitly three pipelines, a separate belief design
+(`k3_beliefs_design.md`, never written), and a compilation mechanism of concurrent agent
+sessions editing a shared repo (merge-conflict retry, hot-file delays, linter-guessed
+staleness). All of that is replaced by this design: **one** machine (planner / writers /
+driver — D45), two page kinds (D46), one trigger surface (§5), with K1/K2/K3 surviving as
+*content tiers* of that machine (the table above; D47).
+
+What did **not** change is the promise attached to each name: K1's progressive-disclosure
+summaries, K2's pluggable coexisting scopes, K3's evidence-linked drift-resistant beliefs are
+the same requirements-level guarantees as before — delivered by a different, stronger
+mechanism (mechanical staleness, binding citations, authored-page alerts). And several things
+in this design have **no counterpart** in the original conception at all — authored pages and
+curation sidecars, the promotion loop (§9), page watches and dispatch subscriptions (§5),
+two-band pages (§5): the original wasn't wrong about these so much as silent; the migration
+and agent-operated-company scenarios forced them into existence. One line to carry away:
+*the K1/K2/K3 taxonomy stands with its original guarantees intact; everything about how those
+tiers are built, updated, and governed is D45–D47.*
+
 ## 3. Three roles and one ownership rule (D45)
 
 | Role | What it is | What it owns | What it may never do |
