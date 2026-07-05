@@ -202,8 +202,8 @@ CREATE TYPE rule_key_kind          AS ENUM ('entity','predicate','community','do
 CREATE TYPE plan_action            AS ENUM ('create_page','split_page','merge_pages','move_page','retire_page','adjust_rule','convert_kind');
 CREATE TYPE plan_trigger           AS ENUM ('orphan_evidence','size_overflow','community_change','reflection','writer_suggestion','human');
 CREATE TYPE plan_decision_status   AS ENUM ('proposed','applied','rejected');
--- 'authored_review' = cited/watched evidence changed under an AUTHORED page → human review flag,
--- never an auto-recompile (D46):
+-- 'authored_review' = cited/watched evidence changed under an AUTHORED page → review flag for
+-- the page's author (human or agent), never an auto-recompile (D46):
 CREATE TYPE knowledge_trigger      AS ENUM ('evidence_changed','community_changed','debounce_timer','manual','tombstone','authored_review');
 CREATE TYPE refresh_status         AS ENUM ('pending','running','done','failed');
 ```
@@ -1644,8 +1644,9 @@ CREATE INDEX ix_kartifacts_stale  ON knowledge_artifacts (deployment_id) WHERE s
 -- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_plan_decisions — the planner's append-only STRUCTURE transcript (D45; the D33
 -- ledger discipline applied to structure). Low-blast-radius decisions auto-apply; restructures
--- above the band queue as 'proposed' for human review (the D24 pattern). Exception:
--- convert_kind in the authored→compiled direction NEVER auto-applies (author confirmation).
+-- above the band queue as 'proposed' for the deployment's accountable reviewer — a human or a
+-- designated reviewer agent (the D24 pattern; k_layers §7). Exception: convert_kind in the
+-- authored→compiled direction NEVER auto-applies (author confirmation).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE knowledge_plan_decisions (
   decision_id     uuid PRIMARY KEY,
@@ -1786,7 +1787,7 @@ CREATE TABLE knowledge_refresh_queue (
   FOREIGN KEY (deployment_id, scope_id)    REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE knowledge_refresh_queue IS
-  'Debounced trigger queue for the K compile driver (D12/D45). Evidence batches are routed to pages mechanically (rule keys + citation reverse lookup); authored_review rows surface D46 flags to humans; not_before is the debounce delay (no hot-file machinery).';
+  'Debounced trigger queue for the K compile driver (D12/D45). Evidence batches are routed to pages mechanically (rule keys + citation reverse lookup); authored_review rows surface D46 flags to the page''s author (human or agent); not_before is the debounce delay (no hot-file machinery).';
 CREATE INDEX ix_krefresh_runnable ON knowledge_refresh_queue (deployment_id, status, not_before) WHERE status = 'pending';
 ```
 

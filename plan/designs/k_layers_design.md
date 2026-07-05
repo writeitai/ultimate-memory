@@ -74,11 +74,12 @@ one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, t
 | **Writer** (LLM, per page — Codex/OpenCode) | compiles **one page per invocation** from its inputs (§6); may be agentic (§7) | the body of *compiled* pages | touch any other file; leave inputs uncited |
 | **Driver** (deterministic worker) | computes staleness (SQL), schedules writers in dependency order, validates outputs, syncs Postgres, commits | the git *commit* — it is the repo's **only automated committer** | generate content; override curation |
 
-Humans (and operating agents acting as authors) own the fourth surface: **authored pages and
-curation sidecars** (§4), committed through normal git flow. The driver pulls before each
-cycle. Because the automated and human file sets are disjoint by the ownership contract, merge
-conflicts between the system and itself are structurally impossible, and conflicts with humans
-can occur only where humans edit — their own files. The prior design's in-session
+**Authors** — humans or operating agents (in the named deployments, almost always agents) —
+own the fourth surface: **authored pages and curation sidecars** (§4), committed through
+normal git flow. The driver pulls before each cycle. Because the compile system's file set and
+the authors' file set are disjoint by the ownership contract, merge conflicts between the
+system and itself are structurally impossible, and conflicts among authors happen only in
+their own files, under ordinary git rules. The prior design's in-session
 conflict-retry and the hot-file rolling-window worker are **removed** (the root `index.md` is
 simply the last target in the dependency order, compiled once per cycle — D12 refined).
 
@@ -102,11 +103,12 @@ is a first-class compile input (it is hashed into `inputs_hash`, §5 — editing
 recompile), and the enforceable subset is enforced mechanically (excluded evidence IDs are
 filtered from the writer's bundle and rejected from its citations).
 
-**The quarantine rule.** Compiled bodies are machine-owned. If a human edits one directly, the
-driver detects it (`content_hash` mismatch), does **not** overwrite and does **not** silently
-absorb it: the diff is quarantined into a *proposed sidecar entry* and the page is excluded
-from recompilation until the proposal is accepted or rejected. Human work is never destroyed;
-it is moved to where it survives regeneration.
+**The quarantine rule.** Compiled bodies are machine-owned. If anyone — a human or an
+out-of-band agent — edits one directly, the driver detects it (`content_hash` mismatch), does
+**not** overwrite and does **not** silently absorb it: the diff is quarantined into a
+*proposed sidecar entry* and the page is excluded from recompilation until the proposal is
+accepted or rejected (or the page is adopted — see below). An author's work is never
+destroyed; it is moved to where it survives regeneration.
 
 **Authored pages still participate in the manifest system.** An authored page's frontmatter
 declares its citations (`cites:` — the evidence IDs the author relied on) and optional
@@ -140,15 +142,20 @@ inlining a copy that would rot.
 
 Kind can change — always as a recorded plan decision (`convert_kind`), never silently:
 
-- **Adoption (compiled → authored).** The natural path is the quarantine flow: a human edited a
-  compiled body, and one triage outcome is "the human takes this page over" — flip to
+- **Adoption (compiled → authored).** The natural path is the quarantine flow: an author edited
+  a compiled body, and one triage outcome is "the author takes this page over" — flip to
   `authored`, stop recompiling, keep its routing rules as watch rules (staleness becomes review
   flags, §5).
 - **Handover (authored → compiled).** The author judges the page fully evidence-backed: the
   planner attaches rules, a writer takes over, and the author's residual judgment moves into
-  the sidecar. Because this discards human ownership of a body, it is the one plan action that
-  **never auto-applies** regardless of blast radius — it stays `proposed` until the author
-  confirms.
+  the sidecar. Because this discards an author's ownership of a body, it is the one plan
+  action that **never auto-applies** regardless of blast radius — it stays `proposed` until
+  the author (human or agent) confirms.
+
+A complementary route exists for content, not just pages: finalized authored material can be
+**ingested as a source** (D42 stamps it system-originated), so its statements enter plane E as
+evidence — compiled pages then absorb it and the authored draft retires. §9 shows this
+*promotion loop* end to end.
 
 **Consequence for D1 (refined by D46).** The git repo remains plane K's source of truth, but
 its *irreducible* core — what backups genuinely protect — narrows to **human-authored
@@ -205,7 +212,8 @@ per entity ("Bob has 14 unhoused facts"). Aggregated orphans, page-size overflow
 changes, writer suggestions, and reflection findings (§7) are the planner's triggers; its
 outputs are append-only `knowledge_plan_decisions` (create/split/merge/move/retire/adjust-rule)
 with a rationale. Low-blast-radius decisions auto-apply; restructures above a threshold queue
-for human review — the D24 pattern applied to structure.
+for review by an **accountable reviewer outside the proposing context** — a human or a
+designated reviewer agent (§7) — the D24 pattern applied to structure.
 
 ### Citations — the binding output contract
 
@@ -360,9 +368,23 @@ answer it:
   recorded, uncited items counted) — and citations record everything used, floor or beyond.
   The contract is only: one owner per page, recorded inputs.
 - **The reflection pass.** A periodic LLM job reads across the compiled tree plus health
-  metrics (orphan volume, staleness distribution, page sizes, uncited-candidate rates) and
-  proposes structural changes — repo-wide noticing, landing as recorded
-  `knowledge_plan_decisions` instead of anonymous edits.
+  metrics (orphan volume, staleness distribution, page sizes, uncited-candidate rates,
+  navigation dead-ends) and proposes structural changes — repo-wide noticing, landing as
+  recorded `knowledge_plan_decisions` instead of anonymous edits. It should run as a
+  **different agent/model than the planner** — fresh eyes challenging the tree, not the
+  proposer grading its own work.
+
+**Review without a human in the loop.** The design's gates — the blast-radius review band,
+`authored_review` flags, quarantine triage, handover confirmation — require an **accountable
+decision point outside the automatic path**, not specifically a person. In agent-operated
+deployments (the norm for the named targets), the review-band consumer is a designated
+**reviewer agent**, authored pages are owned by the operating agents that wrote them, and the
+user is *notified, never consulted*. This is safe to run because structure is revertible by
+construction (append-only plan decisions + git history + snapshots), so a wrong verdict costs
+a revert, not a loss. The residual risk — agents reviewing agents, the same family as D42's
+self-confirmation concern — is accepted and priced: every decision carries its trigger and
+rationale, every compile its inputs and citation deltas, so a human can always **audit after
+the fact**. The human's realistic role in these deployments is auditor, not operator.
 
 The **semantic linter** survives, demoted from load-bearing to quality assurance: it no longer
 detects staleness (that is mechanical now); it checks prose — cross-page contradictions,
@@ -394,10 +416,13 @@ Open, deliberately (tracked in `questions.md` #5): *whose* beliefs these are (th
 system's epistemic state?) and whether a belief carries a numeric stance. The mechanism above
 is agnostic to that answer; the answer will configure it, not replace it.
 
-## 9. Worked example — a migration scope (as-is / to-be)
+## 9. Worked example — a migration scope (as-is / to-be), and the promotion loop
 
 The data-migration deployment (registries §1) tracks the **as-is** state of an enterprise
-system landscape and designs the **to-be** state. One scope, two subtrees, both kinds of page:
+system landscape and designs the **to-be** state. One scope, two subtrees — and the split
+between compiled and authored does **not** fall on the as-is/to-be line. The line is
+*attested vs. being-created* (§4): future-state facts that sources attest are evidence like
+any other; only content no source yet attests must be authored.
 
 - The systems extension pack (registries §4) makes the landscape *entities*:
   `System`/`Module ⊂ Product`, `BusinessProcess ⊂ Concept`, predicates `uses`, `depends_on`,
@@ -409,14 +434,35 @@ system landscape and designs the **to-be** state. One scope, two subtrees, both 
   reaches module X's page (the completeness floor — for a migration, "no interface silently
   missed" *is* the quality bar), and every statement hydrates to claims to source documents
   (the audit bar).
-- **`to-be/` is authored.** The target architecture and each mapping decision are authored
-  pages whose frontmatter cites the as-is evidence they assumed ("module X writes only table
-  A") and carries watch rules on the entities they map.
+- **`to-be/` is mostly compiled too.** The future state is *attested*: workshop minutes,
+  decision registers, and ratified design documents assert it. "Orders flow through the new
+  ESB from Q3" is a claim like any other, carried by the Work pack's `Decision` entities
+  (registries §4 — a decision is a fact that holds until reversed) and future-dated validity
+  windows (D41 intervals are just windows; nothing requires them to be past). A later workshop
+  revising a decision is **ordinary supersession** — "what was the standing decision on X as
+  of March?" is an as-of query — and the to-be pages recompile as decisions move. This is why
+  the most-important-to-track content belongs on the compiled side: *tracking is what compiled
+  pages do.* The authored-only alternative fails visibly: fifteen workshops in, an authored
+  target-architecture doc drowns in review flags while someone manually merges every change.
+- **Only the drafting front is authored.** The target design *being written* — commitments no
+  source attests yet — is an authored page citing the as-is evidence it stands on, with watch
+  rules on the entities it maps.
+- **The promotion loop** closes the two: **draft** (authored) → **ratify** → **ingest the
+  ratified document as a source** (D42 stamps it system-originated, so it never inflates
+  external evidence counts) → its statements become claims / `Decision` entities / future-dated
+  relations → the compiled `to-be/` pages **absorb it automatically** → the draft page is
+  retired or handed over (`convert_kind`, §4). Authored is the *workbench*; compiled is the
+  *record*.
 - **The ground shifts**: a late workshop note yields the claim "module X *also* writes table
-  B." Plane E records it; routing marks the module X page stale (recompiled next window) —
-  and the watch rule on the to-be mapping page raises a **review flag**: *a decision on this
-  page rests on evidence that changed.* The as-is stays current automatically; the to-be is
-  never silently rewritten and never silently wrong.
+  B." Plane E records it; routing marks the module X as-is page and the affected compiled
+  to-be pages stale (recompiled next window) — and any still-authored draft citing the old
+  fact gets a **review flag** routed to its author (in these deployments, the operating
+  agent): *a commitment on this page rests on evidence that changed.* Nothing is silently
+  rewritten and nothing goes silently stale.
+- **Structure without a human.** The scope's tree (an `as-is/` subtree mirroring the system
+  landscape; a `to-be/` decision-log + target-architecture layout) is planner-maintained
+  state, seeded and periodically challenged by the reflection/reviewer agent (§7) — recorded
+  plan decisions end to end; the human appears only in the audit trail.
 
 ## 10. Deletion and hard-forget
 
@@ -432,7 +478,7 @@ The deletion cascade (requirements; E0 §2) reaches plane K mechanically through
   paths' history, e.g. `git filter-repo`, plus the same treatment for the repo's backups),
   scoped by the citation index to exactly the pages that ever cited the forgotten source.
   Authored pages that cited it are flagged for the author to redact — the system must not
-  rewrite human words, even to forget.
+  rewrite an author's words, even to forget.
 
 ## 11. Consequences, residuals, and spikes
 
@@ -469,6 +515,10 @@ structurally (one committer, disjoint writes, DAG order).
    budgets; shared-model-page recompile blast radius).
 6. Git-history erasure mechanics for hard-forget (filter-repo on a living repo + backup
    rotation) — coordinates with the end-to-end forget item (`questions.md` #24).
+7. **Future-state extraction** for migration-style scopes (§9): decision-language →
+   `Decision` entities + future-dated D41 windows, and how planned flows normalize
+   (future-dated `uses`/`depends_on` relations vs Decision-mediated) — measure on a corpus
+   slice; gates how much of a `to-be/` subtree can be compiled.
 
 ## References
 
