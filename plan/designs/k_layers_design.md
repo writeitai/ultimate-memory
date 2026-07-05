@@ -249,7 +249,9 @@ everything; "is anything stale?" is one deterministic computation. Stale ≠ wro
 "compiled from inputs that are no longer current"; what the new text *says* is entirely the
 writer's judgment. Stale also ≠ instant recompile: plane K stays debounced (D12) — stale pages
 accumulate and compile on the window. For **authored** pages, causes 1–3 produce the review
-flag instead (D46).
+flag instead (D46). *(These are the evidence-side causes only; the complete trigger taxonomy —
+sidecar edits, version bumps, DAG propagation, the manual override, and the authored-side
+channels — is consolidated in "Triggering end to end" at the end of this section.)*
 
 Every compiled page carries a machine-written provenance footer (compiled-at, evidence as-of,
 citation count) — the per-page freshness metadata that mixed-freshness reasoning
@@ -363,6 +365,132 @@ system boundary, which is what keeps the system reusable across deployments.
 scoped out pending an agent-operations deployment — which is now a named target. D42's origin
 capture is unchanged; the other items D42 listed — operational-state scopes,
 decision↔evidence-snapshot links — remain non-goals here.)*
+
+### Triggering end to end — compiled vs authored, compared
+
+This subsection consolidates the complete trigger story in one place, because the deepest
+asymmetry in the whole design lives here: **for a compiled page, a trigger produces an
+*action* (the system regenerates the body it owns); for an authored page, a trigger produces
+*information* (the system notifies an owner it has no authority over).** Same routing front
+end, different rights on the far side. An implementer should be able to build the driver's
+trigger handling from this subsection alone.
+
+**The shared front end (three steps, both kinds).**
+
+1. **Events.** Plane-E workers *push*; plane K never polls. As adjudication and writes
+   complete, workers emit `knowledge_refresh_queue` rows: `evidence_changed` (new
+   relations/observations/claims; windows capped by supersession; invalidations;
+   contradiction groups opened — changed IDs in the payload), `community_changed` (after a
+   D11 writeback), `tombstone` (deletions, §10).
+2. **Debounce.** Events accumulate; the driver runs on the D12 window ("N items or T
+   minutes"), never per event. Each cycle *also* begins with a git pull — the **second
+   trigger source**: human/agent commits (sidecar edits, authored-page updates, new authored
+   pages) enter the system here, and quarantines (§4) are detected here.
+3. **Route (all SQL, zero LLM).** Changed evidence already carries its labels — plane E
+   resolved entities, predicates, communities, and document metadata before anything reached
+   this queue — so routing is two indexed lookups: the **rule-key index**
+   (`knowledge_rule_keys`), which catches *new* evidence matching a declared interest, and the
+   **citation reverse-lookup** (`knowledge_artifact_evidence`), which catches state changes to
+   evidence a page already *used* (this second path matters: a page must learn its ground
+   moved even if the planner has since changed its rules). Derived-membership rules
+   (`entity_subtree`, `community`) get their key sets re-materialized when their inputs change.
+   Routing's output is a set of *(owner, matched delta)* pairs; from here the two kinds
+   diverge.
+
+**Compiled pages — the full trigger taxonomy: eight ways to change one hash, plus one
+override.** Every update path for a compiled page reduces to the single mechanical test of
+§5 ("Staleness"): *did the recomputed `inputs_hash` change?* The taxonomy below generalizes
+the three evidence-side causes listed there — it is exhaustive, and each row is just a
+different way to move the same hash:
+
+| # | Trigger | Enters via | What changed in `inputs_hash` |
+|---|---|---|---|
+| 1 | new evidence matches the page's rules | rule-key lookup | candidate ID set grew |
+| 2 | cited/candidate evidence changed state (window capped, invalidated, contradiction opened) | citation reverse-lookup | a validity fingerprint |
+| 3 | cited evidence deleted | tombstone event | candidate ID set shrank |
+| 4 | a child page's summary changed | DAG propagation (after children compile) | a child-summary hash |
+| 5 | the scope's shared model page changed | DAG propagation (scope-wide) | the model-page hash |
+| 6 | curation sidecar edited | git pull | the sidecar hash |
+| 7 | writer prompt/model version bump | version config | the version component |
+| 8 | routing rule adjusted | plan decision | the rule configuration |
+| 9 | manual | queue row (`manual`) | — none; an explicit **override** of the hash test, for operational use |
+
+Consequence — always the same, and only one: `status='stale'`, wait for the cycle, recompile
+in DAG order (shared model page first, then leaves → parents → root index, once), the driver
+re-renders the deterministic fact-sheet band, the writer rewrites the prose band, citations
+are replaced, the hash is updated. Properties an implementer must preserve:
+
+- **Stale ≠ instant.** Staleness is a state, recompilation is a batch; the debounce window is
+  the cost model. Marking stale is cheap and immediate; compiling is deliberate.
+- **Failure is safe.** A failed writer job leaves the previous, internally-consistent version
+  serving (still marked stale); retried next cycle, dead-lettered per D12. There is no
+  partial-page state, ever.
+- **Reads never trigger.** No query, browse, or hydration has side effects on plane K. All
+  triggering originates from writes (plane E events, git commits, plan decisions) — this is
+  what keeps the retrieval path zero-LLM and side-effect-free (D9).
+- **The belief-tier exception.** Belief pages (§8) ignore `debounce_timer` entirely — they
+  recompile *only* on evidence-set changes. That is the mechanical meaning of "updates only on
+  evidence, resistant to drift."
+
+**Authored pages — four channels in, notification out.** An authored page has no
+`inputs_hash` and no staleness: the system cannot know whether its *content* is outdated,
+because the content is judgment. What the system knows is whether the page's **declared
+ground** moved. Four channels, each resolving to a notification:
+
+1. **Citations** (`cites:` frontmatter) — *"what I stood on."* Cited evidence changing state
+   raises an `authored_review` flag carrying the delta: a commitment on this page rests on
+   evidence that changed.
+2. **Watch rules** (`watch:` evidence keys) — *"what I care about going forward."* Catches
+   **new** evidence the page never cited: the gap analysis wants to hear about a new interface
+   on module X even though it never referenced it. Citations look backward at premises;
+   watches look forward at interests — a page usually needs both.
+3. **Page watches** (`watch: page:<path>`) — *"the compiled record I judge."* When the watched
+   compiled page recompiles, the flag carries **that compile's citation delta** (added /
+   removed / invalidated — the transcript computes it anyway), so the author sees exactly what
+   moved under the record, not merely that it moved.
+4. **Tombstone / hard-forget** (§10) — cited evidence being erased produces a **redaction
+   flag** with a duty attached: the author must act, because the system never rewrites an
+   author's words, even to forget.
+
+Then the **delivery fork**: each flag either *queues* for the author, or — where a dispatch
+subscription is bound — the driver *invokes* the owning agent's workflow (debounced per
+subscription, delta-carrying payload). The receiving workflow reads the delta plus the
+compiled context, revises the authored page, and commits; the driver's next pull syncs the
+updated frontmatter, and the flag resolves. That is the entire "colleagues keep the gap
+analysis current" loop with agents as the colleagues.
+
+**The asymmetries, side by side** — these four lines are the design's trigger semantics in
+miniature:
+
+| | Compiled | Authored |
+|---|---|---|
+| system's right | owns the body → **regenerates** | informs the owner → **notifies** |
+| coverage comes from | **computed** (the rule's candidate set is exhaustive by construction) | **declared** (only as good as `cites:` + `watch:`) |
+| on deletion | heals itself (recompiles without the evidence) | acquires a duty (redaction flag) |
+| failure mode | stale-but-consistent page | unread flag |
+
+**Acyclicity — why trigger loops cannot form.** Triggers flow one way: plane E → compiled
+pages → authored pages. A compiled page can never depend on an authored page's content
+(writers compile from E-plane evidence and child *compiled* summaries only), and the only
+path from authored content back to plane E is **explicit ingestion** (the §9 promotion loop,
+D42-stamped). So runaway ping-pong — a recompile flagging an author whose edit re-triggers
+the recompile — is structurally impossible, not merely debounced away. Implementers should
+treat "compiled never consumes authored" as an invariant, not a convention.
+
+**Two mechanical guards this analysis adds:**
+
+- **The declaration lint.** An authored page with zero citations *and* zero watches is
+  invisible to every channel above — it will go silently stale, which is the exact disease
+  this plane exists to cure. The driver therefore raises a standing review item on any such
+  page at frontmatter-sync time: *"this page has declared no ground — it can never be
+  alerted."* Cheap, mechanical, catches the failure at creation.
+- **Reader-facing flag visibility.** Open flags reach the *author* (queue or dispatch), but a
+  *reader* — an agent loading the to-be before acting on it — must also be able to see "this
+  page has N unresolved evidence-change flags," or agents will plan against commitments the
+  system already knows are shaky. The body is untouchable (D46) but the flag state is
+  queryable; it must surface on at least one read path — the P3 `_index.md`, the retrieval
+  API's page metadata, and/or a driver-owned status sidecar. Which surface(s) is an open
+  choice (§11 spike 9); *that* it surfaces is design.
 
 ## 6. The compile cycle
 
@@ -576,6 +704,10 @@ structurally (one committer, disjoint writes, DAG order).
 8. **Dispatch semantics** (§5): per-subscription debounce windows, payload size caps,
    at-least-once delivery + consumer idempotency, dead-letter policy for failing subscriber
    workflows — measure with the first agent-operated scope.
+9. **Reader-facing flag surface** (§5, triggering): where an authored page's open-flag state
+   surfaces to *readers* — P3 `_index.md`, retrieval API page metadata, and/or a driver-owned
+   status sidecar. That it surfaces is design; which surface(s) is the open choice — decide
+   with the retrieval design (`retrieval_design.md`, planned).
 
 ## References
 
