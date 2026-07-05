@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D47).
+- **`decisions.md`** — what *is* decided (D1–D51).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -38,10 +38,12 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 **Operations**
 7. **PageIndex: hosted API or self-hosted?** Affects cost, privacy, and the E0 rebuild story (D39).
-8. **Security / access model (cross-cutting).** Bigger than retrieval auth: per-deployment IAM and
-   GCS bucket access, **mounted-filesystem authorization** for agents (E0 read-only mounts), filtered
-   P2/P3 snapshots for access-sensitive scopes (D16), raw-bucket audit access, and retrieval API auth
-   (keys/OAuth vs. trusted-infra agents). Blocks the retrieval design (§3).
+8. **Security / access model — trust model decided; only deployment ops remain.** Decided
+   (D50/D51): **content-level authorization and per-user scoping are library non-goals** — a
+   deployment is one trust domain; isolation = separate deployments; perimeter security is
+   deployment infrastructure; the raw mount requires data-access audit logging. Remaining
+   (ops, not design): per-deployment IAM layout and key management, API perimeter auth
+   mechanics (keys/OAuth vs. trusted-infra), audit-log review cadence.
 9. **Postgres HA appetite** — single Hetzner box + PITR, or a replica? Acceptable spine downtime?
 10. **Observability stack** — OpenTelemetry + Grafana vs. GCP-native; decide before the first worker.
 11. **Backfill / reprocessing orchestration.** E0 artifacts and extraction are version-stamped
@@ -71,11 +73,13 @@ Keep this current: when something here is decided, move it to a decision and pru
     sessions, merge retry, hot-file delays) is removed, not mitigated. Remaining K items: the
     spikes in `k_layers_design.md` §11 (rule-kind coverage, planner blast-radius bands, writer
     completeness eval, compile-cycle economics, git-history erasure) and #5/#6 above.
-16. **Retrieval (`retrieval_design.md`) — the consumer surface.** D9 gives the shape (RRF, rerankers,
-    recipes, zero-LLM path); the *API contract* asserts `as_of` (overall §6) and P2 supports it
-    (p2_graph §4) — but unwritten: how API/CLI/MCP compose with the **mounted-FS** (whose mechanics
-    *do* exist in E0 §5) into retrieval recipes, the cross-plane entry→expand→hydrate orchestration
-    across P1/PG/P2/P3, and **mixed-freshness** reasoning (§4).
+16. ~~**Retrieval — the consumer surface.**~~ **RESOLVED (D48–D51)** — `retrieval_design.md` is
+    written, driven by the S1–S61 scenario battery (`plan/analysis/retrieval_scenarios.md`):
+    zero-LLM primitives + registry recipes, the response envelope (grain / contradictions /
+    freshness / typed negatives), propose-dispose hydration, four mounts + filesystem-first
+    precedence, the consumption skill. Remaining retrieval items: the spikes in
+    `retrieval_design.md` §13 (Lance scale, hub pagination, rerank weights, envelope overhead,
+    the S58 cold-agent protocol) and the deployment-security slice of #8.
 17. **Spine schema (`postgres_schema_design.md`).** ~15 tables are sketched across separate decisions
     with no consolidated schema, FK map, indexes (only D23, registry-only), constraints, partitioning
     (only the 3 big tables), or migration convention. Mostly consolidation, not new invention.
@@ -104,8 +108,10 @@ Keep this current: when something here is decided, move it to a decision and pru
     (`k_layers_design.md` §7/§11), not emergent session behavior.
 22. **Cross-document coreference** — "the CEO" referring to an entity introduced in *another* document
     falls between intra-doc coref and named-mention ER. An unowned recall hole.
-23. **Mixed-freshness retrieval** — Postgres is live, P2 graph is hours stale, K is debounced; a
-    consumer needs to reason about this. Unspecified (folds into #16).
+23. ~~**Mixed-freshness retrieval**~~ **RESOLVED (D48/D49)** — projections only *nominate*;
+    every result is re-verified by-ID against live Postgres at hydration (staleness costs
+    recall, never correctness), and the envelope stamps freshness per contributing source (PG
+    live / P1 lag / P2 snapshot ts / K compiled_at + flags). See `retrieval_design.md` §2/§5.
 24. **End-to-end hard delete / GDPR.** E0 §2 covers raw+artifact+Postgres-row deletion, and the
     **K side is now mechanical** (D45/D46: citation reverse-lookup → compiled pages recompile
     without the evidence, authored pages get author-redaction flags; residual: **K-repo
@@ -115,12 +121,11 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 ## 5. Concrete inconsistencies to fix
 
-25. **P3 ↔ K: docs disagree on whether K is a structural input.** D40 / `overall_design.md` §5 /
-    `requirements_v3.md` say P3 is built "from … entities/relations + the K-plane structure"; but
-    `e0_files_design.md` §6 says P3 is **Postgres-anchored** and only **cross-links** to K (K is *not*
-    a structural input). Pick one. (If K is an input, P3 inherits O4's non-reproducibility and
-    deletion-manifest burden; the cross-link-only model is cleaner — then D40/overall/requirements
-    need updating to match.)
+25. ~~**P3 ↔ K: docs disagree on whether K is a structural input.**~~ **RESOLVED** — the
+    cross-link-only model is adopted everywhere: K is never a structural input to P3 (P3 stays
+    rebuildable from the E spine + artifacts). D40 carries a refinement note;
+    `overall_design.md` §5 and `requirements_v3.md` §Plane P updated to match
+    `e0_files_design.md` §6.
 26. **D23 vs D25: gated vs. full extraction volume.** D25 re-stamped the three 10⁸ tables to **full
     extraction** sizing when the value gate was dropped (and `registries_design.md` agrees), but **D23
     still says** "row counts are contingent on the value gate — size against *gated* volume." Update

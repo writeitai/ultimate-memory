@@ -750,10 +750,11 @@ structurally (one committer, disjoint writes, DAG order).
 8. **Dispatch semantics** (§5): per-subscription debounce windows, payload size caps,
    at-least-once delivery + consumer idempotency, dead-letter policy for failing subscriber
    workflows — measure with the first agent-operated scope.
-9. **Reader-facing flag surface** (§5, triggering): where an authored page's open-flag state
-   surfaces to *readers* — P3 `_index.md`, retrieval API page metadata, and/or a driver-owned
-   status sidecar. That it surfaces is design; which surface(s) is the open choice — decide
-   with the retrieval design (`retrieval_design.md`, planned).
+9. ~~**Reader-facing flag surface**~~ **RESOLVED (D49)** — two surfaces: the retrieval
+   **response envelope** carries each consumed K page's `compiled_at` + staleness + open-flag
+   count, and P3's generated `_index.md` mirrors the same per page for the browse path. The
+   status-sidecar option is dropped (a second mutable state to keep honest, for no third
+   consumption mode). See `retrieval_design.md` §5.
 
 ## References
 

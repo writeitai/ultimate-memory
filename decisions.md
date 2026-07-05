@@ -352,6 +352,13 @@ one deployment only — separate deployments (assistant, agency, client projects
 independent instances with separate entity spaces (`registries_design.md` §1, deployment
 model).
 
+**Refined by D50 (trust model).** The access-isolation arm ("filtered snapshots + API-level
+authorization" for sensitive scopes) is withdrawn as *access control*: content-level
+authorization inside a deployment is a library non-goal — a deployment is one trust domain,
+and data with a different trust boundary belongs in a **separate deployment** (this decision's
+own last sentence, promoted to the isolation mechanism). Filtered snapshots remain as the
+scope-view / performance tool of arm (3).
+
 ---
 
 > **D17–D30 provenance.** D17–D24 formalize the entity-registry research
@@ -678,6 +685,12 @@ for E1). Operational complexity is handled by decomposition, not numbering.
 
 ## D37. E0 storage split — GCS holds bodies, Postgres holds the index; ID-addressed; mount-ready
 
+> **Refined by D51.** The raw bucket's "never mounted" arm is reversed: raw is now mounted
+> read-only but **off the navigation path** (explicit pointers only), with mandatory data-access
+> audit logging and mime-routed storage classes (so "cold" is no longer blanket). The storage
+> split, ID-addressing, and Postgres-metadata rules below are unchanged. Rationale in D51 and
+> `e0_files_design.md` §2/§5.
+
 **Decision.** Two GCS buckets per deployment: a **raw** bucket (immutable originals, cold, strict
 IAM, **never mounted**) and an **artifacts** bucket (Markdown + `pageindex.json` + conversion
 sidecars, standard storage, reachable from the mounted corpus filesystem). Canonical objects are
@@ -745,6 +758,13 @@ a mounted bucket tree" design.
 **Consequences.** Agents browse a stable, navigable hierarchy and drill into raw sources; the tree
 reorganizes as the corpus grows without touching truth (placement hints are inputs). New projection in
 plane P alongside P1 (search) and P2 (graph).
+
+**Refined (P3↔K reconciliation — closes `questions.md` #25).** The phrase "+ the K-plane
+structure" above is corrected: **K is a cross-link, not a structural input** — P3's *shape* is
+built from Postgres (placement hints, entities/relations) + the E0 artifacts only, per the
+binding `e0_files_design.md` §6. This keeps P3 rebuildable from the E spine (it does not
+inherit the K repo's source-of-truth burden or its deletion-manifest reach); P3 `_index.md`
+files and K pages link to each other, in both directions, as consumers — never as inputs.
 
 ---
 
@@ -822,14 +842,16 @@ and external assertions are indistinguishable. The motivating case is a closed a
 the system's own outputs are re-ingested: without an origin stamp, an agent's own assertions inflate
 `evidence_count` (D2) and entrench beliefs (K3) as if independently corroborated — a silent
 self-confirmation loop that corrupts the corpus's headline confidence signal. This is the one piece of
-that scenario with a **capture-now-or-lose-it** asymmetry; everything else it raises (operational-state
-scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) is additive later and is
-**deliberately deferred** until an agent-operations loop is actually built.
+that scenario with a **capture-now-or-lose-it** asymmetry; everything else it raises
+(operational-state scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) is
+additive — a **documented scope boundary** whose admission condition is an agent-operations
+deployment actually existing, not a phase marker.
 
 **Consequences.** A small, mandatory E0 metadata field (extensible to richer origin classes and
 per-action lineage grouping when needed). The intended first consumer — confidence/belief math that
 counts *independent external* evidence rather than raw `evidence_count`, discounting self-generated
-echoes — is a **documented non-goal for now**, unblocked by this capture. No change to D2/D3/D6.
+echoes — is a **documented non-goal** (a scope boundary with a named admission condition: build it
+when belief math is designed, unblocked by this capture). No change to D2/D3/D6.
 
 **Refined by D45–D47 (the K trigger surface).** One of the deferred items — the **E→K
 signal/interrupt channel** — is now designed, its condition met (an agent-operated deployment is a
@@ -837,8 +859,8 @@ named target): routing-rule **subscriptions** with a **dispatch** consequence in
 agentic workflows with debounced, delta-carrying payloads; page-level watches serve authored
 consumers (`k_layers_design.md` §5). Origin capture itself is unchanged, and it is what keeps the
 resulting loop non-circular — a re-ingested plan is stamped system-generated and never counts as
-independent external evidence. The other deferred items (operational-state scopes,
-decision↔evidence-snapshot links) remain non-goals.
+independent external evidence. The other boundary items (operational-state scopes,
+decision↔evidence-snapshot links) remain documented non-goals.
 
 ---
 
@@ -1066,3 +1088,157 @@ rename, drop, or invent scopes and tiers freely. What is *not* configurable is t
 contract: page kinds + ownership (D46), binding citations (D45), the single automated committer,
 and the trigger surface's acyclicity ("knowledge structure is configuration, not machinery" —
 the D15 principle one plane up; `k_layers_design.md` §2).
+
+---
+
+> **D48–D51 provenance.** D48–D51 formalize the retrieval design (July 2026), driven by the
+> scenario battery (`plan/analysis/retrieval_scenarios.md`, S1–S59 — written first, per the
+> review's F4: validate the query surface against concrete consumer questions before it
+> hardens). Binding design: `plan/designs/retrieval_design.md`. Numbers are placeholders to be
+> measured (CLAUDE.md).
+
+## D48. Projections propose, the spine disposes — hydration re-verifies against live Postgres
+
+**Decision.** Every **query-engine result** (API / CLI / MCP) passes through **by-ID hydration
+against live Postgres** before reaching a caller; the fast entry channels (P1 Lance, the P2
+snapshot) only **nominate candidates**. Hydration re-reads validity windows, invalidation
+state, and contradiction membership from the spine; candidates the spine no longer holds live
+are dropped, and the drop count is reported in the response envelope. **Compound results
+revalidate as units** (a graph path with one invalidated edge drops whole — never returned
+with a hole, never silently re-routed). Two surfaces are explicitly *outside* the invariant:
+**mounted reads** (snapshot reads by construction — covered by visible freshness metadata +
+the skill's verify-on-spine motion, D51) and **K prose** (re-checking a page's cited IDs
+detects staleness but cannot repair a stale synthesis — K answers are always compiled-grain
+with freshness state, never live-confirmed belief).
+
+**Context.** Every entry channel is a projection with lag (P1 write-behind, P2 an hours-old
+snapshot per D7, K debounced). Without a single confirmation point, mixed freshness
+(`questions.md` #23) forces every consumer to reason about three store ages — or worse, serves a
+superseded fact as current (the zombie-fact class D3 exists to kill). With the rule, staleness
+can only cost **recall** (bounded by projection cadence, reported per source), never
+**correctness** (live, always). The rule also aligns with the physical topology for free:
+entry/expansion run on local replicas (Lance datasets + the P2 snapshot on the API node's disk);
+the one cross-cloud hop is the batched by-ID hydration that enforces the invariant.
+
+**Consequences.** Mixed-freshness reasoning becomes data (per-source freshness stamps in the
+envelope, D49) instead of consumer folklore. Projections stay dumb and rebuildable (D6/D7
+untouched). The nominate-then-drop artifact is surfaced honestly. Hydration depth is progressive
+(record → evidence → sources → bytes), so the confirmation hop doubles as the provenance walk.
+
+## D49. The response envelope: grain type-discipline, inline contradictions, typed negatives, freshness stamps
+
+**Decision.** Every retrieval response is an **envelope** carrying, besides results: the
+**grain** (`belief` / `evidence` / `compiled` / `composite` — declared by every primitive and
+recipe, enforced at composition: current-belief answers may be assembled only from
+validity-filtered relations/observations; claims never answer "is it true now" — D41's bar made
+mechanical; a `composite` answer is `parts[]`, each part strictly single-grain, so mixed
+answers like S47's said-vs-believe pair never dilute the discipline); **contradiction
+co-members never silently absent** (inline up to a guaranteed cap; beyond it the block always
+carries `group_id` + returned/total + a continuation — one-sided answers are a **contract
+violation**, not a ranking choice); **per-source freshness stamps** (PG live; P1 write lag; P2
+snapshot timestamp; K `compiled_at` + staleness + open-flag count — the K block is the
+reader-facing flag surface `k_layers_design.md` §11 spike 9 called for, and P3's `_index.md`
+mirrors it for the browse path) **including each channel's `believed_at` horizon** (the hot P2
+snapshot retains retracted edges only within a window — out-of-horizon transaction-time
+queries get a typed `boundary` naming the fallback: PG traversal or an archived snapshot);
+**explicit truncation markers** with continuations (no silent caps — hub answers are ranked
+pages, never a quiet top-k, never a timeout); the applied temporal parameters echoed in
+composition-ready form (`valid_at` / `believed_at` + the **identity regime** — resolution
+follows *current* aliases/merge-redirects by default; pre-merge identity reconstruction is the
+explicit transcript-based `identity_as_of` recipe over D21's `resolution_decisions` /
+`merge_events`, and the envelope states which regime answered); and a **typed negative
+taxonomy**: `unknown_entity` / `known_empty` / `boundary` (named limitation + workaround —
+e.g. the D43 cross-entity numeric-scan boundary) / forgotten ≡ never-existed (not a kind —
+indistinguishability is the requirement; as a CI gate it activates only when the end-to-end
+deletion cascade, `questions.md` #24, is designed). There is deliberately no `denied` kind:
+content-level authorization is out of library scope (D50 trust model).
+
+**Context.** The callers are agents that must *reason about* answers, not just receive them; and
+the requirements make three read-path properties non-negotiable: the claim/relation temporal
+split explicit, contradictions surfaced never resolved, hard-forget indistinguishable from
+absence. A taxonomy of "no" cannot be retrofitted onto a deployed API. Mixed-grain answers
+("everything Alice *said* + what we *believe*", S47) stay honest only if the grain travels with
+the data as a type, not a doc-comment.
+
+**Consequences.** Contract tests become CI (grain truthfulness, co-member completeness,
+truncation marking, forgotten≡never-existed). Agents plan against freshness and
+flag counts instead of guessing. Envelope size on hub answers is a named spike.
+
+## D50. Query capability = composable zero-LLM primitives; recipes are registry data
+
+**Decision.** The query machine is **primitives + recipes + surfaces**. Primitives are typed,
+orthogonal, side-effect-free, zero-LLM operations: `resolve` (the registry's non-LLM tiers
+T0–T3 — exact, trigram, phonetic, embedding; no T4 adjudication on the hot path; ranked
+candidates, never a silent guess; current identities with merge-redirects disclosed), `lookup`,
+`search` (channel × target), `graph`,
+`fuse` (RRF as an explicit operator), `rerank` (graph-distance / evidence-count / flagged
+cross-encoder), `hydrate` (progressive depth), `transcript` (the audit trail as a query),
+`delta`, `pages_about` (the K rule-key index read backwards — the reader's discovery index),
+enumerated `aggregate` forms, and streaming `scan` (the batch surface, separate resource pool).
+**Recipes are registry rows, not code** (the D5/D15/D45 move): declared compositions with
+name / description / typed parameters / a typed primitive chain / **`output_grain`** and
+**`answer_intent`** enums / version — so the linter enforces grain semantics **mechanically on
+the enums** at registration (`answer_intent = current_belief` requires `output_grain = belief`
+over validity-filtered belief primitives; prose-name checks are advisory only), the eval
+harness measures recall@k per recipe, and **MCP tools render from the registry** the way
+extraction prompts render from the ontology. Recipes add
+convenience, never capability (testable: each recipe replays as its primitive chain and diffs
+empty). **Non-goal:** any NL→query-plan compiler on the query path — the callers are agents;
+the intelligence lives in the caller (D9 taken to its conclusion).
+
+**Context.** The zero-LLM rule means the system cannot be smart at query time; it must be
+composable, self-describing, and honest instead. Registry-declared recipes are how the
+query-plan vocabulary evolves by governance rather than code accretion, and how three surfaces
+(API/CLI/MCP) stay automatically consistent. `aggregate` is enumerated because an unbounded
+ad-hoc GROUP BY over 10⁸ rows is a denial-of-service against the spine; `scan` is the escape
+hatch.
+
+**Consequences.** Adding a query pattern = inserting a registry row. Temporal composition needs
+no machinery beyond D49's parameter echo. **Trust model — content-level authorization and
+per-user scoping are library non-goals**: a deployment is one trust domain (every agent that
+reaches it is trusted with all of it); isolation is achieved by **deployment separation** —
+the deployment model's own mechanism (registries §1) — never by content filtering inside one
+deployment (which would have to hold across every channel at once; mounts cannot
+query-time-filter, so it degenerates to a deployment inside a deployment). Perimeter security
+(who reaches the API/mounts) is deployment infrastructure. D16's filtered snapshots remain a
+scope-view/performance tool, no longer carried as access control. (Refines D16's
+access-isolation arm; `retrieval_design.md` §9.)
+
+## D51. Consumption is filesystem-first for agent harnesses; four read-only mounts (raw included, off-path); a consumption skill ships with the system
+
+**Decision.** The primary consumers are **agentic coding harnesses** (Claude Code, Codex,
+OpenCode). Four surfaces mount read-only where the environment allows: **P3** (navigate first),
+**E0 artifacts** (Markdown + structure + *derived* media — figures, thumbnails, transcripts),
+**E0 raw originals** — mounted but **off the navigation path**: reached only via explicit
+pointers from P3 stubs / `document.md` frontmatter, for whole-file media ingestion (video /
+audio / photos — conversion is lossy exactly there), with **mandatory data-access audit
+logging** and **mime-routed storage classes** (agent-readable media → standard/nearline;
+audit-only originals → archive) — reversing D37's never-mounted arm while keeping its storage
+split — and the **K repo** (read-only checkout). **Precedence rule:** full mount/API parity is
+required (some environments cannot mount; API/CLI then carry everything, including byte fetches
+by artifact handle); when mounts are available, agents are instructed to prefer the filesystem
+for everything a filesystem can do (navigate, read, grep) and reserve API/CLI for what has no
+filesystem equivalent (semantic search, graph traversal, as-of, hydration, transcripts, deltas).
+The system ships a **consumption skill** — versioned with the system, partially rendered per
+deployment (scopes, mounts, enabled recipes differ) — teaching a cold agent the planes, the
+grains (and why `claims_as_of` never answers "is it true now"), contradiction and freshness
+semantics, the mount layout, the precedence rule, and the orient(K) → verify(spine) →
+audit(evidence) motion. Scenario **S58** — a never-seen harness using the memory correctly from
+the skill alone — is the skill's acceptance test, run per revision.
+
+**Context.** Harnesses are exceptionally good at filesystem work; mounted trees cost the serving
+stack nothing and fit how harnesses already operate. The raw-mount reversal: the old rule's
+audit property came from *logging*, not unmountedness (a gcsfuse read is a GCS read under Cloud
+Audit Logs); its Markdown-first intent is a *navigation* property (promotion ≠ reachability);
+its real cost was archive-class retrieval fees — solved by routing storage class per mime, not
+by denying access. For whole-file media the original **is** the artifact: duplicating a 2 GB
+video into the artifacts bucket would be pure waste, and a transcript is precisely the lossy
+rendering a multimodal agent needs to bypass. The skill is the D15 registry-renders-the-prompt
+move aimed at consumers: the system must be usable well with zero human explanation.
+
+**Consequences.** `media/` in artifacts holds only *derived* media; whole-file originals serve
+from the raw mount. E0 gains a storage-class routing spike. EXIF / embedded-metadata exposure
+via raw is accepted under per-deployment IAM — the deployment is one trust domain (D50); data
+with a different trust boundary belongs in a separate deployment, never behind an in-library
+filter. The skill joins the eval surface (S58). Requirements §Retrieval is reframed around
+harness-first consumption.
