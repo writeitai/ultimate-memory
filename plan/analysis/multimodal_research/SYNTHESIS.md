@@ -6,9 +6,10 @@ Combines three **independent** analyses of the same brief (`question_brief.md`):
   docling / MinerU / ColPali / PySceneDetect / whisperX → six web-research threads → six ugm
   design-fit answers `design_fit/F1–F6` → three adversarial verification passes
   `verify/{numbers_facts,invariant_coherence,completeness}.md`) reconciled into one binding-quality
-  spec. **This is the deepest document; read it for the full design and the D45–D56 decision text.**
+  spec. **This is the deepest document; read it for the full design and the D48–D59 decision text.**
 - **`external_agents/codex_architecture.md`** — Codex (`gpt-5.5`) answering the eight design-fit
-  questions against the repo. Independent verdict, proposed D45–D52.
+  questions against the repo. Independent verdict, proposed D45–D52 (its own archived numbering —
+  see the numbering note below).
 - **`external_agents/codex_landscape.md`** — Codex (`gpt-5.5`) producing the 2026 model/tool/cost
   landscape (image VLMs, document parsers, visual retrieval, multimodal embeddings, ASR, video
   understanding, scene detection, OCR), with a cost-ordered pipeline.
@@ -62,16 +63,16 @@ quietly destroy the auditability that makes D32 the strongest part of the system
    store (the documented Mem0/Graphiti desync class) and make supersession ungovernable.
 
 2. **The grounding locator generalizes from a char-offset to a polymorphic tagged union**
-   `text(char_span) | image(page,bbox) | av(t_start,t_end[,speaker,keyframe])` (D32 → D47). The
+   `text(char_span) | image(page,bbox) | av(t_start,t_end[,speaker,keyframe])` (D32 → D50). The
    char-offset floor is *kept* (it is what keeps E1 chunking and E2 grounding modality-blind); the
    native locator is additive provenance. Verification gains a deterministic *locator-resolves*
    layer (the model cannot invent a region/frame/time that does not exist).
 
 3. **`convert()` generalizes** from `{markdown, blocks[]}` to `{document_markdown, blocks[],
-   structure, manifest}` (D38 → D46), and the **PageIndex gets a temporal sibling, the MediaIndex**:
+   structure, manifest}` (D38 → D49), and the **PageIndex gets a temporal sibling, the MediaIndex**:
    a `chapters → scenes → shots` tree for video (with timecode spans, roles, summaries), the
    structural backbone E1 chunks along and E2 reads — exactly the PageIndex role with time-based
-   locators (D48). An image is the degenerate single-page document; a single standalone image gets a
+   locators (D51). An image is the degenerate single-page document; a single standalone image gets a
    synthetic root.
 
 4. **Cheap-first, with the expensive rung bounded by edits, not seconds (D4).** The media converter
@@ -137,13 +138,13 @@ quietly destroy the auditability that makes D32 the strongest part of the system
   (handwriting/HTR, degraded scans, low-confidence OCR/ASR). It is verbatim-in-its-own-output yet the
   *read itself* is a lossy guess, so it must **not** be allowed to confident-supersede a real value and
   is audited harder. Without it, a hallucinated OCR of a handwritten "$5M" would be anchored as
-  verbatim fact and could overwrite a true one. **Adopt three classes** (D47), with supersession power
+  verbatim fact and could overwrite a true one. **Adopt three classes** (D50), with supersession power
   `transcription > uncertain_transcription > description`.
 
 - **The offset-stability risk (Claude only — the sharpest structural fix).** If VLM captions sat
   *inline* in the markdown that carries char offsets, a single caption re-run (on a `vlm_caption_version`
   bump) would shift the offsets of every later block and silently invalidate the `source_span` of
-  unrelated, fully-deterministic transcription claims. Neither Codex run caught this. The fix (D46):
+  unrelated, fully-deterministic transcription claims. Neither Codex run caught this. The fix (D49):
   **the offset pipeline is the deterministic transcription linearization only; descriptions are a
   block-ID side-channel**, addressed by stable `block_id` + native locator and entering E2 as named
   context — so a caption re-run never churns a transcription claim's anchor.
@@ -159,8 +160,12 @@ quietly destroy the auditability that makes D32 the strongest part of the system
 
 - **Decision numbering.** All six F-docs and Codex each independently numbered from `D45`, so `D45`
   meant *seven* different things across the corpus. The Claude synthesis mints **one reconciled,
-  non-overlapping D45–D56 sequence** that supersedes every per-doc proposal and Codex's D45–D52. Use
-  `claude_analysis.md §4` as the canonical decision text.
+  non-overlapping sequence** that supersedes every per-doc proposal and Codex's D45–D52. It was
+  originally numbered D45–D56; after this analysis was drafted, the K-plane design
+  (`k_layers_design.md`) minted D45–D47 in the canonical log, so the multimodal sequence is
+  renumbered **D48–D59** here and in `claude_analysis.md`. The archived intermediates
+  (`design_fit/`, `external_agents/`, `verify/`) keep their historical D45+ numbers — ignore them
+  when transcribing; use `claude_analysis.md §4` as the canonical decision text.
 
 - **CSAM + C2PA (Claude only — two absent obligations).** Codex-architecture's privacy enum listed
   `child`/`id_document` but F6 dropped them. The completeness critic reinstated two obligations both
@@ -199,7 +204,7 @@ Full spec and schema in `claude_analysis.md §2`; decision text in §4. The shap
    persisted `mediaindex.json` is the scene/chapter tree with a diarized word-timecoded transcript,
    per-scene OCR runs, and per-scene captions.
 
-4. **Grounding (D32 → D47):** every claim keeps `claim_text` + `source_span` (char offsets, unchanged)
+4. **Grounding (D32 → D50):** every claim keeps `claim_text` + `source_span` (char offsets, unchanged)
    + a `native_locator` (a *set*, via a locator child table, when a claim spans e.g. a transcript line
    and an on-screen OCR line). Acceptance gains an L0 *locator-resolves* layer; L1–L4 branch on the
    three provenance classes; "verbatim" is always w.r.t. the converted text, never the signal —
@@ -212,7 +217,7 @@ Full spec and schema in `claude_analysis.md §2`; decision text in §4. The shap
    (OCR "600" vs caption "≈60" vs speaker "six hundred") resolves through the same D43 adjudicator with
    **provenance class as the confidence dial**. Capture time (EXIF/container clock) is an immutable,
    lower-precedence validity *seed* — `content-asserted date > capture time > ingestion time` — not a
-   third clock (D53).
+   third clock (D56).
 
 6. **P1 two-tier visual sub-index:** Tier A always-on single-vector unified-encoder cross-modal
    embedding (Cohere Embed v4 / Voyage multimodal / Jina-CLIP / SigLIP self-host; ~1–4 KB/unit,
@@ -235,29 +240,29 @@ Full spec and schema in `claude_analysis.md §2`; decision text in §4. The shap
    `entity_id` (the registry is the deletion key) and crypto-shreds the per-document key + prunes Lance
    + reaches K via an input-manifest — closing `#24` for text too.
 
-### The reconciled decision set (D45–D56)
+### The reconciled decision set (D48–D59)
 
 One non-overlapping sequence; full text in `claude_analysis.md §4`:
 
 | | Decision | Refines |
 |---|---|---|
-| **D45** | Core choice: transcode-to-text belief; native-media retrieval as a P1 projection; no parallel multimodal evidence track | D2/D3/D6/D43 |
-| **D46** | `convert()` → `{document_markdown, blocks[], structure, manifest}`; offset pipeline = deterministic transcription, descriptions = block-ID side-channel | D38 |
-| **D47** | Polymorphic grounding locator + three provenance classes (transcription / uncertain_transcription / description); the honest faithfulness split | D32, D41, D42, D44 |
-| **D48** | MediaIndex: temporal/structural PageIndex analogue; `document_sections` becomes a polymorphic tree | D39 |
-| **D49** | Fixed, per-stage-versioned cheap-first media cascade; checkpointed resumable long-running `convert`; no learned per-frame value gate | D38, D12/D36, D33, D4/D25 |
-| **D50** | Modality routing matrix (image-class router; GIF/multi-frame/multi-page → video or page-set; long-audio segmentation; embedded child-media; diagram→structure limit; canonical-language policy) | D38/D46 |
-| **D51** | P1 two-tier visual sub-index; embeds redacted pixels; ~20× Tier-B storage on the gated slice | D8/D9 |
-| **D52** | Media facts use the unchanged E2/E3/D41/D43 belief layer over a polymorphic bundle; cross-track contradiction by provenance class; entity resolution text-mediated only | D31, D43, D42, D17 |
-| **D53** | Capture time is an immutable, lower-precedence validity seed | D41 |
-| **D54** | Media privacy: versioned detect/redact + biometric non-storage invariant + CSAM hook + C2PA passthrough; mounting gated on a redaction-recall floor | D36/D37 |
-| **D55** | Subject-level deletion by crypto-shred + Lance prune, keyed on the entity registry; closes `#24`, folds O4 | D37 |
-| **D56** | The one reconciled non-goals list (incl. 3D/spatial media, interactive content, standalone deepfake detection), each with an opt-in alternative | D2/D3/D6/D8/D20/D43/D44 |
+| **D48** | Core choice: transcode-to-text belief; native-media retrieval as a P1 projection; no parallel multimodal evidence track | D2/D3/D6/D43 |
+| **D49** | `convert()` → `{document_markdown, blocks[], structure, manifest}`; offset pipeline = deterministic transcription, descriptions = block-ID side-channel | D38 |
+| **D50** | Polymorphic grounding locator + three provenance classes (transcription / uncertain_transcription / description); the honest faithfulness split | D32, D41, D42, D44 |
+| **D51** | MediaIndex: temporal/structural PageIndex analogue; `document_sections` becomes a polymorphic tree | D39 |
+| **D52** | Fixed, per-stage-versioned cheap-first media cascade; checkpointed resumable long-running `convert`; no learned per-frame value gate | D38, D12/D36, D33, D4/D25 |
+| **D53** | Modality routing matrix (image-class router; GIF/multi-frame/multi-page → video or page-set; long-audio segmentation; embedded child-media; diagram→structure limit; canonical-language policy) | D38/D49 |
+| **D54** | P1 two-tier visual sub-index; embeds redacted pixels; ~20× Tier-B storage on the gated slice | D8/D9 |
+| **D55** | Media facts use the unchanged E2/E3/D41/D43 belief layer over a polymorphic bundle; cross-track contradiction by provenance class; entity resolution text-mediated only | D31, D43, D42, D17 |
+| **D56** | Capture time is an immutable, lower-precedence validity seed | D41 |
+| **D57** | Media privacy: versioned detect/redact + biometric non-storage invariant + CSAM hook + C2PA passthrough; mounting gated on a redaction-recall floor | D36/D37 |
+| **D58** | Subject-level deletion by crypto-shred + Lance prune, keyed on the entity registry; closes `#24`, folds O4 | D37 |
+| **D59** | The one reconciled non-goals list (incl. 3D/spatial media, interactive content, standalone deepfake detection), each with an opt-in alternative | D2/D3/D6/D8/D20/D43/D44 |
 
 Design-doc deltas (which files change and how) are itemized in `claude_analysis.md §5`: the largest
 delta is `e0_files_design.md`; a new **`plan/designs/media_design.md`** owns the cross-cutting media
 spec; `e2_e3_claims_relations_design.md`, `overall_design.md`, `postgres_schema_design.md`,
-`requirements_v3.md`, and `questions.md` get targeted edits; `decisions.md` appends D45–D56 and
+`requirements_v3.md`, and `questions.md` get targeted edits; `decisions.md` appends D48–D59 and
 annotates D32/D38/D41/D42/D43/D12/D36/D33/D44 as refined-in-wording.
 
 ---
@@ -287,7 +292,7 @@ The invariant critic's load-bearing corrections (auditability splits not improve
 ~5–6 KB in Lance; the D12/D36 long-running strain; the D33 replay-discipline extension being *new*) and
 the completeness critic's additions (the third provenance class; the downstream E2/E3 cost; the
 modality-routing gaps; CSAM/C2PA; the offset-coupling and visual-index-as-biometric risks) are **all
-folded into `claude_analysis.md`** and the D45–D56 set.
+folded into `claude_analysis.md`** and the D48–D59 set.
 
 ---
 
@@ -298,26 +303,26 @@ Full list in `claude_analysis.md §6`. The gating spikes:
 1. **Does grounding actually catch VLM-description hallucination on ugm's real image mix?** The whole
    "describe-to-text is safe" claim rests on bbox-anchor + OCR-window-membership + entailment rejecting
    bad captions, and on the description-class offline-audit sample rate being right. Measure on a golden
-   image set; set the per-class rate. *Gates the honesty story (D47).*
+   image set; set the per-class rate. *Gates the honesty story (D50).*
 2. **Does the dual-locator decoupling hold across re-conversion?** Verify the transcription linearization
    is byte-stable at pinned versions, descriptions live purely in the block-ID side-channel, and a
    caption/scene-boundary version bump re-runs only affected E2 calls without churning any transcription
-   claim's `source_span`. *Gates D46/D49.*
+   claim's `source_span`. *Gates D49/D52.*
 3. **Is the three-class supersession rule correct and measurable?** Measure how often a numeric
    observation comes from clean OCR/ASR vs uncertain-transcription vs a model-read chart; confirm the
    adjudicator margin so neither an uncertain nor a description value can confident-supersede a clean
-   one. Includes OCR/ASR WER/CER on the handwriting/degraded slice. *Gates D47/D52.*
+   one. Includes OCR/ASR WER/CER on the handwriting/degraded slice. *Gates D50/D55.*
 4. **Lance multivector latency + the real Tier-B storage at scale** (the load-bearing P1 unknown — no
    published LanceDB-at-scale multivector number exists). Load Tier B for a realistic visually-rich
    slice (pool-3 + fp16, IVF_PQ), measure two-stage P95 vs the Tier-A baseline, confirm ~20× is
-   acceptable. *Decision gate for Lance-vs-Hamming-engine (D51).*
+   acceptable. *Decision gate for Lance-vs-Hamming-engine (D54).*
 5. **Redaction recall on adversarial media** (the real safety metric — "a missed face is an
    un-redacted face"). Measure detector recall on small/occluded faces, far-field/overlapping voices,
    on-screen secrets; set the mount-gating recall floor; validate the CSAM hash-match hook and C2PA
-   passthrough end-to-end. *Gates the structural D54 claim.*
+   passthrough end-to-end. *Gates the structural D57 claim.*
 6. **Crypto-shred + Lance-prune at 1M-doc scale** (per-document DEK + KMS key count/rotation/latency;
    confirm destroying one key never harms another subject; the re-redact-and-re-derive path for shared
-   documents). *Gates D55 / `#24`.*
+   documents). *Gates D58 / `#24`.*
 7. **The downstream belief-extraction cost the cost tables never counted.** Media is a text-amplifier (a
    1-hour meeting → a massive transcript; a dashboard screen-recording → hundreds of value observations
    per minute), each running E2 Claimify + E3 + T0–T4 + D43 adjudication. The "<$50k once" framing
@@ -326,7 +331,7 @@ Full list in `claude_analysis.md §6`. The gating spikes:
 8. **ASR time-anchor + Czech + intra-document attribution** (WhisperX word-timecode precision and
    pyannote DER on real video with music/overlap/far-field; the Canary-1B-v2 Czech swap; the
    speaker→entity false-attribution rate that poisons "X said Y" claims; confirm Gemini is never the
-   timecode source). *Gates D49/D52.*
+   timecode source). *Gates D52/D55.*
 
 ---
 

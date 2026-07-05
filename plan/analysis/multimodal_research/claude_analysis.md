@@ -8,7 +8,7 @@ mechanism research (`web_research/M1–M6`, `repo_findings/*`), and the three ve
 `questions.md`).
 
 The six F-docs were drafted independently and **never reconciled**: they collide on decision numbers
-(each mints its own `D45+`), specify the load-bearing locator three incompatible ways, and carry four
+(each mints its own `D48+`), specify the load-bearing locator three incompatible ways, and carry four
 overclaims — one (`Tier-B storage`) contradicted by the research it cites. The two critics agree the
 *core move* is sound and invariant-preserving; what was missing was a single coherent spec. This
 document is that spec. Where it departs from an F-doc it says so and why. Numbers are starting points
@@ -312,7 +312,7 @@ alternative*, triggered only if a measured Tier-B latency/storage requirement ev
 phase.
 
 **The visual index is structurally not a biometric tool** (closing completeness risk 18). It embeds the
-**redacted** keyframes/page-images (faces already blurred per D54), so `visual_similarity` over
+**redacted** keyframes/page-images (faces already blurred per D57), so `visual_similarity` over
 person-containing frames sees blurred faces and cannot become a face-matching gallery; person-dominant
 queries are additionally barred from the face-matching recipes. New recipes — `visual_similarity`
 (image→image), `find_visual` (text→image), `find_frame` (video timecode), `visual_maxsim_rerank`
@@ -348,7 +348,7 @@ mounted.
   privacy flags + key IDs only. **Note the hot cost the F-docs under-sized:** keyframe JPEGs + page-image
   rasters are the D7 rebuild source for P1, so they live in the *Standard/mounted* class — millions of
   videos × dozens of crops is a real hot-storage line item (completeness gap 10).
-- **Privacy as a first-class, versioned E0 concern (D54).** A `detect/redact` stage; the **redacted
+- **Privacy as a first-class, versioned E0 concern (D57).** A `detect/redact` stage; the **redacted
   derivative is canonical** (so "agents only ever see redacted media" is a *structural property of D37's
   never-mounted-raw split*, not a runtime hope). **Hard invariant: never persist face or pyannote voice
   embeddings as durable matchable templates** — diarization uses speaker vectors only transiently to
@@ -358,7 +358,7 @@ mounted.
   is opt-in-per-deployment with a DPA. **Mounting/P1/retrieval are gated on a measured redaction-recall
   floor** — a *binding rule*, not a spike outcome: a document whose redaction did not clear the floor is
   quarantined until re-redacted ("a missed face is an un-redacted face").
-- **Two obligations the F-docs omitted, now added (D54).** (a) **Illegal-content (CSAM):** a
+- **Two obligations the F-docs omitted, now added (D57).** (a) **Illegal-content (CSAM):** a
   PhotoDNA-style hash-match hook in `detect`, `finding_type ∈ {…, csam_suspected, id_document, child}`
   (reinstating codex_architecture's enum that F6 dropped), with a stated **18 U.S.C. §2258A / NCMEC**
   posture — the system provides the detection hook + audit trail + flag-and-quarantine; the actual
@@ -368,7 +368,7 @@ mounted.
   absence/break; this is an axis *distinct from D42 self/external origin* ("did **we** make it" ≠ "is the
   external media authentic / AI-generated / manipulated"). Standalone deepfake *detection* is a non-goal;
   the manifest passthrough is nearly free.
-- **Subject-level deletion (D55, closes #24 / folds O4).** Resolve "forget source X / person P" to an
+- **Subject-level deletion (D58, closes #24 / folds O4).** Resolve "forget source X / person P" to an
   `entity_id` via the registry (D17) — the deletion key (subject → mentions → documents → DEKs).
   **Crypto-shred** the per-document DEK (every copy, including PITR backups, bucket-locked raw,
   soft-deleted objects, aged snapshots, becomes unrecoverable ciphertext — no row rewrite, no waiting out
@@ -400,12 +400,13 @@ mounted.
 
 ---
 
-## 4. Proposed decisions (ready to become D45–D56)
+## 4. Proposed decisions (ready to become D48–D59)
 
-One reconciled, non-overlapping sequence continuing from the canonical log's last entry (D44). This
+One reconciled, non-overlapping sequence continuing from the canonical log's last entry (D47 — the
+K-plane design minted D45–D47 after this analysis was drafted, so the sequence starts at D48). This
 **replaces** the six conflicting per-doc `D45+` proposals and the codex `D45–D52`.
 
-**D45 — The core multimodal choice: transcode-to-text belief; native-media retrieval as a P1
+**D48 — The core multimodal choice: transcode-to-text belief; native-media retrieval as a P1
 projection; no parallel multimodal evidence track.** *Decision:* belief (claims/relations/observations)
 is text produced from grounded-text transcoding of media at E0; native-media segments/embeddings are a
 P-plane retrieval *entry channel* with zero authority. *Context:* "describe media to text" is the same
@@ -414,7 +415,7 @@ D32), not a new hazard; a second belief home would drift (the D6 Mem0/Graphiti c
 no `VisualClaim`/`ImageFact`/`VideoRelation`; one belief home (D6) holds; supersession/`evidence_count`
 work at the fact grain after transcoding. *Binds* D2/D3/D6/D43.
 
-**D46 — `convert()` generalizes to `{document_markdown, blocks[], structure, manifest}` with a dual
+**D49 — `convert()` generalizes to `{document_markdown, blocks[], structure, manifest}` with a dual
 locator; the offset pipeline is the deterministic transcription linearization, descriptions are block-ID
 side-channel.** *Decision:* every block carries a mandatory `md_span` into a deterministically linearized
 markdown (built from transcription blocks only) **plus** a polymorphic `native_locator`; VLM/audio
@@ -423,7 +424,7 @@ inline** into the offset-bearing markdown. *Context:* keeps E1/E2/D32 modality-b
 prevents a nondeterministic caption re-run from shifting the char offsets of deterministic transcription
 claims (completeness risk 17). *Refines* D38.
 
-**D47 — The polymorphic grounding locator + three provenance classes (the honest D32 generalization).**
+**D50 — The polymorphic grounding locator + three provenance classes (the honest D32 generalization).**
 *Decision:* locator union `text(char_span) | image(page,bbox,coord_space) | av(t_start,t_end,time_base
 [,speaker][,keyframe,bbox])`; bbox **normalized at the boundary** to one 0–1000 top-left space (raw
 producer space recorded in provenance for audit); time = exact rational PTS; relative speaker labels.
@@ -438,7 +439,7 @@ parameter** — F1's "auditability improves" is dropped, F3's account adopted, a
 (completeness gaps 3/11). *Refines* D32 and D42; *annotates* D41 (when-said ≠ when-true), D43, D44
 (locator is still never a graph node). *Chooses one schema*, ending the F1/F2/F3 three-way disagreement.
 
-**D48 — MediaIndex: the temporal/structural analogue of PageIndex; `document_sections` becomes a
+**D51 — MediaIndex: the temporal/structural analogue of PageIndex; `document_sections` becomes a
 polymorphic structure tree.** *Decision:* video → shots→scenes→chapters tree; long audio →
 acoustic/topic-segmented chapter tree (no shot detector); image/page-set → page→region tree; single image
 → synthetic root. `document_sections` gains a `locator_kind` discriminator; `char_start/char_end` stay
@@ -447,7 +448,7 @@ and av roles for in-call Selection. *Context:* the scene/chapter tree is the str
 along (one scene ≈ one chunk) and the path/role signal E2 reads — the PageIndex role with temporal
 locators. *Sibling of / refines* D39.
 
-**D49 — The media cheap-first cascade is fixed and per-stage versioned; long-running `convert` is
+**D52 — The media cheap-first cascade is fixed and per-stage versioned; long-running `convert` is
 checkpointed and resumable.** *Decision:* order = demux → image-class-route/shot-detect →
 ASR+align+diarize → keyframe+pHash dedup → OCR → detect/redact → scene-merge → **selective VLM/audio
 caption** → chapter roll-up → bounded-clip escalation; the caption rung is the only expensive,
@@ -460,7 +461,7 @@ per-frame value gate** (the video reincarnation of the rejected D25 gate); parti
 the stable deterministic pipeline (descriptions enrich, never block); a deterministic-stage failure
 quarantines. *Refines* D38, D12/D36, D33; *binds* D4/D25.
 
-**D50 — The modality routing matrix (close the input space).** *Decision:* explicit routes —
+**D53 — The modality routing matrix (close the input space).** *Decision:* explicit routes —
 image-class router (natural/screenshot/scan/chart/handwriting/low-quality) *before* OCR; animated GIF /
 multi-frame WebP/APNG / multi-page TIFF → the video cascade or a page-set enumerator (never single-frame
 collapse); long audio → topic/acoustic-segmented MediaIndex + a sound-event/audio-caption DESCRIBE rung;
@@ -470,9 +471,9 @@ a known recall limitation (a flat caption loses node/edge structure). Canonical-
 `document.md` is **source-language-faithful** (verbatim grounding), while E2 emits `claim_text` in the
 deployment's canonical working language with `source_span` kept in source language — so cross-language
 `evidence_count` collapses while window-membership stays honest. *Context:* the brief named these inputs;
-the F-series under-routed them (completeness missing-cases 1–7). *Extends* D38/D46.
+the F-series under-routed them (completeness missing-cases 1–7). *Extends* D38/D49.
 
-**D51 — P1 two-tier visual sub-index (single-vector always-on + gated late-interaction); embeds redacted
+**D54 — P1 two-tier visual sub-index (single-vector always-on + gated late-interaction); embeds redacted
 pixels; ~20× Tier-B storage on the gated slice.** *Decision:* Tier A single-vector unified-encoder
 (always-on) + Tier B ColQwen/ColNomic multi-vector MaxSim (gated to visually-rich units), one Lance
 estate, `embedder_version`-stamped, replayed from stored E0 image artifacts; recipes `visual_similarity`,
@@ -481,11 +482,11 @@ LLM, no authority, never project to P2). *Context (storage correction, the criti
 multivector is cosine-only/no-binary, so pool-3+fp16 ≈ **~86 KB/page ≈ ~20× single-vector** on the gated
 slice — **not** the "~5–6 KB comparable" of F1/F4 (which needs binary quant Lance lacks); accept ~20× on
 the gated slice, hamming-engine a documented alternative. *Biometric boundary:* the index embeds
-**redacted** keyframes (D54), so image→image similarity is structurally not a face-matching gallery, and
+**redacted** keyframes (D57), so image→image similarity is structurally not a face-matching gallery, and
 person-dominant queries are barred from the face recipes (completeness risk 18). *Extends* D8/D9; *binds*
 D6/D18/D44.
 
-**D52 — Media-derived facts use the unchanged E2/E3/D41/D43 belief layer over a polymorphic context
+**D55 — Media-derived facts use the unchanged E2/E3/D41/D43 belief layer over a polymorphic context
 bundle; intra-document cross-track contradiction resolves by provenance-class confidence; entity
 resolution is text-mediated only.** *Decision:* the E2 bundle gains media-typed elements (transcript
 window, scene path, scene caption, OCR block, neighbour segments, mapped speaker labels) by `block_id`,
@@ -496,14 +497,14 @@ relative speaker labels resolve via T0–T4, visual content emits candidate name
 `entity_id`s); a person on camera never named in text is an acknowledged recall gap (`#22` twin).
 *Refines* D31, D43, D42; *binds* D17.
 
-**D53 — Capture time is an immutable, lower-precedence validity seed (refines D41).** *Decision:*
+**D56 — Capture time is an immutable, lower-precedence validity seed (refines D41).** *Decision:*
 precedence content-asserted grounded date > capture time (`captured_at`/`capture_precision`/
 `capture_source`) > ingestion time; immutable, many-valued-by-document, fact-identity-free (D41's
 non-authority properties hold); other EXIF (GPS/device) is PII, stripped at redaction, never auto-promoted.
 *Context:* a screenshot depicts the state at capture, the media analogue of a document header date.
 *Refines* D41.
 
-**D54 — Media privacy: the versioned detect/redact sub-worker + biometric non-storage invariant +
+**D57 — Media privacy: the versioned detect/redact sub-worker + biometric non-storage invariant +
 content-safety + authenticity; mounting gated on a measured redaction-recall floor.** *Decision:* a
 versioned `detect/redact` stage; the redacted derivative is the canonical mounted/indexed/embedded
 artifact, raw is quarantined-and-shreddable; **never persist face/voice templates** (the GDPR Art. 9 /
@@ -516,7 +517,7 @@ outcome)**. *Context:* faces/voices/on-screen PII are a genuinely new first-clas
 never had; CSAM reporting is a strictly larger legal exposure than biometrics and was absent from F6
 (completeness gaps 14/15/21). *Extends* D36/D37.
 
-**D55 — Subject-level deletion by crypto-shred + Lance prune, keyed on the entity registry (closes #24,
+**D58 — Subject-level deletion by crypto-shred + Lance prune, keyed on the entity registry (closes #24,
 folds O4).** *Decision:* resolve subject → `entity_id` (registry = deletion key); destroy the per-document
 DEK (reaches PITR backups, bucket-locked raw, GCS soft-delete, aged snapshots as unrecoverable ciphertext);
 Lance compaction-with-prune (tombstone ≠ erasure); bounded/keyed P-snapshot retention; the O4 K
@@ -525,7 +526,7 @@ per-subject sub-keying) for shared documents. *Context:* ugm trains no models, s
 machine-unlearning by construction (D7); crypto-shred is the general answer to #24 (works for text too),
 media is the forcing function. *Extends* D37; resolves `#24`; folds O4/`#13`.
 
-**D56 — Multimodal non-goals (the one reconciled list, with rationale + opt-in alternatives).**
+**D59 — Multimodal non-goals (the one reconciled list, with rationale + opt-in alternatives).**
 *Decision, as scope boundaries (CLAUDE.md Rule 2):* no parallel multimodal belief track; no single-blob
 video conversion; no per-frame/dense-uniform captioning (shot-bounded selective is the design); no
 biometric face/voice recognition or cross-media identity gallery; no emotion/sensitive-trait
@@ -538,13 +539,15 @@ D2/D3/D6/D8/D20/D43/D44.
 
 > **Decision-numbering note for the editor.** F1–F6 and codex each independently numbered from `D45`;
 > `D45` alone meant six different things across the corpus. The block above is the single reconciled
-> sequence; when transcribing into `decisions.md`, ignore the per-doc numbers and use D45–D56 here.
+> sequence; when transcribing into `decisions.md`, ignore the per-doc numbers and use D48–D59 here.
+> (Originally D45–D56; renumbered +3 after the K-plane design took D45–D47 in the canonical log. The
+> archived `design_fit/` and `external_agents/` docs keep their historical D45+ numbers.)
 
 ---
 
 ## 5. Design-doc deltas (exactly what changes)
 
-**`decisions.md`** — append **D45–D56** (§4). Annotate as *refined in wording, not substance*: **D32**
+**`decisions.md`** — append **D48–D59** (§4). Annotate as *refined in wording, not substance*: **D32**
 (polymorphic locator + the honest faithfulness split, char floor kept), **D38** (richer block + media
 routes), **D41** (capture-time seed), **D42** (verbatim-vs-asserted + authenticity axes), **D43**
 (observation evidence carries a media locator), **D12/D36** (stage-grain idempotency + checkpointed
@@ -557,10 +560,10 @@ model (§2.8). §2 storage: `documents` media columns + per-stage version stamps
 flags/`content_safety_flag`/`authenticity`/`dek_id`/`redaction_recall_class`; the polymorphic
 `document_sections` DDL; the video artifacts layout (`mediaindex.json`, `keyframes/`); Archive/Coldline raw
 class; rewrite the deletion paragraph from document-level to **subject-level crypto-shred + Lance prune**
-(D55). §3 `convert()`: generalize the signature to `{document_markdown, blocks[], structure, manifest}`;
+(D58). §3 `convert()`: generalize the signature to `{document_markdown, blocks[], structure, manifest}`;
 add the image-class router, image route, and the video/audio cascade tables; pin the dual-locator + the
-deterministic-pipeline/block-ID-side-channel rule (D46). §4 PageIndex: generalize to a per-document structure
-tree incl. the MediaIndex shape and extended `role` enum (D48). New **privacy** section (D54): redact
+deterministic-pipeline/block-ID-side-channel rule (D49). §4 PageIndex: generalize to a per-document structure
+tree incl. the MediaIndex shape and extended `role` enum (D51). New **privacy** section (D57): redact
 sub-worker, biometric non-storage invariant, detect-and-flag incl. CSAM hook + C2PA passthrough, the
 mount-gating recall floor. §7: add a worked **video** walkthrough.
 
@@ -583,7 +586,7 @@ one doc to avoid re-fragmenting.)
 **`plan/designs/overall_design.md`** — plane diagram: media enters at E0, the E pipeline is unchanged, P1
 gains a multimodal retrieval channel (reinforce D6: beliefs text-only). §2 stores table: P1 row += visual
 units; raw bucket += Archive/Coldline + DEK. §6 retrieval: add the four visual recipes + the locator-bridge
-rule (no recipe answers "what is true" alone). New **"Deletion & erasure"** section (D55). README: E0 says
+rule (no recipe answers "what is true" alone). New **"Deletion & erasure"** section (D58). README: E0 says
 "converted to textual + structured media artifacts"; auditability mentions text spans **plus** media
 locators **and** the honest faithfulness caveat.
 
@@ -595,11 +598,11 @@ prune + snapshot/K reach).
 
 **`plan/requirements/requirements_v3.md`** — name *multimodal ingestion (image/audio/video)* as in-scope;
 restate the deletion-cascade requirement as **subject-level crypto-shred reaching every derived layer**
-(D55); add the *biometric non-storage*, *redaction-recall-floor*, *CSAM-reporting posture*, and
-*C2PA-authenticity* obligations; record the reconciled non-goals (D56).
+(D58); add the *biometric non-storage*, *redaction-recall-floor*, *CSAM-reporting posture*, and
+*C2PA-authenticity* obligations; record the reconciled non-goals (D59).
 
-**`questions.md`** — mark **#24 resolved-by-D55** (crypto-shred + prune + registry key + O4 manifest) and
-**O4/#13 folded into D55**; update **#3** (embedding model/dim) to also cover the cross-modal Tier-A
+**`questions.md`** — mark **#24 resolved-by-D58** (crypto-shred + prune + registry key + O4 manifest) and
+**O4/#13 folded into D58**; update **#3** (embedding model/dim) to also cover the cross-modal Tier-A
 embedder + the Tier-B late-interaction model; add to **#22** "visual-only entities (on camera, never named
 in text)"; log the §6 spikes (flagging the Lance multivector latency and the redaction-recall floor as
 decision gates); cross-reference the new `media_design.md`.
@@ -613,43 +616,43 @@ decision gates); cross-reference the new `media_design.md`.
    rejecting bad captions, and on the **description-class L4 sample rate** being right. The
    "grounded-captioning −25–28% hallucination" result is task-dependent (the research already flags a
    counter-paper). *Spike:* measure on a golden image set before trusting DESCRIBE output as claim source;
-   set the per-class L4 rate. **Gates** the honesty story (D47).
+   set the per-class L4 rate. **Gates** the honesty story (D50).
 
 2. **The dual-locator decoupling actually holds across re-conversion.** Verify that the deterministic
    transcription linearization is byte-stable at pinned versions, that descriptions live purely in the
    block-ID side-channel, and that a `vlm_caption_version` bump re-runs *only* the affected E2 scene
    calls without churning any transcription claim's `source_span`. Also: a `shot_detect_version`/
    `scene_merge_version` bump moves scene boundaries → pin locators to the producing stage version and
-   confirm old claims resolve against their own `conversion_generation`. **Gates** D46/D49.
+   confirm old claims resolve against their own `conversion_generation`. **Gates** D49/D52.
 
 3. **The three-provenance-class supersession rule is correct and measurable.** Measure how often a numeric
    observation comes from verbatim OCR/ASR vs an `uncertain_transcription` (HTR/degraded) vs a model-read
    chart, and confirm the adjudicator margin so neither an `uncertain_transcription` nor a `description`
    value can confident-supersede a clean-`transcription` prior. Includes OCR/ASR WER/CER on the
-   handwriting/degraded slice (the inputs where the anchor is hollowest). **Gates** D47/D52.
+   handwriting/degraded slice (the inputs where the anchor is hollowest). **Gates** D50/D55.
 
 4. **Lance multivector latency + the real Tier-B storage at scale (the load-bearing P1 unknown).** No
    published LanceDB-at-scale multivector number exists. *Spike:* load Tier B for a realistic
    visually-rich slice (pool-3 + fp16, IVF_PQ), measure two-stage P95 vs the Tier-A baseline, and confirm
    the **~20×** (not ~5–6 KB) storage is acceptable. **Decision gate** for whether Tier B stays in Lance
-   or triggers the documented hamming-engine alternative (D51).
+   or triggers the documented hamming-engine alternative (D54).
 
 5. **Redaction recall on adversarial media (the real safety metric).** "A missed face is an un-redacted
    face." Measure CenterFace/deface + Presidio recall on small/occluded faces, far-field/overlapping
    voices, on-screen secrets; set the **mount-gating recall floor**. Validate the CSAM hash-match hook and
-   the C2PA manifest passthrough end-to-end. **Gates** the structural D54 safety claim (which is otherwise
+   the C2PA manifest passthrough end-to-end. **Gates** the structural D57 safety claim (which is otherwise
    only as good as detector recall).
 
 6. **Crypto-shred + Lance-prune at 1M-doc scale.** Validate per-document DEK + KMS (key count, rotation,
    latency/cost on the deletion path), confirm destroying one DEK never harms another subject, exercise
    the re-redact-and-re-derive path for shared documents, and measure compaction-with-prune
-   latency/throughput. **Gates** D55 / `#24`.
+   latency/throughput. **Gates** D58 / `#24`.
 
 7. **ASR time-anchor + Czech + intra-document attribution.** WhisperX word-timecode precision and pyannote
    DER on *real* video (music/overlap/far-field) and the Czech path (Canary-1B-v2 swap, 7.86% vs 11.33%
    WER) — and the speaker→entity false-attribution rate ("Alice said X" when Bob spoke), which poisons "X
    said Y" claims. Confirm Gemini is never the timecode source (documented >10-min drift). **Gates**
-   D49/D52.
+   D52/D55.
 
 8. **The downstream belief-extraction cost (the cost the F-docs never counted).** Media is a
    text-amplifier: a 1-hour meeting → a massive transcript; a dashboard screen-recording → hundreds of
@@ -662,4 +665,4 @@ decision gates); cross-reference the new `media_design.md`.
 9. **Cross-modal & cross-language dedup / `evidence_count`.** Confirm the same fact stated in a chart and
    in prose collapses to one observation/relation (not two), and that English + Czech videos asserting the
    same fact collapse under the canonical-working-language policy (RTL/Unicode-normalization of the
-   window-membership substring check is a sub-spike). **Gates** D2's media promise + D50.
+   window-membership substring check is a sub-spike). **Gates** D2's media promise + D53.
