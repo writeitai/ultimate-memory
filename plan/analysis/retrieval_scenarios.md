@@ -1,6 +1,6 @@
-# Retrieval Stress Scenarios — the query battery (S1–S55)
+# Retrieval Stress Scenarios — the query battery (S1–S61)
 
-The scenario set that drives `retrieval_design.md` (planned): concrete questions the system
+The scenario set that drives `retrieval_design.md` (binding, D48–D51): concrete questions the system
 must answer (or must *honestly refuse*), spanning every plane, both time axes, all four target
 deployments (personal assistant, agency brain, data-migration project, law engine), and every
 consumption pattern from point lookup to corpus orientation. Written per the review's F4
@@ -194,7 +194,8 @@ masquerade as the other (requirements §Retrieval, D41).
 
 - **S49** Hub entity ("me", the agency's own company): full neighborhood at 10⁴–10⁵ edges.
   Stresses: pagination, ranked truncation with explicit markers, never a timeout.
-- **S50** *(Czech)* "Kde pracuje Jiří Puc?" — query names arrive inflected.
+- **S50** *(Czech)* "Kde pracuje **Jiřího Puce**?" / "u Jiřího Puce" — the query carries an
+  **inflected (genitive/accusative) form**, not the nominative.
   Stresses: query-time entity resolution reuses the T0–T2 deterministic tiers (canonical
   aliases + trigram + Daitch-Mokotoff) — no LLM on the hot path (D17, registries §5).
 - **S51** "Where does John work?" — four Johns in the registry.
@@ -242,9 +243,27 @@ masquerade as the other (requirements §Retrieval, D41).
   deployment; the deployment boundary *is* the isolation mechanism (registries §1). Data with
   a different trust boundary belongs in a **separate deployment**. Perimeter security (who
   reaches the API/mounts at all) is deployment infrastructure, not the library.
-- **S55** After a hard-forget of document D: no query — semantic, verbatim, graph, K, or
+- **S55** ⏳ After a hard-forget of document D: no query — semantic, verbatim, graph, K, or
   browse — resurfaces its content; and *forgotten* is indistinguishable from *never existed*
-  (deletion cascade §13; K git-history erasure).
+  (deletion cascade §13; K git-history erasure). **This is the contract; its CI gate is
+  inactive until the end-to-end deletion cascade (`questions.md` #24 — P1/P2/P3 snapshots,
+  backups) is designed** — a retrieval contract cannot enforce an unresolved lifecycle.
+
+## O. Identity lifecycle — merges, un-merges, identity as-of
+
+- **S60** "What do we know about **Acme Corp**?" — where `Acme Corp` was merged into `Acme`
+  last month (a `merged_into` redirect, D21).
+  Stresses: query-time resolution follows the survivor chain (the old name still resolves —
+  aliases survive merges); the envelope discloses the redirect (resolved-as: Acme, via merge).
+  Path: resolve → redirect chain → survivor's facts; `transcript(entity)` exposes the merge.
+- **S61** "As we understood it **last March** (pre-merge): what did we believe about Acme
+  Corp?" — `believed_at` predates the merge.
+  Stresses: **identity-as-of is transcript-based, not automatic**: `resolve` always returns
+  *current* identities; reconstructing a pre-merge identity boundary walks
+  `resolution_decisions`/`merge_events` (the `transcript` primitive) and re-scopes the query
+  to the pre-merge membership — a documented recipe (`identity_as_of`), not a default. An
+  un-merge (D21 reversal) is the same machinery mirrored. The envelope must say which identity
+  regime answered.
 
 ---
 
@@ -260,7 +279,8 @@ masquerade as the other (requirements §Retrieval, D41).
 | contradiction surfacing | S23–S25, S33, S41 |
 | aggregation + honest boundaries | S26–S30, S40 |
 | K plane as answer + meta-queries | S31–S35, S45 |
-| entity resolution at query time | S1, S50, S51 |
+| entity resolution at query time | S1, S50, S51, S60 |
+| identity lifecycle (merge / un-merge / identity-as-of) | S60, S61 |
 | freshness / staleness exposure | S31, S34, S35, S42 |
 | negative answers + capability errors | S29, S39, S55 |
 | scale / batch / hubs | S18, S49, S52, S53 |
@@ -296,5 +316,5 @@ Decisions already fixing retrieval shape: D8 (relations vectors in Lance), D9 (c
 + rerankers + recipes, zero LLM), D10/D44 (as-of mechanics), D41 (`claims_as_of`, the bar),
 D43 (observation retrieval semantics + the numeric-scan boundary), D16 (scope views), D22
 (retrieval eval). Requirements §Retrieval. The K reader surface: `k_layers_design.md` §5
-(reader-facing flags, spike 9). This battery feeds `retrieval_design.md` (planned) and the
+(reader-facing flags, spike 9). This battery feeds `retrieval_design.md` (D48–D51) and the
 D22 retrieval golden set.

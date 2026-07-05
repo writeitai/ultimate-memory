@@ -147,7 +147,8 @@ minutes"), P rebuilds on schedule; both summarize/project across the corpus.
   migrations and drills.
 - **P3 — corpus filesystem** (D40): a rebuildable GCS directory tree organizing the corpus for
   agent navigation, **mounted read-only** to agentic workers. Built from E0 placement hints (D39)
-  + entities/relations + the K-plane structure; folders by topic/source/entity, leaves linking to
+  + entities/relations (K is cross-linked, never a structural input — D40 refined; P3 stays
+  rebuildable from the E spine); folders by topic/source/entity, leaves linking to
   the E0 artifacts, generated `_index.md`/`llms.txt` at each level. Cross-links with K
   (understanding ↔ source). Full design: `e0_files_design.md` §6.
 

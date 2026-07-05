@@ -759,6 +759,13 @@ a mounted bucket tree" design.
 reorganizes as the corpus grows without touching truth (placement hints are inputs). New projection in
 plane P alongside P1 (search) and P2 (graph).
 
+**Refined (P3↔K reconciliation — closes `questions.md` #25).** The phrase "+ the K-plane
+structure" above is corrected: **K is a cross-link, not a structural input** — P3's *shape* is
+built from Postgres (placement hints, entities/relations) + the E0 artifacts only, per the
+binding `e0_files_design.md` §6. This keeps P3 rebuildable from the E spine (it does not
+inherit the K repo's source-of-truth burden or its deletion-manifest reach); P3 `_index.md`
+files and K pages link to each other, in both directions, as consumers — never as inputs.
+
 ---
 
 ## D41. Claims carry an immutable, source-asserted validity interval (asserted vs. adjudicated time)
@@ -835,14 +842,16 @@ and external assertions are indistinguishable. The motivating case is a closed a
 the system's own outputs are re-ingested: without an origin stamp, an agent's own assertions inflate
 `evidence_count` (D2) and entrench beliefs (K3) as if independently corroborated — a silent
 self-confirmation loop that corrupts the corpus's headline confidence signal. This is the one piece of
-that scenario with a **capture-now-or-lose-it** asymmetry; everything else it raises (operational-state
-scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) is additive later and is
-**deliberately deferred** until an agent-operations loop is actually built.
+that scenario with a **capture-now-or-lose-it** asymmetry; everything else it raises
+(operational-state scopes, an E→K signal/interrupt channel, decision↔evidence-snapshot links) is
+additive — a **documented scope boundary** whose admission condition is an agent-operations
+deployment actually existing, not a phase marker.
 
 **Consequences.** A small, mandatory E0 metadata field (extensible to richer origin classes and
 per-action lineage grouping when needed). The intended first consumer — confidence/belief math that
 counts *independent external* evidence rather than raw `evidence_count`, discounting self-generated
-echoes — is a **documented non-goal for now**, unblocked by this capture. No change to D2/D3/D6.
+echoes — is a **documented non-goal** (a scope boundary with a named admission condition: build it
+when belief math is designed, unblocked by this capture). No change to D2/D3/D6.
 
 **Refined by D45–D47 (the K trigger surface).** One of the deferred items — the **E→K
 signal/interrupt channel** — is now designed, its condition met (an agent-operated deployment is a
@@ -850,8 +859,8 @@ named target): routing-rule **subscriptions** with a **dispatch** consequence in
 agentic workflows with debounced, delta-carrying payloads; page-level watches serve authored
 consumers (`k_layers_design.md` §5). Origin capture itself is unchanged, and it is what keeps the
 resulting loop non-circular — a re-ingested plan is stamped system-generated and never counts as
-independent external evidence. The other deferred items (operational-state scopes,
-decision↔evidence-snapshot links) remain non-goals.
+independent external evidence. The other boundary items (operational-state scopes,
+decision↔evidence-snapshot links) remain documented non-goals.
 
 ---
 
@@ -1090,11 +1099,17 @@ the D15 principle one plane up; `k_layers_design.md` §2).
 
 ## D48. Projections propose, the spine disposes — hydration re-verifies against live Postgres
 
-**Decision.** Every query result passes through **by-ID hydration against live Postgres** before
-reaching a caller; the fast entry channels (P1 Lance, the P2 snapshot, K pages) only **nominate
-candidates**. Hydration re-reads validity windows, invalidation state, and contradiction
-membership from the spine; candidates the spine no longer holds live are dropped, and the drop
-count is reported in the response envelope.
+**Decision.** Every **query-engine result** (API / CLI / MCP) passes through **by-ID hydration
+against live Postgres** before reaching a caller; the fast entry channels (P1 Lance, the P2
+snapshot) only **nominate candidates**. Hydration re-reads validity windows, invalidation
+state, and contradiction membership from the spine; candidates the spine no longer holds live
+are dropped, and the drop count is reported in the response envelope. **Compound results
+revalidate as units** (a graph path with one invalidated edge drops whole — never returned
+with a hole, never silently re-routed). Two surfaces are explicitly *outside* the invariant:
+**mounted reads** (snapshot reads by construction — covered by visible freshness metadata +
+the skill's verify-on-spine motion, D51) and **K prose** (re-checking a page's cited IDs
+detects staleness but cannot repair a stale synthesis — K answers are always compiled-grain
+with freshness state, never live-confirmed belief).
 
 **Context.** Every entry channel is a projection with lag (P1 write-behind, P2 an hours-old
 snapshot per D7, K debounced). Without a single confirmation point, mixed freshness
@@ -1113,21 +1128,30 @@ untouched). The nominate-then-drop artifact is surfaced honestly. Hydration dept
 ## D49. The response envelope: grain type-discipline, inline contradictions, typed negatives, freshness stamps
 
 **Decision.** Every retrieval response is an **envelope** carrying, besides results: the
-**grain** (`belief` / `evidence` / `compiled` — declared by every primitive and recipe, enforced
-at composition: current-belief answers may be assembled only from validity-filtered
-relations/observations; claims never answer "is it true now" — D41's bar made mechanical);
-**contradiction co-members inline** (returning one side of a live `contradiction_group` without
-the others is a **contract violation**, not a ranking choice); **per-source freshness stamps**
-(PG live, P1 write lag, P2 snapshot timestamp, K `compiled_at` + staleness + open-flag count —
-the K block is the reader-facing flag surface `k_layers_design.md` §11 spike 9 called for, and
-P3's `_index.md` mirrors it for the browse path); **explicit truncation markers** with
-continuations (no silent caps — hub answers are ranked pages, never a quiet top-k, never a
-timeout); the applied temporal parameters echoed in composition-ready form (`valid_at` /
-`believed_at` — so multi-step temporal questions compose from prior envelopes with no special
-machinery); and a **typed negative taxonomy**: `unknown_entity` / `known_empty` / `boundary`
-(named limitation + workaround — e.g. the D43 cross-entity numeric-scan boundary) / forgotten ≡
-never-existed (not a kind — indistinguishability is the requirement). There is deliberately no
-`denied` kind: content-level authorization is out of library scope (D50 trust model).
+**grain** (`belief` / `evidence` / `compiled` / `composite` — declared by every primitive and
+recipe, enforced at composition: current-belief answers may be assembled only from
+validity-filtered relations/observations; claims never answer "is it true now" — D41's bar made
+mechanical; a `composite` answer is `parts[]`, each part strictly single-grain, so mixed
+answers like S47's said-vs-believe pair never dilute the discipline); **contradiction
+co-members never silently absent** (inline up to a guaranteed cap; beyond it the block always
+carries `group_id` + returned/total + a continuation — one-sided answers are a **contract
+violation**, not a ranking choice); **per-source freshness stamps** (PG live; P1 write lag; P2
+snapshot timestamp; K `compiled_at` + staleness + open-flag count — the K block is the
+reader-facing flag surface `k_layers_design.md` §11 spike 9 called for, and P3's `_index.md`
+mirrors it for the browse path) **including each channel's `believed_at` horizon** (the hot P2
+snapshot retains retracted edges only within a window — out-of-horizon transaction-time
+queries get a typed `boundary` naming the fallback: PG traversal or an archived snapshot);
+**explicit truncation markers** with continuations (no silent caps — hub answers are ranked
+pages, never a quiet top-k, never a timeout); the applied temporal parameters echoed in
+composition-ready form (`valid_at` / `believed_at` + the **identity regime** — resolution
+follows *current* aliases/merge-redirects by default; pre-merge identity reconstruction is the
+explicit transcript-based `identity_as_of` recipe over D21's `resolution_decisions` /
+`merge_events`, and the envelope states which regime answered); and a **typed negative
+taxonomy**: `unknown_entity` / `known_empty` / `boundary` (named limitation + workaround —
+e.g. the D43 cross-entity numeric-scan boundary) / forgotten ≡ never-existed (not a kind —
+indistinguishability is the requirement; as a CI gate it activates only when the end-to-end
+deletion cascade, `questions.md` #24, is designed). There is deliberately no `denied` kind:
+content-level authorization is out of library scope (D50 trust model).
 
 **Context.** The callers are agents that must *reason about* answers, not just receive them; and
 the requirements make three read-path properties non-negotiable: the claim/relation temporal
@@ -1143,16 +1167,21 @@ flag counts instead of guessing. Envelope size on hub answers is a named spike.
 ## D50. Query capability = composable zero-LLM primitives; recipes are registry data
 
 **Decision.** The query machine is **primitives + recipes + surfaces**. Primitives are typed,
-orthogonal, side-effect-free, zero-LLM operations: `resolve` (deterministic T0–T2 tiers only;
-ranked candidates, never a silent guess), `lookup`, `search` (channel × target), `graph`,
+orthogonal, side-effect-free, zero-LLM operations: `resolve` (the registry's non-LLM tiers
+T0–T3 — exact, trigram, phonetic, embedding; no T4 adjudication on the hot path; ranked
+candidates, never a silent guess; current identities with merge-redirects disclosed), `lookup`,
+`search` (channel × target), `graph`,
 `fuse` (RRF as an explicit operator), `rerank` (graph-distance / evidence-count / flagged
 cross-encoder), `hydrate` (progressive depth), `transcript` (the audit trail as a query),
 `delta`, `pages_about` (the K rule-key index read backwards — the reader's discovery index),
 enumerated `aggregate` forms, and streaming `scan` (the batch surface, separate resource pool).
 **Recipes are registry rows, not code** (the D5/D15/D45 move): declared compositions with
-name / description / parameters / **declared grain** / version — so the linter enforces grain
-semantics at registration, the eval harness measures recall@k per recipe, and **MCP tools render
-from the registry** the way extraction prompts render from the ontology. Recipes add
+name / description / typed parameters / a typed primitive chain / **`output_grain`** and
+**`answer_intent`** enums / version — so the linter enforces grain semantics **mechanically on
+the enums** at registration (`answer_intent = current_belief` requires `output_grain = belief`
+over validity-filtered belief primitives; prose-name checks are advisory only), the eval
+harness measures recall@k per recipe, and **MCP tools render from the registry** the way
+extraction prompts render from the ontology. Recipes add
 convenience, never capability (testable: each recipe replays as its primitive chain and diffs
 empty). **Non-goal:** any NL→query-plan compiler on the query path — the callers are agents;
 the intelligence lives in the caller (D9 taken to its conclusion).

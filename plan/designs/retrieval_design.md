@@ -6,7 +6,7 @@ multi-store system honest. Binding design for decisions **D48–D51**, building 
 Lance), D9 (parallel channels + RRF, zero LLM on the query path), D10/D44 (as-of mechanics),
 D16 (scope views), D41 (`claims_as_of` and its bar), D43 (observation retrieval), D22 (the
 retrieval eval). Driven by the scenario battery `plan/analysis/retrieval_scenarios.md`
-(S1–S59) — every design element below cites the scenarios that forced it. Numbers are starting
+(S1–S61) — every design element below cites the scenarios that forced it. Numbers are starting
 points to measure, not committed constants (CLAUDE.md).
 
 > **Reading this cold (CLAUDE.md Rule 1).** The memory has three planes: **E** (evidence —
@@ -21,6 +21,18 @@ points to measure, not committed constants (CLAUDE.md).
 > return into full, provenance-bearing records from Postgres, the source of truth. The primary
 > consumers are **agentic coding harnesses** (Claude Code, Codex, OpenCode) — callers that can
 > read files, compose API calls, and reason; the design leans on that hard.
+>
+> Search vocabulary used throughout: **FTS/BM25** — classic keyword search (full-text search;
+> BM25 is its standard relevance-scoring formula) — finds *exact words*, which vectors miss;
+> **semantic search** — matching by embedding similarity — finds *meaning*, which keywords
+> miss; **RRF** (reciprocal rank fusion) — merging several ranked lists by rewarding items
+> that rank high on *any* list (score ≈ Σ 1/(k+rank)), the standard way to combine
+> keyword+vector+structured channels without tuning score scales against each other;
+> **cross-encoder** — a small neural model that re-scores a query/result *pair* jointly —
+> more accurate than embedding distance, too slow for more than a final top-k re-sort (hence
+> optional and flagged); **continuation** — an opaque cursor a caller passes back to fetch
+> the next page of a truncated result; **MCP** — the Model Context Protocol, the standard by
+> which agent harnesses discover and call external tools.
 
 ## 1. The central stance: the agent is the query planner
 
@@ -43,21 +55,48 @@ agent that wants NL planning does it in its own head — that is what it is. (An
 
 Every fast entry channel is a projection with **lag**: Lance is written inline but rebuildable
 (P1), the graph is an hours-old snapshot (P2, D7), K is debounced. The design resolves the
-mixed-freshness problem (`questions.md` #23) with one invariant:
+mixed-freshness problem (`questions.md` #23) with one invariant — **scoped precisely to the
+query engine**:
 
-> **Stale projections may nominate candidates; only Postgres confirms truth.** Every result
-> that reaches a caller has passed through by-ID hydration against the live spine, where its
-> validity windows, invalidation state, and contradiction membership are re-read.
+> **Stale projections may nominate candidates; only Postgres confirms truth.** Every
+> **query-engine result** (API / CLI / MCP) has passed through by-ID hydration against the
+> live spine, where its validity windows, invalidation state, and contradiction membership are
+> re-read.
+
+**Where the invariant does NOT apply — and what covers those surfaces instead.** Two
+consumption paths never pass through hydration, and the design says so rather than
+overclaiming:
+
+- **Mounted reads** (P3 / artifacts / raw / the K checkout, §7) are snapshot reads by
+  construction — an agent `cat`-ing a file gets the file as of the snapshot/compile. The
+  covering mechanisms: every mounted surface carries **visible freshness metadata** (P3
+  snapshot version + per-page freshness/flags in `_index.md`; K page provenance footers; E0
+  artifacts are immutable-per-`content_hash`, so staleness does not apply), and the
+  consumption skill (§8) teaches the covering *motion*: mounts are for orientation and
+  reading; **anything load-bearing at the belief grain is verified against the spine**
+  (a `lookup`) before acting on it.
+- **K prose is never "confirmed" by hydration even via the API** — a compiled page's cited
+  IDs can be re-checked, which detects *staleness*, but detecting it cannot make a stale
+  synthesis correct or excise the one superseded sentence. K answers are therefore always
+  **compiled grain** (§6) with `compiled_at` + staleness + open-flag state — never presented
+  as live-confirmed belief. Current-belief questions route through relations/observations;
+  the K page is the orientation layer above them.
 
 Consequences, spelled out (S42, S43):
 
-- Staleness can only cost **recall** (a fact too new to be indexed is not found), never
-  **correctness** (a superseded fact can never be served as current — hydration would see its
-  closed window). Recall lag is bounded by projection cadence and *reported* (§5 freshness
-  stamps); correctness is live, always.
+- On the query engine, staleness can only cost **recall** (a fact too new to be indexed is
+  not found), never **correctness** (a superseded fact can never be served as current —
+  hydration would see its closed window). Recall lag is bounded by projection cadence and
+  *reported* (§5 freshness stamps); correctness is live, always.
 - The one caller-visible artifact is **nominate-then-drop**: a projection may nominate a
   candidate that hydration rejects (just invalidated). The envelope reports dropped-count so
   ranked results are honest about their denominator.
+- **Compound results revalidate as units, not rows (S17, S21).** A graph *path* is only
+  meaningful whole: if hydration invalidates one edge of a nominated path, the **path is
+  dropped as a unit** (and counted in `dropped_by_hydration`) — never returned with a hole.
+  The engine does not silently recompute an alternative live path (that would hide snapshot
+  staleness); the honest answer is the drop plus the P2 snapshot timestamp, and the caller
+  re-queries if freshness matters. The same unit rule applies to any future compound shape.
 - Cross-cloud topology aligns with this rule for free: entry and expansion run on **local**
   replicas (Lance datasets + the P2 snapshot on the API node's disk); the single cross-cloud
   hop is the **batched by-ID hydration** to Hetzner Postgres — the same hop that enforces the
@@ -71,7 +110,7 @@ never trigger anything** — all K/E triggering originates from writes).
 
 | Primitive | Signature (essentials) | What it is | Scenarios |
 |---|---|---|---|
-| `resolve` | text, type?, context_entities? → ranked entity candidates | query-time entity resolution, **deterministic tiers only** (T0 canonical-alias exact, T1 trigram, T2 phonetic — D17; inflected names S50 ride the same aliases). Ambiguity → ranked candidates, never a silent guess (S51) | S1, S50, S51 |
+| `resolve` | text, type?, context_entities? → ranked entity candidates | query-time entity resolution over the registry's **non-LLM tiers T0–T3** (T0 canonical-alias exact, T1 trigram, T2 phonetic, T3 embedding similarity — embedding a query string is not an LLM call and the semantic channel does it anyway; **no T4 adjudication on the hot path**, D17). Inflected names (S50) ride the stored canonical aliases + T1/T2. Ambiguity → ranked candidates, never a silent guess (S51). Returns **current** identities, following `merged_into` survivor chains with the redirect disclosed (S60); *pre-merge* identity reconstruction is the transcript-based `identity_as_of` recipe (S61), never automatic | S1, S50, S51, S60 |
 | `lookup` | relations(s?, p?, o?) / observations(entity, property?) / claims(doc?, entity?) / entity(id) / document(id) | scalar reads on the spine and its indexes; observation property matching is semantic-over-statement (D43) | S1–S4, S26 |
 | `search` | channel × target × query, filters, k — channels: semantic \| bm25 \| fts; targets: chunks \| claims \| relations \| observations \| k_pages | the entry channels (P1 Lance + PG FTS), scalar-filtered before vectors (D8) | S6, S46, S52 |
 | `graph` | neighborhood(entity, hops, predicates?) / path(a, b, max_hops) | P2 snapshot traversal; as-of via inline path predicates (D44) | S17–S22 |
@@ -81,7 +120,7 @@ never trigger anything** — all K/E triggering originates from writes).
 | `transcript` | relation \| observation \| entity \| k_page → its decision history | adjudications, resolution decisions, compile provenance — the audit trail as a first-class query ("why do we believe…") | S8, S32, S35 |
 | `delta` | since T, scope?, kinds? → changed evidence / pages | the change feed as a query (new / capped / invalidated / recompiled) | S13, S14, S30 |
 | `pages_about` | entity \| key → K pages (+ freshness/flags) | **the K routing index read backwards**: the rule-key inverted index built for write-side routing doubles as the reader's discovery index — which pages exist about X, mechanically | S31, S45 |
-| `aggregate` | enumerated forms: count / group-by-predicate / group-by-object / timeline(entity) | see §9 — enumerated, not general | S12, S26–S28 |
+| `aggregate` | enumerated forms: count / group-by-predicate / group-by-object / timeline(entity) / delta-top-entities(since T) / typed-absence(type, predicate) | see §9 — enumerated, not general | S12, S26–S28, S30, S40 |
 | `scan` | filter → stream | the batch surface (§9): full exports for compilers, auditors, external analytics — same zero-LLM reads, streaming contract, separate resource pool from interactive | S53 |
 
 **Temporal parameters — composed, not special-cased (S15/S16).** Every primitive that touches
@@ -93,20 +132,43 @@ signed?" is two ordinary calls — resolve the signing's event time from the fir
 it as `valid_at` to the second. No special machinery, and none should ever be added; if a
 temporal question cannot be composed this way, that is a design finding, not a recipe request.
 
+Two honest limits on `believed_at`, stated rather than discovered (S43, S61):
+
+- **Per-channel transaction-time horizons.** Postgres holds full belief history; the *hot* P2
+  snapshot keeps retracted edges only within a retention window (p2_graph §8), and P1 carries
+  live-filtered copies. The envelope therefore exposes each channel's **`believed_at`
+  horizon**; a query whose `believed_at` predates a channel's horizon gets, from that channel,
+  a typed `boundary` naming the fallback (PG relation traversal; an archived P2 snapshot —
+  old snapshots *are* the graph as-of their timestamp, p2_graph §5).
+- **Identity is resolved in the current regime by default.** `resolve`/`hydrate` follow
+  today's aliases and merge redirects even under a past `believed_at`; reconstructing the
+  *identity boundary* as it stood at T (pre-merge, pre-un-merge) is the explicit
+  `identity_as_of` recipe over `resolution_decisions`/`merge_events` (D21 transcripts). The
+  envelope states which identity regime answered, so an audit-date query can never silently
+  mix today's identities with yesterday's beliefs (S61).
+
 ## 4. Recipes — frozen plans as registry data (D50)
 
 A **recipe** is a named, versioned composition of primitives with fixed fusion/rerank
 settings: `relation_hybrid_rrf`, `relation_near_entity`, `claims_verbatim`, `claims_as_of`,
-`entity_timeline`, `explain`, `brief`, `changed_since`, `contradictions`, `pages_about`.
-Recipes are **registry rows, not code** — the same move as predicates (D5), ontology (D15),
-and K routing rules (D45): a declared composition plus metadata (name, description, **declared
-grain**, parameters, channel weights, version). Three payoffs:
+`entity_timeline`, `identity_as_of`, `explain`, `brief`, `changed_since`, `contradictions`,
+`pages_about`. Recipes are **registry rows, not code** — the same move as predicates (D5),
+ontology (D15), and K routing rules (D45). A recipe row carries, concretely: `name`,
+`description`, typed `parameters`, the **primitive chain** (an ordered composition of §3
+operations with fixed settings — channel sets, RRF constants, rerank weights), two declared
+enums — **`output_grain`** (belief | evidence | compiled | composite) and **`answer_intent`**
+(current_belief | assertion_history | orientation | audit | change_feed) — plus `version` and
+MCP-rendering metadata. (Full DDL joins the control-plane tables in
+`postgres_schema_design.md`; the fields above are the contract.) Three payoffs:
 
-1. **The linter can enforce semantics.** The recipe registry is where the D41 bar lives
-   mechanically: `claims_as_of` *declares* evidence grain, and the registry forbids any
-   recipe/alias whose name or description implies current-belief from being built over
-   claim-grain primitives. Grain discipline is checked at registration, not hoped for at
-   runtime.
+1. **The linter can enforce semantics — mechanically, on the enums.** The rule is a
+   constraint, not a prose judgment: `answer_intent = current_belief` requires
+   `output_grain = belief` and a chain built only over validity-filtered
+   relation/observation primitives. `claims_as_of` declares `assertion_history` over
+   `evidence`, so the D41 bar ("claims never answer *is it true now*") is violated only by a
+   registration the constraint rejects. A *name/description* smell-check (a recipe named like
+   a belief query but declared evidence-grain) is an advisory lint for humans, not the
+   enforcement mechanism.
 2. **The eval harness measures per recipe.** Recall@k per recipe per scenario class (D22's
    retrieval half); recipe versions make regressions attributable.
 3. **MCP tools render from the registry** — the tool list *is* the recipe registry
@@ -123,28 +185,40 @@ answer itself** — because the caller is an agent that must *reason about* the 
 
 ```
 {
-  grain:        belief | evidence | compiled,          // §6 — never absent, never mixed silently
-  results: [ { …record…,
-      validity: {valid_from, valid_until, ingested_at, invalidated_at},
-      evidence_count, confidence,
-      contradiction: {group_id, co_members[]} | null,  // co-members INLINE — see below
-      provenance: {hydrate_handle, depth_available} } ],
-  as_of:        {valid_at, believed_at},               // the temporal params actually applied (echo)
+  grain:        belief | evidence | compiled | composite,  // §6; composite ⇒ read parts[]
+  parts: [ {                                            // one part per grain in a compound answer
+    grain:      belief | evidence | compiled,            // each part single-grain (S47)
+    results: [ { …record…,
+        validity: {valid_from, valid_until, ingested_at, invalidated_at},
+        evidence_count, confidence,
+        contradiction: {group_id, co_members[≤cap], returned, total, continuation} | null,
+        provenance: {hydrate_handle, depth_available} } ] } ],
+  as_of:        {valid_at, believed_at,                 // the temporal params actually applied (echo)
+                 identity_regime: current | as_of},     // S61 — which identity boundary answered
   freshness: {                                          // per contributing source (S42)
-      pg: live_ts, p1: max_write_lag, p2: snapshot_ts,
+      pg: live_ts, p1: {max_write_lag, believed_at_horizon},
+      p2: {snapshot_ts, believed_at_horizon},           // horizons: §3 — beyond them, `boundary`
       k:  {compiled_at, stale: bool, open_flags: n} },  // ← k_layers spike 9 lands here
   truncation:   {truncated: bool, returned, estimated_total, continuation} | null,  // S18/S49
-  dropped_by_hydration: n,                             // §2 nominate-then-drop honesty
+  dropped_by_hydration: n,                             // §2 nominate-then-drop honesty (paths drop as units)
   negative:     null | {kind, explanation, workaround}  // §below
 }
 ```
 
+(Single-grain answers are the common case: one entry in `parts[]`, top-level
+`grain` = that part's grain — flat to consume. `composite` appears only for compound recipes
+like S47's said-vs-believe pair, and each part is still strictly single-grain, so the §6
+discipline is never diluted.)
+
 Three rules that are contract, not garnish:
 
-- **Contradiction co-members return inline (S23).** Returning one side of a live
-  `contradiction_group` without its co-members is a **contract violation**, not a ranking
-  choice — "contradictions are surfaced, never silently resolved" applied to the read path.
-  Both FY2023 revenue figures come back together, with per-side evidence handles.
+- **Contradiction co-members are never silently absent (S23).** Returning one side of a live
+  `contradiction_group` with no indication of the others is a **contract violation**, not a
+  ranking choice — "contradictions are surfaced, never silently resolved" applied to the read
+  path. The bounded form: co-members return **inline up to a guaranteed cap** (typical groups
+  are 2–3 sides; both FY2023 revenue figures come back together, with per-side evidence
+  handles); beyond the cap the contradiction block still *always* carries `group_id`,
+  `returned`, `total`, and a `continuation` — bounded like every hub answer, one-sided never.
 - **No silent caps (S18, S49).** Hub neighborhoods and big result sets return ranked pages
   with explicit truncation markers and continuations — never a silent top-k posing as
   everything, never a timeout.
@@ -256,7 +330,10 @@ The rules:
   answerable."
 
 **Aggregation (S26–S30, S40).** Enumerated forms only — counts, group-by-predicate/object,
-entity timelines — each a bounded SQL shape with a predictable cost envelope. General ad-hoc
+entity timelines, **delta-top-entities** (evidence gained since T, grouped by entity — S30,
+bounded by the delta feed), and **typed-absence** (entities of type X with no relation of
+predicate P — S40, an anti-join over the typed entity enumeration, answerable *because* the
+ontology types entities) — each a bounded SQL shape with a predictable cost envelope. General ad-hoc
 aggregation is **not** an interactive capability (an unbounded GROUP BY over 10⁸ rows is a
 denial-of-service against the spine); the escape hatch is the batch surface. Cross-entity
 numeric range scans over observation *values* remain a stated `boundary` (S29) — the D43
@@ -283,12 +360,14 @@ labels, same trust model (§9).
 
 ## 11. Evaluation — the battery is the harness
 
-The scenario battery (S1–S59) is the retrieval golden set's skeleton (D22): each scenario
+The scenario battery (S1–S61) is the retrieval golden set's skeleton (D22): each scenario
 class becomes labeled query/expected-result pairs; the harness measures recall@k and
 precision per **recipe × scenario class × corpus slice**, plus contract tests that are
 non-negotiable CI: grain labels present and truthful; contradiction co-members always
 returned (S23); truncation always marked (S18/S49);
-forgotten ≡ never-existed (S55); recipe-vs-primitive-chain equivalence (§4); and S58 as the
+forgotten ≡ never-existed (S55 — the *contract*; its CI gate activates only when the
+end-to-end deletion cascade, `questions.md` #24, is designed — retrieval CI cannot enforce an
+unresolved lifecycle); recipe-vs-primitive-chain equivalence (§4); and S58 as the
 skill's acceptance test. Rerank weights (graph distance, evidence count) are tuned on the
 harness, never in production.
 
@@ -314,8 +393,9 @@ harness, never in production.
    recipe, on the golden set (O6/D22).
 4. **Multi-hop as-of path-filter performance** — shared with D44's spike list; decides whether
    heavy repeat as-of analytics get a materialized persistent as-of graph.
-5. **Envelope overhead** — measure the envelope's size/latency cost on hub answers; set
-   co-member inline caps (with truncation markers) if contradiction groups are ever large.
+5. **Envelope overhead** — measure the envelope's size/latency cost on hub answers, and pick
+   the guaranteed co-member inline cap value (§5 fixes the *shape* — inline-to-cap +
+   group_id/counts/continuation beyond it; the spike only sets the number).
 6. **Skill authoring + S58 protocol** — build the cold-agent test as a repeatable eval;
    iterate the skill against real harnesses (Claude Code, Codex, OpenCode).
 7. **Cross-cloud hydration batching** — batch sizes/latency for the by-ID hop under
@@ -325,7 +405,7 @@ harness, never in production.
 
 ## References
 
-Scenarios: `plan/analysis/retrieval_scenarios.md` (S1–S59, the coverage map, the boundary
+Scenarios: `plan/analysis/retrieval_scenarios.md` (S1–S61, the coverage map, the boundary
 list). Decisions: **D48–D51** (this design), D8, D9, D10, D13, D16, D22, D41, D43, D44
 (`decisions.md`). Adjacent designs: `p2_graph_design.md` §6 (store roles, reranking),
 `k_layers_design.md` §5 (reader-facing flags → §5 here; reads-never-trigger),

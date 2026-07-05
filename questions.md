@@ -74,7 +74,7 @@ Keep this current: when something here is decided, move it to a decision and pru
     spikes in `k_layers_design.md` §11 (rule-kind coverage, planner blast-radius bands, writer
     completeness eval, compile-cycle economics, git-history erasure) and #5/#6 above.
 16. ~~**Retrieval — the consumer surface.**~~ **RESOLVED (D48–D51)** — `retrieval_design.md` is
-    written, driven by the S1–S59 scenario battery (`plan/analysis/retrieval_scenarios.md`):
+    written, driven by the S1–S61 scenario battery (`plan/analysis/retrieval_scenarios.md`):
     zero-LLM primitives + registry recipes, the response envelope (grain / contradictions /
     freshness / typed negatives), propose-dispose hydration, four mounts + filesystem-first
     precedence, the consumption skill. Remaining retrieval items: the spikes in
@@ -121,12 +121,11 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 ## 5. Concrete inconsistencies to fix
 
-25. **P3 ↔ K: docs disagree on whether K is a structural input.** D40 / `overall_design.md` §5 /
-    `requirements_v3.md` say P3 is built "from … entities/relations + the K-plane structure"; but
-    `e0_files_design.md` §6 says P3 is **Postgres-anchored** and only **cross-links** to K (K is *not*
-    a structural input). Pick one. (If K is an input, P3 inherits O4's non-reproducibility and
-    deletion-manifest burden; the cross-link-only model is cleaner — then D40/overall/requirements
-    need updating to match.)
+25. ~~**P3 ↔ K: docs disagree on whether K is a structural input.**~~ **RESOLVED** — the
+    cross-link-only model is adopted everywhere: K is never a structural input to P3 (P3 stays
+    rebuildable from the E spine + artifacts). D40 carries a refinement note;
+    `overall_design.md` §5 and `requirements_v3.md` §Plane P updated to match
+    `e0_files_design.md` §6.
 26. **D23 vs D25: gated vs. full extraction volume.** D25 re-stamped the three 10⁸ tables to **full
     extraction** sizing when the value gate was dropped (and `registries_design.md` agrees), but **D23
     still says** "row counts are contingent on the value gate — size against *gated* volume." Update

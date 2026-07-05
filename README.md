@@ -112,8 +112,9 @@ and flow downward.
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/designs/k_layers_design.md](plan/designs/k_layers_design.md) | K plane: manifest-driven compiled + authored knowledge (D45–D47) |
 | [plan/designs/retrieval_design.md](plan/designs/retrieval_design.md) | The query machine: primitives, recipes, envelope, mounts, consumption skill (D48–D51) |
-| [plan/analysis/retrieval_scenarios.md](plan/analysis/retrieval_scenarios.md) | Retrieval stress battery S1–S59 — drives the retrieval design + the D22 golden set |
+| [plan/analysis/retrieval_scenarios.md](plan/analysis/retrieval_scenarios.md) | Retrieval stress battery S1–S61 — drives the retrieval design + the D22 golden set |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
+| [plan/analysis/retrieval_review/](plan/analysis/retrieval_review/) | External adversarial review of the retrieval design (Codex) + reconciliation |
 | [plan/analysis/design_review_2026_07.md](plan/analysis/design_review_2026_07.md) | Second step-back review F1–F9 (post-D44) — K-plane build system, attributed stance, evidence inflation, … |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |

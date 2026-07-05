@@ -71,7 +71,8 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
   spine.
 - **P3 — Corpus filesystem**: the corpus organized as a navigable **directory tree**, materialized
   to object storage and **mounted read-only** so agentic workers can browse the memory on their
-  filesystem; built from document placement hints + entities/relations + the K-plane structure;
+  filesystem; built from document placement hints + entities/relations (K pages are
+  cross-linked, never a structural input — P3 stays rebuildable from the E spine, D40 refined);
   fully rebuildable. Agents read the curated hierarchy and drill into the source documents.
 
 ## Knowledge lifecycle
