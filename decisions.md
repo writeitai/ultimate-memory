@@ -352,6 +352,13 @@ one deployment only — separate deployments (assistant, agency, client projects
 independent instances with separate entity spaces (`registries_design.md` §1, deployment
 model).
 
+**Refined by D50 (trust model).** The access-isolation arm ("filtered snapshots + API-level
+authorization" for sensitive scopes) is withdrawn as *access control*: content-level
+authorization inside a deployment is a library non-goal — a deployment is one trust domain,
+and data with a different trust boundary belongs in a **separate deployment** (this decision's
+own last sentence, promoted to the isolation mechanism). Filtered snapshots remain as the
+scope-view / performance tool of arm (3).
+
 ---
 
 > **D17–D30 provenance.** D17–D24 formalize the entity-registry research
@@ -1118,9 +1125,9 @@ continuations (no silent caps — hub answers are ranked pages, never a quiet to
 timeout); the applied temporal parameters echoed in composition-ready form (`valid_at` /
 `believed_at` — so multi-step temporal questions compose from prior envelopes with no special
 machinery); and a **typed negative taxonomy**: `unknown_entity` / `known_empty` / `boundary`
-(named limitation + workaround — e.g. the D43 cross-entity numeric-scan boundary) / `denied`
-(deliberately indistinguishable from `known_empty` on the wire, anti-probing) / forgotten ≡
-never-existed (not a kind — indistinguishability is the requirement).
+(named limitation + workaround — e.g. the D43 cross-entity numeric-scan boundary) / forgotten ≡
+never-existed (not a kind — indistinguishability is the requirement). There is deliberately no
+`denied` kind: content-level authorization is out of library scope (D50 trust model).
 
 **Context.** The callers are agents that must *reason about* answers, not just receive them; and
 the requirements make three read-path properties non-negotiable: the claim/relation temporal
@@ -1130,7 +1137,7 @@ absence. A taxonomy of "no" cannot be retrofitted onto a deployed API. Mixed-gra
 the data as a type, not a doc-comment.
 
 **Consequences.** Contract tests become CI (grain truthfulness, co-member completeness,
-truncation marking, denied≡empty, forgotten≡never-existed). Agents plan against freshness and
+truncation marking, forgotten≡never-existed). Agents plan against freshness and
 flag counts instead of guessing. Envelope size on hub answers is a named spike.
 
 ## D50. Query capability = composable zero-LLM primitives; recipes are registry data
@@ -1158,10 +1165,15 @@ ad-hoc GROUP BY over 10⁸ rows is a denial-of-service against the spine; `scan`
 hatch.
 
 **Consequences.** Adding a query pattern = inserting a registry row. Temporal composition needs
-no machinery beyond D49's parameter echo. Scope authorization: shared projections get
-API-enforced registry-declared filters; **access-sensitive scopes get filtered projections under
-separate IAM** (the D16 arm — mounts cannot query-time-filter, so storage-level separation is
-the only mechanism covering all channels at once); denials read as empty (D49).
+no machinery beyond D49's parameter echo. **Trust model — content-level authorization and
+per-user scoping are library non-goals**: a deployment is one trust domain (every agent that
+reaches it is trusted with all of it); isolation is achieved by **deployment separation** —
+the deployment model's own mechanism (registries §1) — never by content filtering inside one
+deployment (which would have to hold across every channel at once; mounts cannot
+query-time-filter, so it degenerates to a deployment inside a deployment). Perimeter security
+(who reaches the API/mounts) is deployment infrastructure. D16's filtered snapshots remain a
+scope-view/performance tool, no longer carried as access control. (Refines D16's
+access-isolation arm; `retrieval_design.md` §9.)
 
 ## D51. Consumption is filesystem-first for agent harnesses; four read-only mounts (raw included, off-path); a consumption skill ships with the system
 
@@ -1197,6 +1209,7 @@ move aimed at consumers: the system must be usable well with zero human explanat
 
 **Consequences.** `media/` in artifacts holds only *derived* media; whole-file originals serve
 from the raw mount. E0 gains a storage-class routing spike. EXIF / embedded-metadata exposure
-via raw is accepted under per-deployment IAM; a scope-sensitive corpus gets a filtered bucket
-projection (D16), never a re-ban of the mount. The skill joins the eval surface (S58).
-Requirements §Retrieval is reframed around harness-first consumption.
+via raw is accepted under per-deployment IAM — the deployment is one trust domain (D50); data
+with a different trust boundary belongs in a separate deployment, never behind an in-library
+filter. The skill joins the eval surface (S58). Requirements §Retrieval is reframed around
+harness-first consumption.

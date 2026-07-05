@@ -155,8 +155,8 @@ Three rules that are contract, not garnish:
   (The third candidate surface — a per-page status sidecar file — is dropped: two surfaces
   cover both consumption modes, and a sidecar would be a second mutable state to keep honest.)
 
-**The negative taxonomy — five typed "no"s (S29, S39, S54, S55).** Each demands a different
-agent reaction, so they are distinct envelope kinds, fixed now (retrofitting a taxonomy onto a
+**The negative taxonomy — typed "no"s (S29, S39, S55).** Each demands a different agent
+reaction, so they are distinct envelope kinds, fixed now (retrofitting a taxonomy onto a
 deployed API breaks consumers):
 
 | kind | meaning | agent's correct move |
@@ -164,8 +164,11 @@ deployed API breaks consumers):
 | `unknown_entity` | nothing resolves | widen resolution, check spelling, try search |
 | `known_empty` | entity exists; no matching facts | trust the absence (within freshness) |
 | `boundary` | a stated capability limit (e.g. S29 cross-entity numeric range scans, the D43 price) | named limitation + workaround in the envelope; re-plan |
-| `denied` | scope authorization — **deliberately indistinguishable from `known_empty` on the wire** (anti-probing); shown here for the design reader, not the caller | (the caller cannot and must not tell) |
 | (forgotten) | hard-deleted content — **indistinguishable from never-existed** (S55), so it is *not* a kind: it surfaces as `unknown_entity`/`known_empty` | — |
+
+(There is deliberately no `denied` kind: content-level authorization is a library non-goal —
+§9. If a future deployment-side layer adds one, its wire behavior must be
+indistinguishable-from-empty, which is why the taxonomy is safe to freeze without it.)
 
 ## 6. The grain type-system (D49)
 
@@ -227,22 +230,30 @@ has never seen the system, given only the skill, must orient via K, keep grains 
 respect the boundaries. The skill is not documentation *about* the system; it is part *of*
 the system, and the eval harness runs S58 against every skill revision.
 
-## 9. Authorization, aggregation, and the batch surface
+## 9. The trust model, aggregation, and the batch surface
 
-**Authorization (S54; `questions.md` #8, retrieval slice).** The threat is channel
-inconsistency: a scope-restricted fact leaking through *any* of Lance / graph / PG FTS / K
-pages / P3 voids restrictions on the rest. The design:
+**Trust model — content-level authorization is a library non-goal (S54).** The library serves
+**one trust domain per deployment**: every agent that can reach a deployment's API or mounts
+is trusted with everything in that deployment. This is not a gap but the deployment model's
+own logic (registries §1) carried to its conclusion — deployments are already fully
+independent instances precisely so that data with different trust boundaries never co-resolves.
+The rules:
 
-- **Default (non-sensitive scopes):** one shared projection estate; the API enforces
-  registry-declared scope filters at query time on every channel it serves. Mounts for
-  non-sensitive material are whole-bucket read-only.
-- **Access-sensitive scopes** (e.g. people profiles): **filtered projections**, not
-  query-time filters — their own Lance dataset, their own P2 snapshot emitted by the same
-  rebuild (D16's "materialized filtered snapshots" arm), their own P3/K subtrees under
-  separate IAM. Mounts make query-time filtering impossible, so *storage-level separation is
-  the only mechanism that covers all surfaces at once*; that is what D16 anticipated.
-- **Denials read as empty** on the wire (§5) — an unauthorized caller learns nothing, not even
-  existence.
+- **Isolation is achieved by deployment separation**, never by content filtering inside one
+  deployment: data that must not be visible to a deployment's agents belongs in a *different
+  deployment* (own Postgres, registries, projections, buckets, K repo).
+- **Perimeter security is deployment infrastructure**, outside the library: who can reach the
+  API/CLI/mounts at all is IAM / network / key management (`questions.md` #8, ops slice); the
+  raw-mount audit logging (D51) stands, as an audit — not authorization — mechanism.
+- **Why not in-library authz:** scope-level filtering would have to hold consistently across
+  *every* channel (Lance, graph, PG FTS, K pages, P3, raw) — mounts cannot query-time-filter,
+  so it degenerates to per-scope filtered projections of everything, i.e. a deployment inside
+  a deployment. The deployment boundary *is* that mechanism, already designed. (D16's
+  filtered-snapshot arm remains available as a *scope-view/performance* tool; it is no longer
+  carried as an access-control mechanism.)
+- S54 accordingly moves from "must be enforced" to a **documented boundary**: the scenario's
+  correct outcome is "the deployment's perimeter admitted this agent; everything inside is
+  answerable."
 
 **Aggregation (S26–S30, S40).** Enumerated forms only — counts, group-by-predicate/object,
 entity timelines — each a bounded SQL shape with a predictable cost envelope. General ad-hoc
@@ -254,7 +265,7 @@ price, revisited only if a structured value column is ever added.
 **The batch surface (S53).** `scan` streams filtered exports (relations of a scope, claims of
 a doc-set, the delta feed) under a separate resource pool and no interactive latency promise.
 Consumers: K writers, external analytics, auditors, migration tooling. Zero LLM, same grain
-labels, same authorization.
+labels, same trust model (§9).
 
 ## 10. Performance envelope and topology
 
@@ -276,7 +287,7 @@ The scenario battery (S1–S59) is the retrieval golden set's skeleton (D22): ea
 class becomes labeled query/expected-result pairs; the harness measures recall@k and
 precision per **recipe × scenario class × corpus slice**, plus contract tests that are
 non-negotiable CI: grain labels present and truthful; contradiction co-members always
-returned (S23); truncation always marked (S18/S49); denied ≡ empty on the wire (S54);
+returned (S23); truncation always marked (S18/S49);
 forgotten ≡ never-existed (S55); recipe-vs-primitive-chain equivalence (§4); and S58 as the
 skill's acceptance test. Rerank weights (graph distance, evidence count) are tuned on the
 harness, never in production.

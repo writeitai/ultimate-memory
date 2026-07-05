@@ -234,10 +234,14 @@ masquerade as the other (requirements §Retrieval, D41).
 
 ## N. Security and lifecycle
 
-- **S54** A generic search by an agent without the people-profiles scope must not leak
-  profile-scope facts through *any* channel (Lance, graph, PG FTS, K pages, P3 tree).
-  Stresses: authorization must be channel-consistent (D16 filtered projections + API-level
-  authz); one leaky channel voids the rest.
+- **S54** ⛔ A generic search by an agent "without the people-profiles scope" leaking
+  profile facts — **out of library scope by design** (retrieval_design §9): a deployment is
+  **one trust domain**; every agent that reaches it is trusted with all of it. Content-level
+  authorization would have to hold across every channel at once (Lance, graph, PG FTS, K, P3,
+  raw — mounts cannot query-time-filter), which degenerates to a deployment inside a
+  deployment; the deployment boundary *is* the isolation mechanism (registries §1). Data with
+  a different trust boundary belongs in a **separate deployment**. Perimeter security (who
+  reaches the API/mounts at all) is deployment infrastructure, not the library.
 - **S55** After a hard-forget of document D: no query — semantic, verbatim, graph, K, or
   browse — resurfaces its content; and *forgotten* is indistinguishable from *never existed*
   (deletion cascade §13; K git-history erasure).
@@ -260,7 +264,7 @@ masquerade as the other (requirements §Retrieval, D41).
 | freshness / staleness exposure | S31, S34, S35, S42 |
 | negative answers + capability errors | S29, S39, S55 |
 | scale / batch / hubs | S18, S49, S52, S53 |
-| authz + deletion | S54, S55 |
+| trust boundary (documented) + deletion | S54 ⛔, S55 |
 
 ## Deliberate boundaries the design must state (not solve)
 
@@ -271,6 +275,9 @@ masquerade as the other (requirements §Retrieval, D41).
 4. **Corpus-wide open-ended synthesis** ("what's interesting in the corpus?") is the K plane's
    compile-time job, not a query — the query surface serves what K precomputed (S31–S33).
 5. **Anything requiring the attributed-stance resolution** (S37) is ⏳ until that decision lands.
+6. **Content-level authorization / per-user scoping** (S54) — a library non-goal: one trust
+   domain per deployment; isolation = separate deployments; perimeter auth = deployment
+   infrastructure (retrieval_design §9).
 
 ## Open items this battery exposes for the design
 
@@ -279,8 +286,8 @@ masquerade as the other (requirements §Retrieval, D41).
 - **Temporal composition** (S15/S16) requires as-of values derivable from prior results —
   a composition property of primitives, not a recipe.
 - **`pages_about`** (S45) — the K rule-key index doubles as a reader-side discovery index.
-- **Negative-answer taxonomy** (S39, S54, S55): unknown / known-empty / boundary-refused /
-  denied-as-empty / forgotten-as-never-existed.
+- **Negative-answer taxonomy** (S39, S55): unknown / known-empty / boundary-refused /
+  forgotten-as-never-existed. (No `denied` kind — content authz is out of library scope, S54.)
 - **Batch surface** (S53) distinct from interactive; both zero-LLM.
 
 ## References

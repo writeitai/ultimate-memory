@@ -114,6 +114,12 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
   model — planes, the belief-vs-evidence grains, freshness semantics, contradiction handling —
   plus the mount layout and the precedence rules. A consumer harness must be able to use the
   memory well *without* a human explaining it.
+- **Trust model (a scope boundary): one trust domain per deployment.** Content-level
+  authorization and per-user scoping are **non-goals of the library** — every agent that can
+  reach a deployment's API or mounts is trusted with everything in it. Isolation is achieved
+  by **deployment separation** (fully independent instances — the deployment model), never by
+  content filtering inside one deployment; perimeter security (who can reach the surfaces at
+  all) is deployment infrastructure. (D50; `retrieval_design.md` §9.)
 - Search modes: lexical (FTS/BM25), semantic, structured (filters, exact IDs), file-level
   (greps over the mounted corpus filesystem), graph (neighborhood, paths, as-of).
 - Per-layer and cross-layer search; everything filterable; every result carries exact IDs and

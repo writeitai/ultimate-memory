@@ -38,12 +38,12 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 **Operations**
 7. **PageIndex: hosted API or self-hosted?** Affects cost, privacy, and the E0 rebuild story (D39).
-8. **Security / access model (cross-cutting) — retrieval slice now decided, deployment slice
-   open.** Decided (D49/D50/D51): access-sensitive scopes get **filtered projections under
-   separate IAM** (query-time filters cannot cover mounts); denials read as empty on the wire;
-   the raw mount requires data-access audit logging. Still open: per-deployment IAM layout and
-   key management, retrieval API auth mechanics (keys/OAuth vs. trusted-infra agents), and the
-   operational review of raw-bucket audit logs.
+8. **Security / access model — trust model decided; only deployment ops remain.** Decided
+   (D50/D51): **content-level authorization and per-user scoping are library non-goals** — a
+   deployment is one trust domain; isolation = separate deployments; perimeter security is
+   deployment infrastructure; the raw mount requires data-access audit logging. Remaining
+   (ops, not design): per-deployment IAM layout and key management, API perimeter auth
+   mechanics (keys/OAuth vs. trusted-infra), audit-log review cadence.
 9. **Postgres HA appetite** — single Hetzner box + PITR, or a replica? Acceptable spine downtime?
 10. **Observability stack** — OpenTelemetry + Grafana vs. GCP-native; decide before the first worker.
 11. **Backfill / reprocessing orchestration.** E0 artifacts and extraction are version-stamped

@@ -43,8 +43,9 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   source); (2) **data-access audit logging on the bucket is mandatory** — the audit property
   of the old rule came from logging, not from unmountedness, and a gcsfuse read is a GCS read;
   (3) originals may carry what conversion strips (EXIF, tracked changes, embedded metadata) —
-  acceptable under per-deployment IAM; a scope-sensitive corpus gets a filtered bucket
-  projection (the D16 pattern), never a re-ban of the mount.
+  acceptable because a deployment is **one trust domain** (D50): every agent that reaches the
+  mount is trusted with the deployment's content; data with a different trust boundary belongs
+  in a separate deployment, never behind an in-library filter.
 - **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`,
   `pageindex.json`, `conversion.json` (blocks + offsets), `meta.json`, and **`media/`** — the
   document's *derived* media: figures extracted from documents, thumbnails, transcripts,
