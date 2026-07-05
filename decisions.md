@@ -1060,4 +1060,9 @@ will configure it, not replace it.
 **Consequences.** One pipeline to build and operate; "general" is just a scope; new scope = a
 subtree + registry rows + rules (never new machinery). Dedicated K3 machinery would be justified
 only by a use case the belief-tier configuration provably cannot express — a documented
-alternative, not a plan.
+alternative, not a plan. The tier layout itself is **configuration, not contract**: K1–K3 is the
+shipped default; a deployment — including any user of the open-source library — may reshape,
+rename, drop, or invent scopes and tiers freely. What is *not* configurable is the framework
+contract: page kinds + ownership (D46), binding citations (D45), the single automated committer,
+and the trigger surface's acyclicity ("knowledge structure is configuration, not machinery" —
+the D15 principle one plane up; `k_layers_design.md` §2).

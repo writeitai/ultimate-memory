@@ -38,9 +38,11 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 ### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
 
 One compilation mechanism, many scopes (D45–D47); K1/K2/K3 name **content tiers** of that one
-mechanism, not separate machinery. Two content kinds, one shared guarantee — **every K artifact
-records the evidence it rests on** (citations), so staleness, deletion reach, and audit are
-mechanical, never guessed:
+mechanism, not separate machinery — and they are its shipped **default configuration**: the
+mechanism is a framework, and a deployment (including any user of the open-source library)
+defines its own scopes and tiers (knowledge structure is configuration, not machinery — D47).
+Two content kinds, one shared guarantee — **every K artifact records the evidence it rests
+on** (citations), so staleness, deletion reach, and audit are mechanical, never guessed:
 
 - **Compiled knowledge**: LLM-written pages derived from the evidence each page's recorded
   **routing rule** selects (entity / community / predicate / document-set keys — evaluated

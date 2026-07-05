@@ -66,6 +66,29 @@ A scope is: a subtree of the repo, its registry rows, its pages (compiled and au
 one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, truth doesn't"
 (D16) holds: scopes own compiled markdown and authored documents, never facts.
 
+### A framework, shipped with a default configuration
+
+The mechanism above is deliberately a **framework**: nothing in the machinery knows what "K1"
+or "K3" *mean*. Two distinct strata, with a sharp line between them:
+
+- **The framework contract — fixed, not per-deployment configurable:** the two page kinds and
+  their ownership rules (D46); routing rules with binding citations (D45); the trigger surface
+  and its acyclicity invariant (§5); one git repo + the Postgres control plane, with the
+  driver as the repo's only automated committer.
+- **The knowledge layout — pure configuration, reshaped freely per deployment:** which scopes
+  exist, the tree, the rule assignments, whether a belief tier exists and under what
+  thresholds. All of it is registry rows and plan decisions, never code. **K1 (default scope)
+  / K2 (purpose scopes) / K3 (belief tier) is the shipped default configuration** — a
+  reference layout, not a requirement of the machinery; a deployment may rename, drop, or
+  invent tiers.
+
+D15 established "ontology is content, not machinery"; the same statement holds one plane up:
+**knowledge structure is configuration, not machinery.** This applies equally to our own
+deployments and to any user of the open-source library — they inherit the contract, they own
+the layout. Guarantees travel with configurations, not names: a deployment that wants belief
+semantics gets K3's guarantees by enabling the belief-tier configuration (§8), whatever it
+calls the result.
+
 ### Relationship to the original K1–K3 conception
 
 A reader arriving from older documents (requirements v1/v2, decisions D1/D12 as originally
