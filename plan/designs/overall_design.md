@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D47); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D51); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -164,10 +164,20 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 
 - Channels run in parallel; **RRF** fuses; rerankers: graph distance from focal entities,
   evidence count; optional cross-encoder. **Zero LLM calls** on the core path.
-- Composable primitives + named recipes (`relation_hybrid_rrf`, `relation_near_entity`,
-  `claims_verbatim`, …).
-- Surfaces: HTTP API, CLI, MCP server (memory planes + the K1/K2 repo).
-- `as_of` parameter supported end-to-end on both time axes.
+- **Projections propose, the spine disposes (D48):** entry channels only *nominate*; every
+  result is re-verified by-ID against live Postgres at hydration — staleness can cost recall,
+  never correctness.
+- **The response envelope (D49):** every answer carries its grain (belief / evidence /
+  compiled), inline contradiction co-members, per-source freshness stamps (incl. K page
+  staleness + open flags), explicit truncation, and a typed negative taxonomy.
+- Composable zero-LLM primitives + **recipes as registry rows** (D50): `relation_hybrid_rrf`,
+  `entity_timeline`, `explain`, `claims_as_of` (evidence-grain, barred from current-belief),
+  … — MCP tools render from the recipe registry.
+- Surfaces (D51): HTTP API, CLI, MCP server, and **four read-only mounts** (P3, E0 artifacts,
+  E0 raw — off the navigation path, K repo checkout); **filesystem-first** for agent harnesses
+  with full mount/API parity; a shipped **consumption skill** teaches cold agents the memory.
+- `valid_at` / `believed_at` supported end-to-end on both time axes, composable across calls.
+- Full design: `retrieval_design.md`; scenario battery: `plan/analysis/retrieval_scenarios.md`.
 
 ## 7. Deployment topology
 
@@ -207,7 +217,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `k_layers_design.md` | plane K: planner/writer/driver compile system, compiled + authored pages, belief tier (D45–D47) | **current** |
 | `k3_beliefs_design.md` | *(folded into `k_layers_design.md` — D47)* | — |
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
-| `retrieval_design.md` | API/CLI/MCP, recipes, rerankers | planned |
+| `retrieval_design.md` | the query machine: primitives, recipes, envelope, mounts, skill (D48–D51) | **current** |
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
 
 ## 10. Open questions

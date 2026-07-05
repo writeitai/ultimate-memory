@@ -89,9 +89,31 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
 
 ## Retrieval
 
-- Exposed as **API, CLI, MCP server, and a mounted filesystem** (the corpus filesystem, P3,
-  mounted read-only) — designed for agents composing hybrid strategies, including browsing the
-  memory as files (`ls`/`cat`/`grep` over a navigable directory tree).
+- **Primary consumers are agentic coding harnesses** (Claude Code, Codex, OpenCode, …). The
+  consumption surface is designed for how harnesses actually work: they are exceptionally good
+  at filesystem work, so the surface is **filesystem-first** wherever a filesystem can carry
+  the capability.
+- Exposed as **API, CLI, MCP server, and mounted filesystems** — the mounted read-only
+  surfaces are: the **corpus filesystem** (P3), the **E0 document artifacts** (Markdown +
+  per-document structure + derived media), the **E0 raw originals** (off the navigation path —
+  reached only via explicit pointers; audit-logged), and the **K plane** (the knowledge repo).
+  Agents browse the memory as files (`ls`/`cat`/`grep` over navigable trees).
+- **Markdown-first, originals reachable**: the per-document Markdown is the primary
+  agent-facing form and what navigation points to — but agents must be able to ingest source
+  media directly (figures and derived imagery from the artifacts; **whole-file originals** —
+  video, audio, photos — from the raw mount via explicit pointers), because conversion is
+  lossy exactly where sources are non-textual.
+- **Environment-adaptive, with a precedence rule**: everything readable is available through
+  both the mounts and the API/CLI (full parity — some environments cannot mount). When mounts
+  are available, agents are instructed to **prefer the filesystem for everything a filesystem
+  can do** (navigate, read, grep) and reserve API/CLI for query-engine capabilities that have
+  no filesystem equivalent (semantic search, graph traversal, temporal as-of, hydration).
+  When mounts are unavailable, API/CLI carry everything.
+- **A shipped consumption skill**: the system ships agent-facing instructions + reference
+  documentation (a skill, versioned with the system) that teaches a cold agent the memory
+  model — planes, the belief-vs-evidence grains, freshness semantics, contradiction handling —
+  plus the mount layout and the precedence rules. A consumer harness must be able to use the
+  memory well *without* a human explaining it.
 - Search modes: lexical (FTS/BM25), semantic, structured (filters, exact IDs), file-level
   (greps over the mounted corpus filesystem), graph (neighborhood, paths, as-of).
 - Per-layer and cross-layer search; everything filterable; every result carries exact IDs and

@@ -31,11 +31,30 @@ complexity is handled by *decomposition into sub-workers*, each separately idemp
 Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
 
 - **raw** — `gs://ugm-<dep>-raw/<doc_id>/<content_hash>/original.<ext>` — immutable source-of-truth
-  bytes (D1). Cold/archival storage class, strict IAM. **Not on the agent browse path** (originals
-  are reached only via an audited retrieval path — kept for audit, re-OCR, legal provenance).
+  bytes (D1). Strict per-deployment IAM. **Mounted read-only, but off the navigation path**
+  (D51): P3 and the Markdown never *promote* raw — stubs and `document.md` frontmatter carry an
+  explicit raw pointer, so reaching an original is always a deliberate act (following a link),
+  never a browse default. The point is whole-file media: for a video, an MP3, a photo *input*,
+  the original **is** the artifact a multimodal harness needs — conversion yields only a lossy
+  transcript/description. Three guardrails replace the old never-mounted rule: (1) **storage
+  class routes by mime** (per-deployment config, like the D38 converter router): media likely
+  to be read by agents (video/audio/images) → standard/nearline; text/office originals kept
+  only for audit and re-conversion → archive (this kills the grep-the-archive cost bug at the
+  source); (2) **data-access audit logging on the bucket is mandatory** — the audit property
+  of the old rule came from logging, not from unmountedness, and a gcsfuse read is a GCS read;
+  (3) originals may carry what conversion strips (EXIF, tracked changes, embedded metadata) —
+  acceptable under per-deployment IAM; a scope-sensitive corpus gets a filtered bucket
+  projection (the D16 pattern), never a re-ban of the mount.
 - **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`,
-  `pageindex.json`, `conversion.json` (blocks + offsets), `meta.json`. Standard storage. This is the
-  per-document material an agent *reads*; it is reachable from the corpus filesystem (§6).
+  `pageindex.json`, `conversion.json` (blocks + offsets), `meta.json`, and **`media/`** — the
+  document's *derived* media: figures extracted from documents, thumbnails, transcripts,
+  referenced from `document.md` by relative links. Standard storage. This is the per-document
+  material an agent *reads*; it is reachable from the corpus filesystem (§6). Media matters
+  because conversion is lossy exactly where a source is visual: agents are pointed
+  **Markdown-first**, but a multimodal harness must be able to open the referenced image
+  directly from the browse path. **Whole-file media originals** (a video, an MP3, a photo
+  input) are *not* duplicated into `media/` — they are served from the raw mount (above) via
+  the explicit raw pointer; `media/` holds only what conversion *derived*.
 
 (`content_hash` = sha256 of the raw bytes — the single canonical byte identity, used in both the
 path and the `documents` row.)
@@ -86,9 +105,11 @@ deletion/forget requirement end-to-end (incl. GDPR-style hard delete of the orig
 A **configurable, pluggable** converter — the boundary is library-shaped and reusable; its quality
 gates everything downstream:
 
-- **Interface:** `convert(bytes, mime, hints) -> { markdown, blocks[] }`, where `blocks` carry
-  **page + character offsets back to the source**. Offsets are load-bearing: E2 grounding (D32) needs
-  verbatim `source_span`s, and chunking + PageIndex need positions.
+- **Interface:** `convert(bytes, mime, hints) -> { markdown, blocks[], media[] }`, where `blocks`
+  carry **page + character offsets back to the source**, and `media` carries the extracted
+  images (id, bytes, page/position, caption if any) that land in the artifact `media/` folder
+  and are linked from the Markdown. Offsets are load-bearing: E2 grounding (D32) needs verbatim
+  `source_span`s, and chunking + PageIndex need positions.
 - **Router by input type** (per-deployment config): digital PDF → direct text extraction; scanned /
   complex PDF + images → **OCR** (e.g. Mistral OCR / docling / marker); office / html / email →
   **markitdown**; plain text → passthrough. (This generalizes the common practice of *Mistral OCR for
@@ -154,14 +175,18 @@ whole corpus as it grows (a single document cannot know the global tree).
 
 A hard requirement: agentic workers get the memory **on their filesystem** and navigate it without
 querying Postgres per step. `gcsfuse` mounts a GCS bucket as a filesystem on Cloud Run/GKE, so an
-agent can `ls / cat / grep` the corpus. Two things are mounted **read-only** (writes always go through
-the pipeline; Postgres stays the authority):
+agent can `ls / cat / grep` the corpus. Three buckets are mounted **read-only** (writes always go
+through the pipeline; Postgres stays the authority):
 
-- the **corpus filesystem** bucket (§6) — the navigable hierarchy agents browse *first*, and
-- the **artifacts** bucket — the per-document material they *drill into* (linked from the tree).
+- the **corpus filesystem** bucket (§6) — the navigable hierarchy agents browse *first*,
+- the **artifacts** bucket — the per-document material they *drill into* (linked from the tree), and
+- the **raw** bucket — originals, **off the navigation path** (§2, D51): reached only by following
+  an explicit raw pointer from a stub or `document.md` frontmatter (whole-file media ingestion,
+  verification, re-OCR debugging, legal provenance); mandatory data-access audit logging; storage
+  class routed by mime so browse-pattern reads never hit archive-class retrieval fees.
 
-The raw bucket is never mounted on the normal browse path; originals are reached only through an
-audited retrieval path (kept for audit, re-OCR debugging, and legal provenance).
+(The K repo is the fourth mounted surface of the system overall — a read-only checkout — but it is
+plane K's concern, not E0's; see `retrieval_design.md` §7.)
 
 **Mount mechanics (not a normal POSIX FS).** A `gcsfuse` mount is object storage behind a filesystem
 facade — directories are inferred from object name prefixes, and symlinks/hard-links are not
@@ -255,3 +280,6 @@ Open spikes (measure before committing):
 4. **P3 build cadence & scale** — rebuild-all vs incremental tree maintenance as the corpus grows;
    how the tree stays stable enough for agents to rely on paths.
 5. **doc_id scheme** — hash (collision-safe, opaque canonical paths) + readable names in P3.
+6. **Raw storage-class routing** (D51) — measure the read patterns per mime class on a real
+   corpus slice; set the standard/nearline/archive routing table and verify the mounted-read
+   cost envelope (no archive-class retrieval fees on agent browse patterns).
