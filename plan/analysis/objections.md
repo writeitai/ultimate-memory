@@ -10,7 +10,9 @@ Status:
 - **O5 accepted → D15–D24** (entity-registry/ontology subsystem). Researched in
   `registry_research/`; design doc `plan/designs/registries_design.md`.
 - **O6 partially folded in** via D22 (eval loop ships v1; ER half + retrieval half).
-- **O2, O4 still open.**
+- **O2 accepted → D47** (one K compilation mechanism, N scopes; K3 = the belief tier).
+- **O4 accepted → D45/D46** (manifest-driven K compilation; citations binding; semantic
+  regenerability; the non-rebuildable surface narrowed to human-authored content).
 
 When an objection is accepted, it lands as a decision (D14+) and flows into the docs;
 when rejected, the rationale is recorded here.
@@ -46,7 +48,7 @@ bug and keeps generating wrong intuitions about triggers, freshness, and depende
 
 ---
 
-## O2. L3/L4/L5 are one mechanism wearing three names
+## O2. L3/L4/L5 are one mechanism wearing three names ✅ ACCEPTED → D47
 
 **Objection.** By mechanism: L3 compiles claims into git markdown via agent sessions; L4 does
 the same scoped to a domain; L5 (the least-specified layer — "ultra-derived beliefs") would
@@ -66,6 +68,14 @@ its own machinery.
 
 **Cost of adopting:** low now, high later (machinery built on three named layers hardens).
 **Risk of ignoring:** building and operating three pipelines where one suffices.
+
+**Resolution.** Accepted as proposed → **D47**: one compilation mechanism, N scopes; "general"
+(K1) is the default scope; K3 is the **belief tier** — the same mechanism under stricter
+configuration (rules select only high-evidence, uncontradicted facts; updates evidence-gated,
+never timer-driven; dual-role citations mandatory) — which is exactly the "curated view seeded
+from high-evidence, zero-contradiction relations", now with a defined update rule. The "whose
+beliefs" question stays open (`questions.md` #5); the mechanism is agnostic to its answer.
+Design: `plan/designs/k_layers_design.md` §2/§8.
 
 ---
 
@@ -113,7 +123,7 @@ deterministic structural section-skip is a documented future add-back, not a sma
 
 ---
 
-## O4. Compiled (git) layers should be semantically regenerable
+## O4. Compiled (git) layers should be semantically regenerable ✅ ACCEPTED → D45/D46
 
 **Objection.** The compiled repo is an unreproducible source of truth — mitigated by backups
 (D1), but that's acceptance, not mitigation. The non-determinism objection to "rebuildable
@@ -133,6 +143,14 @@ Promote from nice-to-have to requirement.
 
 **Cost of adopting:** low (a frontmatter convention + writer discipline).
 **Risk of ignoring:** unauditable staleness; the repo drifts from the evidence invisibly.
+
+**Resolution.** Accepted and extended → **D45/D46**: the manifest is not just recorded, it is
+the *mechanism* — pages carry mechanical **routing rules** (what evidence belongs here) plus
+binding **citations** (what the compile actually used); staleness is a hash comparison, refresh
+is exact, and the deletion cascade reaches K by reverse lookup. Beyond the original ask, D46
+splits **compiled** from **authored** pages, narrowing the genuinely non-rebuildable surface to
+human-authored content (the rest is semantically regenerable — the objection's own framing).
+Design: `plan/designs/k_layers_design.md` §4–§5; schema: `postgres_schema_design.md` §11.
 
 ---
 
@@ -182,6 +200,7 @@ O5's resolution thresholds and E2 Selection's drop quality (O3).
 ## Priority
 
 Original call (if only three): **O3**, **O6**, **O2**. **Status update:** O1 (→D14), O5
-(→D15–D24), O3 (→D25, gate mechanism rejected) are done; O6 is half-folded via D22 (eval loop). **Remaining open:
-O2** (collapse K1–K3 — orthogonal, untouched) and **O4** (semantic regenerability / manifests
-for the K-plane git layers). Both naturally belong with the upcoming K-layer design docs.
+(→D15–D24), O3 (→D25, gate mechanism rejected), O2 (→D47), and O4 (→D45/D46) are done — the
+last two resolved by the K-plane design (`plan/designs/k_layers_design.md`). The only residual
+is **O6's E2/E3 half** (extraction/supersession eval harness — `questions.md` #14), now also
+load-bearing for the K writer-completeness eval (k_layers §7).

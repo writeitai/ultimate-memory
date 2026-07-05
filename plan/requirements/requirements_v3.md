@@ -37,13 +37,30 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 ### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
 
-- **K1 — General knowledge** *(formerly L3)*: progressive-disclosure summaries over
-  high-information claims; refreshed incrementally, never globally; human-editable and
-  version-controlled.
-- **K2 — Special-purpose scopes** *(formerly L4)*: pluggable domain layers (people profiles,
-  business planning, paper ideas, …); same guarantees as K1; multiple scopes may coexist.
-- **K3 — Core beliefs and stances** *(formerly L5)*: ultra-distilled; every belief linked to
-  its supporting and contradicting evidence; updates only on evidence, resistant to drift.
+One compilation mechanism, many scopes (D45–D47); K1/K2/K3 name **content tiers** of that one
+mechanism, not separate machinery — and they are its shipped **default configuration**: the
+mechanism is a framework, and a deployment (including any user of the open-source library)
+defines its own scopes and tiers (knowledge structure is configuration, not machinery — D47).
+Two content kinds, one shared guarantee — **every K artifact records the evidence it rests
+on** (citations), so staleness, deletion reach, and audit are mechanical, never guessed:
+
+- **Compiled knowledge**: LLM-written pages derived from the evidence each page's recorded
+  **routing rule** selects (entity / community / predicate / document-set keys — evaluated
+  mechanically, chosen by an LLM planner); regenerated when stale (semantically reproducible);
+  refreshed incrementally, never globally; body machine-owned — human input enters via
+  per-page **curation** (pins / exclusions / corrections) that regeneration must honor and can
+  never destroy.
+- **Authored knowledge**: human/agent-authored first-class content (target states, designs,
+  decisions); never auto-regenerated; cites the evidence it was based on and is **flagged for
+  review when that evidence changes**.
+- **K1 — General knowledge** *(formerly L3)*: the default scope — progressive-disclosure
+  summaries (entity, topic, source pages) over the evidence.
+- **K2 — Special-purpose scopes** *(formerly L4)*: pluggable purpose scopes (people profiles,
+  business planning, as-is/to-be migration tracking, …); multiple scopes coexist; each scope
+  anchors its vocabulary in a shared model page all its pages compile against.
+- **K3 — Core beliefs and stances** *(formerly L5)*: the belief tier — ultra-distilled,
+  compiled only from high-evidence, uncontradicted facts; every belief linked to its
+  supporting and contradicting evidence; updates only on evidence, resistant to drift.
 
 ### Plane P — Projections (derived, no authority; rebuilt on schedule)
 
@@ -62,6 +79,8 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - New information **supersedes** old information without destroying it — validity windows
   close; nothing is silently deleted.
 - **Contradictions are surfaced**, never silently resolved.
+- **Authored knowledge is never silently undermined**: human/agent-authored pages record the
+  evidence they were based on and are flagged for review when that evidence changes (D46).
 - **Two time axes** everywhere knowledge lives: when a fact was true in the world, and when
   the system learned/believed it.
 - **Time-travel**: reconstruct both "what was true at T" and "what did we believe at T".
@@ -94,8 +113,10 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 - **Single source of truth for validity** — validity/invalidation state lives in exactly one
   place; all other stores hold derived, rebuildable projections.
-- **Split source of truth**: deterministic layers rebuildable from the relational spine;
-  LLM-derived git layers are their own source of truth and are backed up as such.
+- **Split source of truth**: deterministic layers rebuildable from the relational spine. The
+  plane-K git repo is a source of truth backed up as such — with its **irreducible core being
+  human-authored content** (authored pages + curation); compiled pages are semantically
+  regenerable from the spine plus their recorded compile inputs (D45/D46).
 - **Rebuildability is exercised**, not assumed (periodic rebuild as the normal sync path
   and/or drills).
 - **Idempotent processing**: every worker re-runnable, keyed by content hash + processing
@@ -122,9 +143,9 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 - Document structure: **PageIndex**. Chunking: **semchunk**. Claim extraction: **Claimify**
   principle.
 - Workers: **GCP Cloud Run jobs** triggered via **Cloud Tasks** (max 2 retries, rate-limited).
-- Plane K compilation (K1/K2): **Codex / OpenCode** sessions over a **single git repo**
-  (distinct directory split; conflict retry within the same session; rolling-window delay
-  for hot files).
+- Plane K compilation: **Codex / OpenCode** as the planner/writer agents over a **single git
+  repo**, orchestrated by the manifest-driven compile driver — one automated committer,
+  dependency-ordered compiles; no concurrent sessions editing shared files (D45).
 
 ## Code
 
