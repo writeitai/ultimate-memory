@@ -102,7 +102,9 @@ and flow downward.
 | [plan/designs/e2_e3_claims_relations_design.md](plan/designs/e2_e3_claims_relations_design.md) | Claim extraction + relation normalization; why there is no value gate (D31–D35, D25) |
 | [plan/designs/e0_files_design.md](plan/designs/e0_files_design.md) | E0 document layer + P3 corpus filesystem (D36–D40) |
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
+| [plan/designs/k_layers_design.md](plan/designs/k_layers_design.md) | K plane: manifest-driven compiled + authored knowledge (D45–D47) |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
+| [plan/analysis/design_review_2026_07.md](plan/analysis/design_review_2026_07.md) | Second step-back review F1–F9 (post-D44) — K-plane build system, attributed stance, evidence inflation, … |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
 | [plan/analysis/entity_typing_research/](plan/analysis/entity_typing_research/) | Entity typing cascade options + SYNTHESIS (→ registries design) |
@@ -111,5 +113,5 @@ and flow downward.
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [plan/analysis/ladybug_translation_research/SYNTHESIS.md](plan/analysis/ladybug_translation_research/SYNTHESIS.md) | Postgres→LadybugDB translation (the `v_graph_*` projection contract, D44) |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D44) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D47) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

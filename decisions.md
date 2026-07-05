@@ -24,6 +24,12 @@ The two requirements contradicted each other.
 discipline. Postgres records prompt/model/embedding versions per derived artifact so partial
 reproducibility is still auditable.
 
+**Refined by D46.** "Not reproducible" was over-scoped: LLM non-determinism blocks *byte*
+reproducibility, not *semantic* reproducibility. Compiled K pages are semantically regenerable
+from the spine plus their recorded compile inputs; the git repo's **irreducible** source-of-truth
+core — what backups genuinely protect — is human-authored content (authored pages + curation
+sidecars).
+
 ---
 
 ## D2. Claims and relations are distinct concepts (many-to-many)
@@ -231,6 +237,11 @@ idempotent workers keyed by content hash + processing version.
 **Context.** "Trigger next layer when previous finishes" (v1) maps cleanly only to
 per-document layers. L3+ summarize *across* documents; per-doc triggering of a serial
 git-editing layer was the design's scaling bottleneck.
+
+**Refined by D45.** The hot-file rolling-window-delay worker is superseded: the K compile driver
+is the repo's only automated committer and compiles in dependency order, so hot files (the root
+`index.md`) are simply the last DAG target, compiled once per cycle. The debounce/window trigger
+model itself is unchanged.
 
 ---
 
@@ -944,3 +955,100 @@ graph-irrelevant columns) — which belong in the **views**, the single auditabl
   post-load (D11), never reprojected.
 - **Spikes** (none blocking): UUID-PK smoke test on the deployed build; attach scan-pushdown/throughput;
   the merge-recursion cycle gate; inline multi-hop path-filter performance. Tracked in `questions.md`.
+
+---
+
+> **D45–D47 provenance.** D45–D47 formalize the plane-K design (July 2026), triggered by the
+> second step-back review (`plan/analysis/design_review_2026_07.md`, F1) and the K-plane design
+> discussion it opened; they **accept objections O2 and O4** (`plan/analysis/objections.md`).
+> Binding design: `plan/designs/k_layers_design.md`. Numbers/thresholds are placeholders to be
+> measured (CLAUDE.md).
+
+## D45. Plane K compilation is planned and manifest-driven — planner / writer / driver replace free agent sessions
+
+**Decision.** The K plane is produced by a compile system with three roles: a **planner** (LLM)
+that owns *structure* — which pages exist and each page's **routing rules**, recorded as
+append-only `knowledge_plan_decisions`; **writers** (LLM — Codex/OpenCode, optionally full agent
+sessions with retrieval tools) that own *content* — one writer per page per cycle, full creative
+latitude; and a deterministic **driver** that computes staleness, schedules writers in dependency
+order (a scope's shared model page first, children before parents, the root index last), validates
+outputs, and is the repo's **only automated committer**. Routing rules are **mechanical** — a
+closed kind set (`entity`, `entity_subtree`, `predicate_beat`, `community`, `doc_set`,
+`scope_interests`, `manual`) evaluated by SQL over keys plane E already produces (canonical
+entities, governed predicates, D11 communities, document metadata) via an inverted key index; an
+LLM never decides routing at evidence-arrival time. **Citations are a binding writer output**
+(recorded in `knowledge_artifact_evidence`, uncited candidates counted). **Staleness is
+mechanical**: a page is stale iff its recorded `inputs_hash` (candidate evidence IDs + validity
+fingerprints + curation + child summaries + prompt/model version) no longer matches — computed,
+never guessed. In-session merge-conflict retry and the hot-file rolling-window worker are
+**removed** (refines D12); the semantic linter is demoted from staleness detection to prose
+quality assurance.
+
+**Context.** The prior mechanism (concurrent sessions editing shared files) left the two
+load-bearing steps — routing new evidence to pages (`knowledge_refresh_queue.artifact_id` NULL =
+"decide which at processing time") and deciding which pages exist — as unrecorded, per-cycle LLM
+improvisation, then added contention machinery to survive its consequences. It also made "is this
+page stale?", "which pages does this deletion touch?", and "is coverage complete?" undecidable,
+because the compile's read set was never recorded. Plane K was the only non-deterministic stage
+whose decisions were not durable state — this applies D33's ledger discipline (extraction ledger,
+adjudication transcripts, resolution decisions) to the last holdout. Routing rides on E-plane
+labels, so it costs no new intelligence and zero LLM calls (the D9 rule, applied to the routing
+path). **Accepts O4** (input manifests / semantic regenerability).
+
+**Consequences.** Staleness, deletion reach, and incremental refresh become SQL ("recompile only
+summaries whose referenced claims changed" is now exact); contention is structurally impossible
+(disjoint writes + one committer); every compiled page carries freshness provenance (feeds the
+mixed-freshness story); K cost scales with dirty pages; planner structure decisions are
+reviewable, blast-radius-gated state (D24 pattern). New control-plane tables in
+`postgres_schema_design.md` §11. Full design: `k_layers_design.md`.
+
+## D46. Two page kinds — compiled vs authored; the ownership contract narrows K's precious surface to human-authored content
+
+**Decision.** Every K artifact is one of two kinds. **Compiled** pages are evidence-derived:
+machine-owned body, regenerated by their writer when stale. **Authored** pages are first-class
+human/agent-authored content (target states, designs, decisions, position papers): **never
+auto-regenerated**; when evidence they cite changes they receive a **review flag**, not a
+rewrite. Both kinds carry citations; authored pages declare them (plus optional **watch rules**
+— routing rules whose consequence is a flag) in frontmatter the driver syncs to Postgres. Human
+input to compiled pages lives in a per-page **curation sidecar** (pins, exclusions, corrections,
+guidance) — a first-class compile input whose enforceable subset is enforced mechanically. A
+direct human edit to a compiled body is detected (`content_hash` mismatch) and **quarantined**
+into a proposed sidecar entry — never silently overwritten, never silently absorbed.
+
+**Context.** Two forces. (1) Not all knowledge is derivable from evidence: a to-be architecture
+or a mapping decision *is not compiled from claims* — it is authored content that must still know
+what evidence it stood on (the migration deployment's as-is/to-be case). (2) D1's "the git repo
+is not reproducible" over-scoped the precious surface: compiled pages are semantically
+regenerable from the spine + recorded inputs; only human words are irreducible.
+
+**Consequences.** Backup criticality concentrates on authored pages + sidecars (refines D1). The
+deletion cascade reaches K mechanically: compiled pages recompile without removed evidence,
+authored pages flag for the author (the system never rewrites human words, even to forget); the
+hard-forget residual is git *history* erasure, named in `k_layers_design.md` §10. Authored
+decisions get automatic invalidation alerts when the ground under them moves — "contradictions
+are surfaced, never silently resolved" extended to the knowledge plane.
+
+## D47. One compilation mechanism, N scopes — K1 is the default scope, K3 is the belief tier (accepts O2)
+
+**Decision.** Plane K runs **one mechanism**; K1/K2/K3 survive as *content tiers*, not separate
+machinery. **K1** = the default scope (entity pages, topic/community pages, source digests, the
+root index). **K2** = additional purpose scopes — each a git subtree + registry rows (D16),
+each with a **shared model page** (vocabulary + domain shape) that is a declared compile input of
+every page in the scope (cross-page coherence). **K3** = the belief tier: compiled pages under
+stricter configuration — rules select only settled evidence (`evidence_count ≥ N`, no live
+`contradiction_group`; N is a placeholder to measure), updates are evidence-gated (never
+timer-driven), and every belief cites supporting **and** contradicting evidence. The separate
+`k3_beliefs_design.md` is folded into `k_layers_design.md`.
+
+**Context.** Objection O2: by mechanism, K1/K2/K3 were one thing (compile evidence → git
+markdown) wearing three names, and a layer must earn its existence with a distinct mechanism.
+The belief tier's distinctness is *configuration* (evidence gating, mandatory dual-role
+citations), not machinery — exactly O2's "curated view seeded from high-evidence,
+zero-contradiction relations", now with a defined update rule. The "whose beliefs are these"
+question stays open (`questions.md` #5) — the mechanism is agnostic to its answer; the answer
+will configure it, not replace it.
+
+**Consequences.** One pipeline to build and operate; "general" is just a scope; new scope = a
+subtree + registry rows + rules (never new machinery). Dedicated K3 machinery would be justified
+only by a use case the belief-tier configuration provably cannot express — a documented
+alternative, not a plan.

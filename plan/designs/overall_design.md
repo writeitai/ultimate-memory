@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D44); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D47); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -51,7 +51,7 @@ rules — trigger model, source of truth, mutability, rebuild semantics.
 | **GCS — artifacts** | per-document markdown + `pageindex.json` + conversion sidecars (E0, D37) | source of truth for converted bodies | E0 re-run by `converter_version` |
 | **GCS — corpus fs** | **P3**: corpus organized as a mounted directory tree (D40) | derived | Postgres + artifacts (every cycle) |
 | **LanceDB** | **P1**: vector + FTS indexes over chunks, claims, relation fact labels | derived | Postgres |
-| **git repo** | plane K: K1 general, K2 scopes, K3 beliefs | **source of truth** (LLM-derived, not reproducible) | — (own backups) |
+| **git repo** | plane K: compiled + authored knowledge (K1/K2/K3 tiers, D47) | **source of truth** — irreducibly the human-authored content; compiled pages are semantically regenerable from the spine + recorded inputs (D45/D46) | — (own backups) |
 | **LadybugDB** | **P2**: graph projection of entities + relations | derived | Postgres (every cycle) |
 
 Two hard rules: validity/invalidation state exists **only** in Postgres — Lance and Ladybug
@@ -123,13 +123,23 @@ batch, carrying no authority.
 Neither plane is triggered per document — K is windowed/debounced ("N new claims or T
 minutes"), P rebuilds on schedule; both summarize/project across the corpus.
 
-- **K1/K2** (git): Codex/OpenCode sessions compile active claims into structured markdown;
-  incremental — only summaries whose referenced claims changed; pull latest main, retry merge
-  conflicts within the same session; hot files (root `index.md`) handled by a rolling-window
-  delayed worker. Periodic **semantic linter** flags contradictions, broken links, stale
-  assumptions. Repo exposed via MCP + auto-generated `llms.txt`.
-- **K3**: beliefs derived from high-evidence, low-contradiction relations + K1/K2 synthesis;
-  every belief links supporting/contradicting claim IDs; updates only on evidence.
+- **K1/K2** (git): a manifest-driven compile system (D45–D47; design: `k_layers_design.md`).
+  A **planner** LLM maintains which pages exist and each page's mechanical **routing rule**
+  (entity / subtree / predicate / community / doc-set keys); **writer** LLMs (Codex/OpenCode)
+  compile one page each from the rule's evidence + the page's human curation + child-page
+  summaries; a deterministic **driver** computes staleness by SQL (rule diff + cited-evidence
+  changes), schedules writers children-before-parents, and is the repo's only automated
+  committer — no merge conflicts, no hot-file machinery. Incremental refresh is exact: the
+  stale set *is* the refresh set. Two page kinds (D46): **compiled** (machine-owned body,
+  regenerated) and **authored** (human/agent-owned — decisions, to-be designs — never
+  regenerated, review-flagged when cited evidence changes). Citations land in
+  `knowledge_artifact_evidence`; a periodic **semantic linter** remains as prose quality
+  assurance (cross-page contradictions, broken links), no longer the staleness mechanism.
+  Repo exposed via MCP + auto-generated `llms.txt`.
+- **K3**: the belief tier of the same mechanism (D47): compiled pages whose rules select only
+  high-evidence, uncontradicted relations/observations; every belief links
+  supporting/contradicting claim IDs; recompiled only when its evidence set changes, never on
+  a timer.
 - **P2**: full rebuild from Postgres → Parquet → LadybugDB → validated immutable GCS
   snapshot; readers serve read-only copies and hot-swap (D7). Full design:
   `p2_graph_design.md`.
@@ -175,8 +185,10 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
   involved; budgets enforced, not advisory.
 - **Versioning**: prompt/model/embedding versions on every artifact; embedding migration is
   a planned batch path (re-embed by version filter).
-- **Deletion cascade**: input removal propagates E1→P2 + tombstone signal to git layers;
-  hard-delete supported.
+- **Deletion cascade**: input removal propagates E1→P2; plane K is reached mechanically via
+  citations (D45/D46) — compiled pages recompile without the removed evidence, authored pages
+  are review-flagged; hard-delete supported (K-repo git-history erasure:
+  `k_layers_design.md` §10).
 - **Maintenance**: Lance compaction schedule; rebuild drills; semantic linter cadence;
   predicate-registry review.
 - **Observability**: pipeline tracing/metrics; DLQ inspection; per-stage throughput and
@@ -192,8 +204,8 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
 | `observations_design.md` | non-graph facts about one entity — untyped, entity-anchored, bi-temporal; supersession by entity-blocking + adjudication (D43) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
-| `k_layers_design.md` | K1/K2 repo layout, Codex/OpenCode workers, linter | planned |
-| `k3_beliefs_design.md` | belief derivation and update rules | planned |
+| `k_layers_design.md` | plane K: planner/writer/driver compile system, compiled + authored pages, belief tier (D45–D47) | **current** |
+| `k3_beliefs_design.md` | *(folded into `k_layers_design.md` — D47)* | — |
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
 | `retrieval_design.md` | API/CLI/MCP, recipes, rerankers | planned |
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
