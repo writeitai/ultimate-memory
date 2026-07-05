@@ -115,6 +115,41 @@ declares its citations (`cites:` — the evidence IDs the author relied on) and 
 This is what makes authored content safe at scale: decisions are automatically alerted when
 the ground they stand on moves (§9).
 
+### How a page gets its kind — and how it changes
+
+The system never *classifies* a page's kind — kind is fixed by **which door the page entered
+through**, and enforced by ownership:
+
+- **Planner-created pages are compiled, always.** The planner creates a page *because* evidence
+  needs a home (orphan facts, a splitting page, a new community) — so its content is by
+  construction derivable from the spine, and it gets routing rules and a writer. The planner
+  cannot create authored pages; there is nobody to write them.
+- **Committed pages are authored, always.** An authored page comes into existence when a person
+  (or an authoring agent) writes a file and commits it through normal git flow; on the next
+  cycle's pull the driver finds a file that is not one of its own artifacts, registers it
+  `authored`, and syncs its frontmatter.
+
+The judgment that *does* exist belongs to the author choosing a door: **could every sentence on
+this page cite evidence already in the spine?** If yes, don't write it — request it as a
+compiled page and it stays current forever. If it contains **commitments the world has no
+evidence for yet** — a target design, a decision, a stance, a plan — it cannot be compiled
+(there is nothing to compile it *from*) and must be authored. Mixed needs resolve by
+**composition, never hybrid pages**: human input into a compiled page goes through its sidecar;
+an authored page wanting an evidence-derived section *links to* a compiled page rather than
+inlining a copy that would rot.
+
+Kind can change — always as a recorded plan decision (`convert_kind`), never silently:
+
+- **Adoption (compiled → authored).** The natural path is the quarantine flow: a human edited a
+  compiled body, and one triage outcome is "the human takes this page over" — flip to
+  `authored`, stop recompiling, keep its routing rules as watch rules (staleness becomes review
+  flags, §5).
+- **Handover (authored → compiled).** The author judges the page fully evidence-backed: the
+  planner attaches rules, a writer takes over, and the author's residual judgment moves into
+  the sidecar. Because this discards human ownership of a body, it is the one plan action that
+  **never auto-applies** regardless of blast radius — it stays `proposed` until the author
+  confirms.
+
 **Consequence for D1 (refined by D46).** The git repo remains plane K's source of truth, but
 its *irreducible* core — what backups genuinely protect — narrows to **human-authored
 content** (authored pages + sidecars). Compiled pages are *semantically regenerable*: re-running
@@ -210,6 +245,66 @@ Every compiled page carries a machine-written provenance footer (compiled-at, ev
 citation count) — the per-page freshness metadata that mixed-freshness reasoning
 (`questions.md` #23) needs.
 
+### What compilation consumes — the adjudicated layers are the skeleton, claims are hydrated selectively
+
+Compiling from raw claims would re-pay, at every compile, exactly the work E3 already did —
+redundancy collapse (200 claims asserting one employment → one relation), validity adjudication,
+contradiction grouping — and claims cannot answer "is this still true" (current belief is
+relation/observation semantics; requirements bar claims from it). So a compiled page's primary
+inputs are the **adjudicated layers**: **relations** — the distinct facts, whose windows give
+current-vs-ended, whose `evidence_count` gives salience ordering, and whose
+`contradiction_group` marks what to surface as tension — and **observations** — the value facts
+and their capped history, which is precisely the timeline material ("headcount 500 → 600 over
+2024"). Claims enter in exactly two roles:
+
+1. **The residue** — kept claims that normalized into *neither* layer: attributed statements
+   ("Alice said the migration would slip"), n-ary and qualified assertions. Without
+   claims-via-mentions in the rule, a person page would silently miss half its value.
+2. **Color for the leading facts** — the fact label says `works_for(alice, acme)`; its best
+   evidence claim says *"hired as VP of Engineering to rebuild the platform team."* The writer
+   hydrates a claim or two for the facts that lead the page.
+
+This is also the hub-entity budget rule (§11, residual 3) made concrete: relations +
+observations are **bounded** (distinct facts, not corpus-proportional) and always included in
+full; claims are the unbounded layer and are **capped** — the residue plus top-K evidence per
+leading fact, evidence-count-ranked, with the cut recorded in the compile transcript (no silent
+caps).
+
+### The two-band page — deterministic fact sheet + LLM prose
+
+Part of an entity page needs no LLM at all: a table of current relations and an observation
+timeline is a *deterministic render* — and asking a writer to re-type facts into prose is
+exactly where hallucination risk lives and tokens burn. A compiled page therefore has **two
+bands**:
+
+```markdown
+# Acme
+_LLM band — the synthesis a machine can't do: what Acme is, what changed
+lately, what is contested, what is load-bearing. Sections group and
+narrativize (People; Financials — surfacing the FY2023 $5M-vs-$7M conflict
+side by side; Trajectory — over the observation timeline), each statement
+citing the facts it interprets._
+
+---
+## Fact sheet (generated)
+| fact                                 | valid since | evidence |
+| Alice Novak works for Acme (VP Eng)  | 2024-03     | 12 docs  |
+| …                                    |             |          |
+_deterministic driver render: current relations, observation history, open
+contradiction groups — exact at compile time, zero LLM._
+_compiled 2026-07-05 · evidence as of 2026-07-05T06:00Z_
+```
+
+- The **fact-sheet band** is rendered by the *driver* from the same candidate set the writer
+  received: deterministic, always literally correct, zero hallucination surface, zero token
+  cost.
+- The **LLM band** is where the writer earns its place — salience, trends, tensions, narrative.
+  Its citations shrink to what the prose actually *interprets*, which sharpens the faithfulness
+  audit (§7).
+- **Degradation mode:** the planner may designate a page **fact-sheet-only**
+  (`kind='fact_sheet'`) — zero writer cost for low-importance entities, upgraded to full prose
+  when evidence volume or demonstrated demand justifies it (an ordinary plan decision).
+
 ## 6. The compile cycle
 
 Triggered by the D12 debounce window ("N changed evidence items or T minutes"). One cycle:
@@ -223,7 +318,9 @@ Triggered by the D12 debounce window ("N changed evidence items or T minutes"). 
    auto-apply the low-blast-radius band, queue the rest for review.
 4. **Compile** stale pages in dependency order — the scope's shared model page first if stale,
    then children before parents (parents consume child summaries), the root index last, once.
-   Writers run in parallel across disjoint pages (Cloud Run jobs, D12 retry/DLQ semantics).
+   Writers run in parallel across disjoint pages (Cloud Run jobs, D12 retry/DLQ semantics); per
+   page, the driver renders the deterministic fact-sheet band and the writer produces the LLM
+   band (§5) — fact-sheet-only pages skip the writer entirely.
 5. **Validate & commit**: citations resolve, exclusions honored, internal links resolve to
    existing artifacts; one commit for the cycle; two-phase against Postgres (record compilations
    `pending` → push → mark committed; reconcile HEAD on startup).

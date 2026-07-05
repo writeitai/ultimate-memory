@@ -190,13 +190,16 @@ CREATE TYPE community_algorithm    AS ENUM ('leiden','louvain');  -- external de
 CREATE TYPE knowledge_layer        AS ENUM ('K1','K2','K3');  -- content TIERS of one mechanism (D47), not separate machinery
 CREATE TYPE knowledge_page_kind    AS ENUM ('compiled','authored');  -- D46: machine-owned body vs human/agent-owned body
 -- 'quarantined' = a compiled body was human-edited directly; excluded from recompile until the
--- diff is triaged into the curation sidecar (D46 quarantine rule):
+-- diff is triaged — into the curation sidecar, or by adopting the page as authored
+-- (plan_action 'convert_kind'; D46 quarantine rule):
 CREATE TYPE knowledge_artifact_status AS ENUM ('active','stale','quarantined','tombstoned');
 CREATE TYPE knowledge_evidence_role AS ENUM ('supports','contradicts','cites');
 -- D45 routing rules — the closed, mechanically-evaluable kind set (k_layers_design.md §5):
 CREATE TYPE knowledge_rule_kind    AS ENUM ('entity','entity_subtree','predicate_beat','community','doc_set','scope_interests','manual');
 CREATE TYPE rule_key_kind          AS ENUM ('entity','predicate','community','doc_source');
-CREATE TYPE plan_action            AS ENUM ('create_page','split_page','merge_pages','move_page','retire_page','adjust_rule');
+-- convert_kind = D46 adoption (compiled→authored, via quarantine triage) / handover
+-- (authored→compiled — the one action that NEVER auto-applies; requires author confirmation):
+CREATE TYPE plan_action            AS ENUM ('create_page','split_page','merge_pages','move_page','retire_page','adjust_rule','convert_kind');
 CREATE TYPE plan_trigger           AS ENUM ('orphan_evidence','size_overflow','community_change','reflection','writer_suggestion','human');
 CREATE TYPE plan_decision_status   AS ENUM ('proposed','applied','rejected');
 -- 'authored_review' = cited/watched evidence changed under an AUTHORED page → human review flag,
@@ -1641,13 +1644,14 @@ CREATE INDEX ix_kartifacts_stale  ON knowledge_artifacts (deployment_id) WHERE s
 -- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_plan_decisions — the planner's append-only STRUCTURE transcript (D45; the D33
 -- ledger discipline applied to structure). Low-blast-radius decisions auto-apply; restructures
--- above the band queue as 'proposed' for human review (the D24 pattern).
+-- above the band queue as 'proposed' for human review (the D24 pattern). Exception:
+-- convert_kind in the authored→compiled direction NEVER auto-applies (author confirmation).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE knowledge_plan_decisions (
   decision_id     uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
   scope_id        uuid,                        -- composite FK below
-  action          plan_action NOT NULL,        -- create_page | split_page | merge_pages | move_page | retire_page | adjust_rule
+  action          plan_action NOT NULL,        -- create_page | split_page | merge_pages | move_page | retire_page | adjust_rule | convert_kind
   payload         jsonb NOT NULL,              -- paths, rule diffs, rationale text
   trigger         plan_trigger NOT NULL,       -- orphan_evidence | size_overflow | community_change | reflection | writer_suggestion | human
   planner_version text NOT NULL,               -- LOGICAL FK → pipeline_component_versions (knowledge_planner)
