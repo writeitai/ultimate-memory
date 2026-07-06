@@ -257,6 +257,12 @@ discipline** rather than documentation:
 - Mixed answers are **explicitly two-part**, never blended: S47 ("everything Alice *said*
   about pricing, plus what we *believe*") returns an evidence-grain timeline and a
   belief-grain snapshot as separate, labeled sections of one response.
+- **Evidence-grain answers default to *current testimony*** (D54): claims superseded by a newer
+  extraction generation, or left behind by a living document's current version, are excluded
+  unless the caller opts in (`include_superseded_testimony`) — and the envelope disclosure says
+  which regime answered. `claims_as_of` is historical by definition and runs over all
+  testimony. Belief-grain answers carry a `support: current | withdrawn` marker where a fact's
+  current-testimony support has dropped to zero (flagged, not vanished — D54).
 - The compiled grain carries its own honesty device: the K freshness block (§5) — a compiled
   answer is *pre-paid synthesis with a timestamp*, and says so.
 

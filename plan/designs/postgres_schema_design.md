@@ -55,7 +55,7 @@ These rules apply to every table unless a module overrides them with a stated re
     valid-time is *evidence* (immutable, many-valued per fact); relation valid-time is *current
     belief* (revisable, one per fact). They never write to each other.
   - **assertion-time** — `asserted_at` (claims only): when the **source** asserted the claim (≈
-    `documents.published_at`). This is the assertion *event*, **not** the fact's world-time — "in
+    the version's `source_modified_at`/`published_at`, D55). This is the assertion *event*, **not** the fact's world-time — "in
     2024 a report said FY2023 revenue was \$5M" has `asserted_at`=2024 but `claim_valid_*`=FY2023.
   - **transaction-time** — when the *system* learned/un-learned it: `ingested_at` (claims, relations)
     and `invalidated_at` (relations only). Never revised on claims; revisable on relations
@@ -154,7 +154,7 @@ CREATE TYPE alias_provenance       AS ENUM ('source','llm_canonical');
 CREATE TYPE resolution_tier        AS ENUM ('T0','T1','T2','T3','T4_small','T4_frontier','human');
 CREATE TYPE decision_actor         AS ENUM ('auto','human');
 
-CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','type_conflict','generic_identifier','contradiction');
+CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','type_conflict','generic_identifier','contradiction','support_withdrawn');
 CREATE TYPE review_status          AS ENUM ('pending','accepted','rejected','deferred','auto_resolved');
 -- Covers all review_item_kinds (D24), not just merges: pick_a/pick_b/both_stand for contradictions,
 -- downweight/keep_signal for generic_identifier, retype for type_conflict.
@@ -165,6 +165,11 @@ CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding'
 CREATE TYPE selection_outcome      AS ENUM ('keep','rewrite','drop','kept_flagged');
 
 CREATE TYPE document_status        AS ENUM ('ingesting','converting','structuring','ready','failed','deleted');
+-- D55 lineage semantics: snapshot = every version is independent dated testimony forever;
+-- living = the current version is the source's standing statement (currency follows it, D54):
+CREATE TYPE versioning_mode        AS ENUM ('snapshot','living');
+-- D54 testimony-currency transitions (append-only ledger; bookkeeping, never validity):
+CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted');
 CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
 CREATE TYPE crossref_kind          AS ENUM ('cites','links_to','attaches','replies_to');
 
@@ -807,67 +812,124 @@ COMMENT ON TABLE canary_cases IS 'Regression canaries (registries §10): tricky 
 
 ---
 
-## 6. E0 — documents, sections, cross-references (D36–D40)
+## 6. E0 — document lineages, versions, sections, cross-references (D36–D40, D55)
 
 Bodies live in GCS (raw + artifacts buckets); Postgres holds **identity, versions, processing
 state, artifact URIs, hashes, costs, and the section index** (D37) — never the body. Each E0
 sub-worker (ingest → convert → structure → crossref, D36) is **separately versioned** and
 idempotent on `content_hash + its own version`.
 
+**Three identities (D55).** A **content object** = immutable bytes (`content_hash` — the
+idempotency/dedup key, stored and converted once even across lineages); a **document lineage**
+(`doc_id`) = the logical document over time, identified by connector-native
+`(source_kind, source_ref)` (a Drive file ID, a message ID — renames/moves are metadata over a
+stable ref); a **document version** = one observed immutable snapshot of a lineage pointing at
+one content object. Everything durable (P3 paths, K citations, crossrefs, GCS path prefixes)
+anchors on the lineage; per-snapshot state lives on the version. Full design:
+`evidence_lifecycle_design.md` §2.
+
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
--- documents — one row per ingested document. ID-addressed (doc_id + content_hash), never
--- title-addressed (D37). content_hash = sha256(raw bytes) is the idempotency key and the only
--- surviving dedup (D25). A hard-delete SOFT-TOMBSTONES the row (status='deleted', URIs nulled,
--- deleted_at set) rather than physically removing it (§13) — so the 'deleted' enum value and the
--- ix_documents_live partial index are meaningful, and logical-FK auditors can tell "forgotten"
--- from "never existed".
+-- content_objects — immutable bytes, deduplicated (D55/D56). One row per distinct byte content
+-- per deployment; two lineages carrying identical bytes (the same PDF in two Drive folders)
+-- share one object — stored once, converted once. NEVER dedup across deployments (D37/D16).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE content_objects (
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  content_hash    text NOT NULL,               -- sha256 of raw bytes — THE idempotency key (D12)
+  mime            text NOT NULL,               -- detected MIME, drives the conversion router (D38)
+  byte_size       bigint,
+  raw_uri         text NOT NULL,               -- gs://…-raw/<doc_id-of-first-observer>/<content_hash>/original.<ext> (D51 raw mount)
+  first_seen_at   timestamptz NOT NULL DEFAULT now(),
+  purged_at       timestamptz,                 -- hard-forget: bytes erased when no live version references this object (§13)
+  PRIMARY KEY (deployment_id, content_hash)
+);
+COMMENT ON TABLE content_objects IS
+  'Deduplicated immutable bytes (D55/D56): one row per distinct content per deployment; versions reference these, so identical bytes across lineages are stored and converted once. content_hash idempotency (D12) lives here.';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- documents — one row per DOCUMENT LINEAGE (D55): the logical document over time, identified
+-- by connector-native (source_kind, source_ref). Stable anchor for P3 paths, K citations,
+-- crossrefs, GCS path prefixes. Per-snapshot state lives on document_versions. A hard-delete
+-- SOFT-TOMBSTONES the lineage (deleted_at set) rather than removing it (§13) — auditors can
+-- tell "forgotten" from "never existed".
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE documents (
-  doc_id          uuid PRIMARY KEY,            -- stable opaque document identity (used in GCS paths)
+  doc_id          uuid PRIMARY KEY,            -- stable lineage identity (used in GCS path prefixes)
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  content_hash    text NOT NULL,               -- sha256 of raw bytes — idempotency key (D12); re-ingesting an identical file is a no-op
-  document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity for this file (see note below); composite FK
-  title           text,                        -- best-effort title (the human name lives in P3, not the canonical path)
-  source          text,                        -- provenance label (uploader, connector, feed)
+  source_kind     text NOT NULL,               -- connector kind: google_drive | upload | email | url | … (identity rules per kind: lifecycle spike 4)
+  source_ref      text,                        -- connector-native stable ID (Drive file ID, message ID); NULL only for kinds without one (one-shot uploads)
   source_uri      text,                        -- original location, if any
-  mime            text NOT NULL,               -- detected MIME, drives the conversion router (D38)
-  byte_size       bigint,                      -- raw size in bytes
-  language        text,                        -- detected primary language
-  published_at    timestamptz,                 -- document's own date (resolves "last year"; orders ingestion); world-time origin
-  -- GCS object URIs (bodies live here, not in PG — D37):
-  raw_uri         text NOT NULL,               -- gs://…-raw/<doc_id>/<content_hash>/original.<ext> (immutable; reachable via explicit raw pointer on the read-only raw mount — D51)
-  markdown_uri    text,                        -- gs://…-artifacts/…/document.md
-  pageindex_uri   text,                        -- gs://…-artifacts/…/pageindex.json (structure sidecar)
-  conversion_uri  text,                        -- gs://…-artifacts/…/conversion.json (blocks + page/char offsets — load-bearing for grounding, D32/D38)
-  meta_uri        text,                        -- gs://…-artifacts/…/meta.json (per-doc metadata sidecar, e0 §2)
-  -- conversion provenance (D38):
-  converter_name  text,                        -- which converter the router picked (ocr/markitdown/passthrough/…)
-  converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump re-converts + rebuilds downstream (D7)
-  -- structure provenance (LLM-derived, non-deterministic — versioned + replayed on rebuild, D39/D7):
-  structurer_name text,
-  structurer_version text,                      -- LOGICAL FK → pipeline_component_versions (structurer)
-  structurer_model text,
-  structurer_prompt_version text,
-  pageindex_hash  text,                        -- hash of the structure output (change detection)
-  placement_version text,                      -- LOGICAL FK → pipeline_component_versions (placement-hint producer, D39 → P3 input)
-  section_index_version text,                  -- LOGICAL FK → pipeline_component_versions (document_sections projector)
-  crossref_version text,                       -- LOGICAL FK → pipeline_component_versions (crossreferencer, D36) — the 4th E0 sub-worker's version
-  status          document_status NOT NULL DEFAULT 'ingesting', -- ingesting | converting | structuring | ready | failed | deleted
-  error           text,                        -- terminal error summary, if status=failed
-  ingested_at     timestamptz NOT NULL DEFAULT now(),  -- system-time origin for everything derived from this doc
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  deleted_at      timestamptz,                 -- tombstone timestamp for hard-delete/forget (D37); row retained as a soft tombstone (§13)
-  UNIQUE (deployment_id, content_hash),         -- per-deployment dedup; NEVER dedup across deployments (D37)
+  versioning_mode versioning_mode NOT NULL DEFAULT 'snapshot', -- D55: snapshot (fail-safe) | living (currency follows the current version, D54)
+  origin          document_origin NOT NULL DEFAULT 'external', -- D42: external | system_generated — stamped at ingest, per lineage
+  current_version_id uuid,                     -- → document_versions; the lineage's current snapshot (real FK added after that table)
+  document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity (see note below); composite FK
+  title           text,                        -- best-effort current title (the human name lives in P3, not the canonical path)
+  first_seen_at   timestamptz NOT NULL DEFAULT now(),
+  last_observed_at timestamptz,                -- last connector observation (watch loop heartbeat)
+  deleted_at      timestamptz,                 -- lineage tombstone for hard-delete/forget (§13)
+  UNIQUE (deployment_id, source_kind, source_ref),  -- lineage identity (D55)
   UNIQUE (deployment_id, doc_id),               -- composite-FK target (tenancy isolation, §0)
   FOREIGN KEY (deployment_id, document_entity_id) REFERENCES entities (deployment_id, entity_id) ON DELETE SET NULL (document_entity_id)
 );
 COMMENT ON TABLE documents IS
-  'E0 document index (D37). Bodies live in GCS (raw+artifacts); PG holds identity/versions/URIs/hashes/state only. content_hash is the sole dedup (idempotency, D25). A forget soft-tombstones the row (deleted_at + status=deleted + nulled URIs) so the K-plane cascade and auditors can reference it.';
-CREATE INDEX ix_documents_status   ON documents (deployment_id, status) WHERE status <> 'ready';
-CREATE INDEX ix_documents_hash     ON documents (deployment_id, content_hash);
+  'Document LINEAGES (D55): the logical document over time, connector-native identity. Snapshot state lives on document_versions; bytes on content_objects; bodies in GCS. versioning_mode drives testimony currency (D54); origin is the D42 stamp. A forget soft-tombstones the lineage.';
 CREATE INDEX ix_documents_live     ON documents (deployment_id) WHERE deleted_at IS NULL;
 CREATE INDEX ix_documents_entity   ON documents (document_entity_id) WHERE document_entity_id IS NOT NULL;
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- document_versions — append-only observed snapshots of a lineage (D55). One row per
+-- (lineage, content) observation the connector chose to ingest (debounced — rapid edits
+-- coalesce; unchanged revision/etag or bytes never create a row). Carries everything that is
+-- true OF A SNAPSHOT: artifact URIs, conversion/structure provenance, processing status.
+-- source_modified_at feeds derived claims' asserted_at (testimony is dated by when the source
+-- said it — D41/D55).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE document_versions (
+  version_id      uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  doc_id          uuid NOT NULL,               -- composite FK below → documents (the lineage)
+  content_hash    text NOT NULL,               -- → content_objects (composite FK below)
+  version_no      integer NOT NULL,            -- 1..n within the lineage
+  source_version_ref text,                     -- connector revision/etag/generation, if the source has one
+  source_modified_at timestamptz,              -- when the SOURCE says this snapshot was authored/modified → derived claims' asserted_at
+  published_at    timestamptz,                 -- document's own date (resolves "last year"); world-time origin
+  language        text,                        -- detected primary language (per version — it can change)
+  -- GCS artifact URIs for THIS snapshot (bodies live there, not in PG — D37):
+  markdown_uri    text,                        -- gs://…-artifacts/<doc_id>/<content_hash>/document.md
+  pageindex_uri   text,                        -- …/pageindex.json
+  conversion_uri  text,                        -- …/conversion.json (blocks + offsets — load-bearing for grounding, D32/D38)
+  meta_uri        text,                        -- …/meta.json
+  -- conversion + structure provenance (per snapshot; D38/D39/D7):
+  converter_name  text,
+  converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump re-converts + rebuilds downstream
+  structurer_name text,
+  structurer_version text,
+  structurer_model text,
+  structurer_prompt_version text,
+  pageindex_hash  text,
+  placement_version text,
+  section_index_version text,
+  crossref_version text,
+  status          document_status NOT NULL DEFAULT 'ingesting', -- ingesting | converting | structuring | ready | failed | deleted
+  error           text,
+  ingested_at     timestamptz NOT NULL DEFAULT now(),  -- system-time origin for everything derived from this version
+  superseded_at   timestamptz,                 -- set when a newer version becomes current (lineage pointer moved)
+  deleted_at      timestamptz,                 -- version tombstone (delete-a-version, §13)
+  UNIQUE (deployment_id, doc_id, content_hash),
+  UNIQUE (deployment_id, doc_id, version_no),
+  UNIQUE (deployment_id, version_id),           -- composite-FK target
+  FOREIGN KEY (deployment_id, doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, content_hash) REFERENCES content_objects (deployment_id, content_hash)
+);
+COMMENT ON TABLE document_versions IS
+  'Append-only snapshots of a lineage (D55). Per-snapshot artifacts/provenance/status; source_modified_at dates the testimony (→ claims.asserted_at). The lineage''s current_version_id points here; superseding never deletes. Chunks/sections/claims derive from ONE version and denormalize doc_id.';
+CREATE INDEX ix_docversions_doc     ON document_versions (doc_id, version_no DESC);
+CREATE INDEX ix_docversions_status  ON document_versions (deployment_id, status) WHERE status <> 'ready';
+CREATE INDEX ix_docversions_hash    ON document_versions (deployment_id, content_hash);
+
+ALTER TABLE documents ADD FOREIGN KEY (deployment_id, current_version_id)
+  REFERENCES document_versions (deployment_id, version_id);  -- the current-snapshot pointer (moved transactionally with currency, D54)
 ```
 
 > **Document ↔ entity bridge (D18, Codex review).** D18 makes `Document ⊂ CreativeWork` a core
@@ -890,7 +952,8 @@ CREATE INDEX ix_documents_entity   ON documents (document_entity_id) WHERE docum
 CREATE TABLE document_sections (
   section_id      uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  doc_id          uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE
+  doc_id          uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE (the lineage — denormalized for routing)
+  version_id      uuid NOT NULL,               -- composite FK below → document_versions: structure derives from ONE snapshot (D55)
   parent_section_id uuid REFERENCES document_sections ON DELETE CASCADE, -- tree structure; NULL for root; cascades the subtree
   node_path       text NOT NULL,               -- materialized path, e.g. '0.2.1' — cheap ancestor/subtree queries
   title           text,
@@ -903,8 +966,9 @@ CREATE TABLE document_sections (
   summary         text,                        -- per-section summary (D39): context for E1 prefixes/navigation/Selection-explainability; NOT a fact source
   placement_path  text,                        -- per-section placement hint for P3 (advisory; D39/D40)
   structurer_version text,                     -- LOGICAL FK → pipeline_component_versions; matches documents.structurer_version
-  UNIQUE (doc_id, node_path),
-  FOREIGN KEY (deployment_id, doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE
+  UNIQUE (version_id, node_path),
+  FOREIGN KEY (deployment_id, doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE,
+  FOREIGN KEY (deployment_id, version_id) REFERENCES document_versions (deployment_id, version_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE document_sections IS
   'Per-document section tree (D39): path/role/span/summary/placement per section. Drives section-aware chunking (E1), the E2 role signal (Selection drops references/boilerplate at proposition grain), and P3 placement. Summaries are context, never facts.';
@@ -956,9 +1020,12 @@ stored as derived metadata, not body text).
 CREATE TABLE chunks (
   chunk_id        uuid NOT NULL,
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
-  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the lineage — denormalized for routing/counting)
+  version_id      uuid NOT NULL,               -- LOGICAL FK → document_versions: a chunk belongs to ONE snapshot (D55)
   section_id      uuid,                        -- LOGICAL FK → document_sections; section (role/path signal for E2)
   ordinal         integer NOT NULL,            -- position within the document
+  chunk_content_hash text NOT NULL,            -- hash of the normalized chunk text — the D56 reuse key (embeddings; occurrence identity)
+  extraction_input_hash text NOT NULL,         -- hash of chunk text + the full E2 bundle fingerprint (header/section path/prefix/neighbor hashes/entity hints) + extractor version — E2's idempotency/reuse key (D56)
   char_start      integer NOT NULL,            -- chunk span start, offset into document.md
   char_end        integer NOT NULL,            -- chunk span end
   token_count     integer,                     -- token length (sizing/budget)
@@ -971,8 +1038,10 @@ CREATE TABLE chunks (
   PRIMARY KEY (chunk_id, created_at)
 ) PARTITION BY RANGE (created_at);
 COMMENT ON TABLE chunks IS
-  'E1 retrieval units (semchunk, section-aware). Text+embedding live in Lance (P1); PG stores offsets, section link, the replayable context prefix, and version stamps. Monthly-partitioned, logical FKs (D23).';
+  'E1 retrieval units (semchunk, section-aware), one row per (version, position). Text+embedding live in Lance (P1); PG stores offsets, section link, the replayable context prefix, version stamps, and the D56 reuse keys: an unchanged extraction_input_hash within a lineage REUSES the prior claims (re-attached to this version''s chunk row) instead of re-calling E2; per-version chunk rows double as the occurrence record (which versions carried a claim). Monthly-partitioned, logical FKs (D23).';
 CREATE INDEX ix_chunks_doc     ON chunks (deployment_id, doc_id);
+CREATE INDEX ix_chunks_version ON chunks (version_id);
+CREATE INDEX ix_chunks_reuse   ON chunks (deployment_id, doc_id, extraction_input_hash);  -- the D56 reuse lookup
 CREATE INDEX ix_chunks_section ON chunks (section_id);
 ```
 
@@ -1028,7 +1097,8 @@ CREATE TABLE claims (
   entailment_self_verdict boolean,             -- layer 3: in-call self-assertion the bundle entails the claim (~free, optimistic)
   audit_status    grounding_audit_status NOT NULL DEFAULT 'unaudited', -- layer 4: unaudited | sampled_pass | sampled_fail | escalated (sampled, not per-claim)
   kept_flagged    boolean NOT NULL DEFAULT false, -- D35 low-confidence Selection outcome: kept but marked-for-review (mirrors a selection_keep_flagged ledger row — see invariant below)
-  asserted_at     timestamptz,                 -- ASSERTION-EVENT time: when the source asserted this (≈ documents.published_at) — immutable; NOT the fact's world-time (that is claim_valid_*, D41)
+  is_current_testimony boolean NOT NULL DEFAULT true, -- D54 CACHE of testimony currency (the ledger below is truth): false once a newer extraction generation covers this chunk, or (living mode) the chunk left the current version. Bookkeeping, NEVER validity — no adjudication, claims stay immutable in every D3 sense
+  asserted_at     timestamptz,                 -- ASSERTION-EVENT time: when the source asserted this (≈ the version's source_modified_at/published_at, D55) — immutable; NOT the fact's world-time (that is claim_valid_*, D41)
   -- D41 source-asserted world-validity INTERVAL — immutable evidence about WHEN (not current belief).
   -- Overlap of these intervals across sources is EXPECTED (it is evidence), so there is deliberately
   -- NO uniqueness/EXCLUDE, NO invalidated_at, NO status here — the opposite of relations (§9):
@@ -1056,6 +1126,7 @@ COMMENT ON TABLE claims IS
 CREATE INDEX ix_claims_doc      ON claims (deployment_id, doc_id);
 CREATE INDEX ix_claims_chunk    ON claims (chunk_id);
 CREATE INDEX ix_claims_flagged  ON claims (deployment_id) WHERE kept_flagged = true;        -- review surface (D35)
+CREATE INDEX ix_claims_current  ON claims (deployment_id, doc_id) WHERE is_current_testimony; -- the D54 hot filter (counts; default claim search)
 CREATE INDEX ix_claims_audit    ON claims (deployment_id) WHERE audit_status = 'sampled_fail'; -- grounding regressions
 -- D41 claim-validity is projected to Lance (P1) as filterable scalar columns (claim_valid_from/until/
 -- precision) beside the claim embedding (same pattern as relation windows, D8); the time-filter path
@@ -1113,6 +1184,30 @@ CREATE TABLE grounding_audits (
 COMMENT ON TABLE grounding_audits IS
   'Sampled independent entailment audits of claims (D32 layer 4). Offline, not per-claim; feeds claims.audit_status and the grounding eval suite.';
 CREATE INDEX ix_grounding_claim ON grounding_audits (claim_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- testimony_currency_events — the D54 currency ledger (append-only; the D33 pattern: this is
+-- truth, claims.is_current_testimony is cache). A transition is BOOKKEEPING, never validity:
+-- no adjudication, no invalidated_at, nothing about the claim changes. Timestamped events keep
+-- transaction-time reconstructions exact (belief-as-of-T still sees old generations).
+-- Written by the reconciliation step of the lifecycle flow (evidence_lifecycle_design §5),
+-- which runs only on COMPLETED basis changes and then recounts affected facts.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE testimony_currency_events (
+  event_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims (partitioned)
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the lineage; the recount scope)
+  became_current  boolean NOT NULL,            -- false = lost currency; true = regained (un-delete, mode change)
+  reason          currency_reason NOT NULL,    -- reextracted | version_superseded | version_deleted
+  from_extractor_version text,                 -- the superseded generation (reason=reextracted)
+  from_version_id uuid,                        -- the superseded/deleted document version (reason=version_*)
+  occurred_at     timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE testimony_currency_events IS
+  'Append-only D54 testimony-currency transitions. Truth for claims.is_current_testimony (cache); replayable (D7). Reasons: reextracted (a newer extraction generation covers the chunk), version_superseded (living-mode lineage moved past the claim''s version), version_deleted. Never validity, never supersession — D3 untouched.';
+CREATE INDEX ix_currency_claim ON testimony_currency_events (claim_id);
+CREATE INDEX ix_currency_doc   ON testimony_currency_events (deployment_id, doc_id, occurred_at);
 ```
 
 ---
@@ -1164,8 +1259,8 @@ CREATE TABLE relations (
   valid_until     timestamptz,                 -- VALID-time end: closed by supersession when the fact stops holding ("Alice left Acme")
   ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed this fact
   invalidated_at  timestamptz,                 -- TRANSACTION-time: when the system learned it was superseded (NULL = still believed)
-  evidence_count  integer NOT NULL DEFAULT 0,  -- cached COUNT of supporting evidence rows — free confidence/salience signal (D2); K3 candidate filter
-  contradict_count integer NOT NULL DEFAULT 0, -- cached COUNT of contradicting evidence rows
+  evidence_count  integer NOT NULL DEFAULT 0,  -- cached count of DISTINCT DOCUMENT LINEAGES with current-testimony supporting claims (D54 — invariant under re-extraction/version churn/intra-doc repetition); confidence/salience signal (D2 refined); K3 candidate filter
+  contradict_count integer NOT NULL DEFAULT 0, -- cached count of distinct current-testimony lineages contradicting (same D54 rule, stance=contradicts)
   confidence      real,                        -- aggregate confidence over evidence (not an extraction-time guess — concepts §3)
   contradiction_group uuid,                    -- shared id when two live relations contradict and can't be adjudicated — retrieval shows both sides (concepts §4)
   status          relation_status GENERATED ALWAYS AS  -- DERIVED mirror of invalidated_at (single validity home, D6): active iff invalidated_at IS NULL, else invalidated
@@ -1322,8 +1417,8 @@ CREATE TABLE observations (
   valid_until     timestamptz,                 -- VALID-time end. NO-CAP RULE (D43): capped ONLY when a CHANGING EFFECTIVE STATE (headcount/balance/status) is superseded by a later value. A MEASUREMENT / FIXED-PERIOD figure ("FY2023 revenue") is NEVER capped here — it doesn't stop being true at period-end; it stays open and conflicting same-period figures coexist. The adjudicator decides state-vs-measurement from `statement` (semantic), not a typed column. (observations_design.md §3)
   ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed it
   invalidated_at  timestamptz,                 -- TRANSACTION-time: when learned wrong (NULL = still believed). NOT used to "end" a fact — that's valid_until.
-  evidence_count  integer NOT NULL DEFAULT 0,  -- cached COUNT of supporting EVIDENCE rows (stance=supports) — mirrors relations
-  contradict_count integer NOT NULL DEFAULT 0, -- cached COUNT of contradicting EVIDENCE rows (stance=contradicts). NB: conflicting OBSERVATIONS are tracked via contradiction_group, a different concept.
+  evidence_count  integer NOT NULL DEFAULT 0,  -- cached count of DISTINCT current-testimony LINEAGES supporting (D54 — mirrors relations)
+  contradict_count integer NOT NULL DEFAULT 0, -- cached count of distinct current-testimony lineages contradicting (D54). NB: conflicting OBSERVATIONS are tracked via contradiction_group, a different concept.
   confidence      real,                        -- aggregate confidence over evidence
   contradiction_group uuid,                    -- shared id when two live observations conflict and both must stand (concepts §4)
   status          relation_status GENERATED ALWAYS AS  -- DERIVED mirror of invalidated_at (single validity home, D6)
@@ -1975,12 +2070,15 @@ transaction); the real composite FKs on the smaller tables are the integrity bac
    `authored_review` flags on **authored** pages that cited it (D45/D46; the tombstone signal,
    D37). Doing this first ensures the links are still present to discover.
 2. **GCS**: purge the document's raw + artifacts objects.
-3. **`documents`**: **soft-tombstone** — set `status='deleted'`, null the artifact URIs, set
-   `deleted_at`; **keep the row** (so the `deleted` enum value and `ix_documents_live` are
-   meaningful, the logical-FK auditor distinguishes "forgotten" from "never existed", and crossref
-   targets resolve sanely). The worker then clears the document's `document_sections` (cascade) and
-   sets dependent `document_crossrefs.to_doc_id = NULL, resolved = false` while **retaining
-   `raw_citation`** so the link can be re-resolved if the target is re-ingested.
+3. **`documents` + `document_versions`** (D55 grains): deleting the **lineage** soft-tombstones
+   it (`deleted_at`) and every version (`status='deleted'`, artifact URIs nulled, `deleted_at`);
+   deleting **one version** tombstones only that version row (its claims' currency ends,
+   `version_deleted` — the lineage continues) and purges its content object if no live version
+   references it. Rows are **kept** (the `deleted` enum value and `ix_documents_live` stay
+   meaningful, the logical-FK auditor distinguishes "forgotten" from "never existed", and
+   crossref targets resolve sanely). The worker then clears the affected `document_sections`
+   (cascade) and sets dependent `document_crossrefs.to_doc_id = NULL, resolved = false` while
+   **retaining `raw_citation`** so the link can be re-resolved if the target is re-ingested.
 4. **`chunks`** (logical FK): the worker deletes the doc's chunks (their Lance vectors drop on the
    next P1 maintenance/rebuild). It deletes a document's chunks in the **same batch as / before** the
    `document_sections` rows, so the auditor never flags a transient orphaned `chunk.section_id`
@@ -2121,7 +2219,10 @@ Labs."*
 | D48 propose/dispose hydration | no tables — an API-layer contract over existing spine reads (by-ID re-verification; drop counts in the envelope) |
 | D49 response envelope (grain / contradictions / freshness / negatives) | wire contract, not schema; the K freshness block reads `knowledge_artifacts` + `knowledge_compilations`; horizons read `projection_snapshots` |
 | D50 zero-LLM primitives; recipes as registry data | `retrieval_recipes` (§11.A) + `recipe_output_grain`/`recipe_answer_intent` enums; the grain-bar CHECK |
-| D51 filesystem-first mounts + consumption skill | `deployments.raw_bucket`/`documents.raw_uri` comments (raw mounted off-path, D37 refined); the skill is a shipped versioned artifact, not schema |
+| D51 filesystem-first mounts + consumption skill | `deployments.raw_bucket`/`content_objects.raw_uri` comments (raw mounted off-path, D37 refined); the skill is a shipped versioned artifact, not schema |
+| D54 testimony currency + counting rule | `testimony_currency_events` (ledger) + `claims.is_current_testimony` (cache) + partial index; `evidence_count`/`contradict_count` redefined (distinct current lineages) on `relations` + `observations`; `review_item_kind = 'support_withdrawn'` |
+| D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, `current_version_id`), `document_versions` (append-only snapshots; `source_modified_at` → `asserted_at`), `content_objects` (byte dedupe); `document_sections.version_id`, `chunks.version_id` |
+| D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); per-version chunk rows as the occurrence record |
 
 ---
 

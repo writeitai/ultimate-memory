@@ -50,6 +50,11 @@ by hundreds of documents; many claims (opinions, n-ary, single-entity attributes
 - Graph edge count scales with distinct facts, not corpus size.
 - Full reasoning in `plan/analysis/concepts.md`.
 
+**Refined by D54.** The evidence *rows* stay claim-grained (provenance, unchanged), but the
+cached **count's denominator** is corrected: `evidence_count` ≡ distinct document *lineages*
+with *current-testimony* support — not claim rows, which inflate under re-extraction, document
+versioning, and within-document repetition. Rationale: `evidence_lifecycle_design.md` §4.
+
 ---
 
 ## D3. Supersession/contradiction adjudication operates at the relation level
@@ -242,6 +247,12 @@ git-editing layer was the design's scaling bottleneck.
 is the repo's only automated committer and compiles in dependency order, so hot files (the root
 `index.md`) are simply the last DAG target, compiled once per cycle. The debounce/window trigger
 model itself is unchanged.
+
+**Refined by D56.** The idempotency discipline (content hash + processing version) extends one
+level down: E2 keys on the **`extraction_input_hash`** (chunk text + the full context-bundle
+fingerprint + extractor version), so re-ingesting an edited document re-extracts only the
+changed chunks; embeddings key on (chunk content hash, embedding version). Same principle,
+finer grain.
 
 ---
 
@@ -690,6 +701,13 @@ for E1). Operational complexity is handled by decomposition, not numbering.
 > audit logging and mime-routed storage classes (so "cold" is no longer blanket). The storage
 > split, ID-addressing, and Postgres-metadata rules below are unchanged. Rationale in D51 and
 > `e0_files_design.md` §2/§5.
+>
+> **Refined by D55.** `content_hash` identifies a document **version** (deduplicated as a
+> content object); the *logical document* is a **lineage** identified by connector-native
+> `(source_kind, source_ref)`, with append-only version rows. The GCS layout
+> (`<doc_id>/<content_hash>/…`) already anticipated exactly this. `UNIQUE(deployment,
+> content_hash)` moves to the content-object/version level. Rationale in D55 and
+> `evidence_lifecycle_design.md` §2.
 
 **Decision.** Two GCS buckets per deployment: a **raw** bucket (immutable originals, cold, strict
 IAM, **never mounted**) and an **artifacts** bucket (Markdown + `pageindex.json` + conversion
@@ -1242,3 +1260,112 @@ via raw is accepted under per-deployment IAM — the deployment is one trust dom
 with a different trust boundary belongs in a separate deployment, never behind an in-library
 filter. The skill joins the eval surface (S58). Requirements §Retrieval is reframed around
 harness-first consumption.
+
+---
+
+> **D54–D56 provenance.** D54–D56 formalize the evidence-lifecycle analysis (July 2026) —
+> review finding F3 (re-extraction inflation) + document versioning for watched sources —
+> produced as two parallel independent analyses (internal + Codex) with a reconciling
+> SYNTHESIS: `plan/analysis/evidence_lifecycle/`. Binding design:
+> `plan/designs/evidence_lifecycle_design.md`. Numbers are placeholders to be measured
+> (CLAUDE.md).
+
+## D54. Testimony currency + the counting rule — evidence_count ≡ distinct current-testimony lineages
+
+**Decision.** Claims gain **testimony currency**: a claim is *current testimony* iff it belongs
+to its document lineage's current extraction basis under the lineage's versioning mode
+(re-extraction: the superseded generation's claims flip non-current, wholesale by coordinates —
+no content matching; `living`-mode version supersession: claims whose chunks left the current
+version flip non-current; `snapshot` mode: version succession flips nothing). Currency is
+**bookkeeping, never validity**: an append-only, reason-coded transitions ledger (the D33
+pattern; replayable, D7) plus a cached flag — no adjudication, no `invalidated_at`, claims
+immutable in every D3 sense; transaction-time reconstructions still see old generations. The
+cached counts are redefined once: **`evidence_count`/`contradict_count` (relations and
+observations) ≡ distinct document lineages with current-testimony support, per stance** —
+invariant under re-extraction, version churn, and within-document repetition; D42's
+independence math gets its denominator (distinct *external* lineages). Zero-current-support
+facts are flagged `support_withdrawn` for review (auto-invalidate only by explicit deployment
+policy), are **not K3-eligible** while unsupported (extends D47), and carry their state in the
+retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
+claim IDs; claim-grain citations key on `(lineage, chunk_content_hash)`; "a new claim row for
+the same testimony" is not an evidence change (the stale-storm guard). Retrieval claim
+primitives default to current testimony with an audit opt-in; P1's default channel indexes
+current testimony only (re-extraction replaces the searchable claim; the audit channel sees all
+generations).
+
+**Context.** Review F3: evidence-once is keyed `(fact_id, claim_id)`, and a re-extraction mints
+new claim IDs for the same sentences — every extractor generation doubled the headline
+confidence signal (K3 gating, D9 reranking, adjudication weight), non-uniformly (only
+re-extracted documents inflate), while duplicate generations polluted claim search. The
+orchestration lanes (D52-era work) make re-extraction routine, so the leak was structural.
+Both parallel analyses converged on the counting meaning ("current testimony from distinct
+sources — never claim rows, extractor generations, source versions, or poll cycles"); the
+divergent mechanism (a reified evidence-basis layer with a cross-generation assertion matcher)
+was **rejected** — the matcher is the riskiest component in either proposal and every consumer
+is servable from coordinates the pipeline already records; it remains the documented
+escalation path in exact-key mode only (SYNTHESIS §2; design §9).
+
+**Consequences.** Counts become comparable across facts again and mean what consumers always
+assumed. Fail-safe direction preserved: withdrawn support flags, never silent vanishing (the
+D25 lesson). Schema: a currency ledger + cached flag on claims; count-definition comments on
+relations/observations; `support_withdrawn` review kind. Recount cost is bounded (a lineage's
+evidence links) — hub-lineage cost is a spike.
+
+## D55. Document lineages and immutable versions — connector-native identity; snapshot vs living semantics
+
+**Decision.** The *logical document* is a **lineage** (stable `doc_id`) identified by
+connector-native **`(source_kind, source_ref)`** (Drive file ID, message ID, watched URL;
+renames/moves are metadata over a stable ref; a new ref is a new lineage). Lineages carry
+append-only **version** rows (one per observed snapshot; conversion/structure provenance,
+artifact URIs, `source_modified_at` → derived claims' `asserted_at`, D41) referencing
+deduplicated **content objects** (bytes stored/converted once per `content_hash`, even across
+lineages). Each lineage has a **`versioning_mode`**: **`snapshot`** (fail-safe default — every
+version is independent dated testimony forever; right for versioned archival sources) or
+**`living`** (the current version is the source's standing statement; superseded-version-only
+claims lose currency per D54). **Absence is never retraction** in either mode: removed content
+withdraws support at most (D54 flags); a source retracts only by asserting a retraction —
+itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
+where it conflicts — D3/D4/D43 unchanged). Watched-source ingestion debounces (a stability
+window coalesces rapid edits; unchanged revision/etag and unchanged bytes are no-ops).
+Deletion gains a grain: delete a version (currency ends; lineage continues) / delete a lineage
+(the existing cascade) / hard-forget (S55 semantics across versions). P3 paths and K
+citations anchor on lineages (the F6 stability contract).
+
+**Context.** The system had no model for a document that changes — the primary ingestion mode
+for every target deployment (watched Drive folders, mail, URLs). Without lineage identity,
+every edit is an unrelated document and the unchanged 95 % of its content double-counts —
+versioning *is* the inflation problem at document grain. The E0 GCS layout
+(`<doc_id>/<content_hash>/…`) always implied this design. The snapshot/living split is the
+honest answer to "what does an edit *mean*": a property of the source, not of the system —
+and the parallel analyses' one gap in each other (Codex missed `snapshot`; the internal
+analysis initially had occurrences only implicitly) is reconciled in the SYNTHESIS.
+
+**Consequences.** `documents` becomes the lineage table; new `document_versions` +
+`content_objects` (schema §6); sections/chunks/claims hang off versions with the lineage
+denormalized. Refines D37 (identity) and enriches D41 (per-version assertion times). Connector
+identity rules per source kind are a named spike.
+
+## D56. Content-addressed reuse — the cost of a new version is proportional to the edit
+
+**Decision.** Extraction and embedding work is keyed by **content, not by document version**:
+E2 idempotency keys on the **`extraction_input_hash`** — a fingerprint of the chunk text plus
+everything in the context bundle that can change extraction (header, section path, E1 prefix,
+neighbor-chunk hashes, entity hints) plus the extractor version — so an unchanged chunk reuses
+its claims (re-attached to the new version's chunk row) and a chunk whose *neighbors* changed
+correctly re-extracts; embeddings key on (chunk content hash, embedding version); conversion
+artifacts on (content object, converter version). Reconciliation (D54) runs once per completed
+basis change and emits **delta-only** K triggers. The efficiency ladder, cheapest exit first:
+connector-metadata no-op → content-object no-op → conversion reuse → chunk-grain extraction
+reuse → delta-only downstream. Per-version chunk rows double as the occurrence record (which
+versions carried a claim — how `claims_as_of` answers over living documents).
+
+**Context.** An hourly watcher over an edited corpus must not pay per-version costs
+proportional to document size (a 50-page doc with a two-paragraph edit re-extracts ~2 chunks,
+carries ~148 forward). Extends D12/D25's content-hash idempotency one grain down — same
+principle, finer key. The known boundary (chunk-boundary shift re-hashing unchanged text) is
+bounded by section-aware chunking and measured by the reuse-rate spike; boundary-stabilized
+chunking is the documented next lever.
+
+**Consequences.** Chunks gain content/input hashes; E2 workers check the reuse key before
+calling the model; the E2/E3 cost model for watched sources scales with edit volume. Reuse
+hit-rate and per-source conversion floors are spikes.

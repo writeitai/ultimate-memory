@@ -180,9 +180,12 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 - **Resolve entities.** Subjects/objects are resolved to canonical entities through the tiered T0–T4
   cascade (D17). This is *why* decontextualization matters: "Project Atlas" resolves; "It" cannot. A
   claim with a dangling reference is dead weight here — which is the whole point of §3.2.
-- **Collapse redundancy (D2).** The same fact asserted by 200 documents becomes **one** relation with
-  **200 evidence rows**, not 200 edges. `evidence_count` is then a free confidence/salience signal —
-  the thing a value gate tried to compute up-front, obtained for free after the fact.
+- **Collapse redundancy (D2, counting per D54).** The same fact asserted by 200 documents becomes
+  **one** relation with **200 evidence rows**, not 200 edges — and `evidence_count` counts the
+  **distinct document lineages with current-testimony support** (not evidence rows: re-extraction
+  generations, document versions, and within-document repetition never inflate it — D54). It is
+  then a free confidence/salience signal — the thing a value gate tried to compute up-front,
+  obtained for free after the fact.
 - **Adjudicate supersession (D3, D4).** New facts close the validity windows of the ones they replace,
   via `(entity_id, predicate)` blocking + a cheap-first cascade — adjudicated on **relations**, never on
   claims (claims stay immutable records of what was asserted).

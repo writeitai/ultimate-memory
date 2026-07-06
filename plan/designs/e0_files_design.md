@@ -57,8 +57,9 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   input) are *not* duplicated into `media/` — they are served from the raw mount (above) via
   the explicit raw pointer; `media/` holds only what conversion *derived*.
 
-(`content_hash` = sha256 of the raw bytes — the single canonical byte identity, used in both the
-path and the `documents` row.)
+(`content_hash` = sha256 of the raw bytes — the canonical *byte* identity, deduplicated in
+`content_objects` and used in the path; the *logical document* identity is the lineage's
+`(source_kind, source_ref)` — D55.)
 
 Canonical objects are **ID-addressed** (`doc_id` + `content_hash`), never title-addressed — titles
 change, collide, and contain hostile characters. Human-readable names live only in the corpus
@@ -75,15 +76,18 @@ This keeps Postgres lean (1M document bodies would bloat it for nothing) and put
 belongs — in the mountable artifact store. `documents`:
 
 ```
-documents(
-  doc_id, deployment, content_hash,                -- sha256(raw bytes) = idempotency key (D12)
-  UNIQUE(deployment, content_hash),                -- per-deployment; never dedup across deployments
-  title, source, mime, byte_size,
-  raw_uri, markdown_uri, pageindex_uri,
-  converter_name, converter_version,               -- conversion provenance
-  structurer_name, structurer_version, structurer_model, structurer_prompt_version,
-  pageindex_hash, placement_version, section_index_version,   -- structure provenance (LLM-derived)
-  status, ingested_at, updated_at)
+documents(          -- the LINEAGE (D55): the logical document over time
+  doc_id, deployment, source_kind, source_ref,     -- connector-native identity (Drive file ID, message ID, …)
+  UNIQUE(deployment, source_kind, source_ref),
+  versioning_mode,                                  -- snapshot (fail-safe) | living (D55)
+  origin, current_version_id, title, first_seen_at, last_observed_at)
+
+document_versions(  -- append-only observed snapshots of a lineage
+  version_id, doc_id, content_hash → content_objects,  -- bytes deduplicated (stored/converted once)
+  version_no, source_version_ref, source_modified_at,  -- → derived claims' asserted_at (D41/D55)
+  markdown_uri, pageindex_uri, conversion_uri, meta_uri,
+  converter_*, structurer_*, pageindex_hash, placement_version, section_index_version,
+  status, ingested_at, superseded_at)
 ```
 
 PageIndex, summaries, and placement are **LLM-derived, non-deterministic** E0 state, so every
@@ -93,7 +97,11 @@ re-run on a version change; downstream E1/E2/P3 invalidation keys include `struc
 versions, so a converter or structurer bump reprocesses exactly the affected documents.
 
 Re-ingesting an identical file is a `content_hash` no-op (this is the *only* surviving "dedup" — as
-idempotency, never a value tier, per D25).
+idempotency, never a value tier, per D25). **A changed file from a watched source is a new
+*version* of its lineage** (D55): connectors debounce rapid edits to one ingested version per
+stability window; unchanged chunks of the new version **reuse** their prior extraction and
+embeddings via the content-addressed keys (D56), so the cost of a version is proportional to
+the edit, not the document — full design: `evidence_lifecycle_design.md` §2/§6.
 
 **Deletion / forget (cascade).** Removing a document hard-deletes its **raw + artifacts** objects in
 GCS and its Postgres rows (`documents`, `document_sections`) and cascades downstream like any input

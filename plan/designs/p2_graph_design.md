@@ -62,7 +62,7 @@ CREATE NODE TABLE Document(
   id UUID PRIMARY KEY,          // documents.doc_id (distinct id-space from Entity)
   title STRING,
   source_uri STRING,
-  published_at DATE             // (documents.published_at AT TIME ZONE 'UTC')::date
+  published_at DATE             // (current version's published_at AT TIME ZONE 'UTC')::date — v_graph_documents joins the lineage's current version (D55)
 );
 
 // Semantic edges — projections of RELATIONS (entity→entity facts), not of claims

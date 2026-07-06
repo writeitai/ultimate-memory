@@ -286,7 +286,9 @@ no longer matches reality:
 3. **Cited evidence was deleted** (source document removed — §10).
 
 Formally, the driver computes per page an
-`inputs_hash = hash(sorted candidate evidence IDs + each ID's validity fingerprint
+`inputs_hash = hash(sorted candidate FACT state — relation/observation IDs + their validity/
+currency fingerprints + counts; claim-grain candidates keyed by (lineage, chunk_content_hash),
+never raw claim IDs (D54 — a re-extraction that changes no fact state stales nothing)
 + curation sidecar hash + sorted child page-summary hashes + shared-model-page summary hash
 + writer prompt/model version + rule configuration)`, and the page is stale **iff** it differs
 from the hash recorded at last compile. This is D12's idempotency discipline (content hash +

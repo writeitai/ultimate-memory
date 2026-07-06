@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D51); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D56); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -78,8 +78,13 @@ documents ─< chunks                    entities ──< entity_aliases
                                          ingested_at/invalidated_at)
 ```
 
+- **Documents** — **lineages** (connector-native identity: the Drive file ID, the message ID)
+  with append-only **versions** over deduplicated content objects; `snapshot | living` semantics
+  per lineage; watched sources ingest edits as versions, reusing unchanged chunks' work (D55/D56).
 - **Claims** — immutable NL assertions; identity = assertion-by-a-source; temporally classified and
   carrying an immutable **source-asserted validity interval** (D41); never superseded themselves.
+  Claims carry **testimony currency** (D54 — bookkeeping, never validity): counts and default
+  search consider *current* testimony; history remains queryable.
 - **Relations** — distinct **entity→entity** facts; identity = the fact; bi-temporal validity windows;
   the unit of supersession and contradiction (D3); the only layer projected to the graph (D18).
 - **Observations** — non-graph facts about **one entity** (a value/statement: headcount, revenue, a
@@ -225,6 +230,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
 | `retrieval_design.md` | the query machine: primitives, recipes, envelope, mounts, skill (D48–D51) | **current** |
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
+| `evidence_lifecycle_design.md` | document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) | **current** |
 
 ## 10. Open questions
 
