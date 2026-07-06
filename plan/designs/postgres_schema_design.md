@@ -1804,6 +1804,7 @@ CREATE TABLE knowledge_compilations (
   evidence_invalidated int NOT NULL DEFAULT 0,
   writer_version  text NOT NULL,               -- LOGICAL FK → pipeline_component_versions (knowledge_writer)
   tokens          integer, cost_usd numeric,   -- cost metering (requirements: per-layer budgets)
+  session_transcript_uri text,                 -- archived writer-session transcript (GCS) — the residual read-audit log for stock-harness writers (k_layers §7); NULL when a session left no transcript
   git_commit      text,
   compiled_at     timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE
