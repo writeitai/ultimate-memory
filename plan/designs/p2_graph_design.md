@@ -373,6 +373,12 @@ Note: Louvain/Leiden are NOT shipped in LadybugDB's algo extension (verified) �
 detection runs as an external pass (igraph/graspologic) over the rebuild's Parquet export;
 PageRank/K-Core/WCC run natively on the snapshot.
 
+Community topic **labels** (`communities.label` — the human-readable name K1 topic pages and
+compile hints carry) are written during the same writeback by a batched micro-LLM call over
+each community's top members by PageRank (small model, versioned under the
+`community_detector` component). Labels are navigation aids only; nothing load-bearing reads
+them.
+
 1. **K1 compile hints**: communities ≈ candidate topics; "claims in community C changed" is a
    better incremental-refresh trigger for K1 summaries than per-file signals (Zep uses
    communities exactly this way).

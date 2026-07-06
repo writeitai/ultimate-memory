@@ -140,9 +140,10 @@ CREATE TYPE deployment_status      AS ENUM ('active','suspended','archived');
 CREATE TYPE pipeline_component     AS ENUM (
   'ingester','converter','structurer','crossreferencer','chunker','context_prefixer',
   'extractor','grounder','resolver','normalizer','adjudicator','embedder','fact_labeler',
-  'community_detector','snapshot_builder','knowledge_planner','knowledge_writer','judge');
-CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','snapshot','knowledge_artifact');
-CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','embed_relation','label_relation','build_snapshot','detect_communities','compile_knowledge');
+  'profile_summarizer','community_detector','snapshot_builder','knowledge_planner',
+  'knowledge_writer','knowledge_reflector','knowledge_linter','judge');
+CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','observation','entity','snapshot','knowledge_artifact');
+CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge');
 CREATE TYPE processing_status      AS ENUM ('pending','running','succeeded','failed','dead_letter','skipped');
 
 CREATE TYPE ontology_tier          AS ENUM ('core','extension','other','deprecated');
@@ -282,7 +283,7 @@ COMMENT ON TABLE pipeline_component_versions IS
 CREATE TABLE processing_state (
   processing_id   uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  target_kind     processing_target NOT NULL,  -- document | document_section | chunk | claim | relation | snapshot | knowledge_artifact
+  target_kind     processing_target NOT NULL,  -- document | document_section | chunk | claim | relation | observation | entity | snapshot | knowledge_artifact
   target_id       uuid NOT NULL,               -- LOGICAL FK → the target table's PK (kind tells you which)
   stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
