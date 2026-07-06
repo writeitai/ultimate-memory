@@ -53,7 +53,8 @@ only *alerted* when the evidence they cite changes). K1–K3 is the shipped **de
 configuration** of that framework; deployments — and users of the library — define their own
 scopes and tiers ("knowledge structure is configuration, not machinery").
 
-**P — Projections** *(derived from E + K; rebuildable, hold no source-of-truth)*
+**P — Projections** *(derived from the E spine; rebuildable, hold no source-of-truth; K pages
+cross-link with P3 but are never a structural input — D40 refined)*
 
 | | What it is | Backed by | Serves |
 |---|---|---|---|

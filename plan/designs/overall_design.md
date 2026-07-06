@@ -36,6 +36,11 @@ rules — trigger model, source of truth, mutability, rebuild semantics.
             entry (P1/PG) → expand (P2) → hydrate (PG → GCS); browse (P3)
 ```
 
+*(Diagram note: the arrows descending into plane P come from the E columns (E0 artifacts → P3;
+E1/E2/E3 → P1/P2) — plane P derives from the E spine only. K sits beside that flow: K pages
+and P3 cross-link as consumers of each other, but K is never a structural input to any
+projection — D40 refined; `e0_files_design.md` §6.)*
+
 | Plane | Trigger | Source of truth | Mutability | "Rebuild" means |
 |---|---|---|---|---|
 | **E** | per-document chain | Postgres | append-only, windows close | n/a — it *is* the truth |

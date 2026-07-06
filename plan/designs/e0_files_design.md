@@ -235,7 +235,11 @@ gs://ugm-<dep>-corpusfs/snapshots/<version>/
   entity/relation structure (`entities/...`); leaves are **generated stub files** pointing at the
   per-document artifacts (the agent drills from the tree into the Markdown + per-doc structure).
 - Each level carries a generated **`_index.md` / `llms.txt`** so an agent reads orientation before
-  contents (the navigation-manifest pattern).
+  contents (the navigation-manifest pattern). Where an `_index.md` links to a **K page**, it
+  carries that page's freshness state alongside the link (`compiled_at`, stale?, open review
+  flags) — the **browse-path half of the D49 reader-facing flag surface** (the query engine's
+  envelope is the other half, `retrieval_design.md` §5): an agent must be able to see "this
+  page has unresolved evidence-change flags" *before* reading it, on either path.
 - **Composition with K (cross-link, not dependency):** the K plane (compiled understanding) is the
   *summarized* layer; P3 is the *navigable index over sources*. `_index.md` files **link to** relevant
   K pages and vice versa (understanding ↔ evidence) — complementary mounts, not duplicates, and P3's

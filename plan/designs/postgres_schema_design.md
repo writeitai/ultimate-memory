@@ -207,6 +207,10 @@ CREATE TYPE subscription_status    AS ENUM ('active','paused','retired');  -- di
 -- the page's author (human or agent), never an auto-recompile (D46):
 CREATE TYPE knowledge_trigger      AS ENUM ('evidence_changed','community_changed','debounce_timer','manual','tombstone','authored_review');
 CREATE TYPE refresh_status         AS ENUM ('pending','running','done','failed');
+
+-- D50 retrieval recipe registry (§11.A) — the two enums the grain linter checks mechanically:
+CREATE TYPE recipe_output_grain    AS ENUM ('belief','evidence','compiled','composite');
+CREATE TYPE recipe_answer_intent   AS ENUM ('current_belief','assertion_history','orientation','audit','change_feed');
 ```
 
 `novelty_gate` (in `adjudication_method`) is the deterministic short-circuit at the front of the
@@ -234,7 +238,7 @@ CREATE TABLE deployments (
   name            text NOT NULL,               -- human label ("Personal assistant", "Acme migration")
   description     text,                        -- what this deployment is for
   default_language text NOT NULL DEFAULT 'en', -- primary corpus language; gates the multilingual matching path (registries §5)
-  raw_bucket      text NOT NULL,               -- gs:// raw bucket (immutable originals, never mounted) — D37
+  raw_bucket      text NOT NULL,               -- gs:// raw bucket (immutable originals; mounted read-only OFF the navigation path, audit-logged — D37/D51)
   artifacts_bucket text NOT NULL,              -- gs:// artifacts bucket (markdown/pageindex, mount-readable) — D37
   corpusfs_bucket text NOT NULL,               -- gs:// P3 corpus-filesystem bucket (snapshots + latest) — D40
   knowledge_repo_uri text,                     -- plane-K git remote (git is truth for K; PG holds provenance only) — D1
@@ -832,7 +836,7 @@ CREATE TABLE documents (
   language        text,                        -- detected primary language
   published_at    timestamptz,                 -- document's own date (resolves "last year"; orders ingestion); world-time origin
   -- GCS object URIs (bodies live here, not in PG — D37):
-  raw_uri         text NOT NULL,               -- gs://…-raw/<doc_id>/<content_hash>/original.<ext> (immutable, never mounted)
+  raw_uri         text NOT NULL,               -- gs://…-raw/<doc_id>/<content_hash>/original.<ext> (immutable; reachable via explicit raw pointer on the read-only raw mount — D51)
   markdown_uri    text,                        -- gs://…-artifacts/…/document.md
   pageindex_uri   text,                        -- gs://…-artifacts/…/pageindex.json (structure sidecar)
   conversion_uri  text,                        -- gs://…-artifacts/…/conversion.json (blocks + page/char offsets — load-bearing for grounding, D32/D38)
@@ -1868,6 +1872,43 @@ CREATE INDEX ix_krefresh_runnable ON knowledge_refresh_queue (deployment_id, sta
 
 ---
 
+## 11.A Retrieval recipe registry (D50)
+
+Recipes — named, versioned compositions of the zero-LLM query primitives — are **registry
+rows, not code** (`retrieval_design.md` §4): the MCP tool list renders from this table, the
+eval harness measures recall@k per recipe version, and the D41 bar ("claims never answer *is
+it true now*") is enforced by a **mechanical constraint on the enums**, not by prose review.
+Chain-level validation (a `current_belief` chain may compose only validity-filtered
+relation/observation primitives) runs in the registration linter; the DB carries the enum
+invariant.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- retrieval_recipes — frozen query plans as registry data (D50). One row per recipe version;
+-- surfaces (API/CLI/MCP) render from status='active' rows. The CHECK is the mechanical half
+-- of the grain linter (D41/D49); the registration linter validates the chain itself.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE retrieval_recipes (
+  recipe_id       uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  name            text NOT NULL,               -- e.g. 'relation_hybrid_rrf', 'claims_as_of', 'identity_as_of'
+  description     text NOT NULL,               -- rendered into the MCP tool description (D50)
+  parameters      jsonb NOT NULL,              -- typed parameter schema (JSON-Schema form)
+  chain           jsonb NOT NULL,              -- the typed primitive composition: ordered ops + fixed settings (channel sets, RRF constants, rerank weights)
+  output_grain    recipe_output_grain NOT NULL, -- belief | evidence | compiled | composite (the D49 envelope grain)
+  answer_intent   recipe_answer_intent NOT NULL, -- current_belief | assertion_history | orientation | audit | change_feed
+  version         integer NOT NULL DEFAULT 1,  -- recall@k measured per (name, version) — regressions attributable (D22)
+  status          ontology_status NOT NULL DEFAULT 'active',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, name, version),
+  CHECK (answer_intent <> 'current_belief' OR output_grain = 'belief')  -- the D41 bar, mechanical
+);
+COMMENT ON TABLE retrieval_recipes IS
+  'D50: recipes as registry rows. MCP tools render from here; the eval harness measures per (name, version); the CHECK enforces the D41 grain bar mechanically (current_belief ⇒ belief grain), with chain-level validation in the registration linter. Adding a query pattern = inserting a row.';
+```
+
+---
+
 ## 12. Partitioning & partition pruning (D23)
 
 Six append-only E-plane tables are partitioned for scale (D23). **Five** are **RANGE-partitioned by
@@ -2077,6 +2118,10 @@ Labs."*
 | D46 compiled vs authored pages; ownership + quarantine | `knowledge_artifacts.page_kind/curation_path/content_hash` (+ `status='quarantined'`); citations binding in `knowledge_artifact_evidence`; authored review flags via `knowledge_refresh_queue ('authored_review')` |
 | D47 one K mechanism, N scopes; belief tier | `knowledge_artifacts.layer` (K1/K2/K3 as content tiers); belief tier = `knowledge_page_rules` selecting high-evidence uncontradicted facts; scope model page = an artifact all scope pages depend on |
 | E→K trigger surface (k_layers §5; the signal channel D42 deferred) | `knowledge_subscriptions`, `knowledge_page_watches`, `knowledge_dispatches`; rules owned by page XOR subscription; D42 `origin` guards re-ingested plans |
+| D48 propose/dispose hydration | no tables — an API-layer contract over existing spine reads (by-ID re-verification; drop counts in the envelope) |
+| D49 response envelope (grain / contradictions / freshness / negatives) | wire contract, not schema; the K freshness block reads `knowledge_artifacts` + `knowledge_compilations`; horizons read `projection_snapshots` |
+| D50 zero-LLM primitives; recipes as registry data | `retrieval_recipes` (§11.A) + `recipe_output_grain`/`recipe_answer_intent` enums; the grain-bar CHECK |
+| D51 filesystem-first mounts + consumption skill | `deployments.raw_bucket`/`documents.raw_uri` comments (raw mounted off-path, D37 refined); the skill is a shipped versioned artifact, not schema |
 
 ---
 
@@ -2109,11 +2154,10 @@ Per CLAUDE.md, numbers are starting points. Items that may move the schema or a 
    `merge_events.pre_merge_membership_snapshot` correctly re-adjudicates relation windows closed
    under a merged identity (`relation_adjudications.superseded_by` supports it; the procedure needs a
    test).
-7. **P3/D40 wording reconciliation.** D40 in `decisions.md` lists "the K-plane structure" as a P3
-   build input; the binding `e0_files_design.md` §6 scopes K to a *cross-link*, not a structural
-   dependency (so P3 stays rebuildable from the E spine + artifacts). This schema follows the binding
-   design (P3 is `projection_snapshots` + placement columns, no K dependency); D40's phrasing should
-   be corrected to match.
+7. ~~**P3/D40 wording reconciliation.**~~ **RESOLVED** — the cross-link-only model is adopted
+   everywhere (D40 refinement note; `requirements_v3.md` §Plane P, `overall_design.md` §5,
+   README updated; `questions.md` #25 closed). This schema already followed the binding design;
+   no schema change was needed.
 8. **Snapshot retention depth** (latest-only vs latest-N for `communities`/`entity_graph_metrics`):
    pick the debugging-history depth against storage cost.
 9. **Claim asserted-validity (D41) — measure before locking.** (a) Precision/recall of the extracted
