@@ -172,17 +172,33 @@ WHERE r.ingested_at <= $as_of
   AND (r.valid_until IS NULL OR r.valid_until > $as_of)
 ```
 
-**Multi-hop as-of (D44 correction to the mechanism).** For variable-length traversal, apply the same
-predicate as an `all(r IN rels(p) …)` path filter — **inline filtering is the working mechanism**:
+**Multi-hop as-of (D44 correction, sharpened by the source investigation).** For
+variable-length traversal, the temporal predicate must be written **inside the recursive
+pattern** — LadybugDB's inline recursive predicate `(r, _ | WHERE …)`. It is evaluated per
+edge *during* traversal (source-verified at the neighbor-scan level, `on_disk_graph.cpp:308`;
+a failing edge never enters the search frontier), so `SHORTEST` finds the shortest path **in
+the as-of subgraph**:
 
 ```cypher
-MATCH p = (a:Entity {id:$id})-[rs:RELATES* SHORTEST 1..3]-(b:Entity)
-WHERE all(r IN rels(p) WHERE r.ingested_at <= $as_of
+MATCH p = (a:Entity {id:$id})
+    -[rs:RELATES* SHORTEST 1..3 (r, _ | WHERE
+          r.ingested_at <= $as_of
       AND (r.invalidated_at IS NULL OR r.invalidated_at > $as_of)
-      AND (r.valid_from IS NULL OR r.valid_from <= $as_of)
-      AND (r.valid_until IS NULL OR r.valid_until > $as_of))
+      AND (r.valid_from  IS NULL OR r.valid_from  <= $as_of)
+      AND (r.valid_until IS NULL OR r.valid_until >  $as_of))]-
+    (b:Entity)
 RETURN p;
 ```
+
+> **Never combine `SHORTEST` (or `ALL SHORTEST` / `WEIGHTED_SHORTEST`) with an outer
+> `WHERE all(r IN rels(p) …)` filter.** The outer form is applied **after** matching — no
+> optimizer pushdown exists — so `SHORTEST` searches the *unfiltered* graph, the filter then
+> discards the found path, and the query **silently returns nothing** although a longer path
+> satisfying the predicate existed at `$as_of`. With plain (non-shortest) `*1..k` matching the
+> outer form is merely wasteful; with any shortest-path mode it is a correctness bug. Inline
+> predicates accept rel-only or node-only conjuncts (our temporal filter is rel-only — fits).
+> Full evidence and the complete querying rulebook every implementer and agent must follow:
+> `../analysis/ladybug_query_semantics.md`.
 
 You **cannot** `MATCH`-traverse a `PROJECT_GRAPH[_CYPHER]` projection — projected graphs feed GDS
 algorithms only (PageRank/components/paths); path `MATCH` runs on the persistent catalog (`USE GRAPH`).
@@ -269,7 +285,8 @@ Surveyed from the vendored source (`../../_additional_context/ladybug`) and docs
 | Filtered vector search | yes, via projected graphs (`PROJECT_GRAPH`, `PROJECT_GRAPH_CYPHER`) |
 | FTS | BM25 + stemming (28 languages) extension, **node-table STRING properties ONLY**; stopword changes require index rebuild |
 | Paths / BFS | native Cypher: `*min..max`, `SHORTEST`, `ALL_SHORTEST`, `WEIGHTED_SHORTEST`, TRAIL/ACYCLIC modes |
-| Projected graphs | rel- and node-level Cypher predicates → enables **as-of filtering during traversal** (project the graph to edges valid at `$as_of`, then traverse) |
+| Projected graphs | inputs to **GDS algorithms only** — cannot be `MATCH`-traversed (D44); as-of *traversal* uses inline recursive predicates (§4) |
+| Recursive-pattern predicates | `[e* … (r, n \| WHERE …)]` — evaluated **during traversal** (per-edge at the neighbor scan; node side via semi-mask); rel-only/node-only conjuncts; composes with `SHORTEST`/`ALL SHORTEST` (`../analysis/ladybug_query_semantics.md`) |
 | Graph algorithms | PageRank, K-Core, WCC/SCC — **no Louvain/Leiden** (community detection needs an external pass) |
 | Bulk load | multi-threaded `COPY FROM` Parquet/Arrow/CSV/NPY; `ATTACH` DuckDB/Postgres/SQLite |
 | Concurrency | confirmed: one READ_WRITE process XOR many READ_ONLY processes; in-memory mode; WAL + checkpointing |
@@ -277,8 +294,10 @@ Surveyed from the vendored source (`../../_additional_context/ladybug`) and docs
 
 Two design touch-ups this verification forces:
 
-- **As-of traversal**: implemented via projected graphs (rel predicates on the temporal
-  columns), since there are no native temporal query semantics.
+- **As-of traversal**: there are no native temporal query semantics — implemented via
+  **inline recursive-pattern predicates** on the temporal columns (§4; evaluated during
+  traversal). Projected graphs serve *algorithms* only (D44), and the outer
+  `all(r IN rels(p) …)` form is post-hoc — never combine it with `SHORTEST` (§4 warning).
 - **Communities**: Louvain/Leiden are not shipped. Run community detection externally
   (e.g. igraph/graspologic over the same Parquet export that feeds the rebuild) and write
   assignments to Postgres; PageRank/K-Core/WCC can run natively in LadybugDB.
@@ -406,3 +425,7 @@ them.
    E2-only? (Current call: E2-only.)
 4. Where do retrieval API readers run — same Cloud Run service as the rest of the API, with
    snapshot on local SSD? Snapshot size will decide.
+5. Parameter binding inside inline recursive predicates (`(r, _ | WHERE r.ingested_at <=
+   $as_of)`) is unverified upstream — no LadybugDB test exercises it
+   (`../analysis/ladybug_query_semantics.md` R5). One-line test at implementation time;
+   fallback is literalizing the timestamp into the query string.
