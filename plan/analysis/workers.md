@@ -248,9 +248,15 @@ this is the `fact_labeler` component.
 
 ### 5.1 `profile_refresher` — micro-LLM, batched
 
-Maintains `entities.profile_summary` (the graph node blurb) + profile embedding, debounced on
-evidence change for the entity. Small model, batched; purely additive quality — nothing
-load-bearing reads it for correctness.
+Maintains `entities.profile_summary` + the profile embedding (Lance,
+`profile_embedding_ref`), debounced on evidence change for the entity. Small model, batched.
+**These fields are cascade inputs, not cosmetics** (schema §4): the profile embedding is what
+T3 matches mention embeddings against, and the summary is T4 adjudication context (the
+Graphiti lesson) — so the refresher is quality-relevant to entity resolution. Staleness
+degrades inside the cascade's existing safety envelope (per-type golden-tuned thresholds,
+escalate-don't-auto-reject, blast-radius review), costing match quality, never an unreviewed
+merge. The refresher writes only these two fields — never names, aliases, types, or status
+(identity belongs to resolution). Binding spec: `registries_design.md` ("Entity profiles").
 
 ### 5.2 `predicate_promotion` — deterministic ranking + LLM proposal + gated apply
 
