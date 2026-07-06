@@ -83,6 +83,29 @@ Invariants: `entity_id` is **never reused**; a merge is a **redirect** (`merged_
 rewrite (Wikidata model) — everything downstream that stored the old ID still resolves; P2
 rebuild (D7) re-points graph edges on merge/un-merge for free.
 
+### Entity profiles — maintenance of `profile_summary` / `profile_embedding`
+
+The registry caches two derived fields per entity, and they are **inputs to the cascade
+below**, so their maintenance is owned here. `profile_summary` — a short blurb ("Czech ML
+researcher at CTU; works on entity resolution") — is shown on the P2 graph node and the P3
+entity index, and is given to **T4 adjudication as candidate context** (comparing a new
+"J. Novak" mention against a candidate is a much easier judgment when the candidate carries a
+profile — the Graphiti lesson). The **profile embedding** (stored in Lance, D8; the registry
+holds only `profile_embedding_ref`) is what **T3** compares mention embeddings against.
+
+They are maintained by a dedicated **profile refresher** worker: a batched micro-LLM job
+(small model; stage `refresh_profile`, component `profile_summarizer` — schema §1), versioned
+and replayable like every non-deterministic producer (D7/D12), **debounced on evidence
+change** — an entity whose relations/observations materially changed since its last profile
+build is re-summarized and re-embedded on the next batch (new entities get a first profile as
+soon as they have any evidence to summarize; until then T3/T4 fall back to alias/mention
+signals alone). Boundaries: the refresher writes **only** these two fields — never names,
+aliases, types, or status (identity belongs to resolution) — and profile staleness degrades
+inside the cascade's existing safety envelope: thresholds are per-type and golden-set-measured
+(D22), near-misses escalate rather than auto-reject (§3), and high-blast-radius merges route
+to review regardless (§6) — a stale profile costs match quality, never an unreviewed
+catastrophic merge.
+
 ## 3. Resolution cascade — T0–T4, block-loose / decide-tight (D17)
 
 One canonical cascade. Stop at the first confident match. **Registry-self-contained — no

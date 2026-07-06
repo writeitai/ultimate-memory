@@ -172,6 +172,42 @@ content and structure are freshly understood. It is *advisory*: the authoritativ
 materialized later by the projection (§6), which can reconcile, rename, and reorganize across the
 whole corpus as it grows (a single document cannot know the global tree).
 
+## 4A. Cross-references — the `crossref` sub-worker
+
+The last E0 sub-worker records how documents point at each other — the raw material for the
+`DOC_CROSSREF` graph edges (P2) and one source of the E2 bundle's entity hints
+(design-review F7). Product: `document_crossrefs` rows `(from_doc_id, to_doc_id NULLABLE,
+kind, context)`, kinds `cites | links_to | attaches | replies_to`.
+
+**Extraction — deterministic per kind:**
+
+- `links_to` — URLs and links in the converted Markdown (`conversion.json` blocks keep the
+  offsets);
+- `attaches` — container relationships known at ingest/convert time (e-mail attachments,
+  archive members);
+- `replies_to` — thread metadata (e-mail `In-Reply-To`/`References` headers, chat thread ids);
+- `cites` — citation strings, mined primarily from PageIndex `references`-role sections: DOIs,
+  arXiv ids, ISBNs, plus deployment-specific citation grammars (e.g. case citations in the law
+  deployment — configured per deployment, like the D38 converter routing table).
+
+**Resolution — cheap-first (the D4 discipline).** A reference resolves to an ingested document
+via exact keys first (normalized URL ↔ `documents.source_uri`; DOI/arXiv id ↔ document
+metadata; `content_hash` for attachments), then fuzzy title match (`pg_trgm` against
+`documents.title`, recall-first floor), and only the ambiguous residue goes to a small-model
+rung ("is citation string X document Y?"). Below threshold the row keeps `to_doc_id = NULL` —
+a cited-but-not-ingested reference: real provenance, no graph edge (`v_graph_crossref` filters
+nulls).
+
+**Late binding.** Dangling references are not dead: when a new document is ingested, its
+identity keys (URI, DOI/ids, title) are matched against unresolved crossrefs — one indexed
+lookup on the ingest path — so earlier documents' citations bind to it retroactively. No
+periodic sweep; resolution rides the write path in both directions.
+
+Idempotent on `content_hash` + crossreferencer version (D12); versioned because the fuzzy rung
+is non-deterministic; the citation `context` snippet is stored for audit. Execution class
+(D52): deterministic first, one small-model rung for the residue — LLM spend scales with
+ambiguity, not volume (D4).
+
 ## 5. Mounting — agents read the memory on their filesystem
 
 A hard requirement: agentic workers get the memory **on their filesystem** and navigate it without
@@ -288,3 +324,6 @@ Open spikes (measure before committing):
 6. **Raw storage-class routing** (D51) — measure the read patterns per mime class on a real
    corpus slice; set the standard/nearline/archive routing table and verify the mounted-read
    cost envelope (no archive-class retrieval fees on agent browse patterns).
+7. **Citation-resolution precision/recall** (§4A) — exact-key coverage vs the fuzzy/LLM
+   residue rate on a corpus slice; per-deployment citation grammars (law) — measure before
+   trusting `cites` edges for navigation.
