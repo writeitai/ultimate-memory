@@ -17,7 +17,8 @@ deleted and rebuilt at any time without data loss.
 Concretely:
 
 - **Validity is decided upstream.** Supersession, contradiction, and entity merges all happen
-  in the E2 pipeline and are recorded in Postgres. The graph mirrors the outcome. (Graphiti
+  in the E2/E3 pipeline (adjudication at the relation level, D3) and are recorded in Postgres.
+  The graph mirrors the outcome. (Graphiti
   runs LLM-driven edge invalidation at graph-write time; we deliberately don't — that judgment
   already happened at E2. The graph writer is dumb and deterministic.)
 - **No embeddings in the graph.** Semantic entry points come from LanceDB/Postgres. Storing
@@ -104,7 +105,7 @@ Claims (E2) and graph edges are NOT the same thing, and the mapping is many-to-m
 
 So Postgres holds a first-class `relations` table (subject_id, predicate, object_id,
 bi-temporal fields) plus `relation_evidence(relation_id, claim_id, stance: supports |
-contradicts)`. A **relation-normalization step** in the E2 pipeline (after claim extraction +
+contradicts)`. A **relation-normalization step** in the E3 stage (after claim extraction +
 entity resolution) maps eligible claims onto relations against the predicate registry:
 
 - `(s, p, o)` already exists with compatible validity → claim added as **evidence**
@@ -143,10 +144,15 @@ both entity-keyed blocking and graph queries. So:
 
 ## 4. Bi-temporality and as-of queries
 
-Edges carry the same four timestamps as E2 claims (Graphiti/Zep model):
+Edges carry the four bi-temporal timestamps of their **relation** (the Graphiti/Zep edge
+model; D3):
 
 - `valid_from` / `valid_until` — when the fact was true in the world
 - `ingested_at` / `invalidated_at` — when the system learned it / learned it was superseded
+
+(Claims carry *different*, **immutable** time evidence — `asserted_at`, the D41
+source-asserted interval, `ingested_at` — and never an `invalidated_at`: the revisable
+four-column window exists only at the relation level. See D3/D41.)
 
 Default retrieval filter (current beliefs):
 
@@ -325,7 +331,7 @@ entity scope, as-of windows) before the vector stage.
 | Query shape | Path |
 |---|---|
 | "How are A and B related?" | entity resolution → graph adjacency (no vectors) |
-| "Who works at Acme?" | structured: relations `object=acme, predicate=works_at` (scalar only) |
+| "Who works at Acme?" | structured: relations `object=acme, predicate=works_for` (scalar only; D18 registry predicate) |
 | "Alice's career changes?" | semantic+BM25 over Lance relations, scoped to subject=alice, RRF-fused |
 | vague / no clear entity | semantic over relations AND claims; claim hits join to relations via evidence |
 | "what did source X say" | claim/chunk search (E1/E2); relations hydrate *down* to evidence |

@@ -25,9 +25,12 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   Converted bodies live in object storage; the spine holds only metadata + the queryable structure.
 - **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
   context and trace back to the exact source document and position.
-- **E2 — Claims** *(formerly L2)*: atomic, verifiable natural-language assertions; typed
-  (fact / opinion / prediction) and temporally classified; immutable and append-only;
-  provenance always attached; entity mentions resolved to canonical entities.
+- **E2 — Claims** *(formerly L2)*: atomic, **verifiable** natural-language assertions,
+  temporally classified; immutable and append-only; provenance always attached; entity
+  mentions resolved to canonical entities. Non-verifiable material (opinion, advice,
+  hypotheticals) is dropped at extraction-time Selection with an auditable ledger (D31/D34) —
+  there is no fact/opinion/prediction claim typing; whether *attributed* stance ("X believes
+  Y") should be retained is the open qualitative-belief question (`questions.md`).
 - **E3 — Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
   many-to-many evidence links between claims and relations; the unit of supersession and
   contradiction.
