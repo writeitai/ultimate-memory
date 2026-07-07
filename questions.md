@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D56).
+- **`decisions.md`** — what *is* decided (D1–D58).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -83,8 +83,11 @@ Keep this current: when something here is decided, move it to a decision and pru
 17. **Spine schema (`postgres_schema_design.md`).** ~15 tables are sketched across separate decisions
     with no consolidated schema, FK map, indexes (only D23, registry-only), constraints, partitioning
     (only the 3 big tables), or migration convention. Mostly consolidation, not new invention.
-18. **E1 chunking (`e1_chunks_design.md`).** Thin but low-risk (semchunk + context prefix + embed;
-    section-aware boundaries from E0).
+18. ~~**E1 chunking.**~~ **RESOLVED (D57–D58)** — `e1_chunks_design.md` is written: the
+    blockizer + block substrate, sections snapped to the block grid, non-overlapping
+    whole-block chunk packing with anchors, multi-granularity retrieval (claims = needle
+    index), extraction batching, the A1–A3 reuse mechanics. The **embedding-model choice (#3)
+    remains the design's one open branch point** (prefix stage exists vs deleted).
 19. **P1 search indexes.** Referenced everywhere, never a dedicated design (what's embedded, index
     params, FTS config, inline-write vs. rebuild path).
 20. **Cost / metering.** A stated requirement with no design (per-layer/per-deployment spend tracking

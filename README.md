@@ -117,7 +117,8 @@ and flow downward.
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/retrieval_review/](plan/analysis/retrieval_review/) | External adversarial review of the retrieval design (Codex) + reconciliation |
 | [plan/designs/evidence_lifecycle_design.md](plan/designs/evidence_lifecycle_design.md) | Document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) |
-| [plan/analysis/evidence_lifecycle/](plan/analysis/evidence_lifecycle/) | Parallel analyses (internal + Codex) + SYNTHESIS behind D54–D56 |
+| [plan/analysis/evidence_lifecycle/](plan/analysis/evidence_lifecycle/) | Parallel analyses (internal + Codex) + SYNTHESIS behind D54–D56; stress-test amendments |
+| [plan/designs/e1_chunks_design.md](plan/designs/e1_chunks_design.md) | E1: blocks + blockizer, sections on the grid, chunk packing, reuse mechanics (D57–D58) |
 | [plan/analysis/design_review_2026_07.md](plan/analysis/design_review_2026_07.md) | Second step-back review F1–F9 (post-D44) — K-plane build system, attributed stance, evidence inflation, … |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
@@ -127,5 +128,5 @@ and flow downward.
 | [plan/analysis/concepts.md](plan/analysis/concepts.md) | Explainer: claims vs. relations, evidence, bi-temporality |
 | [plan/analysis/ladybug_capabilities.md](plan/analysis/ladybug_capabilities.md) | Verified LadybugDB capability findings |
 | [plan/analysis/ladybug_translation_research/SYNTHESIS.md](plan/analysis/ladybug_translation_research/SYNTHESIS.md) | Postgres→LadybugDB translation (the `v_graph_*` projection contract, D44) |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D56) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D58) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

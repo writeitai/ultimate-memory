@@ -138,7 +138,7 @@ CREATE TYPE deployment_status      AS ENUM ('active','suspended','archived');
 -- Every non-deterministic producer that stamps a *_version resolving to pipeline_component_versions
 -- has a value here (so a version string can always resolve to a catalog row, D1/D12):
 CREATE TYPE pipeline_component     AS ENUM (
-  'ingester','converter','structurer','crossreferencer','chunker','context_prefixer',
+  'ingester','converter','blockizer','structurer','crossreferencer','chunker','context_prefixer',
   'extractor','grounder','resolver','normalizer','adjudicator','embedder','fact_labeler',
   'community_detector','snapshot_builder','knowledge_planner','knowledge_writer','judge');
 CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','snapshot','knowledge_artifact');
@@ -896,13 +896,15 @@ CREATE TABLE document_versions (
   published_at    timestamptz,                 -- document's own date (resolves "last year"); world-time origin
   language        text,                        -- detected primary language (per version — it can change)
   -- GCS artifact URIs for THIS snapshot (bodies live there, not in PG — D37):
-  markdown_uri    text,                        -- gs://…-artifacts/<doc_id>/<content_hash>/document.md
+  markdown_uri    text,                        -- gs://…-artifacts/<doc_id>/<content_hash>/document.md (clean Markdown — the immutable coordinate system, D57)
   pageindex_uri   text,                        -- …/pageindex.json
-  conversion_uri  text,                        -- …/conversion.json (blocks + offsets — load-bearing for grounding, D32/D38)
+  conversion_uri  text,                        -- …/conversion.json (page map + converter metadata, D57-refined D38)
+  blocks_uri      text,                        -- …/blocks.json (the blockizer's block sequence — identity substrate, D57)
   meta_uri        text,                        -- …/meta.json
   -- conversion + structure provenance (per snapshot; D38/D39/D7):
   converter_name  text,
   converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump re-converts + rebuilds downstream
+  blockizer_version text,                      -- LOGICAL FK → pipeline_component_versions; blocks = f(document.md, blockizer_version) — a bump is a document-wide reuse boundary (D57)
   structurer_name text,
   structurer_version text,
   structurer_model text,
@@ -956,6 +958,8 @@ CREATE TABLE document_sections (
   version_id      uuid NOT NULL,               -- composite FK below → document_versions: structure derives from ONE snapshot (D55)
   parent_section_id uuid REFERENCES document_sections ON DELETE CASCADE, -- tree structure; NULL for root; cascades the subtree
   node_path       text NOT NULL,               -- materialized path, e.g. '0.2.1' — cheap ancestor/subtree queries
+  block_start     integer NOT NULL,            -- first block ordinal of the section (D57: sections are BLOCK RANGES on the deterministic grid)
+  block_end       integer NOT NULL,            -- last block ordinal (inclusive); char spans below are derived from the blocks
   title           text,
   role            section_role NOT NULL,       -- body|abstract|introduction|...|references|nav|boilerplate|legal (D39)
   char_start      integer NOT NULL,            -- section span start, char offset into document.md
@@ -1024,8 +1028,10 @@ CREATE TABLE chunks (
   version_id      uuid NOT NULL,               -- LOGICAL FK → document_versions: a chunk belongs to ONE snapshot (D55)
   section_id      uuid,                        -- LOGICAL FK → document_sections; section (role/path signal for E2)
   ordinal         integer NOT NULL,            -- position within the document
-  chunk_content_hash text NOT NULL,            -- hash of the normalized chunk text — the D56 reuse key (embeddings; occurrence identity)
-  extraction_input_hash text NOT NULL,         -- hash of chunk text + the full E2 bundle fingerprint (header/section path/prefix/neighbor hashes/entity hints) + extractor version — E2's idempotency/reuse key (D56)
+  block_start     integer NOT NULL,            -- first block ordinal packed into this chunk (D57/D58: a chunk = a run of whole blocks)
+  block_end       integer NOT NULL,            -- last block ordinal (inclusive)
+  chunk_content_hash text NOT NULL,            -- hash of the chunk's ORDERED BLOCK HASHES (D58) — embedding-reuse + occurrence identity
+  extraction_input_hash text NOT NULL,         -- hash of STABLE components only: own block hashes + neighbor block hashes + stable header facts + extractor version (D56/D57 — NO LLM output in the key; prefixes/summaries are carried forward, not keyed)
   char_start      integer NOT NULL,            -- chunk span start, offset into document.md
   char_end        integer NOT NULL,            -- chunk span end
   token_count     integer,                     -- token length (sizing/budget)
@@ -2223,6 +2229,8 @@ Labs."*
 | D54 testimony currency + counting rule | `testimony_currency_events` (ledger) + `claims.is_current_testimony` (cache) + partial index; `evidence_count`/`contradict_count` redefined (distinct current lineages) on `relations` + `observations`; `review_item_kind = 'support_withdrawn'` |
 | D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, `current_version_id`), `document_versions` (append-only snapshots; `source_modified_at` → `asserted_at`), `content_objects` (byte dedupe); `document_sections.version_id`, `chunks.version_id` |
 | D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); per-version chunk rows as the occurrence record |
+| D57 block substrate + blockizer; sections on the grid | `document_versions.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
+| D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
 
 ---
 

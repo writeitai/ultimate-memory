@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D56); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D58); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -112,8 +112,11 @@ retries then dead-letter into Postgres.
    module, D38) → **structure** (PageIndex tree + roles + spans + summaries + a **placement hint**,
    D39) → **crossref** (citations). Bodies live in GCS (raw + artifacts buckets); Postgres holds only
    metadata + the queryable section index (D37).
-2. **E1**: semchunk → LLM context prefix per chunk (contextual-retrieval style; prompt-cached)
-   → embed → P1, with references to document + PageIndex node.
+2. **E1** (design: `e1_chunks_design.md`, D57–D58): the **blockizer** derives the deterministic
+   block sequence from document.md; PageIndex sections snap to the block grid; semchunk packs
+   whole blocks into non-overlapping, section-bounded, anchor-stabilized chunks → context
+   (the E1 prefix — or none, if a contextual embedding model is chosen, questions #3) → embed
+   → P1. Unchanged blocks reuse prior claims/embeddings across document versions (D56).
 3. **E2 → E3** (every chunked document — there is no pre-extraction value gate, D25): coreference
    (D19: in the E2 extraction call, all languages) → **Claimify extraction with in-call Selection**
    (proposition-level verifiability KEEP/REWRITE/DROP — the value filter that replaces any
@@ -221,7 +224,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 |---|---|---|
 | `overall_design.md` | this document | current |
 | `e0_files_design.md` | E0 document layer + P3 corpus filesystem (D36–D40) | **current** |
-| `e1_chunks_design.md` | chunking, context prefixes, P1 layout | planned |
+| `e1_chunks_design.md` | blocks + blockizer, sections on the grid, chunk packing, reuse mechanics (D57–D58) | **current** |
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
 | `observations_design.md` | non-graph facts about one entity — untyped, entity-anchored, bi-temporal; supersession by entity-blocking + adjudication (D43) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |

@@ -82,11 +82,19 @@ One mechanism, two rule-sets riding it.
   config pages). Claims present only in superseded versions lose testimony currency (§3) —
   they stop counting toward current belief while remaining immutable history.
 
-**Absence is never retraction.** In *either* mode, content missing from a new version only
-ever *withdraws support* (currency closes, counts drop, review flags raise — §4); it never
-asserts negation, caps a validity window, or marks a fact false. Documents get restructured,
-summarized, split; a source retracts only by *asserting* a retraction — which is a claim,
-adjudicated like any other. (Changed content that asserts something *different* is the easy
+**Absence is never *silent* retraction — and `living` lineages carry a `removal_semantics`
+dial** (`review`, the default | `retract`; stress-test amendment O-B). Under `review`, content
+missing from a new version only *withdraws support* (currency closes, counts drop, review
+flags raise — §4); it never asserts negation. Under `retract` — for **normative/authoritative
+documents** (specs, target designs, config pages, policies), where the document *is* the
+standing statement and deletion is the source's ordinary way of saying "withdrawn" — removal
+acts mechanically but safely: if the fact has current support from **other** lineages,
+decrement only; if this lineage was the **sole current support**, cap the derived facts'
+validity windows at the version's `source_modified_at`, recorded as an adjudication with
+reason `removed_from_source` — loud, attributed, replayable, and naturally reversible
+(re-added content opens a new window through ordinary E3). In *either* setting, documents get
+restructured, summarized, split — so a source also always retracts by *asserting* a
+retraction, which is a claim, adjudicated like any other. (Changed content that asserts something *different* is the easy
 case: it is new testimony flowing through ordinary E2→E3, where supersession does exactly
 what it was built for — a roster edited from "headcount 500" to "600" is the observations
 design's worked example arriving through one lineage instead of two documents.)
@@ -146,7 +154,11 @@ regression dropping facts corpus-wide) before a new extractor ever rolls.
 Runs when a lineage's basis changes, and only on **completion** (a new version's extraction
 finished; a version-bump re-extraction finished — never mid-flight, so there is no window
 where old support is gone and new support hasn't landed; slots into the orchestration lanes'
-completion semantics):
+completion semantics). One timing rule protects `retract` semantics from **moves**: retraction
+checks evaluate only **after the connector's sync cycle completes**, so a section *moved* to a
+new document within one cycle resolves as a support swap (old lineage withdraws, new lineage
+arrives) — never retract-then-reassert. A cross-cycle move leaves a short, visible,
+self-healing gap (a named spike, not papered over):
 
 1. **Diff** the lineage's evidence links: facts evidenced under the old basis vs the new.
 2. **Transition currency** per the §3 rules (append ledger rows; update the cache).
@@ -170,13 +182,18 @@ The efficiency ladder for the hourly watcher, cheapest exit first:
 2. **Content-object no-op** — bytes hash to a known object: new version row, everything else
    reused (and `UNIQUE` dedup means a copy in another folder reuses conversion too).
 3. **Conversion reuse** — same content object + same converter version: artifacts reused.
-4. **Chunk-grain extraction reuse** — the load-bearing lever. E2's idempotency key becomes
-   the **`extraction_input_hash`**: a fingerprint of the chunk text **plus everything in the
-   context bundle that can change extraction** (document header, section path, the E1 prefix,
-   neighbor-chunk hashes, entity hints) + the extractor version. A chunk whose hash is
-   already extracted for this lineage **reuses its claims** (the new version's chunk row
-   points at them); a chunk whose *neighbors* changed correctly re-extracts even though its
-   own text didn't. Embeddings reuse on (chunk content hash, embedding version) the same way.
+4. **Chunk-grain extraction reuse** — the load-bearing lever. E2's idempotency key is the
+   **`extraction_input_hash`** — a fingerprint of **stable components only**: the chunk's own
+   block hashes + neighbor-chunk block hashes + stable header facts + the extractor version.
+   **No LLM output participates in the key** (section paths, summaries, and the E1 prefix are
+   non-deterministic across re-runs and would make the key unmatchable — the ~0%-reuse hazard;
+   LLM-derived context is instead *carried forward* for unchanged regions, D7 replay
+   discipline). A chunk whose key is already extracted for this lineage **reuses its claims**
+   (the new version's chunk row points at them); a chunk whose *neighbors* changed correctly
+   re-extracts even though its own text didn't. Embeddings reuse on (chunk content hash,
+   embedding version) the same way. **The mechanics — block-hash diff alignment,
+   anchor-stabilized boundaries, the carry-forward rules — are bound in
+   `e1_chunks_design.md` §7 (D57–D58)**; this design owns the contract.
 5. **Delta-only downstream** — untouched chunks fire no currency transitions, move no counts,
    stale no K pages.
 
@@ -253,8 +270,8 @@ insufficient** (measured, not assumed): introduce the basis layer in **exact-key
 
 ## 11. Spikes (measure before locking)
 
-1. **Chunk/extraction-input reuse hit-rate** on a real watched corpus — decides whether
-   boundary-stabilized chunking is needed (§6).
+1. **Chunk/extraction-input reuse hit-rate** on a real watched corpus — measured under the
+   A1–A3 mechanics (moved to `e1_chunks_design.md` §10 spike 4; tracked there).
 2. **Conversion cost floor per source type** — Google-Docs export vs PDF vs office: how much
    work is unavoidable before chunk hashes can compare.
 3. **Zero-current-support policy** — false-withdrawal rate on the golden set (needs the E2/E3
@@ -262,7 +279,11 @@ insufficient** (measured, not assumed): introduce the basis layer in **exact-key
 4. **Connector identity rules per source kind** — `source_ref` stability, rename/move/copy/
    fork/deletion semantics; a per-connector table (Drive, IMAP, URL, upload).
 5. **Reconciliation cost at hub lineages** — a lineage evidencing thousands of facts.
-6. **`versioning_mode` defaults per connector** — is Drive living or snapshot by default?
+6. **`versioning_mode` + `removal_semantics` defaults per connector/document class** — is
+   Drive living or snapshot by default; which classes earn `retract`?
+6a. **Cross-cycle move gap** (the `retract` × move interaction, §5): how often a section moves
+   between lineages across sync cycles; whether the visible self-healing gap needs a grace
+   window.
 7. **Version retention × hard-forget** — retention policy for old versions and their
    artifacts vs S55 obligations.
 8. **P1 representative policy** — search diversity vs lost phrasings, measured.

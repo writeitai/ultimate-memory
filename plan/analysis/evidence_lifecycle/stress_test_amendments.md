@@ -6,11 +6,10 @@ genuine under-specification (accepted, amended), one exposed a wrong blanket rul
 amended), one is handled by the existing architecture (explained, with one real interaction
 caught). This file records the full reasoning so the amendments don't ride on chat memory.
 
-**Status:** amendments accepted as direction. Where each binds: O-B's amendment →
-`evidence_lifecycle_design.md` §2/§4 + D55; O-A's amendments → partly §6, but the substance
-belongs to the **chunking design** (`e1_chunks_design.md`, being designed next — the reuse
-mechanics are a chunking-strategy property); O-C needs no design change, only the
-reconciliation-timing rule.
+**Status: all amendments BOUND.** O-A (A1–A3) → `e1_chunks_design.md` §2/§4/§7 + D57–D58 +
+the D56 key correction; O-B (`removal_semantics`) → `evidence_lifecycle_design.md` §2 + D55;
+O-C's timing rule → `evidence_lifecycle_design.md` §5. This file remains the record of the
+reasoning.
 
 ---
 

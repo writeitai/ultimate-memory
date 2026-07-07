@@ -46,8 +46,10 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   acceptable because a deployment is **one trust domain** (D50): every agent that reaches the
   mount is trusted with the deployment's content; data with a different trust boundary belongs
   in a separate deployment, never behind an in-library filter.
-- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`,
-  `pageindex.json`, `conversion.json` (blocks + offsets), `meta.json`, and **`media/`** — the
+- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`
+  (clean Markdown — the immutable coordinate system everything references by offset, D57),
+  `pageindex.json`, `conversion.json` (page map + converter metadata), `blocks.json` (the
+  blockizer's block sequence, D57), `meta.json`, and **`media/`** — the
   document's *derived* media: figures extracted from documents, thumbnails, transcripts,
   referenced from `document.md` by relative links. Standard storage. This is the per-document
   material an agent *reads*; it is reachable from the corpus filesystem (§6). Media matters
@@ -114,11 +116,16 @@ deletion/forget requirement end-to-end (incl. GDPR-style hard delete of the orig
 A **configurable, pluggable** converter — the boundary is library-shaped and reusable; its quality
 gates everything downstream:
 
-- **Interface:** `convert(bytes, mime, hints) -> { markdown, blocks[], media[] }`, where `blocks`
-  carry **page + character offsets back to the source**, and `media` carries the extracted
-  images (id, bytes, page/position, caption if any) that land in the artifact `media/` folder
-  and are linked from the Markdown. Offsets are load-bearing: E2 grounding (D32) needs verbatim
-  `source_span`s, and chunking + PageIndex need positions.
+- **Interface (refined by D57):** `convert(bytes, mime, hints) -> { markdown, page_map,
+  media[] }` — converters are heterogeneous (Mistral OCR exposes only per-page Markdown), so
+  they emit only what every tool can deliver: the Markdown, a **page map** (which char-ranges
+  of `document.md` came from which source page — nullable for pageless formats), and `media`
+  (extracted images: id, bytes, page/position, caption — landing in `media/`, linked from the
+  Markdown). **Blocks are not converter output**: the deterministic **blockizer** (one shared
+  parser, `blockizer_version`) derives the block sequence from `document.md` downstream of
+  every route, emitting `blocks.json` — see `e1_chunks_design.md` §2. Offsets into
+  `document.md` are load-bearing (E2 grounding, D32; chunking; PageIndex); source page/bbox
+  provenance is best-effort per converter capability.
 - **Router by input type** (per-deployment config): digital PDF → direct text extraction; scanned /
   complex PDF + images → **OCR** (e.g. Mistral OCR / docling / marker); office / html / email →
   **markitdown**; plain text → passthrough. (This generalizes the common practice of *Mistral OCR for
@@ -127,8 +134,12 @@ gates everything downstream:
   batch keyed by version), which rebuilds everything downstream — the D7 rebuildability discipline
   applied to the foundation.
 
-Output Markdown → artifacts bucket; `blocks` → `conversion.json`; Postgres gets only the URIs +
-`converter_version`.
+Output Markdown → artifacts bucket; the page map + converter metadata → `conversion.json`; the
+blockizer's `blocks.json` beside them; Postgres gets only the URIs + `converter_version` +
+`blockizer_version`. The convert sub-worker runs converter-adapter + blockizer as one stage
+(the blockizer is deterministic and cheap — no separate queue step). **The conversion route is
+pinned per lineage** (D57): the router never silently picks different converters for different
+versions of one lineage — a route change is a deliberate version bump.
 
 ## 4. PageIndex — per-document structure — D39
 
@@ -146,6 +157,11 @@ chunk + embed + graph hybrid (D8/D9). We use its **tree + section roles + spans*
 `role` is a small enum (extensible): `body, abstract, introduction, results, methods, discussion,
 conclusion, references, appendix, table, figure_caption, nav, boilerplate, legal`. The structurer
 assigns it; E2 uses it to drop low-value roles at proposition grain.
+
+**Sections are persisted on the block grid (D57).** PageIndex's LLM-drawn spans are snapped to
+block boundaries by a deterministic post-step (backward-snap, partition enforcement, nesting
+validation, degrade-to-parent) and stored as **block ranges** — sections never cut through a
+block, and blocks are never derived from sections (`e1_chunks_design.md` §3).
 
 **Every document gets a section structure — unconditionally.** The *output contract* is that every
 document has `document_sections` rows; whether the expensive PageIndex *tool* runs is an

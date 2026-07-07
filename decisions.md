@@ -739,6 +739,14 @@ docs and rebuilds downstream.
 Generalizes common practice (Mistral OCR for PDFs, markitdown elsewhere) into a routing table. (User
 proposal.)
 
+**Refined by D57.** `blocks[]` moves **out** of the converter contract: converters are
+heterogeneous (Mistral OCR exposes only per-page Markdown; markitdown plain Markdown), so the
+contract weakens to what every tool can deliver — `document.md` + a **page map** + `media[]` —
+and a single shared, deterministic **blockizer** (ours, `blockizer_version`) derives the block
+sequence from `document.md`. Offsets into document.md stay exact (grounding, D32); source
+back-pointers become best-effort provenance tiers. The conversion route is pinned per lineage.
+`e1_chunks_design.md` §2.
+
 ## D39. PageIndex provides per-document structure — sidecar + PG index, structure-only, summaries kept, placement-hint-extended
 
 **Decision.** PageIndex builds a per-document hierarchical tree (`node_id`, `title`, `summary`,
@@ -755,6 +763,11 @@ advisory input to the P3 projection (D40), not a commitment.
 are cheap polish worth measuring, not deleting on intuition. The placement hint lets E0 seed the
 corpus filesystem (P3, D40) — a per-document path guess produced where the document is freshly
 understood, reconciled into a coherent tree by the projection.
+
+**Refined by D57 (representation).** Sections are persisted as **block ranges** on the
+deterministic block grid (a snap rule normalizes PageIndex's LLM-drawn spans into a well-formed
+partition; sections never cut through a block; blocks are never derived from sections). The
+tool, roles, summaries, and placement hints are unchanged. `e1_chunks_design.md` §3.
 
 ## D40. P3 — the corpus filesystem: a mountable, rebuildable projection
 
@@ -1322,8 +1335,16 @@ deduplicated **content objects** (bytes stored/converted once per `content_hash`
 lineages). Each lineage has a **`versioning_mode`**: **`snapshot`** (fail-safe default — every
 version is independent dated testimony forever; right for versioned archival sources) or
 **`living`** (the current version is the source's standing statement; superseded-version-only
-claims lose currency per D54). **Absence is never retraction** in either mode: removed content
-withdraws support at most (D54 flags); a source retracts only by asserting a retraction —
+claims lose currency per D54). **Absence is never *silent* retraction** — and living lineages
+carry a **`removal_semantics` dial** (`review` — default — | `retract`; stress-test amendment,
+`plan/analysis/evidence_lifecycle/stress_test_amendments.md` O-B): under `review`, removed
+content withdraws support at most (D54 flags); under `retract` (normative/authoritative
+documents — specs, target designs, policies), removal of a fact's **sole current support**
+mechanically caps the derived facts' validity windows at the version's `source_modified_at`,
+recorded as an adjudication (`removed_from_source`) — loud, attributed, reversible; with other
+current support, decrement only. Retraction checks evaluate **after the connector's sync
+cycle completes**, so an intra-cycle section *move* to another document resolves as a support
+swap, never retract-then-reassert. A source also always retracts by asserting a retraction —
 itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
 where it conflicts — D3/D4/D43 unchanged). Watched-source ingestion debounces (a stability
 window coalesces rapid edits; unchanged revision/etag and unchanged bytes are no-ops).
@@ -1348,12 +1369,16 @@ identity rules per source kind are a named spike.
 ## D56. Content-addressed reuse — the cost of a new version is proportional to the edit
 
 **Decision.** Extraction and embedding work is keyed by **content, not by document version**:
-E2 idempotency keys on the **`extraction_input_hash`** — a fingerprint of the chunk text plus
-everything in the context bundle that can change extraction (header, section path, E1 prefix,
-neighbor-chunk hashes, entity hints) plus the extractor version — so an unchanged chunk reuses
-its claims (re-attached to the new version's chunk row) and a chunk whose *neighbors* changed
-correctly re-extracts; embeddings key on (chunk content hash, embedding version); conversion
-artifacts on (content object, converter version). Reconciliation (D54) runs once per completed
+E2 idempotency keys on the **`extraction_input_hash`** — a fingerprint of **stable components
+only**: the chunk's own block hashes + neighbor-chunk block hashes + stable header facts + the
+extractor version. **No LLM output participates in the key** (section path, summaries, and the
+E1 prefix are excluded — non-deterministic across re-runs, they would make the key unmatchable:
+the ~0%-reuse hazard; LLM-derived context is instead **carried forward** for unchanged regions,
+D7 replay discipline — amendment A3). An unchanged chunk reuses its claims (re-attached to the
+new version's chunk row); a chunk whose *neighbors* changed correctly re-extracts; embeddings
+key on (chunk content hash, embedding version); conversion artifacts on (content object,
+converter version). Reuse alignment is a **block-hash sequence diff** (A1) with
+anchor-stabilized chunk boundaries (A2) — mechanics bound in `e1_chunks_design.md` §7. Reconciliation (D54) runs once per completed
 basis change and emits **delta-only** K triggers. The efficiency ladder, cheapest exit first:
 connector-metadata no-op → content-object no-op → conversion reuse → chunk-grain extraction
 reuse → delta-only downstream. Per-version chunk rows double as the occurrence record (which
@@ -1369,3 +1394,77 @@ chunking is the documented next lever.
 **Consequences.** Chunks gain content/input hashes; E2 workers check the reuse key before
 calling the model; the E2/E3 cost model for watched sources scales with edit volume. Reuse
 hit-rate and per-source conversion floors are spikes.
+
+---
+
+> **D57–D58 provenance.** D57–D58 formalize the chunking-strategy design discussion (July
+> 2026), including the stress-test amendments A1–A3
+> (`plan/analysis/evidence_lifecycle/stress_test_amendments.md`). Binding design:
+> `plan/designs/e1_chunks_design.md`. Numbers are placeholders to be measured (CLAUDE.md).
+
+## D57. The block substrate — a deterministic blockizer owns identity; sections snap to the block grid
+
+**Decision.** Between conversion and everything else sits one deterministic layer: the
+**blockizer** (ours, versioned `blockizer_version`) derives the document's **block sequence**
+(paragraph-grain structural atoms: paragraphs, headings, list items, atomic tables, code
+fences) from `document.md` via CommonMark-grammar segmentation + normalization, emitting
+`blocks.json` (ordinal, type, char span into document.md, best-effort page/bbox provenance,
+`block_hash`). **Converters do not produce blocks** (they are heterogeneous — Mistral OCR
+exposes only per-page Markdown): the converter contract is `document.md` + a page map +
+`media[]` (refines D38), and one shared blockizer runs downstream of every route — no
+per-converter block semantics can drift. `document.md` stays clean Markdown — the immutable,
+content-hash-addressed **coordinate system** that claims' spans, blocks, sections, and chunks
+all reference by offset. Blocks are **not Postgres rows** (sidecar + derived keys only, the
+D37 split). **PageIndex sections are persisted as block ranges**: a deterministic snap rule
+normalizes the structurer's LLM-drawn spans onto the block grid (backward-snap, partition
+enforcement, nesting validation, degrade-to-parent — a document never fails structuring).
+Direction invariant: sections are *expressed in* block coordinates; **blocks are never derived
+from sections** (LLM output must not touch the identity layer). Blocks alone carry identity
+through edits (the D56 diff); sections carry meaning; both are views over one text.
+
+**Context.** The chunking discussion's two corrections: (1) the idealized "converters emit
+blocks" story fails against real tools (closed OCR outputs), so blocks must be derived by one
+deterministic parser we own; (2) "chunks are whole blocks" ∧ "chunks never cross sections" is
+satisfiable only if sections are unions of whole blocks — and LLM span output needs a
+deterministic normalization target anyway (the system's standing propose/dispose pattern).
+Block imperfection is tolerable by design: a mis-merged block costs diff *locality*, never
+correctness — a far lower bar than sections, which is why blocks and not sections carry
+identity.
+
+**Consequences.** New E0 artifact (`blocks.json`) + `blockizer_version` on versions; grounding
+gains one fixed coordinate system with tiered source provenance (exact into document.md;
+page/bbox best-effort); a converter swap or blockizer bump is a document-wide reuse boundary
+(route pinned per lineage). Design: `e1_chunks_design.md` §2–§3.
+
+## D58. Chunks are non-overlapping runs of whole blocks; retrieval is multi-granularity by architecture
+
+**Decision.** A chunk is an ordered run of **whole blocks within one section**, packed by
+semchunk (the imposed constraint, kept as the packer) to a measured token budget, with
+**anchor-stabilized boundaries** (packing restarts at content-defined anchor blocks, so an
+early edit perturbs packing only to the next anchor — load-bearing for sectionless documents).
+**No overlap, ever**: overlap double-extracts (duplicate claims within one generation — the
+inflation D54 just killed), bloats P1 with near-duplicates, and its offset-arithmetic
+boundaries destroy D56 reuse; the E2 bundle's ±N neighbors provide cross-boundary context
+explicitly instead. Edge rules: an oversized *atomic* block (a table) becomes its own
+oversized chunk; a pathological giant paragraph falls back to deterministic sentence-splitting.
+`chunk_content_hash = hash(ordered block hashes)`. **Embedding granularity:** the dilution
+problem is answered by architecture, not tiny chunks — **claims are the needle index** (P1
+embeds every decontextualized claim; the ideal fine-grain unit by construction), **chunks are
+the passage index** (sized for coherence; BM25 catches verbatim needles; RRF fuses), and
+default search recipes **filter out `references`/`nav`/`boilerplate`/`legal` chunks by role**
+(a Lance scalar — retrieval-side filtering of what was indexed; D25 untouched). **Extraction
+batching** decouples cost from granularity: E2 batches a section's contiguous chunks per call
+(bundle shared; claims still anchor per-chunk; idempotency keys stay per-chunk). The
+**embedding-model choice (questions #3) is the design's one open branch point**: conventional
+model → the E1 prefix stage exists (stored, carried forward); contextual model → the prefix
+stage is deleted. Everything else is invariant across that branch.
+
+**Context.** Chunks serve six masters (retrieval granularity, embedding quality, extraction
+units, grounding, reuse stability, cost); the user's dilution objection is correct for
+chunks-only systems and answered here by the claims channel — small-chunk/sliding-window
+strategies approximate what decontextualized claims already are. Sliding windows are the worst
+choice on every axis that matters to this system.
+
+**Consequences.** semchunk honored as packer; token budget, anchor criterion, batch size,
+blockizer fidelity, and reuse hit-rate are spikes (`e1_chunks_design.md` §10); P1 chunk rows
+gain a role scalar; the E1 design no longer blocks on #3 — it branches on it.
