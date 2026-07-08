@@ -1122,11 +1122,12 @@ verbatim `source_span` + offsets + the `added_context` substrings (D32), so grou
 **provenance + entailment**, not verbatim-substring matching.
 
 > **Reconciliation note (claim "type").** `requirements_v3` (an earlier conception) said claims are
-> "typed (fact / opinion / prediction)". The current binding design (D31/D34 Claimify Selection)
-> **drops** opinions / advice / hypotheticals at Selection rather than storing them as typed claims
-> — so the *stored* claim space collapses to "verifiable proposition", and opinion/prediction
-> material lives only in the **drop ledger** (`claim_extraction_decisions`), not as a
-> `claims.claim_type` value. We therefore carry no fact/opinion/prediction column; we carry
+> "typed (fact / opinion / prediction)". The current binding design (D31/D34/D59 Claimify Selection)
+> **drops** *unattributed* opinions / advice / hypotheticals at Selection rather than storing them as
+> typed claims — attributed stances are kept as ordinary claims (D59; `is_attributed` marks them) and
+> normalize to holder-anchored observations — so the *stored* claim space stays "verifiable
+> proposition", and dropped material lives only in the **drop ledger**
+> (`claim_extraction_decisions`), not as a `claims.claim_type` value. We therefore carry no fact/opinion/prediction column; we carry
 > `temporal_class` (the "temporally classified" half) and the grounding/recall-envelope fields the
 > binding design names. Intentional simplification (CLAUDE.md), recorded so a reader does not think
 > the column was forgotten.
@@ -2255,8 +2256,9 @@ Labs."*
 - **No vectors in Postgres.** All embeddings live in Lance (P1); PG stores opaque `*_ref` keys +
   model/version. HNSW never in OLTP (D8/D23).
 - **No document/chunk body text in Postgres** (D37) — bodies in GCS; PG holds offsets + URIs.
-- **No fact/opinion/prediction claim type** — opinions are dropped at Selection, not stored as typed
-  claims (§8 reconciliation note).
+- **No fact/opinion/prediction claim type** — unattributed opinions are dropped at Selection;
+  attributed stances are kept as ordinary claims → stance observations (D59); nothing is stored as a
+  typed claim (§8 reconciliation note).
 - **Non-relational facts now get structured validity + supersession (D43 — no longer a non-goal).** A
   fact that yields no relation ("Acme's headcount is 600"; "revenue \$5M for FY2023") becomes an
   **observation** (§9.A) carrying bi-temporal validity: a changing value supersedes (interval-capped),

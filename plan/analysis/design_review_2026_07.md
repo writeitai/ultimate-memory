@@ -12,11 +12,12 @@ are numbered **F1–F9** (a fresh prefix; O = objections, D = decisions, R/C/V/T
 series). Nothing here is binding; if a finding is accepted it should land as a decision in
 `decisions.md` and flow into the design docs, per the repo's normal process.
 
-**Status: F1 accepted → D45–D47 (`k_layers_design.md`; O2 + O4 accepted with it). F3 accepted →
-D54–D56 (`evidence_lifecycle_design.md`). F4 accepted → D48–D51 (`retrieval_design.md`,
-scenario-first per this finding). F6 largely addressed by D55 (P3 paths anchor on document
-lineages) — entity-leaf stability remains with the P3 build. F9 addressed by the orchestration
-design (PR #29). F2, F5, F7, F8 open.**
+**Status: F1 accepted → D45–D47 (`k_layers_design.md`; O2 + O4 accepted with it). F2 accepted →
+D59 (attributed stance kept; stance observations). F3 accepted → D54–D56
+(`evidence_lifecycle_design.md`). F4 accepted → D48–D51 (`retrieval_design.md`, scenario-first
+per this finding). F6 largely addressed by D55 (P3 paths anchor on document lineages) —
+entity-leaf stability remains with the P3 build. F9 addressed by the orchestration design
+(PR #29). F5, F7, F8 open.**
 
 ---
 
@@ -108,7 +109,7 @@ unauditable staleness story; a deletion cascade that cannot reach K mechanically
 
 ---
 
-## F2. Selection drops opinion — attributed stance should be a keep class
+## F2. Selection drops opinion — attributed stance should be a keep class ✅ ACCEPTED → D59
 
 **Current design.** E2 Selection (D31/D34) drops opinions outright: in the worked example, *"The
 team considers it a runaway success"* is dropped as opinion, landing only in the drop ledger.

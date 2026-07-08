@@ -65,12 +65,19 @@ Over that bundle the model does three things, in order (the "Claimify" shape). E
 *decision*, not just a rewrite, and each is recorded:
 
 1. **Selection — is this even a claim?** Keep statements that make a **specific, verifiable**
-   proposition (a state, event, decision, quantity, policy, relationship). **Drop** opinions, advice,
-   hypotheticals/speculation ("could lead to…"), generic truisms, questions, section intros/
-   conclusions, and "we don't know X" statements. If a sentence mixes the two, **keep only the
-   verifiable part**. In the example: `"launched last year in three markets"` is kept; `"considers it
-   a runaway success"` is dropped as opinion. *(This stage is the single biggest quality lever — in the
-   source research, removing it was the largest quality drop of any component.)*
+   proposition (a state, event, decision, quantity, policy, relationship). **Drop** *unattributed*
+   opinions, advice, hypotheticals/speculation ("could lead to…"), generic truisms, questions,
+   section intros/conclusions, and "we don't know X" statements. **An attributed stance is a
+   keep (D59)**: "X said / believes / opposes Y" — including the document author's own voice,
+   whose identity the bundle header carries — is a *verifiable proposition about X* (you can
+   check the source and confirm X said it); it is kept as an attributed claim and later becomes
+   a stance observation on the holder (§5). A stance whose holder cannot be resolved to an
+   entity falls back to drop. If a sentence mixes verifiable and non-verifiable parts, **keep
+   only the verifiable part**. In the example: `"launched last year in three markets"` is kept,
+   and `"The team considers it a runaway success"` is *also* kept — as the attributed stance of
+   the team (decontextualized to the canonical team/org entity); a bare "it is a runaway
+   success" with no holder would drop. *(This stage is the single biggest quality lever — in
+   the source research, removing it was the largest quality drop of any component.)*
 
 2. **Decontextualization — make it stand alone.** Resolve every pronoun, partial name, acronym, and
    relative date **using the bundle, never outside knowledge**, and add the **minimum** context needed
@@ -173,9 +180,12 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
   "Acme's FY2023 revenue was \$5M" — yields **no relation** but becomes an **observation** (D43): an
   entity-anchored, *untyped*, bi-temporal fact (`observations_design.md`; schema §9.A). So
   non-relational facts are no longer merely "kept as evidence" — they get first-class validity and
-  supersession too. Time is still never a relation object or predicate (D18). (Pure opinion is still
-  dropped at Selection — §3/§4 — and becomes neither a relation nor an observation; the open
-  qualitative-belief question is tracked in `questions.md`.) A claim's asserted world-time interval
+  supersession too. Time is still never a relation object or predicate (D18). (Unattributed opinion is still
+  dropped at Selection — §3/§4 — and becomes neither a relation nor an observation. An
+  **attributed stance** is kept (D59) and normalizes to a **stance observation on its holder**
+  — "Bob opposes the pricing change", anchored on Bob, an effective state whose changes are
+  ordinary supersession. The guard: the stance's *content* is never asserted as a world-fact —
+  "X believes Y" yields the stance-about-X, never a fact about Y.) A claim's asserted world-time interval
   (D41) seeds the initial window of whatever it produces.
 - **Resolve entities.** Subjects/objects are resolved to canonical entities through the tiered T0–T4
   cascade (D17). This is *why* decontextualization matters: "Project Atlas" resolves; "It" cannot. A
@@ -204,11 +214,11 @@ internals (entity resolution, predicate registry, the supersession cascade) are 
 | Stage | What happens |
 |---|---|
 | **E1** | chunk + a context prefix ("…from the Results section of the Project Atlas 2024 memo…") |
-| **E2 Selection** | keep "launched last year in three markets"; **drop** "considers it a runaway success" (opinion) → logged |
+| **E2 Selection** | keep "launched last year in three markets"; **keep** "The team considers it a runaway success" as the team's attributed stance (D59 — a bare, holderless version would drop → ledger) |
 | **E2 Decontextualize** | "It"→Project Atlas (neighbour), "last year"→2024 (header) → *"Project Atlas launched in 2024 in three markets"* |
 | **E2 Decompose** | `"Project Atlas launched in 2024."` (emits `claim_valid_from = 2024`, precision year — D41) + `"Project Atlas launched in three markets."` |
 | **E2 Grounding** | each accepted: anchor span present, additions trace to bundle, entailed; the date "2024" verbatim-exists in the bundle, so the asserted interval is grounded (D32) |
-| **E3** | neither decomposed claim yields a relation — "three markets" is a quantity and "2024" a date, neither a second entity (D2/D18); the temporal one carries `claim_valid_from = 2024` (**D41**), queryable as evidence. A later memo asserting 2023 makes a *second* immutable claim (`claim_valid_from = 2023`); with no relation to host them, **both stand** as evidence and there is no adjudicated supersession — the documented non-goal (`postgres_schema_design.md` §15). |
+| **E3** | the stance claim becomes a **stance observation** on the team entity ("Acme's team considers Project Atlas a runaway success" — D59); neither decomposed launch claim yields a relation — "three markets" is a quantity and "2024" a date, neither a second entity (D2/D18); the temporal one carries `claim_valid_from = 2024` (**D41**), queryable as evidence. A later memo asserting 2023 makes a *second* immutable claim (`claim_valid_from = 2023`); with no relation to host them, **both stand** as evidence and there is no adjudicated supersession — the documented non-goal (`postgres_schema_design.md` §15). |
 
 ## 7. Decisions, and what is still a spike
 

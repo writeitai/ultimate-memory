@@ -665,6 +665,11 @@ salience gate, which is **not built** (D25). Selection's metrics stand alone.
 concentrated the worst correctness risk; the in-call verifiability filter is cheaper, safer, and
 ablation-proven. (D25; value_gate_research; claimify_research C4.)
 
+**Refined by D59.** The opinion-drop narrows to *unattributed* opinion: a stance attributed to a
+resolvable holder is a verifiable proposition about the holder and is kept, normalizing to a
+holder-anchored observation. Verifiability remains the keep/drop line — attribution is what
+makes a stance verifiable.
+
 ## D35. Selection recall envelope (defer-don't-DROP, one grain down)
 
 **Decision.** Because a Selection drop is a hard delete with no second-copy net for a uniquely-attested
@@ -1544,3 +1549,49 @@ choice on every axis that matters to this system.
 **Consequences.** semchunk honored as packer; token budget, anchor criterion, batch size,
 blockizer fidelity, and reuse hit-rate are spikes (`e1_chunks_design.md` §10); P1 chunk rows
 gain a role scalar; the E1 design no longer blocks on #3 — it branches on it.
+
+---
+
+> **D59 provenance.** D59 resolves the **attributed-stance / qualitative-belief fork** — review
+> finding F2 (`plan/analysis/design_review_2026_07.md`), left open through the observations and
+> lifecycle designs — by user decision (July 2026): option 2 of the fork (keep attributed
+> stance; normalize to holder-anchored observations), with option 3 (surfaced distributions)
+> recorded as the documented alternative.
+
+## D59. Attributed stance is a keep class — stances become observations on their holder
+
+**Decision.** E2 Selection's opinion-drop narrows to **unattributed** opinion. A stance
+**attributed to a resolvable holder** — "X said / believes / prefers / opposes Y", including
+the document author's own voice (the bundle header names the author, so an email's "I think we
+should delay" attributes to its sender) — is a **verifiable proposition about X** (D32's
+attribution rule already carries the epistemics: "*X said* Y" entails "X said Y", never "Y")
+and is **kept**: extracted as an attributed claim, then normalized (E3) into an **observation
+anchored on the holder** — statement e.g. "Bob opposes the pricing change" — untyped and
+bi-temporal like every observation, on unchanged D43 machinery. A changed mind is **ordinary
+supersession** (a stance is an effective state: the old stance's window caps at the new
+stance's asserted time — "what did Bob think in March?" is an ordinary as-of query);
+conflicting same-time reports of X's stance coexist via `contradiction_group`. **The guard:**
+a stance claim never asserts its *content* as a world-fact — no relation or observation about
+Y itself is ever derived from "X believes Y"; only the stance-about-X. Still dropped,
+unchanged: holderless opinion, advice, hypotheticals, generic truisms (the rest of the D31
+Selection list); a stance whose holder cannot be decontextualized to a resolvable entity
+falls back to **drop** (the existing `opinion` ledger reason, which now means
+*unattributed-only*).
+
+**Context.** For the target deployments (assistant, agency brain, law engine), "what does X
+think about Y, and did it change?" is core memory content, and the blanket opinion-drop
+discarded it at extraction (F2). The keep/drop line is verifiability, exactly as D34 states —
+what changed is recognizing that *attribution makes a stance verifiable*: you can check the
+source and confirm X said it. Stances then get precisely the treatment they need for free:
+they change over time, which is what bi-temporal observations with supersession were built
+for. **Documented alternative (not built):** surfaced distributions — store every stance
+assertion, never adjudicate a current stance, surface the spread ("3 for, 2 against, shifting
+over June"); adopt only if group-stance distributions prove load-bearing, on measured demand.
+
+**Consequences.** Scenario S37 ("who disagreed with the ESB decision?") unblocks: stance
+observations, holder-anchored, semantically searchable, as-of-queryable. Selection's rubric
+and golden set gain stance keep/drop coverage (extends D22/D35; **stance-holder resolution
+quality is a spike** — "the team" must resolve to the right entity or the candidate drops).
+Requirements §E2 updated; refines D31/D34 (the Selection lists), touches no schema DDL
+(stance observations are ordinary `observations` rows; the drop ledger's `opinion` reason
+narrows in meaning).
