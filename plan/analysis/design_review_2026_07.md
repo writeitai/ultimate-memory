@@ -15,8 +15,8 @@ series). Nothing here is binding; if a finding is accepted it should land as a d
 **Status: F1 accepted → D45–D47 (`k_layers_design.md`; O2 + O4 accepted with it). F2 accepted →
 D59 (attributed stance kept; stance observations). F3 accepted → D54–D56
 (`evidence_lifecycle_design.md`). F4 accepted → D48–D51 (`retrieval_design.md`, scenario-first
-per this finding). F6 largely addressed by D55 (P3 paths anchor on document lineages) —
-entity-leaf stability remains with the P3 build. F9 addressed by the orchestration design
+per this finding). F6 accepted → the two-tier path contract + `_index.md` contract
+(`e0_files_design.md` §6; lineage anchoring from D55). F9 addressed by the orchestration design
 (PR #29). F5, F7, F8 open.**
 
 ---
@@ -249,7 +249,7 @@ precisely the entities the deployments care most about.
 
 ---
 
-## F6. P3 path stability is a contract, not a spike
+## F6. P3 path stability is a contract, not a spike ✅ ACCEPTED → `e0_files_design.md` §6 (two-tier path contract; analysis: `p3_agent_navigation.md`)
 
 **Current design.** The corpus filesystem (P3, D40) rebuilds as a full snapshot; the tree
 "reorganizes as the corpus grows" and placement hints are "inputs, never commitments". How the

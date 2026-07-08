@@ -130,5 +130,6 @@ and flow downward.
 | [plan/analysis/ladybug_translation_research/SYNTHESIS.md](plan/analysis/ladybug_translation_research/SYNTHESIS.md) | Postgres→LadybugDB translation (the `v_graph_*` projection contract, D44) |
 | [plan/analysis/ladybug_query_semantics.md](plan/analysis/ladybug_query_semantics.md) | **LadybugDB query rulebook** — traversal-time vs post-hoc filtering, SHORTEST semantics, all engine quirks; read before writing any graph query |
 | [plan/analysis/lance_indexing_maintenance.md](plan/analysis/lance_indexing_maintenance.md) | **LanceDB indexing rulebook** — nothing is automatic: index-set completeness, the unindexed tail, the mandatory optimize loop; read before writing any P1 table or query |
+| [plan/analysis/p3_agent_navigation.md](plan/analysis/p3_agent_navigation.md) | P3 agent navigation — materialized tree vs index-only, the `_index.md` contract, facets/views/fan-out, why directory LLM summaries are rejected (→ e0 §6, F6) |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D59) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
