@@ -192,6 +192,20 @@ they always assumed.
   (D24 machinery) with the diff attached, for a reviewer — human or the designated reviewer
   agent — to decide. **This is the flag's only trigger.**
 
+**Triage mechanics** (the reviewer — human or the designated reviewer agent — investigates
+via the ledgers: the source chunk in `document.md`, the old claim's grounding span, and above
+all `claim_extraction_decisions` — did the new extractor *drop* the content with a recorded
+reason, or never consider it at all?). Exactly two terminal verdicts, both recorded on the
+`review_queue` row: **`restore_support`** — the old claim was right, the extractor regressed:
+a `testimony_currency_events` row (`became_current = true`, reason `review_restored`)
+reinstates the old claim as the chunk's current transcription until a fixed extractor
+re-derives it; the recount restores the fact's support, the flag closes, and the case is
+planted as a D35 canary so no future extractor ships while missing it. **`invalidate_fact`** —
+the old claim was an extraction artifact: the fact's `invalidated_at` is set with a recorded
+adjudication; it leaves the current fact layer entirely (history keeps the full record).
+`uncertain` is the only non-terminal outcome and leaves the marker standing — deliberately
+visible, meant to be rare.
+
 While flagged, the fact is **not K3-eligible** (extends D47's gating) and carries
 `support: withdrawn` in the retrieval envelope, so agents see the ground moved before planning
 on it. Two guards bracket the flag: D35's planted canaries catch known regressions *before* an

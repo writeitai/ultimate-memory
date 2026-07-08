@@ -158,7 +158,11 @@ CREATE TYPE review_item_kind       AS ENUM ('merge_cluster','split_cluster','typ
 CREATE TYPE review_status          AS ENUM ('pending','accepted','rejected','deferred','auto_resolved');
 -- Covers all review_item_kinds (D24), not just merges: pick_a/pick_b/both_stand for contradictions,
 -- downweight/keep_signal for generic_identifier, retype for type_conflict.
-CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype','downweight','keep_signal','pick_a','pick_b','both_stand','uncertain');
+CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype','downweight','keep_signal','pick_a','pick_b','both_stand','uncertain','restore_support','invalidate_fact');
+-- restore_support / invalidate_fact are the two terminal verdicts of the support_withdrawn kind
+-- (D54): restore = old claim regains currency ('review_restored' event) + the case is planted as
+-- a D35 canary; invalidate = the fact's invalidated_at is set with a recorded adjudication.
+-- 'uncertain' leaves the fact standing with its support:withdrawn marker (visibly unresolved).
 CREATE TYPE golden_label           AS ENUM ('match','no_match');
 CREATE TYPE golden_hardness        AS ENUM ('hard_positive','hard_negative','easy');
 CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding','retrieval','contradiction');
@@ -170,7 +174,10 @@ CREATE TYPE document_origin        AS ENUM ('external','system_generated');  -- 
 -- living = the current version is the source's standing statement (currency follows it, D54):
 CREATE TYPE versioning_mode        AS ENUM ('snapshot','living');
 -- D54 testimony-currency transitions (append-only ledger; bookkeeping, never validity):
-CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted');
+CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted','review_restored');
+-- 'review_restored' = the support_withdrawn triage's verdict A (became_current=true): a reviewer
+-- judged the old claim correct and the new extractor regressed — the old claim stands as the
+-- chunk's current transcription until a fixed extractor re-derives it (lifecycle §4).
 CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
 CREATE TYPE crossref_kind          AS ENUM ('cites','links_to','attaches','replies_to');
 
