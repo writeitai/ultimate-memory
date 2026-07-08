@@ -50,6 +50,13 @@ Keep this current: when something here is decided, move it to a decision and pru
     (`converter_version`, `structurer_version`, extractor version) and embeddings can migrate
     (overall §6) — but there is no explicit plan for *how* a version bump reprocesses: version-filter
     queries, queue shape + throttling, partial-rebuild ordering, and rollback.
+11a. **OSS governance & release readiness (D60/D61).** Must be settled before outside
+    contributions / public release: **CLA with a relicense grant vs. plain DCO** (decides whether a
+    later license move stays possible — Apache-2.0 versions already published stay Apache forever);
+    **trademark** for the name (load-bearing for the licensing posture: the code grants no right to
+    the name for a hosted service); and the **packaging/distribution design** (packages, container
+    images, the two deployment profiles, upgrade + migration policy, export/import format) — an
+    unwritten design doc (§3).
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 

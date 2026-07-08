@@ -10,6 +10,11 @@ Decision rationale: `decisions.md`. Open items: `questions.md`.
   distills them into progressively more abstract, navigable knowledge layers.
 - Consumed primarily by AI agents, with full human auditability.
 - Still valuable at a million documents — scale is a requirement, not an aspiration.
+- Delivered as an **open-source library**: the complete, fully self-hostable single-deployment
+  memory system — everything that determines what the memory believes and whether it can be
+  trusted. A commercial cloud operates fleets of deployments and adds the human layer (web UI,
+  orgs/SSO, billing); those are **non-goals of the library**, and correctness is never gated
+  behind the commercial offering (D60).
 
 ## System structure: three planes (D14)
 
@@ -178,19 +183,34 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
   no-op re-ingest (idempotency). Nothing is silently dropped — every input stays in the immutable
   originals and is always re-extractable. (No separate pre-extraction value/salience gate; see D25.)
 - **Failures never disappear**: bounded retries, then dead-letter with recorded status.
+- **Self-hostable**: one deployment runs completely on self-managed infrastructure through the
+  provider ports (D61), with every correctness capability included; a runnable self-host stack
+  is part of the open-source deliverable (D60).
 - **Freshness**: plane E processes promptly per document; planes K and P are
   debounced/scheduled — staleness bounded by an explicit, configurable cadence.
 - Observability over all pipelines; backups for both sources of truth.
 
-## Imposed constraints (fixed choices)
+## Fixed choices & the reference deployment (D61)
 
-- Relational spine: **Postgres** (Hetzner). Vectors: **LanceDB**. Graph: **LadybugDB**.
+**Fixed engine choices** — the system's identity, never abstracted behind ports:
+
+- Relational spine: **Postgres**. Vectors: **LanceDB**. Graph: **LadybugDB**.
 - Document structure: **PageIndex**. Chunking: **semchunk**. Claim extraction: **Claimify**
   principle.
-- Workers: **GCP Cloud Run jobs** triggered via **Cloud Tasks** (max 2 retries, rate-limited).
 - Plane K compilation: **Codex / OpenCode** as the planner/writer agents over a **single git
   repo**, orchestrated by the manifest-driven compile driver — one automated committer,
   dependency-ordered compiles; no concurrent sessions editing shared files (D45).
+
+**Deployment substrate — reached through provider ports** (D61: object store, task queue/scheduler
+with bounded retries (max 2) + rate limiting + dead-letter, mount publication, K git remote,
+model/embedding providers, telemetry export, auth perimeter), each port with exactly two maintained
+adapters:
+
+- **Reference deployment** (the fixed production profile; also what the cloud offering runs):
+  Postgres on **Hetzner**; workers on **GCP Cloud Run jobs** via **Cloud Tasks**; **GCS** buckets
+  with **gcsfuse** mounts.
+- **Self-host profile**: S3-compatible object store (e.g. MinIO), Postgres-backed queue, local
+  directory mounts, any git remote, BYO model keys.
 
 ## Code
 
