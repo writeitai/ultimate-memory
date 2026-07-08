@@ -89,7 +89,10 @@ plus the research behind them:
   one area and traces back to the requirements it satisfies.
 - **`plan/plans/`** — *bringing it all together*: concrete, ordered plans for building the
   system. Plans reference the designs (never duplicate them) and sequence the work — phases,
-  dependencies, deliverables. *(Empty for now — sequencing begins once the designs settle.)*
+  dependencies, deliverables. Start at [plan/plans/roadmap.md](plan/plans/roadmap.md): the
+  phase spine (0 foundations+harness → 1 walking skeleton → … → 8 competitive benchmarks),
+  the technology stack, the gate register (which open decisions and spikes block which
+  phase), and the work-package format coding agents execute against.
 - **`plan/analysis/`** — the working material *behind* the designs: research reports,
   capability surveys (e.g. `ladybug_capabilities.md`), option explorations, worked explainers
   (e.g. `concepts.md`), external-review digests. Analyses are allowed to be messy,
@@ -131,5 +134,6 @@ and flow downward.
 | [plan/analysis/ladybug_query_semantics.md](plan/analysis/ladybug_query_semantics.md) | **LadybugDB query rulebook** — traversal-time vs post-hoc filtering, SHORTEST semantics, all engine quirks; read before writing any graph query |
 | [plan/analysis/lance_indexing_maintenance.md](plan/analysis/lance_indexing_maintenance.md) | **LanceDB indexing rulebook** — nothing is automatic: index-set completeness, the unindexed tail, the mandatory optimize loop; read before writing any P1 table or query |
 | [plan/analysis/p3_agent_navigation.md](plan/analysis/p3_agent_navigation.md) | P3 agent navigation — materialized tree vs index-only, the `_index.md` contract, facets/views/fan-out, why directory LLM summaries are rejected (→ e0 §6, F6) |
+| [plan/plans/roadmap.md](plan/plans/roadmap.md) | Build order: phase spine, stack, gate register, WP format (phases 0–8) |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D59) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
