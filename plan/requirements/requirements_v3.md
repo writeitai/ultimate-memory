@@ -23,6 +23,15 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   per-document **structure** (hierarchy + section roles + summaries) extracted, plus a **placement
   hint** for the corpus filesystem; cross-references between documents (e.g. citations) tracked.
   Converted bodies live in object storage; the spine holds only metadata + the queryable structure.
+- **Watched sources & document versions** (D54–D56): sources may be **watched** (a Google
+  Drive folder, a mailbox, a URL — polled on a cadence); an edited document is ingested as a
+  **new version of the same logical document** (identity survives edits and renames), with
+  prior versions preserved as dated testimony. Per-source semantics distinguish **archival**
+  documents (every version stays independent testimony) from **living** documents (the latest
+  version is the source's standing statement) — including whether removal of content may
+  withdraw or retract derived beliefs (never silently). Confidence signals count **distinct
+  sources**, never versions, re-processings, or repetition. Re-ingesting an edited document
+  must cost **proportional to the edit, not the document**.
 - **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
   context and trace back to the exact source document and position.
 - **E2 — Claims** *(formerly L2)*: atomic, **verifiable** natural-language assertions,
