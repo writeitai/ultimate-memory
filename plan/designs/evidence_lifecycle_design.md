@@ -49,7 +49,11 @@ changes. But the *semantics* differ, and the design keeps them distinct:
 | the old claims become | redundant copies (mechanically non-current) | still-valid *historical* testimony, dated by their version |
 | conflicts handled by | nothing — same testimony, nothing to adjudicate | ordinary E3 supersession/contradiction (D3/D4/D43) |
 
-One mechanism, two rule-sets riding it.
+One mechanism, two rule-sets riding it. (Why "nothing to adjudicate" for re-extraction: the
+re-transcribed claims are the *same testimony* — same document, same assertion, same time —
+so the system has learned nothing new about the world; adjudication exists to weigh new
+testimony, and there is none. Versioning's changed content *is* new testimony, hence the
+ordinary supersession path.)
 
 ## 2. Document lineages, versions, and content objects (D55)
 
@@ -96,7 +100,9 @@ statement" — once declared, a fact whose only support left the standing statem
 declaration, no longer stated; keeping it served as current belief pending a review queue is
 exactly the zombie-fact failure this system treats as cardinal. The wrong-retract failure is
 visible (K recompiles, envelope), audited (an adjudication row), and self-healing (re-added or
-newly-sourced content reopens through ordinary E3).
+newly-sourced content reopens through ordinary E3). The mechanical form of this rule: at
+reconciliation, `versioning_mode = 'living'` **obliges** the worker to close any fact whose
+sole current-testimony support left the current version — no flag path exists for this case.
 
 **The removed alternative (documented, with its re-add condition).** A `removal_semantics =
 review` softener (removal only withdraws support + flags, belief stands until triaged) was
@@ -111,8 +117,13 @@ the symptom to check). Note the **`support_withdrawn` review flag survives indep
 it is the *re-extraction* zero-support path (D54 §4: a new extractor generation fails to
 re-derive a fact), not a removal-semantics artifact.
 
-**The retract action is per-shape** (it routes through the same state-vs-measurement judgment
-the D43 no-cap rule already makes): for relations and **effective-state** observations
+**The retract action is per-shape.** (Recall: an *observation* is a fact stating a value about
+one entity — `concepts.md` §0 — and comes in two shapes: an **effective state** that holds
+until it changes — a headcount, a status, an employment — and a **fixed-period measurement**
+whose truth is scoped to its period — "FY2023 revenue was \$5M". Which shape an observation is
+is the adjudicator's semantic judgment over its statement, exactly as in ordinary supersession
+— the binding rules are `observations_design.md` §3.) The retract action routes through that
+same judgment: for relations and **effective-state** observations
 (headcount, status, employment), cap `valid_until` at the version's `source_modified_at` —
 "held until the source withdrew it" is coherent world-time. For **measurement / fixed-period**
 observations ("FY2023 revenue was \$5M"), capping valid-time would violate the no-cap rule (the
@@ -233,7 +244,27 @@ self-healing gap (a named spike, not papered over):
 3. **Recount** affected facts — bounded and indexed: the touched set is exactly the lineage's
    evidence links.
 4. **Apply the zero-support policy** (§4) where counts hit zero.
-5. **Emit `evidence_changed`** (the D45 trigger queue) carrying the *fact-level* delta.
+5. **Emit `evidence_changed`** (the D45 trigger queue) carrying the *fact-level* delta — the
+   affected fact IDs with what happened to each, e.g.
+   `{relations_closed: [r1], observations_closed: [], facts_recounted: [{id: r2, evidence_count: 3→2}], flags_raised: []}`
+   — fact IDs and outcomes, never raw claim IDs (the K stale-storm guard).
+
+**Worked example, end to end.** Living document A; version 1 was extracted by extractor v1;
+chunk with block `b2` yielded claim `c1` ("Alice works at Acme") → relation `r1
+(Alice, works_for, Acme)`, `evidence_count = 1` (this lineage is the sole support). Version 2
+arrives with `b2` deleted:
+
+1. **Diff**: the block diff shows `b2` absent; `c1`'s content is not in version 2's chunks.
+2. **Currency**: `testimony_currency_events` row for `c1` (`became_current = false`, reason
+   `version_superseded`, stamped with this run's `reconciliation_id`);
+   `claims.is_current_testimony` → false. `c1` itself is untouched — permanent history.
+3. **Recount**: `r1.evidence_count` recomputes to 0 (distinct lineages with current-testimony
+   support).
+4. **Zero-support, source acted** (living mode): `r1` is closed per shape — a relation, so
+   `valid_until` = version 2's `source_modified_at`; a `relation_adjudications` row records
+   outcome `retracted_source_removal`. No flag.
+5. **Emit**: `evidence_changed {relations_closed: [r1]}` → K pages citing `r1` recompile;
+   default fact queries no longer return it; history queries still do.
 
 **K stability rules** (the stale-storm guard): a compiled page's `inputs_hash` is keyed on
 **fact state** — fact IDs + validity/currency fingerprints + counts — never on raw claim IDs,
@@ -252,7 +283,10 @@ The efficiency ladder for the hourly watcher, cheapest exit first:
 3. **Conversion reuse** — same content object + same converter version: artifacts reused.
 4. **Chunk-grain extraction reuse** — the load-bearing lever. E2's idempotency key is the
    **`extraction_input_hash`** — a fingerprint of **stable components only**: the chunk's own
-   block hashes + neighbor-chunk block hashes + stable header facts + the extractor version.
+   block hashes + neighbor-chunk block hashes + stable header facts (deterministic document
+   metadata: title, source kind, source-modified date, language) + the extractor version + the
+   structurer version (a stable config string — a deliberate structurer bump is a
+   re-extraction boundary, since section roles feed Selection).
    **No LLM output participates in the key** (section paths, summaries, and the E1 prefix are
    non-deterministic across re-runs and would make the key unmatchable — the ~0%-reuse hazard;
    LLM-derived context is instead *carried forward* for unchanged regions, D7 replay

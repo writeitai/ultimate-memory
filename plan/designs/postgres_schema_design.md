@@ -969,7 +969,7 @@ CREATE TABLE connector_sync_cycles (
   finalized_at    timestamptz                  -- retraction evaluation ran (only after completed_at)
 );
 COMMENT ON TABLE connector_sync_cycles IS
-  'D55 retract-timing barrier: living-mode retraction evaluates only at cycle finalization, after every lineage the cycle observed finished extraction — an intra-cycle move is a support swap, never a retract flicker. document_versions.sync_cycle_id stamps membership.';
+  'D55 retract-timing barrier: living-mode retraction evaluates only at cycle finalization, after every lineage the cycle observed finished extraction — an intra-cycle move is a support swap, never a retract flicker. document_versions.sync_cycle_id stamps membership. FINALIZATION CONTRACT: the connector worker sets completed_at when the poll pass ends; an async finalization job runs when every stamped lineage''s extraction is done (or a timeout elapses), sets finalized_at, and evaluates retractions; lineages still extracting defer to the NEXT finalization — the deferral is visible as (completed_at set, finalized_at null) plus the lineage''s processing_state.';
 ```
 
 > **Document ↔ entity bridge (D18, Codex review).** D18 makes `Document ⊂ CreativeWork` a core
@@ -1069,7 +1069,7 @@ CREATE TABLE chunks (
   block_start     integer NOT NULL,            -- first block ordinal packed into this chunk (D57/D58: a chunk = a run of whole blocks)
   block_end       integer NOT NULL,            -- last block ordinal (inclusive)
   chunk_content_hash text NOT NULL,            -- hash of the chunk's ORDERED BLOCK HASHES (D58) — embedding-reuse + occurrence identity
-  extraction_input_hash text NOT NULL,         -- hash of STABLE components only: own block hashes + neighbor block hashes + stable header facts + extractor version (D56/D57 — NO LLM output in the key; prefixes/summaries are carried forward, not keyed)
+  extraction_input_hash text NOT NULL,         -- hash of STABLE components only: own block hashes + neighbor block hashes + stable header facts (deterministic document metadata fed to the E2 bundle: title, source_kind, source_modified_at/published_at, language) + extractor_version + structurer_version (D56/D57/D58 — NO LLM output in the key; prefixes/summaries/section paths are carried forward, not keyed; a structurer bump is a re-extraction boundary)
   char_start      integer NOT NULL,            -- chunk span start, offset into document.md
   char_end        integer NOT NULL,            -- chunk span end
   token_count     integer,                     -- token length (sizing/budget)
@@ -1262,7 +1262,7 @@ CREATE TABLE testimony_currency_events (
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
   claim_id        uuid NOT NULL,               -- LOGICAL FK → claims (partitioned)
   doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the lineage; the recount scope)
-  reconciliation_id uuid NOT NULL,             -- the basis-change run that emitted this (retry idempotency anchor)
+  reconciliation_id uuid NOT NULL,             -- identifies ONE reconciliation run = one completed basis change per lineage (a new version's extraction completing, or a version-bump re-extraction completing). Minted when the run starts and stored in processing_state, so a RETRIED run reuses it — its re-emitted events hit the UNIQUE below as no-ops
   became_current  boolean NOT NULL,            -- false = lost currency; true = regained (un-delete, mode change)
   reason          currency_reason NOT NULL,    -- reextracted | version_superseded | version_deleted
   from_extractor_version text,                 -- the superseded generation (reason=reextracted)

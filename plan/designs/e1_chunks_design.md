@@ -123,7 +123,10 @@ split as D37.
 ## 3. Sections on the block grid (D57)
 
 PageIndex **creates meaning independently** — it reads `document.md` and emits the section
-tree; it neither needs nor sees blocks. But its output is **normalized onto the block grid**:
+tree; it neither needs nor sees blocks. Being an LLM tool, its proposed boundaries can land
+anywhere — including mid-paragraph — and chunks are runs of *whole blocks* that must never
+cross a section, so unsnapped boundaries would make the two constraints unsatisfiable. Its
+output is therefore **normalized onto the block grid**:
 a deterministic post-step snaps every section boundary to a block boundary, and sections are
 *persisted as block ranges* (`blocks 14–31`), never raw char spans. Four reasons:
 
@@ -278,10 +281,16 @@ The lifecycle design owns the *contract* (cost ∝ the edit); this section owns 
   documents.
 - **A3 — LLM-derived context is carried forward, never regenerated, for unchanged regions.**
   Reused chunks keep their stored E1 prefix; unchanged regions keep the prior version's
-  structure/summaries. This is D7's replay-not-recall discipline applied to versioning.
+  structure/summaries. Two reasons: LLM calls are the cost being avoided, and LLM output is
+  non-deterministic — regenerating it would both pay again and produce different bytes,
+  making any key containing it permanently unmatchable. This is D7's replay-not-recall
+  discipline applied to versioning.
   Consequently the **reuse key contains only stable components**:
   `extraction_input_hash = hash(own block hashes + neighbor block hashes + stable header
-  facts + extractor_version + structurer_version)` — **no LLM *output* participates in the
+  facts + extractor_version + structurer_version)` — where **stable header facts** are the
+  deterministic document metadata the E2 bundle feeds the extractor: title, source kind,
+  source-modified/published date, language (from `documents`/`document_versions`; never
+  LLM-derived) — **no LLM *output* participates in the
   key** (refines D56's original sketch, which had let the section path and prefix in — a key
   no re-run would ever match, the ~0 %-reuse hazard named in the stress test). Including
   `structurer_version` — a stable config string, not LLM output — closes the context-drift
@@ -332,6 +341,9 @@ Blocks stay in `blocks.json`; the spine gets derived keys only (D37 discipline):
    (tables); whether tables need type-specific embedding treatment.
 7. **E2 batch size** — quality vs cost of multi-chunk extraction calls (attention dilution in
    very long calls vs bundle-overhead savings).
+7a. **Oversized-block constants** — the token threshold above which an atomic block becomes
+   its own oversized chunk, and the deterministic sentence-splitter (library + version, pinned
+   like the blockizer) for the pathological-giant-paragraph fallback.
 8. **Embedding model (#3)** — the branch point: conventional+prefix vs contextual; decides
    whether the prefix stage exists. The hardest-to-change decision in the system; measure on
    the golden set before committing.
