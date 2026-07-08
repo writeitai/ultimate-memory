@@ -83,18 +83,42 @@ One mechanism, two rule-sets riding it.
   they stop counting toward current belief while remaining immutable history.
 
 **Absence is never *silent* retraction — and `living` lineages carry a `removal_semantics`
-dial** (`review`, the default | `retract`; stress-test amendment O-B). Under `review`, content
-missing from a new version only *withdraws support* (currency closes, counts drop, review
-flags raise — §4); it never asserts negation. Under `retract` — for **normative/authoritative
-documents** (specs, target designs, config pages, policies), where the document *is* the
-standing statement and deletion is the source's ordinary way of saying "withdrawn" — removal
-acts mechanically but safely: if the fact has current support from **other** lineages,
-decrement only; if this lineage was the **sole current support**, cap the derived facts'
-validity windows at the version's `source_modified_at`, recorded as an adjudication with
-reason `removed_from_source` — loud, attributed, replayable, and naturally reversible
-(re-added content opens a new window through ordinary E3). In *either* setting, documents get
-restructured, summarized, split — so a source also always retracts by *asserting* a
-retraction, which is a claim, adjudicated like any other. (Changed content that asserts something *different* is the easy
+dial** (`retract`, **the default** | `review`, the opt-out; stress-test amendment O-B, default
+flipped in a follow-up review round). The three effective behaviors, side by side:
+
+| Setting | Claims existing only in old versions | A fact whose current support hits zero |
+|---|---|---|
+| `snapshot` | stay current testimony **forever** (each version = independent dated testimony) | cannot happen via removal |
+| `living + retract` *(default within living)* | lose currency when their content leaves the current version | **sole-support removal adjudicates the fact closed** — recorded (`retracted_source_removal`), loud, reversible |
+| `living + review` *(opt-out)* | same | `support_withdrawn` review flag; the belief stands until triaged |
+
+**Why retract is the default:** `living` *means* "the current version is the source's standing
+statement" — once declared, a fact whose only support left the standing statement is, by that
+declaration, no longer stated; keeping it served as current belief pending a review queue is
+exactly the zombie-fact failure this system treats as cardinal. The wrong-retract failure is
+visible (K recompiles, envelope), audited (an adjudication row), and self-healing (re-added or
+newly-sourced content reopens through ordinary E3); the wrong-review failure is silent
+staleness. `review` remains the right setting for **messy collaborative living docs**
+(brainstorms, half-tended wikis) where deletions are tidying, not withdrawal — an explicit
+judgment about the lineage, not a blanket hedge.
+
+**The retract action is per-shape** (it routes through the same state-vs-measurement judgment
+the D43 no-cap rule already makes): for relations and **effective-state** observations
+(headcount, status, employment), cap `valid_until` at the version's `source_modified_at` —
+"held until the source withdrew it" is coherent world-time. For **measurement / fixed-period**
+observations ("FY2023 revenue was \$5M"), capping valid-time would violate the no-cap rule (the
+figure doesn't stop being true *of FY2023*) — retract instead sets `invalidated_at`
+(transaction-time: "we no longer hold this belief; the source withdrew it"). Both record
+`retracted_source_removal`. In every case: other-lineage support → decrement only; and a
+source can always retract *explicitly* by asserting a retraction — a claim, adjudicated like
+any other.
+
+**Connector guidance (spike 6's starting point):** native edit-in-place formats (Google
+Docs/Sheets) → `living` (with the retract default); replace-whole-file uploads (PDFs, exports)
+→ `snapshot` — a replaced PDF is usually a different report, not an edited standing statement;
+`review` by explicit designation for known-noisy living lineages. The heuristic:
+*edit-in-place leans living; replace-whole-file leans archival; review is a curator's hedge,
+not a system default.* (Changed content that asserts something *different* is the easy
 case: it is new testimony flowing through ordinary E2→E3, where supersession does exactly
 what it was built for — a roster edited from "headcount 500" to "600" is the observations
 design's worked example arriving through one lineage instead of two documents.)
@@ -289,9 +313,11 @@ insufficiency of coordinate keys** (never assumed): the basis layer in **exact-k
 5. **Reconciliation cost at hub lineages** — a lineage evidencing thousands of facts.
 6. **`versioning_mode` + `removal_semantics` defaults per connector/document class** — is
    Drive living or snapshot by default; which classes earn `retract`?
-6a. **Cross-cycle move gap** (the `retract` × move interaction, §5): how often a section moves
-   between lineages across sync cycles; whether the visible self-healing gap needs a grace
-   window.
+6a. **Cross-cycle move gap** (the `retract` × move interaction, §5) — **more load-bearing now
+   that retract is the living default**: a cross-cycle move produces a brief *wrongly-ended*
+   belief (visible, self-healing) rather than a flag. Measure frequency on a real corpus;
+   decide whether a grace window is warranted. The **false-retract rate** is the number that
+   would ever argue for flipping the default back.
 7. **Version retention × hard-forget** — retention policy for old versions and their
    artifacts vs S55 obligations.
 8. **P1 representative policy** — search diversity vs lost phrasings, measured.

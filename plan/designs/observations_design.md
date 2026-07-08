@@ -121,6 +121,12 @@ When a claim asserts a value/property about entity *E*:
      FY2023 vs Q1-2023 do **not** — different period.)
    - **new** — a different property, period, or thing → insert independently, no interaction.
 
+   *(The D55 `retract` path — a living document withdrawing a fact's sole support — routes
+   through this same state-vs-measurement judgment: a withdrawn **state** observation gets its
+   `valid_until` capped; a withdrawn **measurement** gets `invalidated_at` instead, because the
+   no-cap rule below holds even under retraction — the figure stays true of its period; what
+   ends is the belief. Recorded as `retracted_source_removal`.)*
+
    **The no-cap rule (D43).** A `supersede` (capping `valid_until`) applies **only** to a *changing
    effective state*. A **measurement / fixed-period figure** ("FY2023 revenue") is **never** capped on
    valid-time — it does not stop being true at period-end; its window stays open, and a conflicting

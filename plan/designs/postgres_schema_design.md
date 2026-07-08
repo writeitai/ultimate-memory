@@ -169,10 +169,11 @@ CREATE TYPE document_origin        AS ENUM ('external','system_generated');  -- 
 -- D55 lineage semantics: snapshot = every version is independent dated testimony forever;
 -- living = the current version is the source's standing statement (currency follows it, D54):
 CREATE TYPE versioning_mode        AS ENUM ('snapshot','living');
--- D55 removal semantics for living lineages (stress-test amendment O-B): review = removal only
--- withdraws support (flags); retract = sole-support removal caps derived validity windows,
--- recorded as an adjudication (outcome 'retracted_source_removal' below):
-CREATE TYPE removal_semantics      AS ENUM ('review','retract');
+-- D55 removal semantics for living lineages (O-B; default = retract): retract = sole-support
+-- removal adjudicates the fact closed, per shape (states: cap valid_until; measurements:
+-- invalidated_at — the D43 no-cap rule), recorded as 'retracted_source_removal'; review =
+-- the explicit opt-out for noisy collaborative docs (withdraw support + flag only):
+CREATE TYPE removal_semantics      AS ENUM ('retract','review');
 -- D54 testimony-currency transitions (append-only ledger; bookkeeping, never validity):
 CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted');
 CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
@@ -191,8 +192,9 @@ CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','g
 CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
 CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
 CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal','retracted_source_removal');
--- 'retracted_source_removal' = D55 retract semantics: a living+retract lineage removed a fact's
--- sole current support → windows capped mechanically; the adjudication row is the audit record.
+-- 'retracted_source_removal' = D55 retract semantics (the living default): a living lineage
+-- removed a fact's sole current support → adjudicated closed per shape (states: valid_until
+-- cap; measurements: invalidated_at — D43 no-cap rule); the adjudication row is the audit record.
 CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
 
 CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs');
@@ -868,7 +870,7 @@ CREATE TABLE documents (
   source_ref      text,                        -- connector-native stable ID (Drive file ID, message ID); NULL only for kinds without one (one-shot uploads)
   source_uri      text,                        -- original location, if any
   versioning_mode versioning_mode NOT NULL DEFAULT 'snapshot', -- D55: snapshot (fail-safe) | living (currency follows the current version, D54)
-  removal_semantics removal_semantics NOT NULL DEFAULT 'review', -- D55 (living lineages): review | retract — see enum comment
+  removal_semantics removal_semantics NOT NULL DEFAULT 'retract', -- D55 (living lineages): retract (default) | review (opt-out) — see enum comment
   origin          document_origin NOT NULL DEFAULT 'external', -- D42: external | system_generated — stamped at ingest, per lineage
   current_version_id uuid,                     -- → document_versions; the lineage's current snapshot (real FK added after that table)
   document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity (see note below); composite FK
