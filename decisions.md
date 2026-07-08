@@ -130,7 +130,7 @@ projection," bounded by rebuild cadence.
 
 **Refined by D41.** Claim-grain asserted-validity is *evidence*, not a second validity home: it is
 immutable and many-valued, lives in Postgres only, and the `claims_as_of` recipe is barred from
-answering current-belief — so validity-as-current-belief still has exactly one home.
+answering current-fact — so validity-as-current-fact still has exactly one home.
 
 ---
 
@@ -814,7 +814,7 @@ the structured form of the date decontextualization already resolves into the cl
 *in 2024*"), emitted in the same E2 call and **grounded** by the existing window-membership check (the
 date must verbatim-exist in the bundle, D32). It is **evidence about *when***, epistemically identical
 to `claim_text` (evidence about *what*) and `source_span` (evidence about *where in the source*).
-Adjudicated, current-belief validity stays **exclusively on relations** (`valid_from`/`valid_until` +
+Adjudicated, current-fact validity stays **exclusively on relations** (`valid_from`/`valid_until` +
 `invalidated_at`, D3).
 
 **Why this is not a second validity authority** (stated so a future reader need not re-derive it).
@@ -852,7 +852,7 @@ restructuring, concluded the claim/relation split, D6, and relation-only superse
   seed `works_for.valid_from`; "Alice left in January 2026" can seed closure) instead of re-parsing
   text — with a monotonicity guard so a late retrospective cannot move an adjudicated window.
 - **Refines D3 and D6 in wording, not substance**: claims may carry an *immutable* interval, never a
-  *revisable* one; validity-as-current-belief still has exactly one home. **Compatible with D18** —
+  *revisable* one; validity-as-current-fact still has exactly one home. **Compatible with D18** —
   the interval lives on the claim, not as a relation object/predicate or Date-node (D18 governs
   relation/edge time and is untouched).
 - **Residual non-goal (documented):** two sources asserting *incompatible* windows for a
@@ -1165,8 +1165,8 @@ untouched). The nominate-then-drop artifact is surfaced honestly. Hydration dept
 ## D49. The response envelope: grain type-discipline, inline contradictions, typed negatives, freshness stamps
 
 **Decision.** Every retrieval response is an **envelope** carrying, besides results: the
-**grain** (`belief` / `evidence` / `compiled` / `composite` — declared by every primitive and
-recipe, enforced at composition: current-belief answers may be assembled only from
+**grain** (`fact` / `evidence` / `compiled` / `composite` — declared by every primitive and
+recipe, enforced at composition: current-fact answers may be assembled only from
 validity-filtered relations/observations; claims never answer "is it true now" — D41's bar made
 mechanical; a `composite` answer is `parts[]`, each part strictly single-grain, so mixed
 answers like S47's said-vs-believe pair never dilute the discipline); **contradiction
@@ -1215,7 +1215,7 @@ enumerated `aggregate` forms, and streaming `scan` (the batch surface, separate 
 **Recipes are registry rows, not code** (the D5/D15/D45 move): declared compositions with
 name / description / typed parameters / a typed primitive chain / **`output_grain`** and
 **`answer_intent`** enums / version — so the linter enforces grain semantics **mechanically on
-the enums** at registration (`answer_intent = current_belief` requires `output_grain = belief`
+the enums** at registration (`answer_intent = current_facts` requires `output_grain = fact`
 over validity-filtered belief primitives; prose-name checks are advisory only), the eval
 harness measures recall@k per recipe, and **MCP tools render from the registry** the way
 extraction prompts render from the ontology. Recipes add
@@ -1303,9 +1303,14 @@ cached counts are redefined once: **`evidence_count`/`contradict_count` (relatio
 observations) ≡ distinct document lineages with current-testimony support, per stance** —
 invariant under re-extraction, version churn, and within-document repetition; D42's
 independence math gets its denominator (distinct *external* lineages). Zero-current-support
-facts are flagged `support_withdrawn` for review (auto-invalidate only by explicit deployment
-policy), are **not K3-eligible** while unsupported (extends D47), and carry their state in the
-retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
+handling splits by cause: **source/curator-driven** loss (living-mode removal, deletion at
+source or by operator) **closes** solely-supported facts per shape (states: `valid_until` cap;
+measurements: `invalidated_at` — D43 no-cap), recorded as `retracted_source_removal` — no
+flag; **processing-driven** loss (a new extractor generation fails to re-derive a claim from
+an *unchanged* file) is mechanically undecidable (artifact-corrected vs extractor-regressed
+demand opposite actions) and is **flagged `support_withdrawn`** for review — the flag's *only*
+trigger; the flag rate per extractor version doubles as the rollout canary. Flagged facts are
+**not K3-eligible** (extends D47) and carry their state in the retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
 claim IDs; claim-grain citations key on `(lineage, chunk_content_hash)`; "a new claim row for
 the same testimony" is not an evidence change (the stale-storm guard). Retrieval claim
 primitives default to current testimony with an audit opt-in; P1's default channel indexes
@@ -1358,8 +1363,12 @@ condition — a measured source class with unacceptable false-retract rate that 
 serve — is recorded in the design. The `support_withdrawn` review flag survives independently
 as the *re-extraction* zero-support path (D54). Retraction checks evaluate **after the
 connector's sync cycle completes**, so an intra-cycle section *move* resolves as a support
-swap, never retract-then-reassert. A source also always retracts by asserting a retraction —
-itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
+swap, never retract-then-reassert. **Deletion is uniform** (user decision): deleting a
+document — one version, a lineage by operator, or **the file observed deleted at its source**
+(treated as lineage deletion, stamped with the observing sync cycle) — removes its
+contribution: claims retained as history with currency ended; solely-supported facts closed
+per shape, recorded; no flag, no per-mode split. A source also always retracts by asserting a
+retraction — itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
 where it conflicts — D3/D4/D43 unchanged). Watched-source ingestion debounces (a stability
 window coalesces rapid edits; unchanged revision/etag and unchanged bytes are no-ops).
 Deletion gains a grain: delete a version (currency ends; lineage continues) / delete a lineage

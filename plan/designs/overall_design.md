@@ -181,11 +181,11 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 - **Projections propose, the spine disposes (D48):** entry channels only *nominate*; every
   result is re-verified by-ID against live Postgres at hydration — staleness can cost recall,
   never correctness.
-- **The response envelope (D49):** every answer carries its grain (belief / evidence /
+- **The response envelope (D49):** every answer carries its grain (fact / evidence /
   compiled), inline contradiction co-members, per-source freshness stamps (incl. K page
   staleness + open flags), explicit truncation, and a typed negative taxonomy.
 - Composable zero-LLM primitives + **recipes as registry rows** (D50): `relation_hybrid_rrf`,
-  `entity_timeline`, `explain`, `claims_as_of` (evidence-grain, barred from current-belief),
+  `entity_timeline`, `explain`, `claims_as_of` (evidence-grain, barred from current-fact),
   … — MCP tools render from the recipe registry.
 - Surfaces (D51): HTTP API, CLI, MCP server, and **four read-only mounts** (P3, E0 artifacts,
   E0 raw — off the navigation path, K repo checkout); **filesystem-first** for agent harnesses

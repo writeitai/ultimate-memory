@@ -17,14 +17,14 @@ decision, named inline.
 **Second use.** Every scenario here is a seed for the retrieval half of the D22 eval
 (recall@k per recipe, per scenario class). The battery is the golden-set skeleton.
 
-Grain vocabulary (see `concepts.md`): **belief grain** = relations/observations with adjudicated
+Grain vocabulary (see `concepts.md`): **fact grain** = relations/observations with adjudicated
 validity ("what the system currently holds true"); **evidence grain** = claims ("what sources
 asserted", immutable, possibly stale/contradictory); the query surface must never let one
 masquerade as the other (requirements §Retrieval, D41).
 
 ---
 
-## A. Point lookups — belief grain, the baseline
+## A. Point lookups — fact grain, the baseline
 
 - **S1** *(assistant)* "What is Bob's current employer?"
   Stresses: the trivial path stays trivial — zero LLM, no K, no claims.
@@ -36,7 +36,7 @@ masquerade as the other (requirements §Retrieval, D41).
   Stresses: reverse lookup (object-side blocking index).
   Path: relations `(?, works_for, acme)` live → hydrate subjects.
 - **S4** *(law)* "Is statute §12 currently in force?"
-  Stresses: belief routing discipline — must answer from relations/observations, never from a
+  Stresses: fact routing discipline — must answer from relations/observations, never from a
   claim's asserted validity (D41's bar).
   Path: entity-resolve §12 → its status observation / relation windows, live.
 
@@ -63,7 +63,7 @@ masquerade as the other (requirements §Retrieval, D41).
   Stresses: transaction-time as-of (`ingested_at`/`invalidated_at`) — belief history.
 - **S11** "What did sources assert held during 2023 about Atlas's markets?"
   Stresses: `claims_as_of` — evidence grain, D41; the answer must be *labeled* evidence and the
-  recipe barred from posing as current belief.
+  recipe barred from posing as current fact.
 - **S12** "How did Acme's headcount evolve 2022–2026?"
   Stresses: entity timeline — ordered capped windows; history as a first-class shape.
 - **S13** "When did we *learn* the merger closed?"
@@ -185,7 +185,7 @@ masquerade as the other (requirements §Retrieval, D41).
   + evidence-count rerank → hydrate (the D9 flagship).
 - **S47** "Everything Alice said about pricing, in order — plus what we currently believe."
   Stresses: both grains in one composed answer, **explicitly separated** (evidence timeline ↔
-  belief snapshot) — the requirements' split made visible in a single response.
+  fact snapshot) — the requirements' split made visible in a single response.
 - **S48** *(assistant)* "Given this email thread, whom should I loop in?"
   Path: thread entities → neighborhood expansion → people ranking by
   relevance/evidence/recency. Agent composes; primitives suffice.
@@ -222,7 +222,7 @@ masquerade as the other (requirements §Retrieval, D41).
   have no filesystem equivalent).
 - **S58** *(cold agent)* A harness that has never seen this system is pointed at the memory
   and, from the shipped **consumption skill** alone (planes, grains, freshness, contradiction
-  semantics, mount layout, precedence rules), correctly: orients via K, distinguishes belief
+  semantics, mount layout, precedence rules), correctly: orients via K, distinguishes fact
   from evidence in its answer, and does not misuse `claims_as_of` as current truth.
   Stresses: the skill is a first-class deliverable — the system must be usable well with zero
   human explanation; this scenario is its acceptance test.
@@ -271,7 +271,7 @@ masquerade as the other (requirements §Retrieval, D41).
 
 | Capability under test | Scenarios |
 |---|---|
-| belief-grain lookups + validity filters | S1–S4, S9–S10, S23 |
+| fact-grain lookups + validity filters | S1–S4, S9–S10, S23 |
 | evidence-grain + provenance chain | S5–S8, S11, S36, S47 |
 | the two grains kept distinct | S4, S11, S47 (the pair-test: same topic, both grains) |
 | temporal: valid-time / transaction-time / composition | S9–S16, S21, S43 |

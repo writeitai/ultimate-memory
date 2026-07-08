@@ -187,11 +187,11 @@ CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','g
 CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
 CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
 CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal','retracted_source_removal');
--- 'retracted_source_removal' = D55: a LIVING lineage removed a fact's sole current support →
+-- 'retracted_source_removal' = D54/D55 source-acted closure: a living lineage's removal, OR
+-- any deletion (version / lineage / source-observed), withdrew a fact's sole current support →
 -- adjudicated closed per shape (states: valid_until cap; measurements: invalidated_at — the
--- D43 no-cap rule); the adjudication row is the audit record. (There is no removal-side
--- 'review' softener — removed as a documented alternative; support_withdrawn remains the
--- RE-EXTRACTION zero-support flag, D54.)
+-- D43 no-cap rule); the adjudication row is the audit record. (support_withdrawn is
+-- exclusively the RE-EXTRACTION zero-support flag, D54 — never removal, never deletion.)
 CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
 
 CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs');
@@ -220,8 +220,8 @@ CREATE TYPE knowledge_trigger      AS ENUM ('evidence_changed','community_change
 CREATE TYPE refresh_status         AS ENUM ('pending','running','done','failed');
 
 -- D50 retrieval recipe registry (§11.A) — the two enums the grain linter checks mechanically:
-CREATE TYPE recipe_output_grain    AS ENUM ('belief','evidence','compiled','composite');
-CREATE TYPE recipe_answer_intent   AS ENUM ('current_belief','assertion_history','orientation','audit','change_feed');
+CREATE TYPE recipe_output_grain    AS ENUM ('fact','evidence','compiled','composite');
+CREATE TYPE recipe_answer_intent   AS ENUM ('current_facts','assertion_history','orientation','audit','change_feed');
 ```
 
 `novelty_gate` (in `adjudication_method`) is the deterministic short-circuit at the front of the
@@ -1189,7 +1189,7 @@ CREATE INDEX ix_claims_audit    ON claims (deployment_id) WHERE audit_status = '
 -- precision) beside the claim embedding (same pattern as relation windows, D8); the time-filter path
 -- is Lance, so there is NO new Postgres index by default (preserves D23's btree-light mandate on this
 -- ~5×10⁷ partitioned table). A `claims_as_of(t)` search recipe (D9) answers "what did sources assert
--- held over T" at the EVIDENCE grain; belief-as-of stays relations-only (D10) and the recipe registry
+-- held over T" at the EVIDENCE grain; fact-as-of stays relations-only (D10) and the recipe registry
 -- BARS claims_as_of from answering "currently true". An OPTIONAL partial btree on (deployment_id,
 -- claim_valid_from, claim_valid_until) WHERE claim_valid_precision <> 'unknown' is added only if
 -- PG-side temporal claim filtering is ever load-tested against D23 — a spike (§17), not a default.
@@ -1246,7 +1246,7 @@ CREATE INDEX ix_grounding_claim ON grounding_audits (claim_id);
 -- testimony_currency_events — the D54 currency ledger (append-only; the D33 pattern: this is
 -- truth, claims.is_current_testimony is cache). A transition is BOOKKEEPING, never validity:
 -- no adjudication, no invalidated_at, nothing about the claim changes. Timestamped events keep
--- transaction-time reconstructions exact (belief-as-of-T still sees old generations).
+-- transaction-time reconstructions exact (fact-as-of-T still sees old generations).
 -- Written by the reconciliation step of the lifecycle flow (evidence_lifecycle_design §5),
 -- which runs only on COMPLETED basis changes and then recounts affected facts.
 -- ─────────────────────────────────────────────────────────────────────────
@@ -2045,7 +2045,7 @@ Recipes — named, versioned compositions of the zero-LLM query primitives — a
 rows, not code** (`retrieval_design.md` §4): the MCP tool list renders from this table, the
 eval harness measures recall@k per recipe version, and the D41 bar ("claims never answer *is
 it true now*") is enforced by a **mechanical constraint on the enums**, not by prose review.
-Chain-level validation (a `current_belief` chain may compose only validity-filtered
+Chain-level validation (a `current_facts` chain may compose only validity-filtered
 relation/observation primitives) runs in the registration linter; the DB carries the enum
 invariant.
 
@@ -2062,16 +2062,16 @@ CREATE TABLE retrieval_recipes (
   description     text NOT NULL,               -- rendered into the MCP tool description (D50)
   parameters      jsonb NOT NULL,              -- typed parameter schema (JSON-Schema form)
   chain           jsonb NOT NULL,              -- the typed primitive composition: ordered ops + fixed settings (channel sets, RRF constants, rerank weights)
-  output_grain    recipe_output_grain NOT NULL, -- belief | evidence | compiled | composite (the D49 envelope grain)
-  answer_intent   recipe_answer_intent NOT NULL, -- current_belief | assertion_history | orientation | audit | change_feed
+  output_grain    recipe_output_grain NOT NULL, -- fact | evidence | compiled | composite (the D49 envelope grain)
+  answer_intent   recipe_answer_intent NOT NULL, -- current_facts | assertion_history | orientation | audit | change_feed
   version         integer NOT NULL DEFAULT 1,  -- recall@k measured per (name, version) — regressions attributable (D22)
   status          ontology_status NOT NULL DEFAULT 'active',
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (deployment_id, name, version),
-  CHECK (answer_intent <> 'current_belief' OR output_grain = 'belief')  -- the D41 bar, mechanical
+  CHECK (answer_intent <> 'current_facts' OR output_grain = 'fact')  -- the D41 bar, mechanical
 );
 COMMENT ON TABLE retrieval_recipes IS
-  'D50: recipes as registry rows. MCP tools render from here; the eval harness measures per (name, version); the CHECK enforces the D41 grain bar mechanically (current_belief ⇒ belief grain), with chain-level validation in the registration linter. Adding a query pattern = inserting a row.';
+  'D50: recipes as registry rows. MCP tools render from here; the eval harness measures per (name, version); the CHECK enforces the D41 grain bar mechanically (current_facts ⇒ fact grain), with chain-level validation in the registration linter. Adding a query pattern = inserting a row.';
 ```
 
 ---
@@ -2168,10 +2168,12 @@ transaction); the real composite FKs on the smaller tables are the integrity bac
    worker recomputes `evidence_count`/`contradict_count` (the D54 rule: `COUNT(DISTINCT doc_id)` over
    evidence rows whose claims are current testimony, per stance — the write-once `doc_id` on evidence
    rows makes this a single-table scan per fact; so duplicates
-   cannot inflate it). A relation whose **current** support drops to zero follows the D54
-   zero-support policy (flag `support_withdrawn`; auto-retire only where deployment policy says
-   so) — where retired, it is retired by setting `invalidated_at` (so the generated `status` becomes `invalidated` and the projection stops
-   emitting it) — it is **not physically deleted**, because `relation_adjudications` and
+   cannot inflate it). A relation whose **current** support drops to zero via deletion is
+   **closed** per the D54 source-acted rule (states: `valid_until` cap; measurements:
+   `invalidated_at`; recorded `retracted_source_removal` adjudication — the `support_withdrawn`
+   flag is exclusively the re-extraction path, never deletion). Where closure sets
+   `invalidated_at`, the generated `status` becomes `invalidated` and the projection stops
+   emitting it — it is **not physically deleted**, because `relation_adjudications` and
    `knowledge_artifact_evidence` reference it and the audit trail is retained. A
    `relation_adjudications` row records the retirement reason so it is distinguishable from a
    supersession in audit.

@@ -173,14 +173,31 @@ claim-grained and append-only — every generation's and version's link survives
 only the aggregate's definition changes. Consumers keep their names and get the semantics
 they always assumed.
 
-**Zero current support.** A fact whose current-testimony support drops to zero (the new
-generation didn't re-derive it; the living-mode edit removed it) is **flagged
-`support_withdrawn`** into the review queue (D24 machinery) with the basis diff attached —
-auto-invalidation only where an explicit per-deployment policy says so. Fail-safe direction:
-a flagged-but-standing fact beats a silently vanished one (the supersession-skip lesson,
-D25). While unsupported, the fact is **not K3-eligible** (extends D47's gating) and carries
-its state in the retrieval envelope. D35's canary CI guards the upstream cause (an extraction
-regression dropping facts corpus-wide) before a new extractor ever rolls.
+**Zero current support — two causes, two opposite treatments.** The rule that decides them:
+*did the triggering event say anything about the world, or only about our own processing?*
+
+- **The source or a curator acted** — a living document's edit removed the content (§2), the
+  document was deleted at its source, or an operator deleted a version/lineage from the corpus
+  (§8). These events carry a decision ("this is withdrawn" / "this no longer belongs in the
+  memory"), so the system acts on it: solely-supported facts are **closed, per shape**
+  (states: `valid_until` capped; fixed-period measurements: `invalidated_at` — the D43 no-cap
+  rule), recorded as a `retracted_source_removal` adjudication. Loud, attributed, reversible —
+  **no flag, no queue, no limbo.**
+- **Only our transcription changed** — a new extractor generation re-read the *unchanged* file
+  and did not re-derive a claim. The file still says what it always said; the event carries no
+  information about the world, and its two possible explanations demand **opposite** actions
+  (the old claim was an extraction artifact → the fact should be marked wrong; the new
+  extractor regressed → the fact is fine and the extractor needs fixing). No mechanical
+  verdict is derivable, so the fact is **flagged `support_withdrawn`** into the review queue
+  (D24 machinery) with the diff attached, for a reviewer — human or the designated reviewer
+  agent — to decide. **This is the flag's only trigger.**
+
+While flagged, the fact is **not K3-eligible** (extends D47's gating) and carries
+`support: withdrawn` in the retrieval envelope, so agents see the ground moved before planning
+on it. Two guards bracket the flag: D35's planted canaries catch known regressions *before* an
+extractor rolls, and the **flag rate per extractor version** is the live rollout canary — a
+spike right after an upgrade is the corpus-level regression alarm (rollback signal, D22
+harness).
 
 ## 5. Reconciliation — one flow for both problems
 
@@ -265,16 +282,29 @@ map (schema §7).
   per assertion (re-extraction *replaces* the searchable claim rather than accumulating
   generations); the audit channel sees everything. A representative-text change re-embeds
   that claim; it never moves a count.
-- Belief-grain answers gain a `support: current | withdrawn` marker where relevant (§4).
+- Fact-grain answers gain a `support: current | withdrawn` marker where relevant (§4).
 
-## 8. Deletion — three grains
+## 8. Deletion — deletion removes the document's contribution, uniformly
 
-- **Delete a version**: its claims' currency ends (`version_deleted`) — **the claims
-  themselves are retained** (normal deletion keeps assertion history; only hard-forget scrubs
-  content — Codex review F12); the lineage continues; counts recompute; bytes purge if no
-  other version references the content object.
-- **Delete a lineage**: the existing document cascade (§13 of the schema design), at lineage
-  grain — the watched-source equivalent of removing the document.
+One rule for every deletion grain and every document type (user decision — no per-mode
+split): **deleting a document removes its contribution to the memory.** Claims are retained
+as history (normal deletion keeps the audit trail; only hard-forget scrubs content — Codex
+review F12), their currency ends, counts recompute, and **facts solely supported by the
+deleted material are closed** per the §4 source-acted rule — recorded, reversible, no flag.
+Facts also supported by other documents simply lose one supporter. (The split-a-document
+scenario works exactly as expected through this rule: the four successor documents re-assert
+the same facts — same fact rows, new evidence links — so when the original's deletion lands,
+the facts stand on the successors' support; claims/facts being separate layers is what makes
+the information survive its source's reorganization.)
+
+- **Delete a version**: that version's testimony ends (`version_deleted`); the lineage
+  continues; bytes purge if no other version references the content object.
+- **Delete a lineage** (operator): the §13 document cascade at lineage grain.
+- **Source-observed deletion**: the connector finds the file deleted at its source (a trashed
+  Drive file) — treated as a lineage deletion through the same cascade, stamped with the
+  observing sync cycle (the cycle barrier still applies, so a delete-and-recreate or a
+  split-then-delete within one sync pass resolves as support swaps, not close-then-reopen; a
+  cross-cycle split leaves a brief, visible, self-healing gap).
 - **Hard-forget**: as today (S55 semantics), across all versions of the selected lineage —
   version rows are soft-tombstoned like document rows; the K redaction flow is unchanged.
 
