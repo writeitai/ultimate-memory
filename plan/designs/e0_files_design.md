@@ -304,8 +304,85 @@ gs://ugm-<dep>-corpusfs/snapshots/<version>/
   *summarized* layer; P3 is the *navigable index over sources*. `_index.md` files **link to** relevant
   K pages and vice versa (understanding ↔ evidence) — complementary mounts, not duplicates, and P3's
   *structure* does not depend on K.
-- **Reorganizable for free:** because it's a rebuilt projection, the tree reorganizes as the corpus
-  grows on the next rebuild — placement hints are inputs, never commitments.
+- **Reorganizable — within the path contract:** because it's a rebuilt projection, *view*
+  subtrees reorganize as the corpus grows on the next rebuild — placement hints are inputs,
+  never commitments. What may **not** move is the stable-leaf tier of the path contract below.
+
+### The `_index.md` contract — what every index file contains
+
+An index file is not a courtesy listing; it is the mechanism that makes the tree *cheaper to
+navigate than to search*. Its content is bound, and **fully deterministic — assembled from
+Postgres, zero LLM**:
+
+1. **Directory identity line** — templated from the taxonomy: *"Emails — client
+   correspondence, 2024–2026 · 1,284 documents in 14 subfolders."* Counts, time range, source
+   facets: all SQL.
+2. **The member table — one row per child, carrying each document's PageIndex root summary**
+   (already stored in `document_sections`, D39 — surfacing it is free), plus date, source,
+   and entity links. This is the load-bearing property of the whole tree: an agent reads
+   *one* `_index.md` and knows what every file in the directory is about without opening any
+   of them — navigation cost becomes O(index files read), not O(documents opened).
+3. **Cross-links**: covering K pages (with the freshness/flag state above), sibling views of
+   the same documents, parent/child indexes.
+
+**Directory-level LLM summaries are a rejected alternative, not an omission.** The member
+table already carries the directory's meaning, and where a directory-level *synthesis* is
+genuinely wanted, that is a signal to create the covering **K page** (an ordinary planner
+decision) — the layer built to keep synthesis current via citations. A P3-local LLM summary
+would be a second, uncited understanding layer that drifts (§4: the global picture is K's
+job, never per-document — or per-directory — summaries), and it would put an LLM call inside
+an otherwise fully deterministic projection builder. `_index.md` links K; it never competes
+with it.
+
+### Structure rules — facets, views, fan-out, and the path contract
+
+1. **The top level is configured, not emergent.** Placement hints reconcile *within* a
+   deployment-declared facet skeleton (registry-style config): e.g. `by-type/` (emails,
+   papers, contracts, notes…), `by-source/`, `by-topic/` (community-derived), `entities/`.
+   Emergent top levels reshuffle as the corpus grows — exactly what path-holding consumers
+   cannot tolerate. Facets are stable; their interiors reorganize.
+2. **One document, many views — by stub duplication.** An email about Project Atlas belongs
+   under `by-type/emails/…` *and* a project view. gcsfuse has no real symlinks; stubs are
+   cheap generated pointers, so duplication is the mechanism — it is a projection, nothing
+   is kept consistent by hand.
+3. **The two-tier path contract** (accepts design-review F6). Tier 1 — **stable,
+   ID-addressed leaves that never move across rebuilds**: every entity at
+   `entities/<type>/<entity_id>/`, every document lineage at one canonical per-doc path
+   (lineage-anchored, D55 — a living document's path survives its content versions). These
+   are the durable targets agents, K pages, and cross-links may store. Tier 2 — **view
+   paths** (topic/source/time subtrees), documented as freely reorganizable; every view stub
+   carries the canonical path in its frontmatter. Consumers needing durability hold Tier 1;
+   browsing uses Tier 2.
+4. **Bounded fan-out.** Directories shard deterministically (by date, alpha, source) above
+   ~100–200 entries (a starting point to measure against real `ls`/gcsfuse listing
+   behavior) — an unbounded directory is unbrowsable for an agent and slow to list; the
+   member table keeps sharded levels cheap to traverse.
+
+### The navigation ladder
+
+The tree exists to make this the default motion — each step one `cat`, escalation to the
+API only for what has no filesystem equivalent (the D51 precedence rule):
+
+```
+llms.txt (root orientation: facets, counts, where things live)
+  → facet _index.md        (what kinds of things exist here)
+    → directory _index.md  (member table: every file's one-line meaning)
+      → stub               (doc orientation + canonical path + artifact pointer)
+        → document.md      (+ pageindex.json for section-grain entry)
+```
+
+`grep -r` over stubs gives content-ish lookup (title + summary + entities are *in* the
+stubs) with zero API calls. The consumption skill (`retrieval_design.md` §8) teaches this
+ladder, and navigation joins the eval surface: an S58-style scenario — *find the document
+answering X using only `ls`/`cat`/`grep` on the mount* — measured on hops-to-target and
+tokens-read-to-target.
+
+**Rejected alternative — index-files-only (no per-document stubs).** Publishing only
+`_index.md` files pointing at ID-addressed artifacts saves roughly the stub writes — ~1M
+Class-A GCS operations ≈ **$5 per full view rebuild** at a million documents — and in
+exchange loses files-as-files (`ls`/`grep` over the corpus), the Tier-1 stable document
+leaves, and the open-what-you-found ergonomics harnesses are built around. Not worth it at
+any corpus size; recorded so the object-count worry doesn't re-litigate it.
 
 **Why a projection, not E0 state:** the *organization of the corpus* is a function of the evolving
 knowledge; freezing it as E0 state would lock an organization that should change as understanding
@@ -342,8 +419,10 @@ Open spikes (measure before committing):
    root — an implementation-routing question, not a contract gap.
 3. **Placement-hint quality** — how good is a per-document path guess, and how much does the P3 build
    reconcile/override? Measure tree coherence.
-4. **P3 build cadence & scale** — rebuild-all vs incremental tree maintenance as the corpus grows;
-   how the tree stays stable enough for agents to rely on paths.
+4. **P3 build cadence & scale** — rebuild-all vs incremental tree maintenance as the corpus
+   grows. (Path stability is no longer this spike's question — it is the §6 two-tier path
+   contract; what remains to measure: the fan-out sharding threshold and incremental-delta
+   size per cycle.)
 5. **doc_id scheme** — hash (collision-safe, opaque canonical paths) + readable names in P3.
 6. **Raw storage-class routing** (D51) — measure the read patterns per mime class on a real
    corpus slice; set the standard/nearline/archive routing table and verify the mounted-read
