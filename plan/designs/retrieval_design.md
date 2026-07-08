@@ -14,7 +14,7 @@ points to measure, not committed constants (CLAUDE.md).
 > bi-temporal validity), **K** (compiled + authored knowledge pages in git), and **P**
 > (projections: P1 Lance search indexes, P2 LadybugDB graph snapshot, P3 corpus filesystem).
 > Two **grains** matter everywhere here: the **evidence grain** (claims — *what sources
-> asserted*, immutable, possibly stale or contradictory) and the **belief grain**
+> asserted*, immutable, possibly stale or contradictory) and the **fact grain**
 > (relations/observations — *what the system currently holds true*, with adjudicated validity
 > windows). A third, the **compiled grain**, is K pages (LLM-written syntheses with recorded
 > citations and freshness). "**Hydration**" = resolving the bare IDs that search/traversal
@@ -73,13 +73,13 @@ overclaiming:
   snapshot version + per-page freshness/flags in `_index.md`; K page provenance footers; E0
   artifacts are immutable-per-`content_hash`, so staleness does not apply), and the
   consumption skill (§8) teaches the covering *motion*: mounts are for orientation and
-  reading; **anything load-bearing at the belief grain is verified against the spine**
+  reading; **anything load-bearing at the fact grain is verified against the spine**
   (a `lookup`) before acting on it.
 - **K prose is never "confirmed" by hydration even via the API** — a compiled page's cited
   IDs can be re-checked, which detects *staleness*, but detecting it cannot make a stale
   synthesis correct or excise the one superseded sentence. K answers are therefore always
   **compiled grain** (§6) with `compiled_at` + staleness + open-flag state — never presented
-  as live-confirmed belief. Current-belief questions route through relations/observations;
+  as live-confirmed fact. Current-fact questions route through relations/observations;
   the K page is the orientation layer above them.
 
 Consequences, spelled out (S42, S43):
@@ -156,18 +156,18 @@ settings: `relation_hybrid_rrf`, `relation_near_entity`, `claims_verbatim`, `cla
 ontology (D15), and K routing rules (D45). A recipe row carries, concretely: `name`,
 `description`, typed `parameters`, the **primitive chain** (an ordered composition of §3
 operations with fixed settings — channel sets, RRF constants, rerank weights), two declared
-enums — **`output_grain`** (belief | evidence | compiled | composite) and **`answer_intent`**
-(current_belief | assertion_history | orientation | audit | change_feed) — plus `version` and
+enums — **`output_grain`** (fact | evidence | compiled | composite) and **`answer_intent`**
+(current_facts | assertion_history | orientation | audit | change_feed) — plus `version` and
 MCP-rendering metadata. (Full DDL joins the control-plane tables in
 `postgres_schema_design.md`; the fields above are the contract.) Three payoffs:
 
 1. **The linter can enforce semantics — mechanically, on the enums.** The rule is a
-   constraint, not a prose judgment: `answer_intent = current_belief` requires
-   `output_grain = belief` and a chain built only over validity-filtered
+   constraint, not a prose judgment: `answer_intent = current_facts` requires
+   `output_grain = fact` and a chain built only over validity-filtered
    relation/observation primitives. `claims_as_of` declares `assertion_history` over
    `evidence`, so the D41 bar ("claims never answer *is it true now*") is violated only by a
    registration the constraint rejects. A *name/description* smell-check (a recipe named like
-   a belief query but declared evidence-grain) is an advisory lint for humans, not the
+   a fact query but declared evidence-grain) is an advisory lint for humans, not the
    enforcement mechanism.
 2. **The eval harness measures per recipe.** Recall@k per recipe per scenario class (D22's
    retrieval half); recipe versions make regressions attributable.
@@ -185,9 +185,9 @@ answer itself** — because the caller is an agent that must *reason about* the 
 
 ```
 {
-  grain:        belief | evidence | compiled | composite,  // §6; composite ⇒ read parts[]
+  grain:        fact | evidence | compiled | composite,  // §6; composite ⇒ read parts[]
   parts: [ {                                            // one part per grain in a compound answer
-    grain:      belief | evidence | compiled,            // each part single-grain (S47)
+    grain:      fact | evidence | compiled,            // each part single-grain (S47)
     results: [ { …record…,
         validity: {valid_from, valid_until, ingested_at, invalidated_at},
         evidence_count, confidence,
@@ -246,17 +246,23 @@ indistinguishable-from-empty, which is why the taxonomy is safe to freeze withou
 
 ## 6. The grain type-system (D49)
 
-The belief/evidence split (`concepts.md`; requirements §Retrieval) becomes a **type
+The fact/evidence split (`concepts.md`; requirements §Retrieval) becomes a **type
 discipline** rather than documentation:
 
 - Every primitive and recipe **declares its grain**; every envelope **carries it**.
-- "Current-belief" answers may be assembled **only** from validity-filtered
+- "Current-fact" answers may be assembled **only** from validity-filtered
   relations/observations. Claims answer *what sources asserted* — a claim's asserted-validity
   interval (D41) is testimony, never verdict, and the registry linter bars any composition
   that would let it pose as one (S4, S11).
 - Mixed answers are **explicitly two-part**, never blended: S47 ("everything Alice *said*
   about pricing, plus what we *believe*") returns an evidence-grain timeline and a
-  belief-grain snapshot as separate, labeled sections of one response.
+  fact-grain snapshot as separate, labeled sections of one response.
+- **Evidence-grain answers default to *current testimony*** (D54): claims superseded by a newer
+  extraction generation, or left behind by a living document's current version, are excluded
+  unless the caller opts in (`include_superseded_testimony`) — and the envelope disclosure says
+  which regime answered. `claims_as_of` is historical by definition and runs over all
+  testimony. Fact-grain answers carry a `support: current | withdrawn` marker where a fact's
+  current-testimony support has dropped to zero (flagged, not vanished — D54).
 - The compiled grain carries its own honesty device: the K freshness block (§5) — a compiled
   answer is *pre-paid synthesis with a timestamp*, and says so.
 
@@ -286,18 +292,36 @@ API/CLI carries everything, including artifact/media byte fetches by handle (S57
 
 **Progressive disclosure as a query strategy.** The skill teaches one default motion: **orient
 on K** (cheap, pre-paid synthesis — `brief`, `pages_about`, or just reading the mounted repo)
-→ **verify on the spine** (belief-grain lookups for anything load-bearing, which also
+→ **verify on the spine** (fact-grain lookups for anything load-bearing, which also
 refreshes past K's compile timestamp) → **audit on evidence** (hydrate to claims/sources when
 stakes demand). Three coordinated maps of one territory: `llms.txt` (orientation), P3 (the
 corpus as files), `pages_about` (the routing index read backwards).
 
 ## 8. The consumption skill — a shipped, versioned deliverable (D51)
 
-The system ships **agent-facing instructions** that teach a cold harness the memory: the
-planes; the grains and why `claims_as_of` never answers "is it true now"; validity and the two
-time axes; contradiction semantics (expect co-members; never pick silently); the envelope and
-the negative taxonomy; the mount layout and the precedence rule; the orient→verify→audit
-motion. It is **versioned with the system and partially rendered per deployment** (scopes,
+The system ships **agent-facing instructions** that teach a cold harness the memory. The
+curriculum, explicitly:
+
+- **The planes, and the terminology ladder** (claim → relation/observation → *fact* → core
+  belief — `concepts.md` §0).
+- **The first rule of asking: questions about what is true go to the fact layer.** Relations
+  and observations are the system's current, adjudicated holdings — validity-filtered,
+  supersession-honoring. Claims are *testimony*: records of what sources said, possibly
+  stale, superseded, or contradicted; they answer "who said what, when" and never "is it true
+  now" (the D41 bar — enforced by the recipe registry, but the skill states it as the
+  agent's default, not just a guardrail it will bounce off).
+- **Testimony currency** (D54): even within the evidence grain, default claim search returns
+  *current* testimony only — claims superseded by a newer extraction generation or left
+  behind by a living document's current version are history, reachable via the explicit
+  `include_superseded_testimony` opt-in or `claims_as_of`; the envelope always says which
+  regime answered.
+- **The `support: withdrawn` marker**: a fact carrying it has lost all current support (its
+  case is in review) — read it as "standing but shaky": fine to report with the caveat, not
+  fine to build plans on without checking the transcript.
+- **Validity and the two time axes; contradiction semantics** (expect co-members; never pick
+  silently); **the envelope and the negative taxonomy**; **the mount layout and the
+  precedence rule**; **the orient→verify→audit motion** (orient on K pages, verify
+  load-bearing facts on the spine, audit down to claims and sources when stakes demand). It is **versioned with the system and partially rendered per deployment** (scopes,
 mounts, and enabled recipes differ) — the same registry-renders-the-prompt move as D15, aimed
 at consumers instead of extractors. Its acceptance test is scenario **S58**: a harness that
 has never seen the system, given only the skill, must orient via K, keep grains straight, and

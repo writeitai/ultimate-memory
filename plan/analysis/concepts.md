@@ -8,6 +8,40 @@ what, when); relations are the verdict (the current adjudicated facts, revisable
 the link between testimony and verdict; the graph is the published, navigable index of the
 verdicts.
 
+## 0. The terminology ladder (read this first)
+
+The system's words stack bottom-to-top. Each row is a different *kind* of thing, in a
+different place, with different rules:
+
+| Term | What it is | Where it lives | Can it change? |
+|---|---|---|---|
+| **claim** | what one source *said* — the permanent record of an assertion | Postgres (E2) | never (immutable) |
+| **relation** | a fact linking **two entities** — `(Alice, works_for, Acme)` | Postgres (E3) | validity windows close on supersession |
+| **observation** | a fact stating a **value about one entity** — "Acme headcount 600" (D43) | Postgres (E3) | same bi-temporal rules; never enters the graph |
+| **fact** | the umbrella word for *relation or observation* — "what the system currently holds true" | — | — |
+| **core belief** | a distilled **K3 page**: compiled prose built only from the most-supported, uncontradicted facts, every statement citing its evidence | the K git repo | recompiled when its evidence changes |
+
+Two distinctions that ride on the ladder:
+
+- **The grains** (retrieval vocabulary, D49): every answer is labeled **`fact`** (relations/
+  observations — what the system currently holds true, validity-filtered), **`evidence`**
+  (claims — what sources asserted, possibly stale or contradictory), or **`compiled`** (K
+  pages — pre-paid synthesis with a freshness stamp). A claim must never be mistaken for a
+  current fact — that is the split this whole model exists to enforce. *(Naming note: the
+  fact grain was called the "belief grain" in early drafts of D48–D51; renamed July 2026
+  because it collided with **core beliefs**, which are K3 pages — a different layer
+  entirely.)*
+- **Testimony currency** (D54): a claim is *current testimony* while it belongs to its
+  document's current version and extraction generation; superseded generations and
+  removed-content claims stop counting toward facts and drop out of default search, while
+  remaining permanent history. Currency is bookkeeping about *our transcription*, never a
+  judgment about truth — claims stay immutable in every sense.
+
+So a sentence like "the roster says Bob is CFO" travels: **claim** ("this file said it") →
+**relation** (`Bob works_for Acme`, the fact the system holds) → possibly cited by a **core
+belief** page if it is well-supported and uncontradicted — three layers, three words, no
+synonyms.
+
 ## Running example
 
 Three documents enter the system:

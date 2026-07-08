@@ -116,6 +116,9 @@ and flow downward.
 | [plan/analysis/retrieval_scenarios.md](plan/analysis/retrieval_scenarios.md) | Retrieval stress battery S1–S61 — drives the retrieval design + the D22 golden set |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/retrieval_review/](plan/analysis/retrieval_review/) | External adversarial review of the retrieval design (Codex) + reconciliation |
+| [plan/designs/evidence_lifecycle_design.md](plan/designs/evidence_lifecycle_design.md) | Document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) |
+| [plan/analysis/evidence_lifecycle/](plan/analysis/evidence_lifecycle/) | Parallel analyses (internal + Codex) + SYNTHESIS behind D54–D56; stress-test amendments |
+| [plan/designs/e1_chunks_design.md](plan/designs/e1_chunks_design.md) | E1: blocks + blockizer, sections on the grid, chunk packing, reuse mechanics (D57–D58) |
 | [plan/analysis/design_review_2026_07.md](plan/analysis/design_review_2026_07.md) | Second step-back review F1–F9 (post-D44) — K-plane build system, attributed stance, evidence inflation, … |
 | [plan/analysis/entity_registry.md](plan/analysis/entity_registry.md) | Entity resolution, ontology (core+extensions), scope views |
 | [plan/analysis/registry_research/](plan/analysis/registry_research/) | R1–R10 multi-agent research + SYNTHESIS (→ D17–D24) |
@@ -127,5 +130,5 @@ and flow downward.
 | [plan/analysis/ladybug_translation_research/SYNTHESIS.md](plan/analysis/ladybug_translation_research/SYNTHESIS.md) | Postgres→LadybugDB translation (the `v_graph_*` projection contract, D44) |
 | [plan/analysis/ladybug_query_semantics.md](plan/analysis/ladybug_query_semantics.md) | **LadybugDB query rulebook** — traversal-time vs post-hoc filtering, SHORTEST semantics, all engine quirks; read before writing any graph query |
 | [plan/analysis/lance_indexing_maintenance.md](plan/analysis/lance_indexing_maintenance.md) | **LanceDB indexing rulebook** — nothing is automatic: index-set completeness, the unindexed tail, the mandatory optimize loop; read before writing any P1 table or query |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D51) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D58) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

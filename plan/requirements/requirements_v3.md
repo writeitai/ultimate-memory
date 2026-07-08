@@ -23,6 +23,17 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   per-document **structure** (hierarchy + section roles + summaries) extracted, plus a **placement
   hint** for the corpus filesystem; cross-references between documents (e.g. citations) tracked.
   Converted bodies live in object storage; the spine holds only metadata + the queryable structure.
+- **Watched sources & document versions** (D54–D56): sources may be **watched** (a Google
+  Drive folder, a mailbox, a URL — polled on a cadence); an edited document is ingested as a
+  **new version of the same logical document** (identity survives edits and renames), with
+  prior versions preserved as dated testimony. Per-source semantics distinguish **archival**
+  documents (every version stays independent testimony) from **living** documents (the latest
+  version is the source's standing statement, and removing content **retracts** beliefs it
+  solely supported — recorded and reversible, never silent). Confidence signals count **distinct
+  sources**, never versions, re-processings, or repetition. **Deleting a document** (at the
+  source or by an operator) removes its contribution — facts it alone supported are closed,
+  recorded and reversibly, while facts other documents also support live on. Re-ingesting an
+  edited document must cost **proportional to the edit, not the document**.
 - **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
   context and trace back to the exact source document and position.
 - **E2 — Claims** *(formerly L2)*: atomic, **verifiable** natural-language assertions,
@@ -115,7 +126,7 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
   When mounts are unavailable, API/CLI carry everything.
 - **A shipped consumption skill**: the system ships agent-facing instructions + reference
   documentation (a skill, versioned with the system) that teaches a cold agent the memory
-  model — planes, the belief-vs-evidence grains, freshness semantics, contradiction handling —
+  model — planes, the fact-vs-evidence grains, freshness semantics, contradiction handling —
   plus the mount layout and the precedence rules. A consumer harness must be able to use the
   memory well *without* a human explaining it.
 - **Trust model (a scope boundary): one trust domain per deployment.** Content-level
@@ -133,7 +144,7 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
 - Full flexibility is the goal: agents choose strategies, the system does not impose one.
 - **The query surface must make the claim/relation temporal split explicit to agents.** Claims have
   **no temporal supersession** — they are immutable evidence (what a source asserted, including the
-  validity interval *it* asserted), never closed or invalidated. **All supersession / current-belief
+  validity interval *it* asserted), never closed or invalidated. **All supersession / current-fact
   validity lives only on relations.** So the querying system must surface, and its API/recipe naming
   must enforce, the distinction: a relation as-of query answers *"what does the system currently
   believe held at T"* (it honors supersession); a claim query answers *"what did sources assert"*

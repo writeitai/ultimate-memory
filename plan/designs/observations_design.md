@@ -76,8 +76,9 @@ and evidence. The row is deliberately lean (full DDL: `postgres_schema_design.md
   out now because the core memory use is entity-anchored recall, not cross-entity range scans.)
 - the **bi-temporal** quartet (`valid_from`/`valid_until` = world-validity, `ingested_at`/`invalidated_at`
   = belief-time), a generated `status` mirror of `invalidated_at` (one validity home, D6),
-  `evidence_count` (supporting evidence rows) / `contradict_count` (contradicting *evidence* rows — note
-  this is distinct from *conflicting observations*, which are linked by `contradiction_group`),
+  `evidence_count` (distinct current-testimony lineages supporting — D54) / `contradict_count`
+  (distinct current-testimony lineages contradicting — note this is distinct from *conflicting
+  observations*, which are linked by `contradiction_group`),
   `confidence`, and `contradiction_group` (set when two observations conflict and both must stand).
 
 There is **no governed attribute key, no `value_domain`, no `unit_dimension`, no `cardinality`, no
@@ -119,6 +120,12 @@ When a claim asserts a value/property about entity *E*:
      *revenue* \$5M vs \$7M conflict; FY2023 *revenue* vs FY2023 *profit* do **not** — different property;
      FY2023 vs Q1-2023 do **not** — different period.)
    - **new** — a different property, period, or thing → insert independently, no interaction.
+
+   *(The D55 `retract` path — a living document withdrawing a fact's sole support — routes
+   through this same state-vs-measurement judgment: a withdrawn **state** observation gets its
+   `valid_until` capped; a withdrawn **measurement** gets `invalidated_at` instead, because the
+   no-cap rule below holds even under retraction — the figure stays true of its period; what
+   ends is the belief. Recorded as `retracted_source_removal`.)*
 
    **The no-cap rule (D43).** A `supersede` (capping `valid_until`) applies **only** to a *changing
    effective state*. A **measurement / fixed-period figure** ("FY2023 revenue") is **never** capped on

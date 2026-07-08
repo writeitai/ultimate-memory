@@ -12,8 +12,11 @@ are numbered **F1–F9** (a fresh prefix; O = objections, D = decisions, R/C/V/T
 series). Nothing here is binding; if a finding is accepted it should land as a decision in
 `decisions.md` and flow into the design docs, per the repo's normal process.
 
-**Status: F1 accepted → D45–D47 (`plan/designs/k_layers_design.md`; O2 + O4 accepted with it).
-F2–F9 open.**
+**Status: F1 accepted → D45–D47 (`k_layers_design.md`; O2 + O4 accepted with it). F3 accepted →
+D54–D56 (`evidence_lifecycle_design.md`). F4 accepted → D48–D51 (`retrieval_design.md`,
+scenario-first per this finding). F6 largely addressed by D55 (P3 paths anchor on document
+lineages) — entity-leaf stability remains with the P3 build. F9 addressed by the orchestration
+design (PR #29). F2, F5, F7, F8 open.**
 
 ---
 
@@ -142,7 +145,7 @@ focused on facts will catch.
 
 ---
 
-## F3. Re-extraction inflates `evidence_count` — no register lists this
+## F3. Re-extraction inflates `evidence_count` — no register lists this ✅ ACCEPTED → D54–D56
 
 **A semantics gap, not an orchestration gap.** (`questions.md` #11 covers how a version bump
 *reprocesses*; this is about what reprocessing *means* for evidence.)

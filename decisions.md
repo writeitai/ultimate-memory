@@ -50,6 +50,11 @@ by hundreds of documents; many claims (opinions, n-ary, single-entity attributes
 - Graph edge count scales with distinct facts, not corpus size.
 - Full reasoning in `plan/analysis/concepts.md`.
 
+**Refined by D54.** The evidence *rows* stay claim-grained (provenance, unchanged), but the
+cached **count's denominator** is corrected: `evidence_count` ≡ distinct document *lineages*
+with *current-testimony* support — not claim rows, which inflate under re-extraction, document
+versioning, and within-document repetition. Rationale: `evidence_lifecycle_design.md` §4.
+
 ---
 
 ## D3. Supersession/contradiction adjudication operates at the relation level
@@ -125,7 +130,7 @@ projection," bounded by rebuild cadence.
 
 **Refined by D41.** Claim-grain asserted-validity is *evidence*, not a second validity home: it is
 immutable and many-valued, lives in Postgres only, and the `claims_as_of` recipe is barred from
-answering current-belief — so validity-as-current-belief still has exactly one home.
+answering current-fact — so validity-as-current-fact still has exactly one home.
 
 ---
 
@@ -242,6 +247,12 @@ git-editing layer was the design's scaling bottleneck.
 is the repo's only automated committer and compiles in dependency order, so hot files (the root
 `index.md`) are simply the last DAG target, compiled once per cycle. The debounce/window trigger
 model itself is unchanged.
+
+**Refined by D56.** The idempotency discipline (content hash + processing version) extends one
+level down: E2 keys on the **`extraction_input_hash`** (chunk text + the full context-bundle
+fingerprint + extractor version), so re-ingesting an edited document re-extracts only the
+changed chunks; embeddings key on (chunk content hash, embedding version). Same principle,
+finer grain.
 
 ---
 
@@ -611,6 +622,12 @@ loop is not used at scale.
 it is the highest-leverage stage and carries the opposite instruction to decontextualization. Design +
 worked example: `plan/designs/e2_e3_claims_relations_design.md`. (C1–C8.)
 
+**Refined by D58 (batched extraction).** The two-call shape applies to a **batch window** (a
+section's contiguous chunks in one call pair) exactly as to a single chunk — the window is the
+extraction unit, the calls are still two; bookkeeping stays per-chunk (per-chunk
+`processing_state` commits keyed by `extraction_input_hash`; `cost_ledger` allocated pro-rata).
+`e1_chunks_design.md` §6.
+
 ## D32. Claim grounding is layered and dual-field, not verbatim-substring
 
 **Decision.** A claim stores both a standalone `claim_text` and a verbatim `source_span` + character
@@ -690,6 +707,13 @@ for E1). Operational complexity is handled by decomposition, not numbering.
 > audit logging and mime-routed storage classes (so "cold" is no longer blanket). The storage
 > split, ID-addressing, and Postgres-metadata rules below are unchanged. Rationale in D51 and
 > `e0_files_design.md` §2/§5.
+>
+> **Refined by D55.** `content_hash` identifies a document **version** (deduplicated as a
+> content object); the *logical document* is a **lineage** identified by connector-native
+> `(source_kind, source_ref)`, with append-only version rows. The GCS layout
+> (`<doc_id>/<content_hash>/…`) already anticipated exactly this. `UNIQUE(deployment,
+> content_hash)` moves to the content-object/version level. Rationale in D55 and
+> `evidence_lifecycle_design.md` §2.
 
 **Decision.** Two GCS buckets per deployment: a **raw** bucket (immutable originals, cold, strict
 IAM, **never mounted**) and an **artifacts** bucket (Markdown + `pageindex.json` + conversion
@@ -721,6 +745,14 @@ docs and rebuilds downstream.
 Generalizes common practice (Mistral OCR for PDFs, markitdown elsewhere) into a routing table. (User
 proposal.)
 
+**Refined by D57.** `blocks[]` moves **out** of the converter contract: converters are
+heterogeneous (Mistral OCR exposes only per-page Markdown; markitdown plain Markdown), so the
+contract weakens to what every tool can deliver — `document.md` + a **page map** + `media[]` —
+and a single shared, deterministic **blockizer** (ours, `blockizer_version`) derives the block
+sequence from `document.md`. Offsets into document.md stay exact (grounding, D32); source
+back-pointers become best-effort provenance tiers. The conversion route is pinned per lineage.
+`e1_chunks_design.md` §2.
+
 ## D39. PageIndex provides per-document structure — sidecar + PG index, structure-only, summaries kept, placement-hint-extended
 
 **Decision.** PageIndex builds a per-document hierarchical tree (`node_id`, `title`, `summary`,
@@ -737,6 +769,11 @@ advisory input to the P3 projection (D40), not a commitment.
 are cheap polish worth measuring, not deleting on intuition. The placement hint lets E0 seed the
 corpus filesystem (P3, D40) — a per-document path guess produced where the document is freshly
 understood, reconciled into a coherent tree by the projection.
+
+**Refined by D57 (representation).** Sections are persisted as **block ranges** on the
+deterministic block grid (a snap rule normalizes PageIndex's LLM-drawn spans into a well-formed
+partition; sections never cut through a block; blocks are never derived from sections). The
+tool, roles, summaries, and placement hints are unchanged. `e1_chunks_design.md` §3.
 
 ## D40. P3 — the corpus filesystem: a mountable, rebuildable projection
 
@@ -777,7 +814,7 @@ the structured form of the date decontextualization already resolves into the cl
 *in 2024*"), emitted in the same E2 call and **grounded** by the existing window-membership check (the
 date must verbatim-exist in the bundle, D32). It is **evidence about *when***, epistemically identical
 to `claim_text` (evidence about *what*) and `source_span` (evidence about *where in the source*).
-Adjudicated, current-belief validity stays **exclusively on relations** (`valid_from`/`valid_until` +
+Adjudicated, current-fact validity stays **exclusively on relations** (`valid_from`/`valid_until` +
 `invalidated_at`, D3).
 
 **Why this is not a second validity authority** (stated so a future reader need not re-derive it).
@@ -815,7 +852,7 @@ restructuring, concluded the claim/relation split, D6, and relation-only superse
   seed `works_for.valid_from`; "Alice left in January 2026" can seed closure) instead of re-parsing
   text — with a monotonicity guard so a late retrospective cannot move an adjudicated window.
 - **Refines D3 and D6 in wording, not substance**: claims may carry an *immutable* interval, never a
-  *revisable* one; validity-as-current-belief still has exactly one home. **Compatible with D18** —
+  *revisable* one; validity-as-current-fact still has exactly one home. **Compatible with D18** —
   the interval lives on the claim, not as a relation object/predicate or Date-node (D18 governs
   relation/edge time and is untouched).
 - **Residual non-goal (documented):** two sources asserting *incompatible* windows for a
@@ -1128,8 +1165,8 @@ untouched). The nominate-then-drop artifact is surfaced honestly. Hydration dept
 ## D49. The response envelope: grain type-discipline, inline contradictions, typed negatives, freshness stamps
 
 **Decision.** Every retrieval response is an **envelope** carrying, besides results: the
-**grain** (`belief` / `evidence` / `compiled` / `composite` — declared by every primitive and
-recipe, enforced at composition: current-belief answers may be assembled only from
+**grain** (`fact` / `evidence` / `compiled` / `composite` — declared by every primitive and
+recipe, enforced at composition: current-fact answers may be assembled only from
 validity-filtered relations/observations; claims never answer "is it true now" — D41's bar made
 mechanical; a `composite` answer is `parts[]`, each part strictly single-grain, so mixed
 answers like S47's said-vs-believe pair never dilute the discipline); **contradiction
@@ -1178,7 +1215,7 @@ enumerated `aggregate` forms, and streaming `scan` (the batch surface, separate 
 **Recipes are registry rows, not code** (the D5/D15/D45 move): declared compositions with
 name / description / typed parameters / a typed primitive chain / **`output_grain`** and
 **`answer_intent`** enums / version — so the linter enforces grain semantics **mechanically on
-the enums** at registration (`answer_intent = current_belief` requires `output_grain = belief`
+the enums** at registration (`answer_intent = current_facts` requires `output_grain = fact`
 over validity-filtered belief primitives; prose-name checks are advisory only), the eval
 harness measures recall@k per recipe, and **MCP tools render from the registry** the way
 extraction prompts render from the ontology. Recipes add
@@ -1290,3 +1327,220 @@ about what looks correct.
 (producer and checker versions name their models). Applies to every future eval/judge seat by
 default; running a checker in the producer's family is a recorded exception, not a quiet
 config choice.
+
+---
+
+> **D54–D56 provenance.** D54–D56 formalize the evidence-lifecycle analysis (July 2026) —
+> review finding F3 (re-extraction inflation) + document versioning for watched sources —
+> produced as two parallel independent analyses (internal + Codex) with a reconciling
+> SYNTHESIS: `plan/analysis/evidence_lifecycle/`. Binding design:
+> `plan/designs/evidence_lifecycle_design.md`. Numbers are placeholders to be measured
+> (CLAUDE.md).
+
+## D54. Testimony currency + the counting rule — evidence_count ≡ distinct current-testimony lineages
+
+**Decision.** Claims gain **testimony currency**: a claim is *current testimony* iff it belongs
+to its document lineage's current extraction basis under the lineage's versioning mode
+(re-extraction: the superseded generation's claims flip non-current, wholesale by coordinates —
+no content matching; `living`-mode version supersession: claims whose chunks left the current
+version flip non-current; `snapshot` mode: version succession flips nothing). Currency is
+**bookkeeping, never validity**: an append-only, reason-coded transitions ledger (the D33
+pattern; replayable, D7) plus a cached flag — no adjudication, no `invalidated_at`, claims
+immutable in every D3 sense; transaction-time reconstructions still see old generations. The
+cached counts are redefined once: **`evidence_count`/`contradict_count` (relations and
+observations) ≡ distinct document lineages with current-testimony support, per stance** —
+invariant under re-extraction, version churn, and within-document repetition; D42's
+independence math gets its denominator (distinct *external* lineages). Zero-current-support
+handling splits by cause: **source/curator-driven** loss (living-mode removal, deletion at
+source or by operator) **closes** solely-supported facts per shape (states: `valid_until` cap;
+measurements: `invalidated_at` — D43 no-cap), recorded as `retracted_source_removal` — no
+flag; **processing-driven** loss (a new extractor generation fails to re-derive a claim from
+an *unchanged* file) is mechanically undecidable (artifact-corrected vs extractor-regressed
+demand opposite actions) and is **flagged `support_withdrawn`** for review — the flag's *only*
+trigger; the flag rate per extractor version doubles as the rollout canary. Flagged facts are
+**not K3-eligible** (extends D47) and carry their state in the retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
+claim IDs; claim-grain citations key on `(lineage, chunk_content_hash)`; "a new claim row for
+the same testimony" is not an evidence change (the stale-storm guard). Retrieval claim
+primitives default to current testimony with an audit opt-in; P1's default channel indexes
+current testimony only (re-extraction replaces the searchable claim; the audit channel sees all
+generations).
+
+**Context.** Review F3: evidence-once is keyed `(fact_id, claim_id)`, and a re-extraction mints
+new claim IDs for the same sentences — every extractor generation doubled the headline
+confidence signal (K3 gating, D9 reranking, adjudication weight), non-uniformly (only
+re-extracted documents inflate), while duplicate generations polluted claim search. The
+orchestration lanes (D52-era work) make re-extraction routine, so the leak was structural.
+Both parallel analyses converged on the counting meaning ("current testimony from distinct
+sources — never claim rows, extractor generations, source versions, or poll cycles"); the
+divergent mechanism (a reified evidence-basis layer with a cross-generation assertion matcher)
+was **rejected** — the matcher is the riskiest component in either proposal and every consumer
+is servable from coordinates the pipeline already records; it remains the documented
+documented alternative in exact-key mode only, adopted only on measured insufficiency (SYNTHESIS §2; design §9).
+
+**Consequences.** Counts become comparable across facts again and mean what consumers always
+assumed. Fail-safe direction preserved: withdrawn support flags, never silent vanishing (the
+D25 lesson). Schema: a currency ledger + cached flag on claims; count-definition comments on
+relations/observations; `support_withdrawn` review kind. Recount cost is bounded (a lineage's
+evidence links) — hub-lineage cost is a spike.
+
+## D55. Document lineages and immutable versions — connector-native identity; snapshot vs living semantics
+
+**Decision.** The *logical document* is a **lineage** (stable `doc_id`) identified by
+connector-native **`(source_kind, source_ref)`** (Drive file ID, message ID, watched URL;
+renames/moves are metadata over a stable ref; a new ref is a new lineage). Lineages carry
+append-only **version** rows (one per observed snapshot; conversion/structure provenance,
+artifact URIs, `source_modified_at` → derived claims' `asserted_at`, D41) referencing
+deduplicated **content objects** (bytes stored/converted once per `content_hash`, even across
+lineages). Each lineage has a **`versioning_mode`**: **`snapshot`** (fail-safe default — every
+version is independent dated testimony forever; right for versioned archival sources) or
+**`living`** (the current version is the source's standing statement; superseded-version-only
+claims lose currency per D54). **Absence is never *silent* retraction — in `living` mode,
+removal retracts** (stress-test amendment O-B; the interim `removal_semantics: review`
+softener was **removed** on user review — a documented alternative, not a dial): removal of a
+fact's **sole current support** adjudicates the fact closed, **per shape** — relations and
+effective-state observations get `valid_until` capped at the version's `source_modified_at`;
+measurement/fixed-period observations get `invalidated_at` instead (capping valid-time would
+violate D43's no-cap rule — the figure stays true *of its period*; what ends is our belief) —
+both recorded as `retracted_source_removal`: loud, attributed, reversible; with other current
+support, decrement only. Rationale: `living` *declares* the current version the source's
+standing statement — serving a fact whose only support left that statement, while a review
+queue waits, is the zombie-fact failure; wrong retracts are visible and self-healing. Every
+source class the softener seemed to serve is served by the modes themselves (rolling logs are
+misclassified snapshots; a messy living doc's sole-supported facts deserve to end); its re-add
+condition — a measured source class with unacceptable false-retract rate that snapshot cannot
+serve — is recorded in the design. The `support_withdrawn` review flag survives independently
+as the *re-extraction* zero-support path (D54). Retraction checks evaluate **after the
+connector's sync cycle completes**, so an intra-cycle section *move* resolves as a support
+swap, never retract-then-reassert. **Deletion is uniform** (user decision): deleting a
+document — one version, a lineage by operator, or **the file observed deleted at its source**
+(treated as lineage deletion, stamped with the observing sync cycle) — removes its
+contribution: claims retained as history with currency ended; solely-supported facts closed
+per shape, recorded; no flag, no per-mode split. A source also always retracts by asserting a
+retraction — itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
+where it conflicts — D3/D4/D43 unchanged). Watched-source ingestion debounces (a stability
+window coalesces rapid edits; unchanged revision/etag and unchanged bytes are no-ops).
+Deletion gains a grain: delete a version (currency ends; lineage continues) / delete a lineage
+(the existing cascade) / hard-forget (S55 semantics across versions). P3 paths and K
+citations anchor on lineages (the F6 stability contract).
+
+**Context.** The system had no model for a document that changes — the primary ingestion mode
+for every target deployment (watched Drive folders, mail, URLs). Without lineage identity,
+every edit is an unrelated document and the unchanged 95 % of its content double-counts —
+versioning *is* the inflation problem at document grain. The E0 GCS layout
+(`<doc_id>/<content_hash>/…`) always implied this design. The snapshot/living split is the
+honest answer to "what does an edit *mean*": a property of the source, not of the system —
+and the parallel analyses' one gap in each other (Codex missed `snapshot`; the internal
+analysis initially had occurrences only implicitly) is reconciled in the SYNTHESIS.
+
+**Consequences.** `documents` becomes the lineage table; new `document_versions` +
+`content_objects` (schema §6); sections/chunks/claims hang off versions with the lineage
+denormalized. Refines D37 (identity) and enriches D41 (per-version assertion times). Connector
+identity rules per source kind are a named spike.
+
+## D56. Content-addressed reuse — the cost of a new version is proportional to the edit
+
+**Decision.** Extraction and embedding work is keyed by **content, not by document version**:
+E2 idempotency keys on the **`extraction_input_hash`** — a fingerprint of **stable components
+only**: the chunk's own block hashes + neighbor-chunk block hashes + stable header facts + the
+extractor version + the structurer version (a stable config string — so a deliberate structurer
+bump, which can reclassify section roles that Selection depends on, is a re-extraction boundary
+by key construction; Codex review F10). **No LLM output participates in the key** (section path, summaries, and the
+E1 prefix are excluded — non-deterministic across re-runs, they would make the key unmatchable:
+the ~0%-reuse hazard; LLM-derived context is instead **carried forward** for unchanged regions,
+D7 replay discipline — amendment A3). An unchanged chunk reuses its claims (re-attached to the
+new version's chunk row); a chunk whose *neighbors* changed correctly re-extracts; embeddings
+key on (chunk content hash, embedding version); conversion artifacts on (content object,
+converter version). Reuse alignment is a **block-hash sequence diff** (A1) with
+anchor-stabilized chunk boundaries (A2) — mechanics bound in `e1_chunks_design.md` §7. Reconciliation (D54) runs once per completed
+basis change and emits **delta-only** K triggers. The efficiency ladder, cheapest exit first:
+connector-metadata no-op → content-object no-op → conversion reuse → chunk-grain extraction
+reuse → delta-only downstream. The claim-occurrence record is the **`chunk_claims` map**
+(written on fresh extraction and on reuse — one immutable claim attaches to every
+version-chunk that carried it; exact, never inferred from content-hash joins) — how
+`claims_as_of` answers over living documents.
+
+**Context.** An hourly watcher over an edited corpus must not pay per-version costs
+proportional to document size (a 50-page doc with a two-paragraph edit re-extracts ~2 chunks,
+carries ~148 forward). Extends D12/D25's content-hash idempotency one grain down — same
+principle, finer key. The known boundary (chunk-boundary shift re-hashing unchanged text) is
+bounded by section-aware chunking and measured by the reuse-rate spike; boundary-stabilized
+chunk packing is bound in `e1_chunks_design.md` §4 (the spike measures its parameters, not whether it exists).
+
+**Consequences.** Chunks gain content/input hashes; E2 workers check the reuse key before
+calling the model; the E2/E3 cost model for watched sources scales with edit volume. Reuse
+hit-rate and per-source conversion floors are spikes.
+
+---
+
+> **D57–D58 provenance.** D57–D58 formalize the chunking-strategy design discussion (July
+> 2026), including the stress-test amendments A1–A3
+> (`plan/analysis/evidence_lifecycle/stress_test_amendments.md`). Binding design:
+> `plan/designs/e1_chunks_design.md`. Numbers are placeholders to be measured (CLAUDE.md).
+
+## D57. The block substrate — a deterministic blockizer owns identity; sections snap to the block grid
+
+**Decision.** Between conversion and everything else sits one deterministic layer: the
+**blockizer** (ours, versioned `blockizer_version`) derives the document's **block sequence**
+(paragraph-grain structural atoms: paragraphs, headings, list items, atomic tables, code
+fences) from `document.md` via CommonMark-grammar segmentation + normalization, emitting
+`blocks.json` (ordinal, type, char span into document.md, best-effort page/bbox provenance,
+`block_hash`). **Converters do not produce blocks** (they are heterogeneous — Mistral OCR
+exposes only per-page Markdown): the converter contract is `document.md` + a page map +
+`media[]` (refines D38), and one shared blockizer runs downstream of every route — no
+per-converter block semantics can drift. `document.md` stays clean Markdown — the immutable,
+content-hash-addressed **coordinate system** that claims' spans, blocks, sections, and chunks
+all reference by offset. Blocks are **not Postgres rows** (sidecar + derived keys only, the
+D37 split). **PageIndex sections are persisted as block ranges**: a deterministic snap rule
+normalizes the structurer's LLM-drawn spans onto the block grid (backward-snap, partition
+enforcement, nesting validation, degrade-to-parent — a document never fails structuring).
+Direction invariant: sections are *expressed in* block coordinates; **blocks are never derived
+from sections** (LLM output must not touch the identity layer). Blocks alone carry identity
+through edits (the D56 diff); sections carry meaning; both are views over one text.
+
+**Context.** The chunking discussion's two corrections: (1) the idealized "converters emit
+blocks" story fails against real tools (closed OCR outputs), so blocks must be derived by one
+deterministic parser we own; (2) "chunks are whole blocks" ∧ "chunks never cross sections" is
+satisfiable only if sections are unions of whole blocks — and LLM span output needs a
+deterministic normalization target anyway (the system's standing propose/dispose pattern).
+Block imperfection is tolerable by design: a mis-merged block costs diff *locality*, never
+correctness — a far lower bar than sections, which is why blocks and not sections carry
+identity.
+
+**Consequences.** New E0 artifact (`blocks.json`) + `blockizer_version` on versions; grounding
+gains one fixed coordinate system with tiered source provenance (exact into document.md;
+page/bbox best-effort); a converter swap or blockizer bump is a document-wide reuse boundary
+(route pinned per lineage). Design: `e1_chunks_design.md` §2–§3.
+
+## D58. Chunks are non-overlapping runs of whole blocks; retrieval is multi-granularity by architecture
+
+**Decision.** A chunk is an ordered run of **whole blocks within one section**, packed by
+semchunk (the imposed constraint, kept as the packer) to a measured token budget, with
+**anchor-stabilized boundaries** (packing restarts at content-defined anchor blocks, so an
+early edit perturbs packing only to the next anchor — load-bearing for sectionless documents).
+**No overlap, ever**: overlap double-extracts (duplicate claims within one generation — the
+inflation D54 just killed), bloats P1 with near-duplicates, and its offset-arithmetic
+boundaries destroy D56 reuse; the E2 bundle's ±N neighbors provide cross-boundary context
+explicitly instead. Edge rules: an oversized *atomic* block (a table) becomes its own
+oversized chunk; a pathological giant paragraph falls back to deterministic sentence-splitting.
+`chunk_content_hash = hash(ordered block hashes)`; the reuse key adds `structurer_version`
+(F10) and per-chunk commits under batching (F9). **Embedding granularity:** the dilution
+problem is answered by architecture, not tiny chunks — **claims are the needle index** (P1
+embeds every decontextualized claim; the ideal fine-grain unit by construction), **chunks are
+the passage index** (sized for coherence; BM25 catches verbatim needles; RRF fuses), and
+default search recipes **filter out `references`/`nav`/`boilerplate`/`legal` chunks by role**
+(a Lance scalar — retrieval-side filtering of what was indexed; D25 untouched). **Extraction
+batching** decouples cost from granularity: E2 batches a section's contiguous chunks per call
+(bundle shared; claims still anchor per-chunk; idempotency keys stay per-chunk). The
+**embedding-model choice (questions #3) is the design's one open branch point**: conventional
+model → the E1 prefix stage exists (stored, carried forward); contextual model → the prefix
+stage is deleted. Everything else is invariant across that branch.
+
+**Context.** Chunks serve six masters (retrieval granularity, embedding quality, extraction
+units, grounding, reuse stability, cost); the user's dilution objection is correct for
+chunks-only systems and answered here by the claims channel — small-chunk/sliding-window
+strategies approximate what decontextualized claims already are. Sliding windows are the worst
+choice on every axis that matters to this system.
+
+**Consequences.** semchunk honored as packer; token budget, anchor criterion, batch size,
+blockizer fidelity, and reuse hit-rate are spikes (`e1_chunks_design.md` §10); P1 chunk rows
+gain a role scalar; the E1 design no longer blocks on #3 — it branches on it.
