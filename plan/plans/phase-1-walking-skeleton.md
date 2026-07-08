@@ -1,0 +1,22 @@
+# Phase 1 — Walking Skeleton
+
+**Goal:** one document, end to end, everything minimal: bytes → blocks → chunks → claims →
+facts → P1 → a queryable answer with a correct envelope. Proves spine integration, the grain
+discipline, and propose/dispose before any layer gets deep.
+
+**Entry gates:** **#3 embedding model decided** (decides whether the E1 prefix stage exists —
+e1 §5); #4 extractor model pick.
+**Exit criteria:** a toy corpus (≈10 mixed docs) ingests; scenario classes **S1, S2, S5, S39**
+pass; the grain CI invariants hold (fact vs evidence labeling; claims never answer
+current-fact); propose/dispose verified (a hand-invalidated fact never surfaces as current).
+Deliberately absent here: ER beyond T0, supersession cascade, versions, K, P2/P3.
+
+| WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
+|---|---|---|---|---|---|---|
+| WP-1.1 | Minimal E0: upload connector, one convert route (markitdown), blockizer, synthetic-root structure, artifacts layout | e0 §1–5; e1 §2 (D57); D36–D38 | Phase 0 | E0 worker chain | doc → document.md + blocks.json + rows; blockizer corpus green | planned |
+| WP-1.2 | E1: block-packing chunker (section-bounded, anchors per e1 §4) + embeddings (+ prefix stage iff #3 branch says so) | e1 §4–§5, §7 keys; D58 | WP-1.1 | chunk worker + P1 chunk table | deterministic repack; chunks in Lance | planned |
+| WP-1.3 | E2 minimal: two-call Claimify (Selection incl. D59 attributed-stance keep; decontextualize/decompose/ground), grounding gate, decision ledger | e2_e3 §2–4; D31–D35, D59; schema §8 | WP-1.2 | extractor worker | grounding CHECK holds; drops ledgered; stance kept on sample | planned |
+| WP-1.4 | E3 minimal: T0-only resolution, mentions, novelty gate, relations + observations insert, evidence links + counts (D54 rule from day one) | e2_e3 §5; observations §2–3 (blocking only); registries §2 (tables); D54 counting | WP-1.3 | normalizer worker | same fact twice = one row, count=1 (lineage-distinct) | planned |
+| WP-1.5 | P1 inline writes: claims + fact labels (+ role scalar) | retrieval §5 (P1 policy); D8 | WP-1.3 | Lance tables + writers | current-testimony-only default channel | planned |
+| WP-1.6 | Retrieval core: `resolve` (T0), `lookup`, `search`, `hydrate` + propose/dispose + minimal envelope (grain, validity, freshness stamps, negatives) | retrieval §2–3, §5–6; D48–D49 | WP-1.4, WP-1.5 | HTTP API | S1/S2/S5/S39 green; drop-count honesty test | planned |
+| WP-1.7 | Skeleton eval pack: wire the S-subset + grain contract tests into the harness | retrieval §11; D22 | WP-1.6, WP-0.5 | eval suite `skeleton` | suite green in CI | planned |
