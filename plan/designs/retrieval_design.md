@@ -261,7 +261,7 @@ discipline** rather than documentation:
   extraction generation, or left behind by a living document's current version, are excluded
   unless the caller opts in (`include_superseded_testimony`) — and the envelope disclosure says
   which regime answered. `claims_as_of` is historical by definition and runs over all
-  testimony. Belief-grain answers carry a `support: current | withdrawn` marker where a fact's
+  testimony. Fact-grain answers carry a `support: current | withdrawn` marker where a fact's
   current-testimony support has dropped to zero (flagged, not vanished — D54).
 - The compiled grain carries its own honesty device: the K freshness block (§5) — a compiled
   answer is *pre-paid synthesis with a timestamp*, and says so.
@@ -299,11 +299,29 @@ corpus as files), `pages_about` (the routing index read backwards).
 
 ## 8. The consumption skill — a shipped, versioned deliverable (D51)
 
-The system ships **agent-facing instructions** that teach a cold harness the memory: the
-planes; the grains and why `claims_as_of` never answers "is it true now"; validity and the two
-time axes; contradiction semantics (expect co-members; never pick silently); the envelope and
-the negative taxonomy; the mount layout and the precedence rule; the orient→verify→audit
-motion. It is **versioned with the system and partially rendered per deployment** (scopes,
+The system ships **agent-facing instructions** that teach a cold harness the memory. The
+curriculum, explicitly:
+
+- **The planes, and the terminology ladder** (claim → relation/observation → *fact* → core
+  belief — `concepts.md` §0).
+- **The first rule of asking: questions about what is true go to the fact layer.** Relations
+  and observations are the system's current, adjudicated holdings — validity-filtered,
+  supersession-honoring. Claims are *testimony*: records of what sources said, possibly
+  stale, superseded, or contradicted; they answer "who said what, when" and never "is it true
+  now" (the D41 bar — enforced by the recipe registry, but the skill states it as the
+  agent's default, not just a guardrail it will bounce off).
+- **Testimony currency** (D54): even within the evidence grain, default claim search returns
+  *current* testimony only — claims superseded by a newer extraction generation or left
+  behind by a living document's current version are history, reachable via the explicit
+  `include_superseded_testimony` opt-in or `claims_as_of`; the envelope always says which
+  regime answered.
+- **The `support: withdrawn` marker**: a fact carrying it has lost all current support (its
+  case is in review) — read it as "standing but shaky": fine to report with the caveat, not
+  fine to build plans on without checking the transcript.
+- **Validity and the two time axes; contradiction semantics** (expect co-members; never pick
+  silently); **the envelope and the negative taxonomy**; **the mount layout and the
+  precedence rule**; **the orient→verify→audit motion** (orient on K pages, verify
+  load-bearing facts on the spine, audit down to claims and sources when stakes demand). It is **versioned with the system and partially rendered per deployment** (scopes,
 mounts, and enabled recipes differ) — the same registry-renders-the-prompt move as D15, aimed
 at consumers instead of extractors. Its acceptance test is scenario **S58**: a harness that
 has never seen the system, given only the skill, must orient via K, keep grains straight, and

@@ -221,9 +221,11 @@ masquerade as the other (requirements §Retrieval, D41).
   reserved for query-engine capabilities — semantic search, graph, as-of, hydration — which
   have no filesystem equivalent).
 - **S58** *(cold agent)* A harness that has never seen this system is pointed at the memory
-  and, from the shipped **consumption skill** alone (planes, grains, freshness, contradiction
-  semantics, mount layout, precedence rules), correctly: orients via K, distinguishes fact
-  from evidence in its answer, and does not misuse `claims_as_of` as current truth.
+  and, from the shipped **consumption skill** alone (planes, grains, testimony currency,
+  freshness, contradiction semantics, mount layout, precedence rules), correctly: orients via
+  K, **routes is-it-true questions to the fact layer by default**, distinguishes fact from
+  evidence in its answer, respects `support: withdrawn` markers, and does not misuse
+  `claims_as_of` or superseded testimony as current truth.
   Stresses: the skill is a first-class deliverable — the system must be usable well with zero
   human explanation; this scenario is its acceptance test.
 - **S59** *(any, multimodal)* "Review the recorded steering call and check what was actually
