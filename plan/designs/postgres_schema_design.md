@@ -165,9 +165,14 @@ CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding'
 CREATE TYPE selection_outcome      AS ENUM ('keep','rewrite','drop','kept_flagged');
 
 CREATE TYPE document_status        AS ENUM ('ingesting','converting','structuring','ready','failed','deleted');
+CREATE TYPE document_origin        AS ENUM ('external','system_generated');  -- D42, stamped at E0 ingest per lineage
 -- D55 lineage semantics: snapshot = every version is independent dated testimony forever;
 -- living = the current version is the source's standing statement (currency follows it, D54):
 CREATE TYPE versioning_mode        AS ENUM ('snapshot','living');
+-- D55 removal semantics for living lineages (stress-test amendment O-B): review = removal only
+-- withdraws support (flags); retract = sole-support removal caps derived validity windows,
+-- recorded as an adjudication (outcome 'retracted_source_removal' below):
+CREATE TYPE removal_semantics      AS ENUM ('review','retract');
 -- D54 testimony-currency transitions (append-only ledger; bookkeeping, never validity):
 CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted');
 CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
@@ -185,7 +190,9 @@ CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','g
 
 CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
 CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
-CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal');
+CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal','retracted_source_removal');
+-- 'retracted_source_removal' = D55 retract semantics: a living+retract lineage removed a fact's
+-- sole current support → windows capped mechanically; the adjudication row is the audit record.
 CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
 
 CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs');
@@ -861,6 +868,7 @@ CREATE TABLE documents (
   source_ref      text,                        -- connector-native stable ID (Drive file ID, message ID); NULL only for kinds without one (one-shot uploads)
   source_uri      text,                        -- original location, if any
   versioning_mode versioning_mode NOT NULL DEFAULT 'snapshot', -- D55: snapshot (fail-safe) | living (currency follows the current version, D54)
+  removal_semantics removal_semantics NOT NULL DEFAULT 'review', -- D55 (living lineages): review | retract — see enum comment
   origin          document_origin NOT NULL DEFAULT 'external', -- D42: external | system_generated — stamped at ingest, per lineage
   current_version_id uuid,                     -- → document_versions; the lineage's current snapshot (real FK added after that table)
   document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity (see note below); composite FK
@@ -892,6 +900,7 @@ CREATE TABLE document_versions (
   content_hash    text NOT NULL,               -- → content_objects (composite FK below)
   version_no      integer NOT NULL,            -- 1..n within the lineage
   source_version_ref text,                     -- connector revision/etag/generation, if the source has one
+  sync_cycle_id   uuid,                        -- LOGICAL FK → connector_sync_cycles (created below): which cycle observed this version (retract barrier)
   source_modified_at timestamptz,              -- when the SOURCE says this snapshot was authored/modified → derived claims' asserted_at
   published_at    timestamptz,                 -- document's own date (resolves "last year"); world-time origin
   language        text,                        -- detected primary language (per version — it can change)
@@ -921,6 +930,7 @@ CREATE TABLE document_versions (
   UNIQUE (deployment_id, doc_id, content_hash),
   UNIQUE (deployment_id, doc_id, version_no),
   UNIQUE (deployment_id, version_id),           -- composite-FK target
+  UNIQUE (deployment_id, doc_id, version_id),   -- composite-FK target for the CURRENT pointer (a lineage can only point at ITS OWN version)
   FOREIGN KEY (deployment_id, doc_id) REFERENCES documents (deployment_id, doc_id) ON DELETE CASCADE,
   FOREIGN KEY (deployment_id, content_hash) REFERENCES content_objects (deployment_id, content_hash)
 );
@@ -930,8 +940,31 @@ CREATE INDEX ix_docversions_doc     ON document_versions (doc_id, version_no DES
 CREATE INDEX ix_docversions_status  ON document_versions (deployment_id, status) WHERE status <> 'ready';
 CREATE INDEX ix_docversions_hash    ON document_versions (deployment_id, content_hash);
 
-ALTER TABLE documents ADD FOREIGN KEY (deployment_id, current_version_id)
-  REFERENCES document_versions (deployment_id, version_id);  -- the current-snapshot pointer (moved transactionally with currency, D54)
+ALTER TABLE documents ADD FOREIGN KEY (deployment_id, doc_id, current_version_id)
+  REFERENCES document_versions (deployment_id, doc_id, version_id);
+  -- the current-snapshot pointer, moved transactionally with currency (D54). The THREE-column FK
+  -- (incl. doc_id) makes cross-lineage pointers unrepresentable — a lineage can only point at its
+  -- own version (Codex review F6).
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- connector_sync_cycles — the D55 retract-timing barrier (Codex review F8). A watched
+-- connector's poll cycle is explicit state: retraction evaluation (removal_semantics='retract')
+-- runs ONLY as a cycle-finalization job after every lineage observed in the cycle has completed
+-- extraction — so an intra-cycle section MOVE resolves as a support swap, never
+-- retract-then-reassert. Lineages still extracting at finalization defer their retraction checks
+-- to the next finalization (grace, recorded).
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE connector_sync_cycles (
+  cycle_id        uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  source_kind     text NOT NULL,               -- which connector (google_drive, …)
+  started_at      timestamptz NOT NULL DEFAULT now(),
+  observed_lineages integer,                   -- how many lineages this cycle touched
+  completed_at    timestamptz,                 -- all observations ingested
+  finalized_at    timestamptz                  -- retraction evaluation ran (only after completed_at)
+);
+COMMENT ON TABLE connector_sync_cycles IS
+  'D55 retract-timing barrier: retraction (removal_semantics=retract) evaluates only at cycle finalization, after every lineage the cycle observed finished extraction — an intra-cycle move is a support swap, never a retract flicker. document_versions.sync_cycle_id stamps membership.';
 ```
 
 > **Document ↔ entity bridge (D18, Codex review).** D18 makes `Document ⊂ CreativeWork` a core
@@ -1049,6 +1082,26 @@ CREATE INDEX ix_chunks_doc     ON chunks (deployment_id, doc_id);
 CREATE INDEX ix_chunks_version ON chunks (version_id);
 CREATE INDEX ix_chunks_reuse   ON chunks (deployment_id, doc_id, extraction_input_hash);  -- the D56 reuse lookup
 CREATE INDEX ix_chunks_section ON chunks (section_id);
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- chunk_claims — the claim OCCURRENCE map (D56; Codex review F4). claims.chunk_id names the
+-- ORIGIN chunk (immutable provenance); when a new version's chunk REUSES prior claims, the link
+-- is recorded here — one row per (chunk, claim) attachment, making "which versions carried this
+-- claim" an exact join (never an ambiguous chunk_content_hash match — duplicate identical
+-- chunks within a version stay distinguishable). claims_as_of over living documents, currency
+-- transitions, and K (lineage, chunk)-grain citations read THIS table. Written by the E1/E2
+-- workers on both fresh extraction and reuse; append-only; monthly-partitioned like chunks.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE chunk_claims (
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
+  chunk_id        uuid NOT NULL,               -- LOGICAL FK → chunks (a specific version's chunk row)
+  claim_id        uuid NOT NULL,               -- LOGICAL FK → claims
+  created_at      timestamptz NOT NULL DEFAULT now(),  -- partition key
+  PRIMARY KEY (chunk_id, claim_id, created_at)
+) PARTITION BY RANGE (created_at);
+COMMENT ON TABLE chunk_claims IS
+  'Claim occurrences per version-chunk (F4): fresh extraction AND reuse both link here, so one immutable claim attaches to every version-chunk that carries it. The exact occurrence record behind claims_as_of on living documents and the (lineage, chunk)-grain K citation keys. Monthly-partitioned; logical FKs (D23).';
+CREATE INDEX ix_chunkclaims_claim ON chunk_claims (claim_id);
 ```
 
 ---
@@ -1200,16 +1253,19 @@ CREATE INDEX ix_grounding_claim ON grounding_audits (claim_id);
 -- which runs only on COMPLETED basis changes and then recounts affected facts.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE testimony_currency_events (
-  event_id        uuid PRIMARY KEY,
-  deployment_id   uuid NOT NULL REFERENCES deployments,
+  event_id        uuid NOT NULL,
+  deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
   claim_id        uuid NOT NULL,               -- LOGICAL FK → claims (partitioned)
   doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the lineage; the recount scope)
+  reconciliation_id uuid NOT NULL,             -- the basis-change run that emitted this (retry idempotency anchor)
   became_current  boolean NOT NULL,            -- false = lost currency; true = regained (un-delete, mode change)
   reason          currency_reason NOT NULL,    -- reextracted | version_superseded | version_deleted
   from_extractor_version text,                 -- the superseded generation (reason=reextracted)
   from_version_id uuid,                        -- the superseded/deleted document version (reason=version_*)
-  occurred_at     timestamptz NOT NULL DEFAULT now()
-);
+  occurred_at     timestamptz NOT NULL DEFAULT now(),  -- partition key
+  PRIMARY KEY (event_id, occurred_at),
+  UNIQUE (claim_id, reconciliation_id, reason, became_current, occurred_at)  -- a retried reconciliation re-emits as a no-op, never a duplicate (F11)
+) PARTITION BY RANGE (occurred_at);
 COMMENT ON TABLE testimony_currency_events IS
   'Append-only D54 testimony-currency transitions. Truth for claims.is_current_testimony (cache); replayable (D7). Reasons: reextracted (a newer extraction generation covers the chunk), version_superseded (living-mode lineage moved past the claim''s version), version_deleted. Never validity, never supersession — D3 untouched.';
 CREATE INDEX ix_currency_claim ON testimony_currency_events (claim_id);
@@ -1328,6 +1384,7 @@ CREATE TABLE relation_evidence (
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
   relation_id     uuid NOT NULL,               -- LOGICAL FK → relations; HASH partition key
   claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence MANY relations.
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the claim's LINEAGE, denormalized write-once) — makes the D54 recount a single-table scan per fact (F7)
   stance          evidence_stance NOT NULL,    -- supports | contradicts (concepts §3/§4)
   normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions; which normalizer linked them
   created_at      timestamptz NOT NULL DEFAULT now(),
@@ -1335,6 +1392,13 @@ CREATE TABLE relation_evidence (
 ) PARTITION BY HASH (relation_id);
 COMMENT ON TABLE relation_evidence IS
   'Many-to-many evidence links (D2). Corpus redundancy collapses here into relations.evidence_count. Partitioned by HASH(relation_id) so relation hydration prunes to one partition and PRIMARY KEY (relation_id, claim_id) enforces evidence-once in-DB (refines D23 for this table — §17). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
+-- Static hash children at migration (e.g. 64) — required, or inserts fail (F5); mirrors observation_evidence:
+DO $$ BEGIN
+  FOR i IN 0..63 LOOP
+    EXECUTE format('CREATE TABLE relation_evidence_p%s PARTITION OF relation_evidence '
+                   'FOR VALUES WITH (MODULUS 64, REMAINDER %s);', i, i);
+  END LOOP;
+END $$;
 CREATE INDEX ix_relevidence_claim ON relation_evidence (claim_id);  -- reverse lookup: relations a claim evidences (all-partition scan)
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -1465,6 +1529,7 @@ CREATE TABLE observation_evidence (
   claim_id        uuid NOT NULL,               -- LOGICAL FK → claims; the asserting claim (immutable evidence). One claim may evidence many observations.
   stance          evidence_stance NOT NULL,    -- supports | contradicts (concepts §3/§4)
   normalizer_version text NOT NULL,            -- LOGICAL FK → pipeline_component_versions
+  doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the claim's lineage, write-once) — D54 recount without cross-partition claim joins (F7)
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (observation_id, claim_id)       -- evidence-once, DB-enforced; re-link via ON CONFLICT DO NOTHING is a no-op
 ) PARTITION BY HASH (observation_id);
@@ -1643,9 +1708,12 @@ SELECT entity_id AS id, type, canonical_name AS name, normalized_name,
 FROM   entities WHERE status = 'active';                    -- merged/retired entities are not nodes
 
 CREATE VIEW v_graph_documents AS
-SELECT doc_id AS id, title, source_uri,
-       (published_at AT TIME ZONE 'UTC')::date AS published_at   -- tz-cast AND date-truncate
-FROM   documents WHERE deleted_at IS NULL;
+SELECT d.doc_id AS id, d.title, d.source_uri,
+       (dv.published_at AT TIME ZONE 'UTC')::date AS published_at  -- the CURRENT version's date (D55); NULL when unset
+FROM   documents d
+LEFT JOIN document_versions dv
+       ON dv.deployment_id = d.deployment_id AND dv.version_id = d.current_version_id
+WHERE  d.deleted_at IS NULL;   -- lineages project; a lineage mid-ingest (no current version yet) projects with NULL date (F2)
 
 -- Edges: endpoints are the FIRST TWO columns (FROM, TO), survivor-redirected and guarded so both
 -- endpoints exist as emitted nodes (else COPY-REL throws). Keep RETRACTED edges within retention for
@@ -2012,7 +2080,8 @@ COMMENT ON TABLE retrieval_recipes IS
 
 ## 12. Partitioning & partition pruning (D23)
 
-Six append-only E-plane tables are partitioned for scale (D23). **Five** are **RANGE-partitioned by
+Eight append-only E-plane tables are partitioned for scale (D23; `testimony_currency_events` and
+`chunk_claims` joined the list — Codex review F11/F4). Most are **RANGE-partitioned by
 month** (`pg_partman`) on their transaction-time column; **`relation_evidence` is HASH-partitioned by
 `relation_id`** (rationale below). Monthly RANGE caps btree size, makes "drop the oldest month from
 the *hot* set" a partition detach, and aligns with projection archival (p2 §8). **This is binding**
@@ -2085,17 +2154,25 @@ transaction); the real composite FKs on the smaller tables are the integrity bac
    crossref targets resolve sanely). The worker then clears the affected `document_sections`
    (cascade) and sets dependent `document_crossrefs.to_doc_id = NULL, resolved = false` while
    **retaining `raw_citation`** so the link can be re-resolved if the target is re-ingested.
-4. **`chunks`** (logical FK): the worker deletes the doc's chunks (their Lance vectors drop on the
-   next P1 maintenance/rebuild). It deletes a document's chunks in the **same batch as / before** the
-   `document_sections` rows, so the auditor never flags a transient orphaned `chunk.section_id`
-   (and the auditor ignores rows for documents with `deleted_at` set).
-5. **`claims`** (logical FK): deleted with their chunks; the worker deletes the dependent
-   `mentions`, `claim_extraction_decisions`, `grounding_audits`, and `relation_evidence` rows.
-   `mentions → resolution_decisions` are deleted likewise.
+4. **`chunks`** (logical FK): rows are **retained** (they are the occurrence record, D56/F4) but
+   their Lance vectors drop on the next P1 maintenance/rebuild (the deleted lineage/version is
+   filtered from every index). The auditor ignores rows for documents with `deleted_at` set.
+5. **`claims` are NOT deleted on a normal delete** (Codex review F12 — this is the fix that keeps
+   "normal delete retains audit history" true): normal deletion **ends the claims' testimony
+   currency** (`version_deleted` events; `is_current_testimony=false`) so they stop counting,
+   stop surfacing in default search, and stop supporting current belief — while the assertion
+   history (`claims_as_of`, audit opt-ins, adjudication transcripts) survives. Only **hard
+   forget** (§13.2) scrubs claim texts/spans and the dependent `mentions`,
+   `claim_extraction_decisions`, and `grounding_audits` content — S55's forgotten≡never-existed
+   applies to hard forget alone. `relation_evidence`/`observation_evidence` rows are likewise
+   retained as historical links (their claims are non-current, so counts exclude them).
 6. **`relations`**: **not** deleted with one document's claims — a relation is a *shared* fact. The
-   worker recomputes `evidence_count`/`contradict_count` (a `COUNT(DISTINCT claim_id)`, so duplicates
-   cannot inflate it). A relation whose supporting evidence drops to zero is **retired by setting
-   `invalidated_at`** (so the generated `status` becomes `invalidated` and the projection stops
+   worker recomputes `evidence_count`/`contradict_count` (the D54 rule: `COUNT(DISTINCT doc_id)` over
+   evidence rows whose claims are current testimony, per stance — the write-once `doc_id` on evidence
+   rows makes this a single-table scan per fact; so duplicates
+   cannot inflate it). A relation whose **current** support drops to zero follows the D54
+   zero-support policy (flag `support_withdrawn`; auto-retire only where deployment policy says
+   so) — where retired, it is retired by setting `invalidated_at` (so the generated `status` becomes `invalidated` and the projection stops
    emitting it) — it is **not physically deleted**, because `relation_adjudications` and
    `knowledge_artifact_evidence` reference it and the audit trail is retained. A
    `relation_adjudications` row records the retirement reason so it is distinguishable from a
@@ -2226,9 +2303,9 @@ Labs."*
 | D49 response envelope (grain / contradictions / freshness / negatives) | wire contract, not schema; the K freshness block reads `knowledge_artifacts` + `knowledge_compilations`; horizons read `projection_snapshots` |
 | D50 zero-LLM primitives; recipes as registry data | `retrieval_recipes` (§11.A) + `recipe_output_grain`/`recipe_answer_intent` enums; the grain-bar CHECK |
 | D51 filesystem-first mounts + consumption skill | `deployments.raw_bucket`/`content_objects.raw_uri` comments (raw mounted off-path, D37 refined); the skill is a shipped versioned artifact, not schema |
-| D54 testimony currency + counting rule | `testimony_currency_events` (ledger) + `claims.is_current_testimony` (cache) + partial index; `evidence_count`/`contradict_count` redefined (distinct current lineages) on `relations` + `observations`; `review_item_kind = 'support_withdrawn'` |
-| D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, `current_version_id`), `document_versions` (append-only snapshots; `source_modified_at` → `asserted_at`), `content_objects` (byte dedupe); `document_sections.version_id`, `chunks.version_id` |
-| D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); per-version chunk rows as the occurrence record |
+| D54 testimony currency + counting rule | `testimony_currency_events` (partitioned ledger + reconciliation idempotency key) + `claims.is_current_testimony` (cache); `evidence_count`/`contradict_count` redefined (distinct current lineages — write-once `doc_id` on evidence rows makes the recount single-table); `review_item_kind = 'support_withdrawn'` |
+| D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, `removal_semantics`, three-column current-version FK), `document_versions` (append-only; `source_modified_at` → `asserted_at`; `sync_cycle_id`), `content_objects`; `connector_sync_cycles` (the retract barrier); `adjudication_outcome='retracted_source_removal'` |
+| D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); `chunk_claims` — the exact claim-occurrence map (fresh + reused attachments) |
 | D57 block substrate + blockizer; sections on the grid | `document_versions.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
 

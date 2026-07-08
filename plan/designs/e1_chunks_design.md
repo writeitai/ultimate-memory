@@ -65,13 +65,19 @@ returns plain Markdown; docling/PyMuPDF-class tools expose richer structure) —
    (true paragraph breaks, correctly fenced tables) — structure informs rendering; it never
    bypasses the next step.
 2. **One shared `blockizer` — deterministic, ours, versioned (`blockizer_version`) — derives
-   the block sequence from `document.md`**: CommonMark-grammar segmentation (blank-line
-   paragraphs, headings, fenced code, pipe tables as atomic blocks, list items) with
-   normalization before hashing (hard-wrapped lines join per CommonMark's own paragraph
-   rules; whitespace/unicode NFC). The same code path regardless of which converter produced
-   the Markdown — **no per-converter block-semantics drift is possible**, because no
-   per-converter block code exists. Heterogeneity is confined to Markdown *quality*, where it
-   already lived (e0: conversion quality gates everything).
+   the block sequence from `document.md`**, on a **pinned parser profile: GFM** (GitHub
+   Flavored Markdown — CommonMark + the table extension; "pipe tables" are GFM, not core
+   CommonMark): blank-line paragraphs, headings, fenced code, tables as atomic blocks, list
+   items. The **exact parser library + version + enabled-extension set is pinned per
+   `blockizer_version`**, with a fixed normalization order (join hard-wrapped lines per the
+   grammar's paragraph rules → Unicode NFC → collapse internal whitespace → hash). Because two
+   spec-compliant parsers can still segment edge cases differently, determinism is
+   **regression-tested, never assumed**: a **golden corpus with expected block-hash sequences
+   runs in CI per `blockizer_version`** — drift is a version bump, not a silent change (Codex
+   review F13). The same code path regardless of which converter produced the Markdown — **no
+   per-converter block-semantics drift is possible**, because no per-converter block code
+   exists. Heterogeneity is confined to Markdown *quality*, where it already lived (e0:
+   conversion quality gates everything).
 
 **The block record** (in the `blocks.json` sidecar, one per document version):
 
@@ -134,10 +140,26 @@ a deterministic post-step snaps every section boundary to a block boundary, and 
 4. **Stability and cheap bookkeeping.** Block-ordinal ranges survive re-rendering, make
    section membership an integer range lookup, and compose with the edit diff.
 
-**The snap rule** (deterministic, total): a section's start snaps *backward* to the start of
-the block containing its proposed start; each section ends where the next begins (enforcing
-the partition); the tree is validated for nesting; anything unresolvable degrades to the
-parent section — a document never fails structuring, it just gets coarser.
+**The snap algorithm** (deterministic and total — every malformed input has a defined
+outcome; Codex review F14):
+
+1. **Snap starts**: each proposed section start snaps *backward* to the start of the block
+   containing it; a start before block 0 clamps to block 0.
+2. **Order and dedupe**: sort siblings by (snapped start, then *longer proposed span first*,
+   then PageIndex emission order as the final tie-break); siblings sharing a snapped start
+   collapse into one (the longer span wins; the loser's blocks follow the winner).
+3. **Partition siblings**: each sibling ends where the next begins (overlaps resolved by the
+   ordering above; gaps between siblings belong to the *parent's* direct content, never to a
+   child); the last sibling ends at its parent's end.
+4. **Repair nesting**: child ranges clip to their parent's range; a child left empty after
+   clipping is pruned; zero-length sections are pruned.
+5. **Root coverage**: the synthetic root always spans the whole block sequence — every block
+   ends up in exactly one deepest section; roles/titles inherit from the nearest surviving
+   ancestor.
+
+A document never fails structuring — malformed PageIndex output degrades to a coarser but
+well-formed partition. The algorithm is pure (proposed spans + block grid in; section tree
+out), so it regression-tests beside the blockizer's golden corpus.
 
 **The direction invariant — never flip it:** sections are *expressed in* block coordinates;
 blocks are never derived *from* sections. The moment LLM-drawn boundaries influence where
@@ -166,12 +188,19 @@ by **semchunk** (the imposed constraint, kept as the packer) to the token budget
   destroying D56 reuse entirely. Where overlap has a real virtue (context continuity across a
   boundary), the E2 bundle already provides it explicitly (±N neighbor chunks) without paying
   identity or extraction costs.
-- **Anchor-stabilized boundaries** (amendment A2): within long sections, packing restarts at
-  **content-defined anchor blocks** (blocks whose hash satisfies a fixed criterion — the
-  rsync/FastCDC resynchronization idea applied at paragraph grain, used for *boundary
-  placement only*). An early edit then perturbs packing only until the next anchor instead of
-  cascading to the section end. Load-bearing for sectionless documents (the synthetic-root
-  case), where sections provide no containment.
+- **Anchor-stabilized boundaries** (amendment A2) — the algorithm is bound; only its numbers
+  are spikes (Codex review F15). **Anchor predicate**: block `b` is an anchor iff
+  `uint64(block_hash) mod M == 0` *and* ≥ `min_gap` tokens accumulated since the last anchor
+  (suppresses clusters); `M` targets a mean spacing of a few chunk budgets. **Packing**:
+  semchunk packs to budget as usual, but a chunk boundary is *forced* before every anchor —
+  packing after an anchor is independent of everything before it, so an early edit perturbs
+  boundaries only to the next anchor. **Sparse anchors** (> `max_gap` tokens without one):
+  budget-only packing in that stretch — graceful degradation to plain semchunk, worst case is
+  today's behavior. **Dense anchors**: `min_gap` caps forced boundaries so no chunk is
+  pathologically small. Oversized atomic blocks are their own chunks regardless of anchors.
+  Parameters (`M`, `min_gap`, `max_gap`, budget) live in `chunker_version`; their *values* are
+  spike 3. Load-bearing for sectionless documents (the synthetic-root case), where sections
+  provide no containment.
 - **Determinism:** chunks = f(blocks, sections, budget, anchors, `chunker_version`) — a
   chunker bump is a cheap repack of existing atoms (no re-conversion, no re-blockize), though
   it does re-key reuse (a deliberate version boundary, like any D7 version bump).
@@ -216,8 +245,10 @@ written to branch cleanly rather than block:
   LLM call at corpus scale and re-weighting the dilution math in chunks' favor.
 
 Everything else in this design (blocks, sections, packing, reuse, claims-as-needle-index) is
-invariant across the branch. The decision is the single biggest remaining cost lever (F8) and
-is deliberately *not* made here.
+invariant across the branch. **Both operating modes are fully designed here — this is a
+branch, not a gap**; the model choice itself is an open decision tracked in `questions.md` #3
+(the single biggest remaining cost lever, F8), and whichever way it lands, the corresponding
+mode above binds with no further design work.
 
 ## 6. Extraction batching — decoupling cost from granularity (D58)
 
@@ -225,9 +256,15 @@ Chunk *granularity* and E2 *call count* are decoupled: E2 **batches a section's 
 chunks into one call** where budget allows — the bundle (header, section path, neighbors) is
 shared per call, and claims still anchor per-chunk via their source spans. Extraction cost
 then scales with *tokens*, not chunk count, freeing chunk size to be chosen for
-embedding/passage quality alone (§5). Batch size is a spike; the batching is an
-implementation knob, not an identity change (idempotency keys stay per-chunk —
-`extraction_input_hash`, §7).
+embedding/passage quality alone (§5). **Batching preserves D31's structure and the ledger
+discipline** (refines D31; Codex review F9): the *two-call shape* (Selection, then the fused
+decontextualize + decompose + ground call) applies to the batch window exactly as to a single
+chunk — the window is the extraction unit, the calls are still two; and bookkeeping stays
+per-chunk — the batch computes once, then **commits per-chunk `processing_state` rows** (each
+chunk's `extraction_input_hash` marks done/failed independently, so a retry re-runs only the
+incomplete chunks) and allocates `cost_ledger` spend pro-rata by chunk tokens, batch id in the
+call context. Batch size is a spike; batching is an implementation knob, never an identity
+change.
 
 ## 7. Reuse mechanics (D56 bound here; amendments A1–A3)
 
@@ -244,9 +281,14 @@ The lifecycle design owns the *contract* (cost ∝ the edit); this section owns 
   structure/summaries. This is D7's replay-not-recall discipline applied to versioning.
   Consequently the **reuse key contains only stable components**:
   `extraction_input_hash = hash(own block hashes + neighbor block hashes + stable header
-  facts + extractor_version)` — **no LLM output participates in the key** (refines D56's
-  original sketch, which had let the section path and prefix in — a key no re-run would ever
-  match, the ~0 %-reuse hazard named in the stress test).
+  facts + extractor_version + structurer_version)` — **no LLM *output* participates in the
+  key** (refines D56's original sketch, which had let the section path and prefix in — a key
+  no re-run would ever match, the ~0 %-reuse hazard named in the stress test). Including
+  `structurer_version` — a stable config string, not LLM output — closes the context-drift
+  gap (Codex review F10): within a lineage, carried-forward structure *is* the binding context
+  of reused claims, so section roles cannot drift under them silently; and a **deliberate
+  structurer bump** (which may reclassify sections — a `body` → `references` role change
+  alters what Selection keeps) is a re-extraction boundary by key construction.
 - A chunk whose *neighbors* changed re-extracts even though its own text didn't (the bundle
   changed → the input hash changed) — correct by construction.
 

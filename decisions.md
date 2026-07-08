@@ -622,6 +622,12 @@ loop is not used at scale.
 it is the highest-leverage stage and carries the opposite instruction to decontextualization. Design +
 worked example: `plan/designs/e2_e3_claims_relations_design.md`. (C1–C8.)
 
+**Refined by D58 (batched extraction).** The two-call shape applies to a **batch window** (a
+section's contiguous chunks in one call pair) exactly as to a single chunk — the window is the
+extraction unit, the calls are still two; bookkeeping stays per-chunk (per-chunk
+`processing_state` commits keyed by `extraction_input_hash`; `cost_ledger` allocated pro-rata).
+`e1_chunks_design.md` §6.
+
 ## D32. Claim grounding is layered and dual-field, not verbatim-substring
 
 **Decision.** A claim stores both a standalone `claim_text` and a verbatim `source_span` + character
@@ -1316,7 +1322,7 @@ sources — never claim rows, extractor generations, source versions, or poll cy
 divergent mechanism (a reified evidence-basis layer with a cross-generation assertion matcher)
 was **rejected** — the matcher is the riskiest component in either proposal and every consumer
 is servable from coordinates the pipeline already records; it remains the documented
-escalation path in exact-key mode only (SYNTHESIS §2; design §9).
+documented alternative in exact-key mode only, adopted only on measured insufficiency (SYNTHESIS §2; design §9).
 
 **Consequences.** Counts become comparable across facts again and mean what consumers always
 assumed. Fail-safe direction preserved: withdrawn support flags, never silent vanishing (the
@@ -1371,7 +1377,9 @@ identity rules per source kind are a named spike.
 **Decision.** Extraction and embedding work is keyed by **content, not by document version**:
 E2 idempotency keys on the **`extraction_input_hash`** — a fingerprint of **stable components
 only**: the chunk's own block hashes + neighbor-chunk block hashes + stable header facts + the
-extractor version. **No LLM output participates in the key** (section path, summaries, and the
+extractor version + the structurer version (a stable config string — so a deliberate structurer
+bump, which can reclassify section roles that Selection depends on, is a re-extraction boundary
+by key construction; Codex review F10). **No LLM output participates in the key** (section path, summaries, and the
 E1 prefix are excluded — non-deterministic across re-runs, they would make the key unmatchable:
 the ~0%-reuse hazard; LLM-derived context is instead **carried forward** for unchanged regions,
 D7 replay discipline — amendment A3). An unchanged chunk reuses its claims (re-attached to the
@@ -1381,15 +1389,17 @@ converter version). Reuse alignment is a **block-hash sequence diff** (A1) with
 anchor-stabilized chunk boundaries (A2) — mechanics bound in `e1_chunks_design.md` §7. Reconciliation (D54) runs once per completed
 basis change and emits **delta-only** K triggers. The efficiency ladder, cheapest exit first:
 connector-metadata no-op → content-object no-op → conversion reuse → chunk-grain extraction
-reuse → delta-only downstream. Per-version chunk rows double as the occurrence record (which
-versions carried a claim — how `claims_as_of` answers over living documents).
+reuse → delta-only downstream. The claim-occurrence record is the **`chunk_claims` map**
+(written on fresh extraction and on reuse — one immutable claim attaches to every
+version-chunk that carried it; exact, never inferred from content-hash joins) — how
+`claims_as_of` answers over living documents.
 
 **Context.** An hourly watcher over an edited corpus must not pay per-version costs
 proportional to document size (a 50-page doc with a two-paragraph edit re-extracts ~2 chunks,
 carries ~148 forward). Extends D12/D25's content-hash idempotency one grain down — same
 principle, finer key. The known boundary (chunk-boundary shift re-hashing unchanged text) is
 bounded by section-aware chunking and measured by the reuse-rate spike; boundary-stabilized
-chunking is the documented next lever.
+chunk packing is bound in `e1_chunks_design.md` §4 (the spike measures its parameters, not whether it exists).
 
 **Consequences.** Chunks gain content/input hashes; E2 workers check the reuse key before
 calling the model; the E2/E3 cost model for watched sources scales with edit volume. Reuse
@@ -1447,7 +1457,8 @@ inflation D54 just killed), bloats P1 with near-duplicates, and its offset-arith
 boundaries destroy D56 reuse; the E2 bundle's ±N neighbors provide cross-boundary context
 explicitly instead. Edge rules: an oversized *atomic* block (a table) becomes its own
 oversized chunk; a pathological giant paragraph falls back to deterministic sentence-splitting.
-`chunk_content_hash = hash(ordered block hashes)`. **Embedding granularity:** the dilution
+`chunk_content_hash = hash(ordered block hashes)`; the reuse key adds `structurer_version`
+(F10) and per-chunk commits under batching (F9). **Embedding granularity:** the dilution
 problem is answered by architecture, not tiny chunks — **claims are the needle index** (P1
 embeds every decontextualized claim; the ideal fine-grain unit by construction), **chunks are
 the passage index** (sized for coherence; BM25 catches verbatim needles; RRF fuses), and

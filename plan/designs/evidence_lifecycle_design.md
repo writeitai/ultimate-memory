@@ -154,10 +154,14 @@ regression dropping facts corpus-wide) before a new extractor ever rolls.
 Runs when a lineage's basis changes, and only on **completion** (a new version's extraction
 finished; a version-bump re-extraction finished — never mid-flight, so there is no window
 where old support is gone and new support hasn't landed; slots into the orchestration lanes'
-completion semantics). One timing rule protects `retract` semantics from **moves**: retraction
-checks evaluate only **after the connector's sync cycle completes**, so a section *moved* to a
-new document within one cycle resolves as a support swap (old lineage withdraws, new lineage
-arrives) — never retract-then-reassert. A cross-cycle move leaves a short, visible,
+completion semantics). One timing rule protects `retract` semantics from **moves**, and it is
+explicit state, not convention (Codex review F8): connector polls run as recorded **sync
+cycles** (`connector_sync_cycles`; each ingested version stamped with its cycle), and
+retraction evaluation runs only as a **cycle-finalization job** — after every lineage the
+cycle observed has completed extraction. A section *moved* to a new document within one cycle
+thus resolves as a support swap (old lineage withdraws, new lineage arrives) — never
+retract-then-reassert; a lineage still extracting at finalization defers its retraction checks
+to the next finalization (recorded grace). A cross-cycle move leaves a short, visible,
 self-healing gap (a named spike, not papered over):
 
 1. **Diff** the lineage's evidence links: facts evidenced under the old basis vs the new.
@@ -206,14 +210,16 @@ the edit, not the document.**
 Honest boundary: chunk-boundary shift. An edit that changes section structure can re-align
 chunk boundaries so unchanged text lands in differently-hashed chunks. Section-aware chunking
 (E1 splits on PageIndex sections) bounds the blast radius to the edited section; the reuse
-hit-rate on real edit patterns is spike 1, and boundary-stabilized chunking (anchoring
-boundaries to section identity rather than offsets) is the documented next lever if hashing
-under-reuses.
+hit-rate on real edit patterns is spike 1, and boundary-stabilized (anchor) packing is **bound in
+`e1_chunks_design.md` §4** — the hit-rate spike measures its parameters, not whether it
+exists.
 
-Per-version chunk rows double as the **occurrence record**: which versions carried a claim is
-derivable from chunk membership (claim ↔ versions whose chunk set contains its chunk hash) —
-which is how `claims_as_of` answers "what did the roster page assert in March?" without any
-additional machinery.
+The **occurrence record is exact** (Codex review F4): a thin `chunk_claims` map links every
+version-chunk to the claims it carries — written on fresh extraction *and* on reuse — so one
+immutable claim attaches to every version that carried it, and duplicate identical chunks
+within one version stay distinguishable. `claims_as_of` ("what did the roster page assert in
+March?"), currency transitions, and the `(lineage, chunk)`-grain K citation keys read this
+map (schema §7).
 
 ## 7. Retrieval and P1 touches
 
@@ -230,14 +236,16 @@ additional machinery.
 
 ## 8. Deletion — three grains
 
-- **Delete a version**: its claims' currency ends (`version_superseded`); the lineage
-  continues; counts recompute; bytes purge if no other version references the content object.
+- **Delete a version**: its claims' currency ends (`version_deleted`) — **the claims
+  themselves are retained** (normal deletion keeps assertion history; only hard-forget scrubs
+  content — Codex review F12); the lineage continues; counts recompute; bytes purge if no
+  other version references the content object.
 - **Delete a lineage**: the existing document cascade (§13 of the schema design), at lineage
   grain — the watched-source equivalent of removing the document.
 - **Hard-forget**: as today (S55 semantics), across all versions of the selected lineage —
   version rows are soft-tombstoned like document rows; the K redaction flow is unchanged.
 
-## 9. The rejected alternative — reified evidence bases (documented escalation path)
+## 9. The rejected alternative — reified evidence bases (a documented alternative)
 
 The Codex parallel analysis proposed a first-class `evidence_bases` identity ("this source,
 this source-local assertion") with the evidence joins re-keyed onto it — which requires a
@@ -247,8 +255,8 @@ riskiest component in either proposal — its author's own top failure modes are
 failures, and a false *split* silently resurrects the very inflation this design kills —
 while every consumer it serves is servable from coordinates the pipeline already records
 (lineage-distinct counting; fact-state K hashing; `(lineage, chunk_content_hash)` citation
-keys; chunk-membership occurrences). **Escalation path, if coordinate keys ever prove
-insufficient** (measured, not assumed): introduce the basis layer in **exact-key mode only**
+keys; chunk-membership occurrences). **Documented alternative, adopted only on measured
+insufficiency of coordinate keys** (never assumed): the basis layer in **exact-key mode only**
 — never semantic matching. What was adopted *from* that proposal: `extraction_input_hash`,
 `content_objects`, the P1 representative policy, and the K fact-state staleness rule.
 
