@@ -338,14 +338,17 @@ are disjoint so they cannot drift); asserted-validity feeds but never overrides 
    extraction; decide partitioning by the same logic as `relation_evidence` (`HASH` by id).
 
 **Out of scope (documented non-goals, not deferrals):** observations do **not** carry a governed
-attribute vocabulary or schema-enforced supersession; they never enter the graph; **qualitative/opinion
-belief** (e.g. sentiment that shifts over time) is a *separate, upstream* question — pure opinion is
-dropped at E2 Selection (D31/D34) before it becomes a claim at all, so it is neither a relation nor an
-observation today; whether to retain it is tracked in `questions.md`, not resolved here.
+attribute vocabulary or schema-enforced supersession; they never enter the graph. **Attributed
+stance is IN scope (D59, resolving the former qualitative-belief question):** "Bob opposes the
+pricing change" is an ordinary observation anchored on Bob — an effective state (a changed mind
+supersedes; "what did Bob think in March?" is an as-of query; conflicting same-time reports
+coexist via `contradiction_group`), on this design's machinery unchanged. *Unattributed*
+opinion remains dropped at E2 Selection (D31/D34/D59) and becomes neither a relation nor an
+observation.
 
 ## References
 
 Decision: `decisions.md` D43 (and D2, D3, D4, D5, D6, D8, D18, D41). Schema:
 `postgres_schema_design.md` §9.A (`observations`/`observation_evidence`/`observation_adjudications`).
 Normalization: `e2_e3_claims_relations_design.md` §5. Explainer: `plan/analysis/concepts.md`. Open
-items (qualitative/opinion belief; the E2/E3 eval harness): `questions.md`.
+items (the E2/E3 eval harness): `questions.md`. Attributed stance: D59.

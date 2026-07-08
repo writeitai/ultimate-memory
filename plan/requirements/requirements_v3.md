@@ -38,10 +38,12 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   context and trace back to the exact source document and position.
 - **E2 — Claims** *(formerly L2)*: atomic, **verifiable** natural-language assertions,
   temporally classified; immutable and append-only; provenance always attached; entity
-  mentions resolved to canonical entities. Non-verifiable material (opinion, advice,
-  hypotheticals) is dropped at extraction-time Selection with an auditable ledger (D31/D34) —
-  there is no fact/opinion/prediction claim typing; whether *attributed* stance ("X believes
-  Y") should be retained is the open qualitative-belief question (`questions.md`).
+  mentions resolved to canonical entities. Non-verifiable material (unattributed opinion,
+  advice, hypotheticals) is dropped at extraction-time Selection with an auditable ledger
+  (D31/D34) — there is no fact/opinion/prediction claim typing. **Attributed stance is
+  retained (D59)**: "X believes/said/opposes Y" is a verifiable proposition about X, kept and
+  normalized to a stance observation on the holder — so "what does X think about Y, and did it
+  change?" is answerable memory content.
 - **E3 — Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
   many-to-many evidence links between claims and relations; the unit of supersession and
   contradiction.

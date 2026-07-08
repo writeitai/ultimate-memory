@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D58).
+- **`decisions.md`** — what *is* decided (D1–D59).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -147,6 +147,11 @@ Keep this current: when something here is decided, move it to a decision and pru
     in the flow.
 
 ## Resolved since the last version of this file (moved to decisions)
+
+- **The attributed-stance / qualitative-belief fork** (review F2; blocked scenario S37) →
+  **D59**: attributed stance is a Selection keep class, normalized to holder-anchored
+  observations (ordinary D43 machinery — changed minds are supersession); unattributed opinion
+  still drops; surfaced distributions recorded as the documented alternative.
 
 - **Re-extraction evidence inflation (review F3) + document versioning for watched sources**
   → **D54–D56** + `plan/designs/evidence_lifecycle_design.md` (testimony currency; evidence_count

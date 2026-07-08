@@ -141,10 +141,12 @@ masquerade as the other (requirements §Retrieval, D41).
 - **S36** "What did Alice say about the migration timeline, in order?"
   Path: attributed claims (speaker mention → Alice) ordered by `asserted_at`; evidence grain,
   labeled as such.
-- **S37** ⏳ "Who disagreed with the ESB decision?"
-  Depends on the open attributed-stance decision (review F2 / the qualitative-belief fork):
-  today, unattributed opinion is dropped at Selection, and attributed stance has no
-  normalized home. The scenario stands as the acceptance test for whichever resolution lands.
+- **S37** "Who disagreed with the ESB decision?" *(unblocked by D59)*
+  Stresses: stance observations — attributed stances normalize to observations anchored on
+  their holders ("X opposes the ESB decision"), searchable and as-of-queryable like any fact.
+  Path: resolve the decision/topic → semantic match over stance-observation statements →
+  holders; stance changes are ordinary supersession ("who *still* opposed it in May?" =
+  as-of).
 - **S38** *(assistant)* "What did I promise Bob last month?"
   Stresses: D42 `origin` as a query filter (self-generated docs), attribution + time window.
 
@@ -296,7 +298,8 @@ masquerade as the other (requirements §Retrieval, D41).
 3. **Claims never answer "is it true now"** (S4/S11) — the recipe registry bars it (D41).
 4. **Corpus-wide open-ended synthesis** ("what's interesting in the corpus?") is the K plane's
    compile-time job, not a query — the query surface serves what K precomputed (S31–S33).
-5. **Anything requiring the attributed-stance resolution** (S37) is ⏳ until that decision lands.
+5. ~~Attributed-stance dependency~~ **resolved (D59)** — attributed stances are kept and
+   normalized to holder-anchored observations; S37 is a live scenario.
 6. **Content-level authorization / per-user scoping** (S54) — a library non-goal: one trust
    domain per deployment; isolation = separate deployments; perimeter auth = deployment
    infrastructure (retrieval_design §9).
