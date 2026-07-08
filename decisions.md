@@ -1341,22 +1341,25 @@ deduplicated **content objects** (bytes stored/converted once per `content_hash`
 lineages). Each lineage has a **`versioning_mode`**: **`snapshot`** (fail-safe default — every
 version is independent dated testimony forever; right for versioned archival sources) or
 **`living`** (the current version is the source's standing statement; superseded-version-only
-claims lose currency per D54). **Absence is never *silent* retraction** — and living lineages
-carry a **`removal_semantics` dial** (**`retract` — the default** | `review` — the opt-out;
-stress-test amendment O-B, default flipped on user review): under `retract`, removal of a
+claims lose currency per D54). **Absence is never *silent* retraction — in `living` mode,
+removal retracts** (stress-test amendment O-B; the interim `removal_semantics: review`
+softener was **removed** on user review — a documented alternative, not a dial): removal of a
 fact's **sole current support** adjudicates the fact closed, **per shape** — relations and
 effective-state observations get `valid_until` capped at the version's `source_modified_at`;
 measurement/fixed-period observations get `invalidated_at` instead (capping valid-time would
 violate D43's no-cap rule — the figure stays true *of its period*; what ends is our belief) —
 both recorded as `retracted_source_removal`: loud, attributed, reversible; with other current
-support, decrement only. Rationale for the default: `living` *declares* the current version
-the source's standing statement — serving a fact whose only support left that statement, while
-a review queue waits, is the zombie-fact failure; wrong retracts are visible and self-healing.
-Under `review` (explicit opt-out, for messy collaborative living docs where deletion is
-tidying), removal only withdraws support and flags `support_withdrawn`. Retraction checks
-evaluate **after the connector's sync cycle completes**, so an intra-cycle section *move*
-resolves as a support swap, never retract-then-reassert. A source also always retracts by
-asserting a retraction — itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
+support, decrement only. Rationale: `living` *declares* the current version the source's
+standing statement — serving a fact whose only support left that statement, while a review
+queue waits, is the zombie-fact failure; wrong retracts are visible and self-healing. Every
+source class the softener seemed to serve is served by the modes themselves (rolling logs are
+misclassified snapshots; a messy living doc's sole-supported facts deserve to end); its re-add
+condition — a measured source class with unacceptable false-retract rate that snapshot cannot
+serve — is recorded in the design. The `support_withdrawn` review flag survives independently
+as the *re-extraction* zero-support path (D54). Retraction checks evaluate **after the
+connector's sync cycle completes**, so an intra-cycle section *move* resolves as a support
+swap, never retract-then-reassert. A source also always retracts by asserting a retraction —
+itself a claim. Changed content is **new testimony** through ordinary E2→E3 (supersession
 where it conflicts — D3/D4/D43 unchanged). Watched-source ingestion debounces (a stability
 window coalesces rapid edits; unchanged revision/etag and unchanged bytes are no-ops).
 Deletion gains a grain: delete a version (currency ends; lineage continues) / delete a lineage

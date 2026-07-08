@@ -169,11 +169,6 @@ CREATE TYPE document_origin        AS ENUM ('external','system_generated');  -- 
 -- D55 lineage semantics: snapshot = every version is independent dated testimony forever;
 -- living = the current version is the source's standing statement (currency follows it, D54):
 CREATE TYPE versioning_mode        AS ENUM ('snapshot','living');
--- D55 removal semantics for living lineages (O-B; default = retract): retract = sole-support
--- removal adjudicates the fact closed, per shape (states: cap valid_until; measurements:
--- invalidated_at — the D43 no-cap rule), recorded as 'retracted_source_removal'; review =
--- the explicit opt-out for noisy collaborative docs (withdraw support + flag only):
-CREATE TYPE removal_semantics      AS ENUM ('retract','review');
 -- D54 testimony-currency transitions (append-only ledger; bookkeeping, never validity):
 CREATE TYPE currency_reason        AS ENUM ('reextracted','version_superseded','version_deleted');
 CREATE TYPE section_role           AS ENUM ('body','abstract','introduction','results','methods','discussion','conclusion','references','appendix','table','figure_caption','nav','boilerplate','legal');
@@ -192,9 +187,11 @@ CREATE TYPE selection_drop_reason  AS ENUM ('opinion','advice','hypothetical','g
 CREATE TYPE evidence_stance        AS ENUM ('supports','contradicts');
 CREATE TYPE relation_status        AS ENUM ('active','invalidated');  -- generated mirror of invalidated_at; retirement (zero-evidence GC, §13) = setting invalidated_at
 CREATE TYPE adjudication_outcome   AS ENUM ('add','noop','supersede','contradict','same_as_merge_proposal','retracted_source_removal');
--- 'retracted_source_removal' = D55 retract semantics (the living default): a living lineage
--- removed a fact's sole current support → adjudicated closed per shape (states: valid_until
--- cap; measurements: invalidated_at — D43 no-cap rule); the adjudication row is the audit record.
+-- 'retracted_source_removal' = D55: a LIVING lineage removed a fact's sole current support →
+-- adjudicated closed per shape (states: valid_until cap; measurements: invalidated_at — the
+-- D43 no-cap rule); the adjudication row is the audit record. (There is no removal-side
+-- 'review' softener — removed as a documented alternative; support_withdrawn remains the
+-- RE-EXTRACTION zero-support flag, D54.)
 CREATE TYPE adjudication_method    AS ENUM ('novelty_gate','exact','fuzzy','embedding','small_model','frontier_llm');
 
 CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs');
@@ -870,7 +867,6 @@ CREATE TABLE documents (
   source_ref      text,                        -- connector-native stable ID (Drive file ID, message ID); NULL only for kinds without one (one-shot uploads)
   source_uri      text,                        -- original location, if any
   versioning_mode versioning_mode NOT NULL DEFAULT 'snapshot', -- D55: snapshot (fail-safe) | living (currency follows the current version, D54)
-  removal_semantics removal_semantics NOT NULL DEFAULT 'retract', -- D55 (living lineages): retract (default) | review (opt-out) — see enum comment
   origin          document_origin NOT NULL DEFAULT 'external', -- D42: external | system_generated — stamped at ingest, per lineage
   current_version_id uuid,                     -- → document_versions; the lineage's current snapshot (real FK added after that table)
   document_entity_id uuid,                      -- OPTIONAL bridge to the Document-typed entity (see note below); composite FK
@@ -966,7 +962,7 @@ CREATE TABLE connector_sync_cycles (
   finalized_at    timestamptz                  -- retraction evaluation ran (only after completed_at)
 );
 COMMENT ON TABLE connector_sync_cycles IS
-  'D55 retract-timing barrier: retraction (removal_semantics=retract) evaluates only at cycle finalization, after every lineage the cycle observed finished extraction — an intra-cycle move is a support swap, never a retract flicker. document_versions.sync_cycle_id stamps membership.';
+  'D55 retract-timing barrier: living-mode retraction evaluates only at cycle finalization, after every lineage the cycle observed finished extraction — an intra-cycle move is a support swap, never a retract flicker. document_versions.sync_cycle_id stamps membership.';
 ```
 
 > **Document ↔ entity bridge (D18, Codex review).** D18 makes `Document ⊂ CreativeWork` a core
@@ -2306,7 +2302,7 @@ Labs."*
 | D50 zero-LLM primitives; recipes as registry data | `retrieval_recipes` (§11.A) + `recipe_output_grain`/`recipe_answer_intent` enums; the grain-bar CHECK |
 | D51 filesystem-first mounts + consumption skill | `deployments.raw_bucket`/`content_objects.raw_uri` comments (raw mounted off-path, D37 refined); the skill is a shipped versioned artifact, not schema |
 | D54 testimony currency + counting rule | `testimony_currency_events` (partitioned ledger + reconciliation idempotency key) + `claims.is_current_testimony` (cache); `evidence_count`/`contradict_count` redefined (distinct current lineages — write-once `doc_id` on evidence rows makes the recount single-table); `review_item_kind = 'support_withdrawn'` |
-| D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, `removal_semantics`, three-column current-version FK), `document_versions` (append-only; `source_modified_at` → `asserted_at`; `sync_cycle_id`), `content_objects`; `connector_sync_cycles` (the retract barrier); `adjudication_outcome='retracted_source_removal'` |
+| D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, three-column current-version FK), `document_versions` (append-only; `source_modified_at` → `asserted_at`; `sync_cycle_id`), `content_objects`; `connector_sync_cycles` (the retract barrier); `adjudication_outcome='retracted_source_removal'` (living removal retracts — no review softener) |
 | D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); `chunk_claims` — the exact claim-occurrence map (fresh + reused attachments) |
 | D57 block substrate + blockizer; sections on the grid | `document_versions.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |

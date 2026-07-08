@@ -6,7 +6,10 @@ genuine under-specification (accepted, amended), one exposed a wrong blanket rul
 amended), one is handled by the existing architecture (explained, with one real interaction
 caught). This file records the full reasoning so the amendments don't ride on chat memory.
 
-**Status: all amendments BOUND.** O-A (A1–A3) → `e1_chunks_design.md` §2/§4/§7 + D57–D58 +
+**Status: all amendments BOUND** *(with two follow-up rounds recorded in D55/PR #31: the
+`review|retract` dial's default flipped to `retract` on user review, and the `review` softener
+was then **removed entirely** — living removal retracts; the O-B text below is the historical
+record of the amendment as first accepted)*. O-A (A1–A3) → `e1_chunks_design.md` §2/§4/§7 + D57–D58 +
 the D56 key correction; O-B (`removal_semantics`) → `evidence_lifecycle_design.md` §2 + D55;
 O-C's timing rule → `evidence_lifecycle_design.md` §5. This file remains the record of the
 reasoning.

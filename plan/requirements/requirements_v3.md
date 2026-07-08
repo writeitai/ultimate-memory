@@ -28,8 +28,8 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   **new version of the same logical document** (identity survives edits and renames), with
   prior versions preserved as dated testimony. Per-source semantics distinguish **archival**
   documents (every version stays independent testimony) from **living** documents (the latest
-  version is the source's standing statement) — including whether removal of content may
-  withdraw or retract derived beliefs (never silently). Confidence signals count **distinct
+  version is the source's standing statement, and removing content **retracts** beliefs it
+  solely supported — recorded and reversible, never silent). Confidence signals count **distinct
   sources**, never versions, re-processings, or repetition. Re-ingesting an edited document
   must cost **proportional to the edit, not the document**.
 - **E1 — Chunks** *(formerly L1)*: retrieval-sized units that preserve their surrounding
