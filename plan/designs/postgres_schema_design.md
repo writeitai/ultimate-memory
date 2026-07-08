@@ -953,8 +953,9 @@ ALTER TABLE documents ADD FOREIGN KEY (deployment_id, doc_id, current_version_id
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- connector_sync_cycles — the D55 retract-timing barrier (Codex review F8). A watched
--- connector's poll cycle is explicit state: retraction evaluation (removal_semantics='retract')
--- runs ONLY as a cycle-finalization job after every lineage observed in the cycle has completed
+-- connector's poll cycle is explicit state: living-mode retraction evaluation (D55 — all
+-- removals retract; the 'review' softener was removed, lifecycle §2) runs ONLY as a
+-- cycle-finalization job after every lineage observed in the cycle has completed
 -- extraction — so an intra-cycle section MOVE resolves as a support swap, never
 -- retract-then-reassert. Lineages still extracting at finalization defer their retraction checks
 -- to the next finalization (grace, recorded).
