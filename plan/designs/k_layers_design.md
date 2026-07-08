@@ -47,7 +47,8 @@ extraction has its decision ledger, adjudication its transcript, resolution its 
 decisions. Plane K was the last LLM stage whose decisions evaporated when the session ended.)
 
 What is **not** deterministic — deliberately — is the content. Writers have full creative
-latitude (and may be full agent sessions with retrieval tools, §7). Determinism lives only in
+latitude (and may be full agent sessions — a stock harness with default tools over the
+mounted memory + CLI, §7). Determinism lives only in
 *triggering* (what is stale), *routing* (which page gets what evidence), and *bookkeeping*
 (what fed what).
 
@@ -589,17 +590,63 @@ answer it:
   cross-child insight ("three modules all depend on the same legacy table") lives at the level
   that can see across, and can pull cross-child evidence directly.
 - **Writers may be agents — the rule is a completeness floor, not a ceiling.** Nothing
-  restricts a writer to its pre-hydrated bundle: for high-stakes scopes the writer is a full
-  agent session (Codex/OpenCode) with retrieval tools over the memory. The rule guarantees the
-  *floor* — every matching evidence item verifiably reached the compile (candidate set
-  recorded, uncited items counted) — and citations record everything used, floor or beyond.
-  The contract is only: one owner per page, recorded inputs.
+  restricts a writer to its pre-hydrated bundle: for high-stakes scopes the writer explores
+  the memory freely (a stock harness session — see "The writer runtime" below). The rule
+  guarantees the *floor* — every matching evidence item verifiably reached the compile
+  (candidate set recorded, uncited items counted) — and citations record everything used,
+  floor or beyond. The contract is only: one owner per page, recorded inputs.
 - **The reflection pass.** A periodic LLM job reads across the compiled tree plus health
   metrics (orphan volume, staleness distribution, page sizes, uncited-candidate rates,
   navigation dead-ends) and proposes structural changes — repo-wide noticing, landing as
   recorded `knowledge_plan_decisions` instead of anonymous edits. It should run as a
   **different agent/model than the planner** — fresh eyes challenging the tree, not the
   proposer grading its own work.
+
+### The writer runtime — a stock harness, default tools, validated at the boundary
+
+The writer runtime is deliberately simple: **a stock Codex/OpenCode session with its default
+tools** — shell, file reads, file writes — and **no custom tool integration, no instrumented
+retrieval layer**. This works because consumption is already harness-shaped (D51): the
+memory's read surfaces are the read-only mounts (P3 tree, artifacts, K checkout) and the
+memory CLI, both reachable from a default shell; the consumption skill teaches them; and
+every reachable object carries its evidence ID (stub frontmatter, CLI results — a D50
+requirement), so citing is *copying an ID it already has*, never reconstructing one.
+
+**One runtime, a policy knob.** The driver always prepares the same per-page working
+directory — `bundle/` (the pre-hydrated rule-matched candidate evidence, IDs inline), the
+curation sidecar, child page summaries, the scope's shared model page, the previous page
+version, and instructions rendered from the registry (the D15 pattern) — and always launches
+one session in it. "Bundle mode" vs "agent mode" is an instruction + model-tier choice per
+page, not two runtimes: a leaf entity page gets *"compile from `bundle/` only"* and a small
+model; a high-stakes scope page gets *"explore the memory freely"* and a frontier model.
+(Fact-sheet-only pages skip the writer entirely — §5.)
+
+**The contract is enforced at the boundary, not inside the session:**
+
+- **Write surface.** The driver consumes only the declared outputs — the page body, the
+  citations with roles, the page summary, optional suggestions — as files in the working
+  directory; anything else the session wrote is discarded. "One page per writer" is enforced
+  by *what the driver commits*, not by restricting the agent's editor.
+- **No internet.** The sandbox has no network beyond the memory surfaces: a page must never
+  smuggle un-ingested evidence past the spine (the §9 promotion loop is the door for new
+  content, D42-stamped).
+- **Read-only memory.** The mounts and CLI are read-only (D9 — reads never trigger).
+- **Budget and timeout per invocation**, metered to `cost_ledger` like every worker (D12).
+
+**Why un-instrumented reads are safe — validation lives on outputs, where it already was.**
+The completeness floor is computed by the driver independently of the writer's behavior
+(candidate set recorded, uncited candidates counted); citations are validated mechanically
+(IDs must exist, excluded IDs rejected); faithfulness is a sampled audit by a different model
+family (D53). An instrumented tool layer would add a log of what was *seen* — but a writer
+can mis-cite even with logged reads, so the audit is required either way; the instrumentation
+buys almost nothing and costs a custom tool stack to build, version, and keep in lockstep
+with the harness.
+
+**The session transcript is the residual audit log.** Harness sessions produce transcripts
+for free; the driver archives each writer session's transcript (GCS) and stamps
+`session_transcript_uri` on the compile row (`knowledge_compilations`, schema §11). "What did
+the writer actually look at beyond the bundle?" stays answerable after the fact — the D33
+spirit, at zero instrumentation cost.
 
 **Review without a human in the loop.** The design's gates — the blast-radius review band,
 `authored_review` flags, quarantine triage, handover confirmation — require an **accountable

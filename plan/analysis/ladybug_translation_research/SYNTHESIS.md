@@ -307,14 +307,19 @@ switched only via `CREATE GRAPH` / `USE GRAPH`. Also `PROJECT_GRAPH_CYPHER` take
 *(This refines D10 / `ladybug_capabilities.md` §4, which overstated "as-of traversal via projected graphs"
 — that mechanism works for **algorithms**, not for path `MATCH`.)* So as-of has two working shapes:
 
-**(a) Inline path-predicate filtering** — the correctness baseline; one statement, no projection:
+**(a) Inline recursive-pattern predicate** — the correctness baseline; one statement, no projection.
+*(Corrected 2026-07 — the original example here used the outer `WHERE all(r IN rels(p) …)` form, which
+is applied AFTER matching and is a correctness bug when combined with `SHORTEST`; the predicate must be
+written inside the recursive pattern, where it is evaluated per edge during traversal. Full source-level
+investigation + the query rulebook: `../ladybug_query_semantics.md`.)*
 ```cypher
-MATCH p = (a:Entity {id:$focal})-[rs:RELATES* SHORTEST 1..3]-(b:Entity)
-WHERE all(r IN rels(p) WHERE
+MATCH p = (a:Entity {id:$focal})
+    -[rs:RELATES* SHORTEST 1..3 (r, _ | WHERE
         r.ingested_at <= $as_of
     AND (r.invalidated_at IS NULL OR r.invalidated_at > $as_of)   -- transaction-time
     AND (r.valid_from  IS NULL OR r.valid_from  <= $as_of)
-    AND (r.valid_until IS NULL OR r.valid_until >  $as_of))       -- valid-time
+    AND (r.valid_until IS NULL OR r.valid_until >  $as_of))]-     -- valid-time
+    (b:Entity)
 RETURN p;
 ```
 **(b) Materialized as-of graph** — for heavy/repeated as-of analytics: build a persistent graph at
@@ -378,9 +383,14 @@ fact (valid_until set, invalidated_at NULL) is still current.
    endpoint → exactly one non-merged emitted survivor, else abort). Verify the recursive CTE terminates
    on the real data.
 4. **As-of mechanism** — RESOLVED: `MATCH` over a projected graph is **unsupported** (projections feed
-   GDS only; `PROJECT_GRAPH_CYPHER` is `(STRING,STRING)`). As-of correctness = inline path-predicate
-   filtering (§4a); heavy/repeat = materialized persistent `CREATE GRAPH`/`USE GRAPH` (§4b). Spike the
-   *performance* of inline multi-hop path filtering at scale (it can't push the predicate into traversal).
+   GDS only; `PROJECT_GRAPH_CYPHER` is `(STRING,STRING)`). As-of correctness = the inline
+   recursive-pattern predicate (§4a); heavy/repeat = materialized persistent `CREATE GRAPH`/`USE GRAPH`
+   (§4b). *(Corrected 2026-07: this spike originally said inline filtering "can't push the predicate
+   into traversal" — wrong for the inline `(r, _ | WHERE …)` form, which IS evaluated per edge during
+   the neighbor scan (`on_disk_graph.cpp:308`); only the outer `all(r IN rels(p) …)` form is post-hoc,
+   and that form must never be combined with `SHORTEST`. See `../ladybug_query_semantics.md`.)* Spike
+   re-aimed: measure per-edge evaluator cost of the inline form at corpus scale, and verify parameter
+   binding inside inline predicates (untested upstream).
 5. **NULL `TIMESTAMP` through the Parquet round-trip** — the `IS NULL OR …` guards assume SQL 3-valued
    logic; affects both as-of and the current-belief default.
 6. **Attach scan throughput at 10⁷–10⁸** — gates ATTACH-direct vs the committed Parquet baseline.

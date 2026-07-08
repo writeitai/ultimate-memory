@@ -105,7 +105,8 @@ documents ─< chunks                    entities ──< entity_aliases
 
 Each stage is a Cloud Run worker triggered via Cloud Tasks; each completion enqueues the next
 stage for that document. All workers idempotent (content hash + processing version), max 2
-retries then dead-letter into Postgres.
+retries then dead-letter into Postgres. (Queue topology, steady-state vs backfill lanes,
+budget enforcement, and DLQ operations: `orchestration_design.md`, D52–D53.)
 
 1. **E0** (document layer, a chain of idempotent sub-workers — D36; design: `e0_files_design.md`):
    **ingest** (store raw to GCS + `content_hash`) → **convert** (raw → Markdown via the configurable
@@ -233,6 +234,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
 | `retrieval_design.md` | the query machine: primitives, recipes, envelope, mounts, skill (D48–D51) | **current** |
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
+| `orchestration_design.md` | worker runtime: queue topology, lanes, backfill seeding, budget enforcement, DLQ operations (D52–D53) | **current** |
 | `evidence_lifecycle_design.md` | document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) | **current** |
 
 ## 10. Open questions

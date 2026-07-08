@@ -1280,6 +1280,54 @@ with a different trust boundary belongs in a separate deployment, never behind a
 filter. The skill joins the eval surface (S58). Requirements §Retrieval is reframed around
 harness-first consumption.
 
+## D52. Execution classes are bound — no agent harness on volume or query paths; every LLM worker carries a ledger
+
+**Decision.** Every worker in the system is one of three execution classes (inventory +
+per-worker contracts: `plan/analysis/workers.md`): **deterministic** (pure computation; may
+invoke non-generative inference such as embeddings or OCR), **programmatic LLM** (fixed-shape,
+schema-constrained calls inside a cheap-first cascade — spend scales with ambiguity, never
+volume, D4/D17), or **agent harness** (a Claude Code / Codex / OpenCode tool-loop session with
+a declared write surface it may not exceed). Two bindings: (1) an agent harness may exist
+**only on plane K and the review/audit seats** — never on a per-document, per-claim, or query
+path (D9's zero-LLM query rule, generalized to the write side); (2) **any worker that gains an
+LLM call gains an append-only transcript with it** — the D33 ledger discipline as a standing
+rule for new workers, not a per-design choice.
+
+**Context.** Compiling the worker inventory showed the discipline already holds everywhere
+without being stated: the three load-bearing LLM workers (the extractor, the adjudicator pair,
+the K writers) are exactly the three with transcript tables (`claim_extraction_decisions`,
+`*_adjudications`, `knowledge_compilations`), and the harness surface is exactly plane K plus
+review. A harness on a volume path would be unrecorded per-item improvisation at corpus scale —
+the same failure D45 rejected for K routing — and cost/latency with no compensating judgment
+gain.
+
+**Consequences.** New workers classify before they are built; a proposed harness anywhere
+outside plane K / review must argue against this decision, not drift in. The orchestration
+design (`plan/designs/orchestration_design.md`) operationalizes the classes (queues, lanes,
+budgets, DLQ); the schema's `pipeline_stage` / `pipeline_component` / `processing_target`
+enums carry a value for every worker (schema §1).
+
+## D53. Producer/checker separation across model families
+
+**Decision.** Every **checking seat** — the sampled grounding judge (D32 layer 4), the
+contradiction and citation-faithfulness evals (D22/O6, k_layers §7), the reviewer agent
+consuming the D24 band and K plan-decision reviews, and the K reflection pass — runs on a
+**different model family than the producer it checks**. With Codex/OpenCode fixed as plane K's
+producer agents (requirements, D45), checker seats default to the **Claude family**; if a
+producer changes family, its checkers move.
+
+**Context.** Already stated for reflection in `k_layers_design.md` §7 ("a different
+agent/model than the planner — fresh eyes"), assumed by D32's "self-grading is optimistic",
+and implicit in D24's review-outside-the-proposing-context. Generalized here because the
+failure mode is uniform: same-family checking correlates blind spots exactly where the design
+depends on independence — a judge sharing the producer's family inherits the producer's biases
+about what looks correct.
+
+**Consequences.** Model assignments in `pipeline_component_versions` make the split auditable
+(producer and checker versions name their models). Applies to every future eval/judge seat by
+default; running a checker in the producer's family is a recorded exception, not a quiet
+config choice.
+
 ---
 
 > **D54–D56 provenance.** D54–D56 formalize the evidence-lifecycle analysis (July 2026) —
