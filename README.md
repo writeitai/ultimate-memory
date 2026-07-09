@@ -1,14 +1,17 @@
 # Ultimate Memory
 
+[![CI](https://github.com/writeitai/ultimate-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/writeitai/ultimate-memory/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/writeitai/ultimate-memory/python-coverage-comment-action-data/endpoint.json)](https://github.com/writeitai/ultimate-memory/tree/python-coverage-comment-action-data)
+
 A memory system for AI agents, designed to ingest **millions** of heterogeneous documents and
 distill them into progressively more abstract, navigable knowledge — while keeping everything
 auditable by humans. Scale is a requirement, not an aspiration: it is meant to still be useful
 at a million documents.
 
-> **⚠️ This repository is in the research and design phase. It contains documents, not code.**
-> There is nothing to build or run yet. What lives here is the thinking — requirements,
-> architecture, research, decisions, and the open questions — that has to be settled *before*
-> implementation. If you're looking for a working library, it isn't here yet.
+> **⚠️ Implementation has just begun; there is nothing usable yet.** The design came first and
+> lives here in full — requirements, architecture, research, decisions, and the open questions.
+> The build follows [plan/plans/roadmap.md](plan/plans/roadmap.md) (phase 0 is under way). If
+> you're looking for a working library, it isn't here yet.
 
 ## TL;DR
 
