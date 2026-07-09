@@ -1,0 +1,24 @@
+schema_version: 1
+id: er_merges_reversible
+type: harness_judge
+description: Entity merges are reversible, append-only adjudications — decisions ledger, pre-merge snapshots, redirect chains; merges are no-ops for the graph because P2 rebuilds.
+tags: [registries, D21]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D21, then inspect the merge/cluster machinery under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. resolution_decisions is append-only with superseded_by chains; merge_events record a
+     pre-merge membership snapshot; entities carry a merged_into redirect (a redirect, not a
+     rewrite — relations are NOT re-pointed in Postgres).
+  2. Un-merge is implementable from stored state alone (snapshot + decisions), and
+     negative/exclusion edges can be recorded.
+  3. Clustering is connected-components-to-gather with a component-size guard, then HAC
+     distance-cut inside blobs — never bare transitive closure; incremental assignment
+     re-clusters only the local neighborhood.
+  4. A generic-identifier guard exists (an alias that suddenly links many entities is
+     down-weighted and re-evaluated).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

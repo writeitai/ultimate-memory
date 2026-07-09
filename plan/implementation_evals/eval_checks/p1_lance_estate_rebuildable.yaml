@@ -1,0 +1,21 @@
+schema_version: 1
+id: p1_lance_estate_rebuildable
+type: harness_judge
+description: P1 is one Lance estate (chunks, claims, relation labels, observation labels) written inline by E workers but fully rebuildable by batch; every embedding stamped with its version.
+tags: [p1, D8, D9, D7]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D8/D9 and overall_design.md §4-5, then inspect the P1 writers and rebuild
+  path under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Lance tables exist for chunks, claims, relation fact-labels (and observation labels), with
+     the scalar columns the recipes filter on.
+  2. E-plane workers write P1 inline as artifacts land, but a batch rebuild path from Postgres
+     exists and is exercised (tests/drills) — P1 carries no authority.
+  3. Every embedded row is stamped with its embedding model/version, and re-embedding by
+     version filter is a supported batch operation (the embedding-migration path).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

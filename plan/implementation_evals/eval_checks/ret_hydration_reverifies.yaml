@@ -1,0 +1,25 @@
+schema_version: 1
+id: ret_hydration_reverifies
+type: harness_judge
+description: Projections propose, the spine disposes — every query-engine result hydrates by-ID against live Postgres; drops are counted; compound results revalidate as units.
+tags: [retrieval, D48]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D48 and plan/designs/retrieval_design.md, then inspect the query engine
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. Every API/CLI/MCP result passes through by-ID hydration against live Postgres before
+     reaching the caller — P1/P2 hits only NOMINATE candidates; validity, invalidation, and
+     contradiction membership are re-read from the spine.
+  2. Candidates the spine no longer holds live are dropped, and the drop count is reported in
+     the response envelope.
+  3. Compound results (e.g. graph paths) revalidate as units: one invalidated edge drops the
+     whole path — it is never returned with a hole or silently re-routed.
+  4. The two exempt surfaces are exactly the designed ones: mounted reads (snapshot semantics +
+     freshness metadata) and K prose (compiled-grain with staleness state) — nothing else skips
+     hydration.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

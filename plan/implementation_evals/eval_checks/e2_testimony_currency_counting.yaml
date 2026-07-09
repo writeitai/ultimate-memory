@@ -1,0 +1,33 @@
+schema_version: 1
+id: e2_testimony_currency_counting
+type: harness_judge
+description: evidence_count means distinct current-testimony lineages per stance — invariant under re-extraction, version churn, and repetition; zero-support handling splits by cause.
+tags: [e2, e3, D54]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D54 and plan/designs/evidence_lifecycle_design.md, then inspect the
+  currency ledger, the count maintenance, and the zero-support paths under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Claims carry testimony currency: current iff they belong to their lineage's current
+     extraction basis; re-extraction flips a superseded generation non-current wholesale by
+     coordinates (no content matching); living-mode version supersession flips claims whose
+     chunks left the current version; snapshot mode flips nothing.
+  2. Currency changes are recorded in an append-only, reason-coded transitions ledger plus a
+     cached flag — and never touch validity (no adjudication, no invalidated_at, claims stay
+     immutable).
+  3. evidence_count/contradict_count on relations AND observations are maintained as: distinct
+     document lineages with current-testimony support, per stance — never claim rows, extractor
+     generations, source versions, or poll cycles.
+  4. Zero-current-support splits by cause: source/curator-driven loss closes solely-supported
+     facts per shape (states: valid_until cap; measurements: invalidated_at) recorded as
+     retracted_source_removal with no flag; processing-driven loss (new extractor generation
+     fails to re-derive from an UNCHANGED file) is flagged support_withdrawn for review — the
+     flag's only trigger — and flagged facts are excluded from K3 eligibility and marked in the
+     retrieval envelope.
+  5. P1's default claim channel indexes current testimony only; an audit channel/opt-in sees
+     all generations.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

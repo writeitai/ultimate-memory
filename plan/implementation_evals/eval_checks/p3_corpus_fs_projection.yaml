@@ -1,0 +1,24 @@
+schema_version: 1
+id: p3_corpus_fs_projection
+type: harness_judge
+description: P3 is a rebuildable corpus-filesystem projection — generated stubs + _index.md/llms.txt, built from Postgres + artifacts; K pages cross-linked, never a structural input; paths anchor on lineages.
+tags: [p3, D40, D55]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D40 (and D55's stability contract) and plan/designs/e0_files_design.md §6
+  plus plan/analysis/p3_agent_navigation.md, then inspect the P3 builder under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The tree is materialized into versioned snapshots with an atomic latest-pointer swap;
+     mounts read latest read-only.
+  2. Leaves are GENERATED stub files with frontmatter (doc_id, artifact_uri, content_hash,
+     pointers) — never symlinks; every level carries a generated _index.md and llms.txt.
+  3. The tree structure is built from Postgres (placement hints + entities/relations) + the
+     GCS artifacts; K pages are cross-linked by reference but are NOT a structural input (P3
+     stays rebuildable from the E spine alone).
+  4. P3 paths and K citations anchor on document LINEAGES (stable across versions/renames), so
+     an edited document keeps its path.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

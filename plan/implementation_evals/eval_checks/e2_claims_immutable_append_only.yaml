@@ -1,0 +1,24 @@
+schema_version: 1
+id: e2_claims_immutable_append_only
+type: harness_judge
+description: Claims are immutable, append-only evidence — no update path, no supersession fields, never invalidated.
+tags: [e2, D2, D3, D54]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D2/D3 (and D54's "currency is bookkeeping, never validity"), then inspect
+  the claims schema/models and every code path that touches claim rows under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Claim rows are never UPDATEd after insert in any semantic field — no code path rewrites
+     claim_text, spans, asserted validity, or timestamps; claims have no superseded_by /
+     invalidated_at / status-with-supersession-semantics columns.
+  2. Supersession and contradiction adjudication write to relations/observations only — no
+     claim is ever "closed" when a fact is superseded.
+  3. The one permitted mutable adjunct is D54 testimony currency: a cached currency flag backed
+     by an append-only, reason-coded transitions ledger — and currency is bookkeeping (search
+     defaults, counting), never validity: transaction-time reconstructions still see old
+     generations.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

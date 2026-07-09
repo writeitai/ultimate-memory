@@ -1,0 +1,27 @@
+schema_version: 1
+id: e0_content_addressed_reuse
+type: harness_judge
+description: Re-ingesting an edited document costs proportional to the edit — extraction/embedding work is keyed by content, with no LLM output in any reuse key.
+tags: [e0, e2, D56]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D56 and plan/designs/evidence_lifecycle_design.md §reuse, then inspect the
+  E2 idempotency keys and the version-diff logic under src/. These are acceptance checks for
+  the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. E2 extraction idempotency keys on an extraction_input_hash built from stable components
+     only: the chunk's own block hashes + neighbor-chunk block hashes + stable header facts +
+     extractor version + structurer version. NO LLM output (section path text, summaries, E1
+     prefix) participates in the key.
+  2. An unchanged chunk reuses its claims — re-attached to the new version's chunk row via the
+     chunk_claims map (written on both fresh extraction and reuse; exact, never inferred from
+     content-hash joins); a chunk whose neighbors changed re-extracts.
+  3. Embeddings key on (chunk content hash, embedding version); conversion artifacts on
+     (content object, converter version).
+  4. The efficiency ladder exists with cheapest exits first: connector-metadata no-op →
+     content-object no-op → conversion reuse → chunk-grain extraction reuse → delta-only
+     downstream triggers.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

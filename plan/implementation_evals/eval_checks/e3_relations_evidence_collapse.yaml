@@ -1,0 +1,21 @@
+schema_version: 1
+id: e3_relations_evidence_collapse
+type: harness_judge
+description: Claims and relations are distinct, joined many-to-many with stance; corpus redundancy collapses into one relation with evidence rows.
+tags: [e3, D2]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D2 and plan/analysis/concepts.md, then inspect the relations and
+  relation_evidence schema and the E3 normalization under src/. These are acceptance checks
+  for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Relations are (subject_entity, predicate, object_entity) rows whose identity is the fact;
+     claims join via relation_evidence(relation_id, claim_id, stance supports|contradicts) —
+     never claim_id stamped on graph edges, never 1:1 claim=relation assumptions.
+  2. A claim can yield 0..n relations; the same fact asserted again links evidence to the
+     EXISTING relation rather than inserting a duplicate relation row.
+  3. Duplicate evidence is idempotent (evidence-once per claim/fact pair).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

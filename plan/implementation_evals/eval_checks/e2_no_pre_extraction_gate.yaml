@@ -1,0 +1,25 @@
+schema_version: 1
+id: e2_no_pre_extraction_gate
+type: harness_judge
+description: There is no pre-extraction value/salience gate — every chunked document is fully extracted; junk control is in-call Selection plus redundancy collapse.
+tags: [e2, D25, D34]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D25/D34 and plan/designs/e2_e3_claims_relations_design.md §4, then inspect
+  the pipeline between chunking and extraction under src/. These are acceptance checks for the
+  FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. No stage between E1 and E2 decides whether a chunk/section/document is "worth" extracting
+     — no salience classifier, no novelty ANN check, no deferred-extraction queue, no
+     gate_decisions-style state.
+  2. Every document that survives chunking is fully extracted; the section role signal is fed
+     INTO the E2 call (Selection drops at proposition grain) rather than used as a binary skip.
+  3. The only permitted deterministic short-circuits are idempotency/reuse keys (content-hash
+     no-ops, D12/D56) — content-based, never value-based.
+  4. If a deterministic role-based section filter exists (the documented D25 add-back), it must
+     be justified in the repo by a measured break-even — absent that evidence, its presence is
+     a violation.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

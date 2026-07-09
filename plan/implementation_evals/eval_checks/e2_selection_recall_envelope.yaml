@@ -1,0 +1,23 @@
+schema_version: 1
+id: e2_selection_recall_envelope
+type: harness_judge
+description: Selection is recall-conservative — KEEP bias, never-drop classes, kept_flagged outcome, per-fact canary CI.
+tags: [e2, D35, D22]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D35, then inspect the Selection prompt/rubric, outcome enum, and eval
+  harness under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The Selection rubric instructs conservative KEEP when unsure, and mixed sentences are
+     REWRITTEN to their verifiable span rather than dropped.
+  2. Never-drop lexical classes are protected regardless of phrasing: quantities, dates,
+     named-entity+predicate statements, change-of-state language.
+  3. A low-confidence kept_flagged outcome exists (mark-for-review, not delete) — Selection
+     never hard-deletes a borderline candidate silently.
+  4. The eval harness plants rare-fact canaries and fails CI if Selection drops one; drop-rate
+     tuning is per-fact, not corpus-average.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

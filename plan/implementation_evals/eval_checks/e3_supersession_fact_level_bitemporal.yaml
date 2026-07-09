@@ -1,0 +1,22 @@
+schema_version: 1
+id: e3_supersession_fact_level_bitemporal
+type: harness_judge
+description: Supersession closes validity windows on relations (and observations) — never on claims; both time axes are queryable.
+tags: [e3, D3, D43]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D3 (and D43), then inspect the supersession write paths and the temporal
+  columns under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Relations and observations carry the bi-temporal quartet: valid_from/valid_until
+     (world time) and ingested_at/invalidated_at (belief time); supersession caps valid_until —
+     it never deletes rows and never touches claims.
+  2. invalidated_at means "we no longer believe this was ever right", distinct from a closed
+     validity window ("it ended"); a superseded row stays active in that sense.
+  3. Both time-travel questions are answerable in the query layer: what was true at T
+     (valid-time) and what did we believe at T (transaction-time).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

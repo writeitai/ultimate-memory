@@ -1,0 +1,21 @@
+schema_version: 1
+id: er_review_queue_cli
+type: harness_judge
+description: Human review is a thin Postgres-backed CLI cluster queue — impact-band routed, hub merges never auto-accepted, verdicts reversible and provenance-stamped; no web UI in the library.
+tags: [registries, D24, D60]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D24 (and D60), then inspect the review tooling under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. A CLI review queue over Postgres exists, reviewing CLUSTERS (not pairwise), routing only
+     the expected_impact = blast_radius x (1 - confidence) middle band to humans.
+  2. High-degree hub merges never auto-accept regardless of confidence.
+  3. Every review action appends a reversible, provenance-stamped record consistent with D21
+     (redirect-preserving; nothing destructive).
+  4. No web review UI ships in this repository (D60: the web UI is the cloud product's
+     surface; the library's review surface is the CLI).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

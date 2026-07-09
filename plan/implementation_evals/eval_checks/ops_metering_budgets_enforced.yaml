@@ -1,0 +1,21 @@
+schema_version: 1
+id: ops_metering_budgets_enforced
+type: harness_judge
+description: Per-layer cost metering exists and budgets are enforced, not advisory — exhaustion blocks/parks work rather than logging a warning.
+tags: [ops, D52, requirements]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read requirements_v3.md §Operational properties (cost discipline) and decisions.md D52, then
+  inspect the cost ledgers and budget checks under src/. These are acceptance checks for the
+  FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every LLM/embedding/OCR call records cost/tokens/model/version into a per-layer ledger in
+     Postgres.
+  2. Budgets are enforced in code: a worker performs a budget preflight, and exhaustion
+     blocks or parks the work (a durable, resumable state) — it does not merely log.
+  3. Spend is attributable per layer/stage/deployment (the metering supports the design's
+     dashboards and the cheap-first verification).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

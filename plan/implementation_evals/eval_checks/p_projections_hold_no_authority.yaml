@@ -1,0 +1,22 @@
+schema_version: 1
+id: p_projections_hold_no_authority
+type: harness_judge
+description: Validity/invalidation state has exactly one home (Postgres); P1/P2/P3 hold derived, rebuildable copies that are never independently mutated.
+tags: [p, D6]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D6, then inspect every write path into Lance, LadybugDB, and the corpus
+  filesystem under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. No code path mutates validity/invalidation/contradiction state in a projection store —
+     Lance/Ladybug/P3 receive filtered copies from Postgres and are never the site of a
+     decision.
+  2. Every projection is deletable and rebuildable from Postgres (+ artifacts) by a tested
+     batch path; nothing in a projection is source-of-truth.
+  3. The graph writer is dumb and deterministic — no adjudication, no supersession logic, no
+     LLM calls inside projection builders.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

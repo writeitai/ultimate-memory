@@ -1,0 +1,30 @@
+schema_version: 1
+id: e3_observations_untyped_adjudicated
+type: harness_judge
+description: Observations are untyped, entity-anchored, bi-temporal facts — no attribute vocabulary or value columns; supersession by exhaustive entity blocking with the no-cap rule and fail-safe coexist.
+tags: [e3, D43]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D43 and plan/designs/observations_design.md, then inspect the observations
+  schema and the add-observation worker under src/. These are acceptance checks for the FINAL
+  system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Observations are anchored to a resolved entity with an NL statement carrying the value and
+     any period; there is NO governed attribute key, NO value_domain/unit_dimension/cardinality,
+     NO structured value or period column, and NO typed exclusion constraint (only FK-to-entity
+     + temporal sanity checks).
+  2. Blocking fetches ALL of the entity's live observations by exact key (exhaustive; indexed);
+     semantic similarity only RANKS candidates for hub entities — it never gates membership.
+  3. The adjudicator outcomes are evidence / supersede / contradict-coexist / new, each gated on
+     a positive same-thing match judged semantically; the no-cap rule holds: only a changing
+     effective state is ever capped; a measurement/fixed-period figure is never capped on
+     valid-time — a conflicting same-period figure coexists with a shared contradiction_group.
+  4. The fail-safe contract is in code: supersede is permitted only above an explicit margin
+     against a positively-matched prior AND writes an observation_adjudications reason row; any
+     incomplete comparison falls to coexist/new — the failure mode is a duplicate row, never a
+     silent overwrite.
+  5. Observations never project to the P2 graph; they are embedded in P1 for retrieval.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

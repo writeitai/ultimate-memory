@@ -1,0 +1,27 @@
+schema_version: 1
+id: e3_predicate_registry_governed
+type: harness_judge
+description: The predicate vocabulary is a governed registry with an other:<freetext> escape and promotion review; domain/range constraints are enforced; time is never a predicate or node.
+tags: [e3, D5, D18, D15]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D5/D15/D18 and plan/designs/registries_design.md, then inspect the
+  predicate registry and extraction constraints under src/. These are acceptance checks for
+  the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. A Postgres predicate registry exists (name, description, synonyms, status, subject/object
+     type constraints); extraction is constrained to it with an other:<freetext> escape; a
+     review path promotes/maps frequent other: values.
+  2. Domain/range constraints are mechanically enforced at normalization (an edge-type-map
+     style check that rejects type-invalid triples).
+  3. The seed core ships as registry CONTENT (schema.org-aligned types + predicates with
+     parent anchoring; user extensions declare a core parent — extend-never-fork), not as DDL
+     or hardcoded enums.
+  4. Time is never represented as a predicate, a Date node, or a relation object — temporal
+     data lives in the bi-temporal columns and claim asserted-validity only.
+  5. Extraction prompts render from the registry (types/predicates/descriptions/examples), so
+     ontology changes are row edits, not prompt engineering.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

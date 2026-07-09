@@ -1,0 +1,22 @@
+schema_version: 1
+id: ret_trust_boundary_no_content_auth
+type: harness_judge
+description: One trust domain per deployment — no content-level authorization or per-user scoping anywhere inside the library; perimeter auth only, via a swappable seam.
+tags: [retrieval, D50, D60, D61]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D50 (trust model) and D60/D61, then inspect the API/mount surfaces under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. No query path, mount builder, or projection filters content by user/role/tenant — a
+     deployment is one trust domain; isolation is deployment separation, never in-library
+     content filtering.
+  2. Perimeter authentication exists as a swappable seam (API-key middleware in the library;
+     replaceable per D61's auth-perimeter port) — and nothing deeper.
+  3. There is no orgs/users/RBAC/SSO machinery in this repository (D60: that is the cloud
+     product).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

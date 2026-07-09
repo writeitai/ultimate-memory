@@ -1,0 +1,25 @@
+schema_version: 1
+id: ops_deletion_cascade_grains
+type: harness_judge
+description: Deletion has grains (version / lineage / hard-forget) and cascades through every derived layer — GCS objects, spine rows, projections, K reach — with facts closed per shape, recorded and reversible.
+tags: [ops, D55, D46, requirements]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read requirements_v3.md §Knowledge lifecycle (deletion cascade), decisions.md D55/D46, and
+  plan/designs/e0_files_design.md §2, then inspect the deletion workers under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Three grains exist: delete a version (currency ends, lineage continues), delete a lineage
+     (full cascade), hard-forget (indistinguishable-from-never-existed semantics).
+  2. Lineage deletion removes raw + artifact objects and spine rows, cascades chunks -> claims
+     -> evidence links; solely-supported facts are closed per shape (states capped,
+     measurements invalidated), recorded and reversible — never silently vanished.
+  3. Projections converge by rebuild (the document simply is not materialized next cycle), and
+     K is reached mechanically via citations: compiled pages recompile without the removed
+     evidence; authored pages get a review flag (never a rewrite).
+  4. A file observed deleted at its source is treated as lineage deletion, stamped with the
+     observing sync cycle.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

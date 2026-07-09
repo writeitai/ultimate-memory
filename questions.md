@@ -172,6 +172,17 @@ Keep this current: when something here is decided, move it to a decision and pru
 29. **E3 claim→predicate mapping is thin.** §5 delegates internals to the registries but doesn't
     specify how the governed predicate is *chosen* from claim text or where domain/range is enforced
     in the flow.
+30. **Requirements temporal-split paragraph predates D43/D49.** `requirements_v3.md` §Retrieval says
+    "All supersession / current-fact validity **lives only on relations**" and cites D3/D6/D41 — but
+    observations carry the same adjudicated validity windows and supersession (D43), and D49's grain
+    discipline assembles current-fact answers from validity-filtered **relations and observations**.
+    Update the paragraph (and its citation list) to name both fact layers. (Found while authoring
+    `plan/implementation_evals/`.)
+31. **Requirements E3 bullet omits observations.** `requirements_v3.md` §Plane E describes E3 as
+    relations only ("distinct facts `(subject, predicate, object)` … the unit of supersession and
+    contradiction") — no mention of observations (D43) or stance observations (D59), though the
+    README's E3 row and the designs treat them as a canonical fact layer. Update the bullet. (Found
+    while authoring `plan/implementation_evals/`.)
 
 ## Resolved since the last version of this file (moved to decisions)
 

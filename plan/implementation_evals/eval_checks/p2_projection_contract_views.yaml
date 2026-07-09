@@ -1,0 +1,30 @@
+schema_version: 1
+id: p2_projection_contract_views
+type: harness_judge
+description: The Postgres->LadybugDB boundary is the v_graph_* views with merge-redirect survivor resolution, keep-retracted windows, preserved parallel edges; observations and claims never project.
+tags: [p2, D44]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D44 and plan/designs/postgres_schema_design.md §10.A, then inspect the
+  projection views and the graph build under src/. These are acceptance checks for the FINAL
+  system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The projection is defined by read-only Postgres views (v_graph_entities, v_graph_documents,
+     v_graph_relates, v_graph_mentioned_in, v_graph_crossref, v_graph_is_document, and a shared
+     v_graph_survivor); mechanical casts (timestamptz -> naive UTC, enums -> text, dropped
+     columns) live in the views — the single auditable boundary.
+  2. Merge-redirect is honored: relation endpoints are recursively resolved through
+     entities.merged_into to the surviving entity, cycle-safe, with a pre-snapshot validation
+     gate that aborts on cycles or dangling endpoints (a naive WHERE status='active' projection
+     is a violation).
+  3. Retracted edges are kept within a retention window (transaction-time as-of), with
+     node/edge retention aligned; parallel edges (distinct relation_id) are preserved — no
+     blind DISTINCT collapse.
+  4. The graph model is one Entity node + one Document node + a generic RELATES table with
+     predicate as a property (+ structural MENTIONED_IN / DOC_CROSSREF / IS_DOCUMENT) — not
+     per-type node tables or per-predicate rel tables; entity IDs stay UUID.
+  5. Observations and claims never project into the graph.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

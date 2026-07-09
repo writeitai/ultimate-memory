@@ -1,0 +1,28 @@
+schema_version: 1
+id: k_planner_writer_driver
+type: harness_judge
+description: Plane K is compiled by planner/writer/driver — mechanical zero-LLM routing, dependency-ordered scheduling, one automated committer, no concurrent sessions.
+tags: [k, D45]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D45 and plan/designs/k_layers_design.md, then inspect the K compile system
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. Three roles exist and are separated: an LLM planner owning structure (pages + routing
+     rules, recorded as append-only knowledge_plan_decisions); LLM writers owning content (one
+     writer per page per cycle); a DETERMINISTIC driver owning staleness computation,
+     dependency-ordered scheduling (scope model page first, children before parents, root index
+     last), output validation, and commits.
+  2. Routing rules are mechanical: a closed kind set (entity, entity_subtree, predicate_beat,
+     community, doc_set, scope_interests, manual) evaluated by SQL over E-plane keys via an
+     inverted key index — NO LLM call decides routing at evidence-arrival time.
+  3. The driver is the repo's ONLY automated committer; there is no in-session merge-conflict
+     retry and no hot-file rolling-window machinery (removed by D45).
+  4. Staleness is computed, never guessed: a page is stale iff its recorded inputs_hash no
+     longer matches — and inputs_hash keys on FACT STATE, never raw claim IDs (D54's
+     stale-storm guard); claim-grain citations key on (lineage, chunk_content_hash).
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,0 +1,23 @@
+schema_version: 1
+id: k_citations_binding
+type: harness_judge
+description: Every K artifact records the evidence it rests on — citations are a binding writer output; uncited candidates are counted.
+tags: [k, D45, D46]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D45/D46 and plan/designs/k_layers_design.md, then inspect the writer
+  output contract and knowledge_artifact_evidence under src/. These are acceptance checks for
+  the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. A writer's output is rejected/invalid without citations; citations are persisted in a
+     knowledge_artifact_evidence table linking artifacts to the evidence IDs they rest on.
+  2. Uncited candidate evidence (routed to the page but not cited) is counted and surfaced —
+     not silently ignored.
+  3. Authored pages declare their citations (and optional watch rules) in frontmatter that the
+     driver syncs to Postgres.
+  4. Deletion reach and staleness for K are computed from these citation records (SQL over
+     recorded inputs), demonstrating the citations are load-bearing, not decorative.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

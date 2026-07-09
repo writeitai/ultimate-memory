@@ -1,0 +1,25 @@
+schema_version: 1
+id: e0_blockizer_owns_identity
+type: harness_judge
+description: One deterministic, versioned blockizer derives the block sequence; sections snap to the block grid; blocks are never derived from sections.
+tags: [e0, e1, D57]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D57 and plan/designs/e1_chunks_design.md §2–§3, then locate the blockizer
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. A single deterministic blockizer (no LLM calls, no randomness) runs downstream of every
+     converter route, versioned as blockizer_version, emitting blocks.json with ordinal, type,
+     char span into document.md, best-effort page/bbox provenance, and block_hash.
+  2. document.md is treated as the immutable, content-hash-addressed coordinate system: claim
+     spans, blocks, sections, and chunks all reference it by offset.
+  3. PageIndex/structurer section spans are normalized onto the block grid by a deterministic
+     snap rule (backward-snap, partition enforcement, nesting validation, degrade-to-parent) —
+     and structuring can never hard-fail a document.
+  4. Direction invariant: nothing derives blocks from sections — LLM output never touches the
+     identity layer.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

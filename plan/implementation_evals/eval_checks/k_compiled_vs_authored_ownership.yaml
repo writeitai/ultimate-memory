@@ -1,0 +1,24 @@
+schema_version: 1
+id: k_compiled_vs_authored_ownership
+type: harness_judge
+description: Two page kinds with an ownership contract — compiled bodies machine-owned with curation sidecars and quarantined human edits; authored pages never auto-rewritten, only flagged.
+tags: [k, D46]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D46 and plan/designs/k_layers_design.md, then inspect the page-kind
+  handling under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every K artifact is typed compiled or authored.
+  2. Compiled pages: body machine-owned, regenerated when stale; human input enters only via a
+     per-page curation sidecar (pins/exclusions/corrections/guidance) that regeneration must
+     honor and can never destroy.
+  3. A direct human edit to a compiled body is DETECTED via content_hash mismatch and
+     QUARANTINED into a proposed sidecar entry — never silently overwritten by the next
+     compile, never silently absorbed.
+  4. Authored pages are never auto-regenerated; when evidence they cite changes they receive a
+     review FLAG (not a rewrite) — the system never rewrites human words, even to forget.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

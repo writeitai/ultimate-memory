@@ -1,0 +1,21 @@
+schema_version: 1
+id: e2_selection_ledger_replay
+type: harness_judge
+description: Every Selection drop and decontextualization edit is append-only, versioned ledger state; rebuilds replay from storage and never re-call the model.
+tags: [e2, D33, D7]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D33 (and D7's replay discipline), then inspect the claim_extraction_decisions
+  ledger and the rebuild paths under src/. These are acceptance checks for the FINAL system:
+  if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. An append-only, version-stamped ledger records every Selection outcome (drops with reason
+     class, rewrites, kept_flagged) and every decontextualization edit.
+  2. The ledger is never updated or deleted from — corrections append.
+  3. Rebuild paths read stored claims + decisions and never re-invoke the LLM (nondeterministic
+     rungs are replay-from-storage); the extraction worker is idempotent on its content-based
+     input hash + extractor version.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

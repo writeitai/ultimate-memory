@@ -1,0 +1,25 @@
+schema_version: 1
+id: e1_chunks_whole_blocks_no_overlap
+type: harness_judge
+description: Chunks are non-overlapping runs of whole blocks within one section, packed by semchunk with anchor-stabilized boundaries.
+tags: [e1, D58, D57]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D58 and plan/designs/e1_chunks_design.md §4, then locate the chunker under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. A chunk is an ordered run of WHOLE blocks within one section — chunk boundaries always
+     coincide with block boundaries, and a chunk never crosses a section boundary.
+  2. There is NO overlap between chunks anywhere (no sliding windows, no overlap parameters);
+     cross-boundary context comes from the E2 bundle's neighbor chunks instead.
+  3. Packing uses semchunk to a configured token budget with anchor-stabilized boundaries
+     (packing restarts at content-defined anchor blocks so an early edit perturbs packing only
+     to the next anchor).
+  4. Edge rules exist: an oversized atomic block (e.g. a table) becomes its own oversized
+     chunk; a pathological giant paragraph falls back to deterministic sentence splitting.
+  5. chunk_content_hash = hash of the ordered block hashes.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

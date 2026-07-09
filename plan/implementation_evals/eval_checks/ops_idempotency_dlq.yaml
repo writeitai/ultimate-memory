@@ -1,0 +1,21 @@
+schema_version: 1
+id: ops_idempotency_dlq
+type: harness_judge
+description: Every worker is idempotent (content hash + processing version); failures never disappear — bounded retries then dead-letter into Postgres with recorded status.
+tags: [ops, D12, D56]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D12 (and D56's finer keys) and plan/designs/orchestration_design.md, then
+  inspect the workers and queue handling under src/. These are acceptance checks for the FINAL
+  system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every worker is re-runnable and keyed on a content-derived hash + its own processing
+     version — re-delivery or re-run of an unchanged input is a no-op.
+  2. Retries are bounded (per the design: max 2) and exhausted work dead-letters into Postgres
+     with recorded status and enough context to inspect and replay — failures never vanish.
+  3. The per-document E chain is task-queue driven; aggregate layers (K, P) are debounced or
+     scheduled, never triggered per document.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

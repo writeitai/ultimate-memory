@@ -1,0 +1,31 @@
+schema_version: 1
+id: e0_lineages_versions_modes
+type: harness_judge
+description: Documents are lineages with connector-native identity, append-only immutable versions, deduplicated content objects, and snapshot/living semantics including retract-on-removal.
+tags: [e0, D55, D54]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D55 and plan/designs/evidence_lifecycle_design.md, then inspect the
+  documents/document_versions/content_objects schema and the watched-source sync logic under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. The logical document is a lineage with stable doc_id identified by (source_kind,
+     source_ref); renames/moves update metadata on the same lineage; a new ref is a new lineage.
+  2. Versions are append-only rows (one per observed snapshot) referencing content objects
+     deduplicated by content_hash (bytes stored/converted once, even across lineages);
+     unchanged revision/etag or unchanged bytes are no-ops; rapid edits are debounced.
+  3. Each lineage carries versioning_mode: snapshot (every version independent dated testimony,
+     the fail-safe default) or living (current version is the standing statement).
+  4. In living mode, removal of a fact's sole current support closes the fact per shape
+     (relations/effective-state observations: valid_until capped at source_modified_at;
+     measurements: invalidated_at — never a valid-time cap, per D43's no-cap rule), recorded as
+     retracted_source_removal — loud, attributed, reversible; retraction checks run only after
+     the sync cycle completes (an intra-cycle move is a support swap, never retract+reassert).
+  5. Deletion is uniform (a version / a lineage / observed-deleted-at-source): contribution
+     removed, claims retained as history with currency ended, solely-supported facts closed per
+     shape, recorded; hard-forget is a separate grain.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.
