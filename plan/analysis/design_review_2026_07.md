@@ -16,8 +16,9 @@ series). Nothing here is binding; if a finding is accepted it should land as a d
 D59 (attributed stance kept; stance observations). F3 accepted → D54–D56
 (`evidence_lifecycle_design.md`). F4 accepted → D48–D51 (`retrieval_design.md`, scenario-first
 per this finding). F6 accepted → the two-tier path contract + `_index.md` contract
-(`e0_files_design.md` §6; lineage anchoring from D55). F9 addressed by the orchestration design
-(PR #29). F5, F7, F8 open.**
+(`e0_files_design.md` §6; lineage anchoring from D55). F8 accepted → D63 (embedder = port
+config; default `qwen3-embedding-8b`; the E1 branch binds to conventional + prefix). F9
+addressed by the orchestration design (PR #29). F5, F7 open.**
 
 ---
 
@@ -291,7 +292,7 @@ golden set.
 
 ---
 
-## F8. Decide the embedding model before designing E1 — volume-proportional LLM spend is now the dominant cost lever
+## F8. Decide the embedding model before designing E1 — volume-proportional LLM spend is now the dominant cost lever ✅ ACCEPTED → D63
 
 **The observation.** After D25 (extract everything), the system's LLM spend has two very
 different shapes: **adjudication** spend scales with ambiguity (D4/D17 — well controlled), but

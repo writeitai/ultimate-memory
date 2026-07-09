@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D62); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D63); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -116,7 +116,7 @@ budget enforcement, and DLQ operations: `orchestration_design.md`, D52–D53.)
 2. **E1** (design: `e1_chunks_design.md`, D57–D58): the **blockizer** derives the deterministic
    block sequence from document.md; PageIndex sections snap to the block grid; semchunk packs
    whole blocks into non-overlapping, section-bounded, anchor-stabilized chunks → context
-   (the E1 prefix — or none, if a contextual embedding model is chosen, questions #3) → embed
+   (the E1 prefix — exists under the D63 default conventional embedder; a contextual-embedder port config deletes it, D63) → embed
    → P1. Unchanged blocks reuse prior claims/embeddings across document versions (D56).
 3. **E2 → E3** (every chunked document — there is no pre-extraction value gate, D25): coreference
    (D19: in the E2 extraction call, all languages) → **Claimify extraction with in-call Selection**
@@ -240,5 +240,6 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 
 ## 10. Open questions
 
-Tracked in `questions.md` (root). Highest-impact for design work: embedding model choice
-(hardest to change), backfill vs. steady-state volumes, hard-delete obligations.
+Tracked in `questions.md` (root). Highest-impact for design work: backfill vs. steady-state
+volumes, hard-delete obligations. (The embedding model is decided — D63: port config, default
+`qwen3-embedding-8b`; what remains is the stored-dimension measurement.)

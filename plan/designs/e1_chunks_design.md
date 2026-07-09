@@ -237,8 +237,8 @@ and that changes the conclusion:**
   still extracted (D25 untouched) and reachable by explicit filter; it just stops a paper's
   bibliography from polluting passage search.
 
-**The embedding-model branch point (questions #3 — the one open input).** This design is
-written to branch cleanly rather than block:
+**The embedding-model branch point (resolved — D63).** This design is written to branch
+cleanly rather than block:
 
 - **Conventional embedding model** → the E1 **context prefix** stage exists as designed (a
   per-chunk LLM call writing "where this sits"; prompt-cached; stored and *carried forward*
@@ -248,10 +248,14 @@ written to branch cleanly rather than block:
   LLM call at corpus scale and re-weighting the dilution math in chunks' favor.
 
 Everything else in this design (blocks, sections, packing, reuse, claims-as-needle-index) is
-invariant across the branch. **Both operating modes are fully designed here — this is a
-branch, not a gap**; the model choice itself is an open decision tracked in `questions.md` #3
-(the single biggest remaining cost lever, F8), and whichever way it lands, the corresponding
-mode above binds with no further design work.
+invariant across the branch. **Both operating modes are fully designed here.** The branch is
+resolved by **D63**: the embedder is per-deployment port configuration (D61), and the shipped
+default — `qwen/qwen3-embedding-8b` via the OpenRouter adapter, self-hosted weights as the
+second adapter — is a **conventional** model, so the **conventional + prefix mode binds** for
+the default configuration. The contextual mode stays bound as the alternate configuration:
+switching is a port-config change plus a version-scoped re-embed migration, never design work.
+The default's stored dimension is a measured knob (Matryoshka truncation from 4096; validate
+recall on the D22 golden set — D63).
 
 ## 6. Extraction batching — decoupling cost from granularity (D58)
 
@@ -344,9 +348,10 @@ Blocks stay in `blocks.json`; the spine gets derived keys only (D37 discipline):
 7a. **Oversized-block constants** — the token threshold above which an atomic block becomes
    its own oversized chunk, and the deterministic sentence-splitter (library + version, pinned
    like the blockizer) for the pathological-giant-paragraph fallback.
-8. **Embedding model (#3)** — the branch point: conventional+prefix vs contextual; decides
-   whether the prefix stage exists. The hardest-to-change decision in the system; measure on
-   the golden set before committing.
+8. **Stored embedding dimension + prefix quality (D63)** — the model is decided
+   (`qwen3-embedding-8b`, conventional + prefix binds); what remains to measure on the golden
+   set: the Matryoshka-truncated stored dimension (recall vs P1 size/cost) and the context
+   prefix's retrieval contribution. *(Was: the model branch point — resolved by D63.)*
 
 ## References
 

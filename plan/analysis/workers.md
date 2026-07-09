@@ -83,7 +83,7 @@ Stated once here; every per-worker spec in §4–§8 assumes it:
 | 3 | `structure` | E0 | chain | programmatic LLM | mid |
 | 4 | `crossref` | E0 | chain | deterministic + optional LLM rung | small |
 | 5 | `chunk` | E1 | chain | deterministic | — |
-| 6 | `context_prefix` | E1 | chain | programmatic LLM *(conditional — F8)* | small, prompt-cached |
+| 6 | `context_prefix` | E1 | chain | programmatic LLM *(exists — F8 resolved by D63)* | small, prompt-cached |
 | 7 | `embed_chunk` | E1 | chain | deterministic (embedding inference) | embedder |
 | 8 | `extract_claims` | E2 | chain | programmatic LLM (2 calls) | mid — the volume cost center |
 | 9 | `ground_claims` | E2 | in-pipeline | deterministic (layers 1–2) | — |
@@ -155,13 +155,15 @@ cited-but-not-ingested targets (no edge, per `v_graph_crossref`).
 semchunk (imposed) within PageIndex section boundaries — never split mid-section, one chunk ≈
 one topic. Pure function of markdown + sections.
 
-### 4.6 `context_prefix` — programmatic LLM, **conditional existence**
+### 4.6 `context_prefix` — programmatic LLM *(existence resolved by D63)*
 
 One small-model call per chunk producing the "where this sits" sentence
-(contextual-retrieval style), sharing one cached per-document prefix. **This worker exists only
-under a non-contextual embedding model choice**: design review F8 notes a contextual embedder
-(e.g. voyage-context) deletes the stage entirely — the embedding decision precedes the E1
-design, and this row of the inventory is contingent on it.
+(contextual-retrieval style), sharing one cached per-document prefix. This worker exists only
+under a non-contextual embedding model choice — and **D63 made that choice**: the shipped
+default embedder (`qwen3-embedding-8b`) is conventional, so the worker **exists** in the
+default configuration. A deployment switching its embedder port to a contextual model
+(voyage-context-class) deletes this stage for that deployment — port config, not redesign
+(`e1_chunks_design.md` §5).
 
 ### 4.7 `embed_chunk` — deterministic (embedding inference)
 
@@ -450,9 +452,10 @@ retention. Both are code.
    judges) to a different family — it is stated in k_layers §7 for reflection only. Worth one
    line in a decision if accepted.
 4. **Two workers are contingent on open decisions**: `context_prefix` exists only under a
-   non-contextual embedding model (F8 — decide the embedder first), and the observation
-   adjudicator's hub-entity ordering input changes if F5 (`property_hint`) is accepted. Neither
-   changes any classification.
+   non-contextual embedding model (F8 — decide the embedder first; *since resolved by D63:
+   conventional default → the worker exists*), and the observation adjudicator's hub-entity
+   ordering input changes if F5 (`property_hint`) is accepted. Neither changes any
+   classification.
 5. **The three load-bearing LLM workers** (extractor, the adjudicator pair, K writers) are
    exactly the three with append-only transcript tables (`claim_extraction_decisions`,
    `*_adjudications`, `knowledge_compilations`) — the D33 discipline held everywhere it
