@@ -216,4 +216,11 @@ adapters:
 
 - Python, typed as strictly as practical (Pydantic, TypedDict, enums, Literal).
 - Pyright for type checking; pytest for unit tests; Alembic for schema migrations.
+- **All configuration enters through pydantic-settings** (`BaseSettings`) — environment
+  variables are read in exactly one place, as typed, validated settings objects. **Direct
+  `os.environ` / `os.getenv` access is banned** (enforced by lint — ruff `TID251`); an
+  exception requires a per-line ignore with a reason.
+- **Secrets are typed `SecretStr`/`SecretBytes`** in settings — never plain `str` — so they
+  cannot leak into logs, reprs, or tracebacks; unwrap (`.get_secret_value()`) only at the
+  call site that actually needs the value, never store the unwrapped form.
 - Docstrings, comments, well-structured modules.
