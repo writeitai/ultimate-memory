@@ -1732,3 +1732,39 @@ compose in Phase 0; PyPI packaging in Phase 5; release engineering + export/impo
 Phase 7). The remaining stack-convention slots (package manager, lint, CI provider, secrets)
 still gate WP-0.1. `questions.md` §11a's packaging item closes; the rename + CLA gates stay
 open there.
+## D63. The embedding model is port configuration; default `qwen3-embedding-8b` via OpenRouter — the E1 branch resolves to conventional + prefix
+
+**Decision.** The embedding model is **per-deployment provider-port configuration** (D61), never
+architecture: every embedded artifact already carries an embedding version resolving to
+`pipeline_component_versions` (model, dimension, params), and changing models is a
+version-scoped re-embed batch (D7/D12), not a redesign. The **shipped default** is
+**`qwen/qwen3-embedding-8b`** served through the OpenRouter adapter of the embedder port
+(OpenAI-compatible embeddings API; $0.01/M input tokens, 32K context — a starting point to
+re-verify at contract time), with **self-hosting the open weights (Apache-2.0) as the second
+documented adapter** of the same port. This resolves the E1 branch point
+(`e1_chunks_design.md` §5): the default is a **conventional** (non-contextual) embedder, so the
+**context-prefix stage exists as designed**; the contextual mode (voyage-context-class / late
+chunking) remains the fully designed alternate configuration a deployment may choose — the
+choice is port config plus a re-embed migration, never new design work. The **stored dimension
+is a measured knob, not a constant**: the model emits 4096-dim vectors with Matryoshka
+truncation; the starting point is a truncated stored dimension (order 1024–2048) validated for
+recall against the D22 golden set — 4096 is the ceiling, not the commitment (P1 index sizing
+and the Lance cost math depend on this number; `lance_indexing_maintenance.md` §2).
+
+**Context.** F8 named extraction-side spend and the embedding model as the dominant unmade cost
+decisions, and questions #3 called the model "the single hardest thing to change later". The
+default was chosen for three properties over benchmark deltas: **strongly multilingual**
+(100+ languages — the inflected-language deployment path, registries §5, makes English-only
+embedders a trap), **open weights** (self-hosting is a real second adapter, and the model
+cannot be discontinued out from under the corpus — the discontinuation risk is what makes
+"hardest to change" dangerous), and **hosted-cheap at one of the most-used embedding slots on
+OpenRouter** (ecosystem liquidity: multiple providers serve it). "Hardest to change" is
+thereby mitigated, not avoided — the migration path (version-filtered re-embed + P1 batch
+rebuild) exists by design and is exercised by drills.
+
+**Consequences.** The `context_prefix` worker's conditional existence resolves to *exists*
+(workers inventory row 6; the per-chunk prefix call stays in the E1 cost model per F8's
+three-calls-per-chunk math). E1 spike 8 narrows from "which model" to "which stored dimension +
+prefix quality", measured on the golden set. P1 index/parameter choices unblock (dimension now
+bounded). Questions #3 closes; review finding F8 closes. The embedder port gains its two named
+adapters (OpenRouter-hosted; self-hosted weights).

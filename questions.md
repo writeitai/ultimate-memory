@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D62).
+- **`decisions.md`** — what *is* decided (D1–D63).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -20,10 +20,13 @@ Keep this current: when something here is decided, move it to a decision and pru
    Drives worker sizing, rate limits, and the R9/D23 scale numbers (currently modeled, not measured).
 2. **Monthly LLM/embedding budget ceiling** — the cheap-first cascades (D4, D17) and extraction
    spend should be tuned against a real number.
-3. **Embedding model + dimension** — the single hardest thing to change later (re-embedding
-   everything). A contextual model (e.g. voyage-context) would replace the E1 context-prefix
-   approach. Blocks P1 index/parameter choices and the embedding-migration plan (D8's "embeddings in
-   Lance" is already decided — the *model* is not).
+3. ~~**Embedding model + dimension**~~ **RESOLVED (D63)** — the embedder is per-deployment
+   port configuration (D61); shipped default `qwen/qwen3-embedding-8b` via the OpenRouter
+   adapter (self-hosted open weights = second adapter). Conventional model → the E1
+   context-prefix stage exists (the branch in `e1_chunks_design.md` §5 binds to
+   conventional + prefix). What remains is a *measurement*, not a decision: the
+   Matryoshka-truncated stored dimension vs recall on the D22 golden set — which is what
+   still gates final P1 index parameters.
 4. **LLM per stage** — concrete picks for extraction (E2 Claimify), supersession/resolution
    adjudication (the cheap→frontier residue), and the K-plane compilers.
 
@@ -110,8 +113,8 @@ Keep this current: when something here is decided, move it to a decision and pru
 18. ~~**E1 chunking.**~~ **RESOLVED (D57–D58)** — `e1_chunks_design.md` is written: the
     blockizer + block substrate, sections snapped to the block grid, non-overlapping
     whole-block chunk packing with anchors, multi-granularity retrieval (claims = needle
-    index), extraction batching, the A1–A3 reuse mechanics. The **embedding-model choice (#3)
-    remains the design's one open branch point** (prefix stage exists vs deleted).
+    index), extraction batching, the A1–A3 reuse mechanics. The embedding-model branch point
+    is **resolved by D63** (conventional default → the prefix stage exists; #3).
 19. **P1 search indexes.** Referenced everywhere, never a dedicated design (what's embedded, index
     params, FTS config, inline-write vs. rebuild path).
 20. **Cost / metering.** A stated requirement with no design (per-layer/per-deployment spend tracking
