@@ -1,0 +1,26 @@
+schema_version: 1
+id: eval_golden_sets_d22
+type: harness_judge
+description: The golden-set eval plan is implemented — human-adjudicated ER eval set separate from any training set, per-tier metrics with Wilson CIs, canary reruns per resolver version, retrieval recall@k per recipe.
+tags: [eval, D22, D35]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D22 (and D35's canaries) and plan/designs/registries_design.md (eval
+  section), then inspect the eval harness under src/. These are acceptance checks for the
+  FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. An ER golden EVAL set exists as a first-class asset: human-adjudicated labeled pairs,
+     hard positives AND hard negatives, stratified per entity type — kept strictly separate
+     from any training data (the circularity rule: the cascade/LLM may propose pairs, but
+     measurement labels are human-adjudicated).
+  2. The harness computes per-tier precision/recall with Wilson confidence intervals, and a
+     canary regression suite re-runs per resolver_version bump.
+  3. Retrieval evals measure recall@k per recipe (per version), supporting rerank-weight
+     tuning; Selection/grounding/contradiction evals record results in the same eval-run
+     machinery.
+  4. Eval runs are recorded (versioned results), so threshold changes are justified by
+     measurements, not vibes.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

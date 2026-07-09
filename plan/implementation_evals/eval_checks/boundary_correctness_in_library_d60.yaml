@@ -1,0 +1,18 @@
+schema_version: 1
+id: boundary_correctness_in_library_d60
+type: harness_judge
+description: Every correctness-determining mechanism the design binds is implemented in this repository — none stubbed, feature-flagged off, or delegated to an external/commercial service.
+tags: [boundary, D60]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D60, then verify each named correctness module exists in-repo and is
+  functional (not a stub raising NotImplemented, not disabled by default, not calling out to a
+  proprietary cloud service to do the work).
+
+  Check each of these named mechanisms exists in this repository: claim extraction with
+  Selection; entity resolution (T0-T4); relation/observation supersession + contradiction
+  adjudication; grounding validation; the eval harness + canaries; budget enforcement; the
+  DLQ; the deletion cascade; the review CLI.
+
+  Score 1 only if EVERY named mechanism is present and functional in-repo — cite file paths
+  in your reason. Otherwise score 0.

@@ -1,0 +1,19 @@
+schema_version: 1
+id: ret_envelope_truncation_markers
+type: harness_judge
+description: No silent caps anywhere — truncation is always marked with a continuation; hub answers are ranked pages, never a quiet top-k or a timeout.
+tags: [retrieval, D49]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D49, then inspect result assembly and pagination under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every place a result set is bounded (top-k, page size, budget) emits an explicit
+     truncation marker with a continuation handle — grep for result-limiting code and confirm
+     none returns a bounded list unmarked.
+  2. Hub-entity answers page deterministically (ranked pages with continuations), and no query
+     path resolves a too-big answer by silently timing out or capping.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

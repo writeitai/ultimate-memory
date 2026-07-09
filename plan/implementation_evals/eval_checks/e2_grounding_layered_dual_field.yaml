@@ -2,7 +2,7 @@ schema_version: 1
 id: e2_grounding_layered_dual_field
 type: harness_judge
 description: Claim grounding is dual-field (standalone claim_text + verbatim source_span with offsets + added_context[]) with layered acceptance — anchor, window-membership, entailment, sampled audit.
-tags: [e2, D32]
+tags: [e2, D32, D53]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D32 and plan/designs/e2_e3_claims_relations_design.md §3.3, then inspect

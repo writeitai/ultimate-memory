@@ -1,0 +1,26 @@
+schema_version: 1
+id: embedding_model_port_config_d63
+type: harness_judge
+description: The embedding model is provider-port configuration, never architecture — versioned per artifact, swappable by version-scoped re-embed; the E1 context-prefix stage exists (conventional default).
+tags: [p1, e1, D63, D61]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D63 (and D61's embedder port), then inspect the embedder port, its
+  adapters, and the E1 pipeline under src/. These are acceptance checks for the FINAL system:
+  if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The embedding model is per-deployment configuration of the embedder port — no embedding
+     model name is hardcoded in domain code; the shipped default configuration is
+     qwen3-embedding-8b via an OpenRouter (OpenAI-compatible) adapter, with a self-hosted
+     open-weights adapter as the second documented adapter of the same port.
+  2. Every embedded artifact carries an embedding version resolving to
+     pipeline_component_versions (model, dimension, params).
+  3. Changing the model is a version-scoped re-embed batch (a supported operation), not a code
+     change.
+  4. The E1 context-prefix stage exists as designed (the conventional-embedder branch), its
+     output stored and carried forward for unchanged regions (D56) — and prefixes never enter
+     reuse keys.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,17 +1,20 @@
 schema_version: 1
 id: e2_selection_ledger_replay
 type: harness_judge
-description: Every Selection drop and decontextualization edit is append-only, versioned ledger state; rebuilds replay from storage and never re-call the model.
+description: Selection drops, kept_flagged outcomes, and decontextualization edits are append-only versioned ledger state; rebuilds replay from storage and never re-call the model.
 tags: [e2, D33, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D33 (and D7's replay discipline), then inspect the claim_extraction_decisions
-  ledger and the rebuild paths under src/. These are acceptance checks for the FINAL system:
-  if the subsystem is absent or partial, score 0.
+  Read decisions.md D33 (and D7's replay discipline) and plan/designs/postgres_schema_design.md
+  §8, then inspect the claim_extraction_decisions ledger and the rebuild paths under src/.
+  These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
+  score 0.
 
   Verify ALL of the following:
-  1. An append-only, version-stamped ledger records every Selection outcome (drops with reason
-     class, rewrites, kept_flagged) and every decontextualization edit.
+  1. An append-only, version-stamped ledger records every Selection DROP (with reason class),
+     every low-confidence kept_flagged outcome, and every decontextualization edit. Plain
+     keeps are represented by the inserted claim row itself and are NOT required to have
+     ledger rows (per the schema design).
   2. The ledger is never updated or deleted from — corrections append.
   3. Rebuild paths read stored claims + decisions and never re-invoke the LLM (nondeterministic
      rungs are replay-from-storage); the extraction worker is idempotent on its content-based

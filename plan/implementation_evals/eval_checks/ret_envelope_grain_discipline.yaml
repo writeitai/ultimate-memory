@@ -1,0 +1,21 @@
+schema_version: 1
+id: ret_envelope_grain_discipline
+type: harness_judge
+description: Every response declares its grain (fact/evidence/compiled/composite), enforced at composition — claims can never answer "is it true now"; composite parts are single-grain.
+tags: [retrieval, D49, D41]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read decisions.md D49 and plan/designs/retrieval_design.md, then inspect the envelope types
+  and grain enforcement under src/. These are acceptance checks for the FINAL system: if the
+  subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every primitive and recipe declares a grain (fact / evidence / compiled / composite), and
+     the type system or registry validation enforces it at composition time.
+  2. Current-fact answers can only be assembled from validity-filtered relations/observations;
+     a claim-grain source composed into a current-fact answer is rejected mechanically.
+  3. A composite answer is parts[], each part strictly single-grain — mixed answers never
+     dilute the discipline.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

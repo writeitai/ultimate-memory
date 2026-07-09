@@ -12,8 +12,9 @@ instructions: |
   1. Every ingested document records an origin field distinguishing at minimum external from
      self/system-generated, set at E0 ingest time.
   2. The field is immutable after ingest — no code path updates it.
-  3. Nothing downstream silently drops it (it survives on the lineage/version rows so
-     confidence math can later discount self-generated echoes).
+  3. The origin is stored on the durable document lineage/input metadata and remains reachable
+     from all versions and downstream provenance (so confidence math can later discount
+     self-generated echoes) — duplication onto every version row is not required.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

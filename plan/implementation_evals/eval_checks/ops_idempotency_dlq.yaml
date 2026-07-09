@@ -1,20 +1,26 @@
 schema_version: 1
 id: ops_idempotency_dlq
 type: harness_judge
-description: Every worker is idempotent (content hash + processing version); failures never disappear — bounded retries then dead-letter into Postgres with recorded status.
-tags: [ops, D12, D56]
+description: Every worker is idempotent on the key fitting its grain; work is processing_state rows (the sole authority) with bounded retries, dead-letter, and a janitor sweep.
+tags: [ops, D12, D56, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D12 (and D56's finer keys) and plan/designs/orchestration_design.md, then
-  inspect the workers and queue handling under src/. These are acceptance checks for the FINAL
-  system: if the subsystem is absent or partial, score 0.
+  Read decisions.md D12, D56, and D62 (task execution) and
+  plan/designs/orchestration_design.md, then inspect the workers and queue handling under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
 
   Verify ALL of the following:
-  1. Every worker is re-runnable and keyed on a content-derived hash + its own processing
-     version — re-delivery or re-run of an unchanged input is a no-op.
-  2. Retries are bounded (per the design: max 2) and exhausted work dead-letters into Postgres
+  1. Every worker is re-runnable and idempotent on the key fitting its grain: per-document/
+     chunk workers on a content-derived hash + their own processing version (D12/D56);
+     aggregate workers (K compiles, projection rebuilds) on recorded input/snapshot hashes
+     (e.g. inputs_hash, D45). Re-delivery or re-run of an unchanged input is a no-op.
+  2. Work items are processing_state rows in Postgres — the SOLE authority (D62); queue
+     deliveries are delivery-only signals; handlers are registered per stage and
+     shell-agnostic; a janitor sweep re-announces lost deliveries.
+  3. Retries are bounded (per the design: max 2) and exhausted work dead-letters into Postgres
      with recorded status and enough context to inspect and replay — failures never vanish.
-  3. The per-document E chain is task-queue driven; aggregate layers (K, P) are debounced or
+  4. The per-document E chain is task-driven; aggregate layers (K, P) are debounced or
      scheduled, never triggered per document.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.

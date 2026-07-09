@@ -2,7 +2,7 @@ schema_version: 1
 id: er_resolution_cascade_t0_t4
 type: harness_judge
 description: Entity resolution is the T0–T4 cascade — exact, fuzzy blocking (recall-first), phonetic, embedding, LLM — with per-type versioned thresholds; cheap tiers escalate, never auto-reject.
-tags: [registries, D17]
+tags: [registries, D17, D20]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D17 and plan/designs/registries_design.md, then inspect the resolver under

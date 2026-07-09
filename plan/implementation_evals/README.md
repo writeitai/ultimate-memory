@@ -2,14 +2,15 @@
 
 An exhaustive set of [eval-banana](https://github.com/writeitai/eval-banana) `harness_judge`
 checks that verify the **final implementation honors the binding design** — the decision log
-(D1–D61), the requirements, and the design docs. Each check points an LLM judge at the binding
-sources and at the code, states the invariant as concrete conditions, and demands a binary
-verdict.
+(**D1–D63**), the requirements, and the design docs. Each check points an LLM judge at the
+binding sources and at the code, states the invariant as concrete conditions, and demands a
+binary verdict.
 
 **What these are:** acceptance checks for design conformance — "does the code do what the
 design binds it to do?" **What these are not:** quality metrics. Extraction precision,
 resolution P/R curves, retrieval recall@k live in the D22 golden-set eval harness (a separate,
-data-driven asset); these checks verify the *machinery and its invariants exist and hold*.
+data-driven asset — itself covered here by `eval_golden_sets_d22`); these checks verify the
+*machinery and its invariants exist and hold*.
 
 ## Running
 
@@ -38,34 +39,41 @@ Two conventions when running:
   with file paths cited in the reason.
 - `tags` carry the area and the decision numbers, for filtered runs
   (e.g. everything tagged `D43`, or all of `e2`).
+- Where an invariant is a *deliberate exception* (e.g. E2 extraction is volume-proportional by
+  D25 while adjudication is ambiguity-scaled by D4), the check says so explicitly, so a judge
+  cannot fail a correct implementation for obeying the design.
 
-## Inventory (53 checks)
+## Inventory (69 checks)
 
-| Area (prefix) | Checks | Binding sources covered |
+| Area | Checks | Binding sources covered |
 |---|---|---|
-| `e0_*` — documents/files | 8 | D36–D39, D42, D51 (raw mount), D54–D57 |
-| `e1_*` — blocks/chunks | 2 | D57, D58, D25 |
-| `e2_*` — claims/extraction | 9 | D2, D3, D19, D25, D31–D35, D41, D54, D59 |
-| `e3_*` — relations/observations | 5 | D2–D5, D15, D18, D43 |
-| `er_*` — entity resolution/review | 3 | D17, D20, D21, D24 |
-| `k_*` — knowledge plane | 4 | D45–D47, D54 |
-| `p_*`, `p1_*`, `p2_*`, `p3_*` — projections | 7 | D6–D11, D40, D44, D55 |
-| `ret_*` — retrieval | 6 | D9, D41, D48–D51 |
-| `ops_*` — orchestration/cross-cutting | 6 | D7, D12, D33, D52, D53, D55, requirements |
-| `code_*`, `boundary_*` — conventions/scope | 3 | D60, D61, requirements §Code |
+| E0 documents/files (`e0_*`) | 10 | D36–D39, D42, D51, D54–D57 |
+| E1 blocks/chunks (`e1_*`) | 2 | D57, D58 |
+| E2 claims/extraction (`e2_*`) | 9 | D2, D3, D19, D25, D31–D35, D41, D54, D59, D63 |
+| E3 relations/observations (`e3_*`) | 5 | D2–D5, D15, D18, D43, D55 |
+| Registries/ER + eval (`er_*`, `registry_*`, `eval_*`) | 5 | D17, D20–D24 |
+| K plane (`k_*`) | 4 | D45–D47, D54 |
+| Projections (`p_*`, `p1_*`, `p2_*`, `p3_*`, `embedding_*`) | 8 | D6–D11, D40, D44, D55, D61, D63 |
+| Retrieval (`ret_*`) | 10 | D9, D41, D48–D51 |
+| Ops/cross-cutting (`ops_*`, `source_of_truth_*`, `scope_views_*`) | 8 | D1, D7, D12, D16, D33, D46, D52–D56, D62 |
+| Code & boundary (`code_*`, `boundary_*`, `delivery_*`) | 8 | D60–D62, requirements §Code |
 
 Not every decision needs its own check: withdrawn decisions (D26–D30), naming/plane decisions
 (D13, D14), and pure-analysis decisions are covered implicitly or are not implementation-
 observable. Where one check verifies several decisions, the tags say so.
 
+## Review
+
+`codex_review.md` records an independent Codex (gpt-5.5) review of the initial 53-check set.
+**The current set incorporates that review**: its four factual must-fixes (deletion retention
+semantics, the E2 volume-proportional exception, ledger scope, the observations no-cap rule),
+the judgeability rewrites and splits (the boundary and envelope omnibus checks, lineage/living
+split), the mechanics fixes (tags, cite paths), and nine added checks closing its coverage gaps
+(D1/D46, D16, D22, D23, D36, code tooling, D62 ×2, D63).
+
 ## Inconsistencies found while authoring
 
 Authoring these against the full corpus surfaced inconsistencies, registered in
 `questions.md` §5 (the repo's fix register): the requirements' temporal-split paragraph
-predates D43 (observations also carry adjudicated validity), and the requirements' E3 bullet
-omits observations entirely. See `questions.md` items 30–31.
-
-## Review
-
-`codex_review.md` in this directory records an independent Codex review of the set (accuracy
-against the designs, coverage gaps, judge-ability).
+predates D43/D49 (observations also carry adjudicated validity), and the requirements' E3
+bullet omits observations entirely. See `questions.md` items 30–31.

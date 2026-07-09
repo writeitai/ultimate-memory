@@ -10,8 +10,9 @@ instructions: |
   the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
-  1. A writer's output is rejected/invalid without citations; citations are persisted in a
-     knowledge_artifact_evidence table linking artifacts to the evidence IDs they rest on.
+  1. A writer's output is rejected/invalid without citations; citations are persisted in
+     knowledge_artifact_evidence linking artifacts to the claim, relation, or document IDs
+     they rest on (the schema allows exactly one reference kind per row).
   2. Uncited candidate evidence (routed to the page but not cited) is counted and surfaced —
      not silently ignored.
   3. Authored pages declare their citations (and optional watch rules) in frontmatter that the

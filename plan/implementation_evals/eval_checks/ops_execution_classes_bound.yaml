@@ -2,7 +2,7 @@ schema_version: 1
 id: ops_execution_classes_bound
 type: harness_judge
 description: Every worker declares an execution class; agent harnesses exist only on plane K and review/audit seats; every LLM worker has an append-only transcript.
-tags: [ops, D52, D33]
+tags: [ops, D52, D33, D25]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D52 and plan/analysis/workers.md + plan/designs/orchestration_design.md,
@@ -18,8 +18,11 @@ instructions: |
   3. Every worker that makes an LLM call writes an append-only transcript/ledger
      (extraction decisions, adjudications, compilations) — no LLM call without a durable
      record.
-  4. Programmatic-LLM workers sit inside cheap-first cascades (spend scales with ambiguity,
-     never volume).
+  4. Programmatic-LLM workers are fixed-shape, schema-constrained, transcripted, and budgeted.
+     Resolution/adjudication workers sit inside cheap-first cascades (spend scales with
+     ambiguity); E2 extraction is the DELIBERATE volume-proportional exception (D25/D31: every
+     chunked document is fully extracted by the fixed two-call extractor) — do not fail it for
+     scaling with volume, and do not accept it becoming an agent harness.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

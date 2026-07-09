@@ -1,21 +1,21 @@
 schema_version: 1
 id: e1_multigranularity_retrieval
 type: harness_judge
-description: Claims are the needle index, chunks the passage index; low-value roles are filtered retrieval-side, never skipped at extraction.
-tags: [e1, p1, D58, D25]
+description: Claims are the needle index, chunks the passage index; default recipes filter low-value roles retrieval-side over what was indexed.
+tags: [e1, p1, D58]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D58 (embedding granularity) and D25, then inspect the P1 index writers and
-  default search recipes under src/. These are acceptance checks for the FINAL system: if the
+  Read decisions.md D58 (embedding granularity), then inspect the P1 index writers and default
+  search recipes under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. Every accepted, decontextualized claim is embedded into P1 (claims are the fine-grain
      "needle" channel); chunks are embedded as the passage channel.
   2. P1 chunk rows carry a section-role scalar, and DEFAULT search recipes filter out
-     references/nav/boilerplate/legal chunks retrieval-side.
-  3. Crucially (D25): that filtering happens at RETRIEVAL time over what was indexed — nothing
-     skips extraction or indexing by role upstream (no pre-extraction value gate reintroduced).
+     references/nav/boilerplate/legal chunks retrieval-side — filtering over what was indexed
+     (everything is still indexed; the no-pre-extraction-gate invariant is owned by
+     e2_no_pre_extraction_gate).
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

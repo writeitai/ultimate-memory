@@ -2,7 +2,7 @@ schema_version: 1
 id: e2_asserted_validity_immutable
 type: harness_judge
 description: Claims carry an immutable source-asserted validity interval (from/until/precision/kind), grounded by window-membership, never revisable, never a belief authority.
-tags: [e2, D41]
+tags: [e2, D41, D32]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D41, then inspect the claim schema and the temporal extraction under src/.

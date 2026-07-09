@@ -1,21 +1,26 @@
 schema_version: 1
 id: e3_supersession_fact_level_bitemporal
 type: harness_judge
-description: Supersession closes validity windows on relations (and observations) — never on claims; both time axes are queryable.
-tags: [e3, D3, D43]
+description: Supersession closes validity windows on relations and effective-state observations — never on claims; measurements obey the no-cap rule; both time axes are queryable.
+tags: [e3, D3, D43, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D3 (and D43), then inspect the supersession write paths and the temporal
-  columns under src/. These are acceptance checks for the FINAL system: if the subsystem is
-  absent or partial, score 0.
+  Read decisions.md D3 and D43 (the no-cap rule) and D55 (source-removal shapes), then inspect
+  the supersession write paths and temporal columns under src/. These are acceptance checks
+  for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
-  1. Relations and observations carry the bi-temporal quartet: valid_from/valid_until
-     (world time) and ingested_at/invalidated_at (belief time); supersession caps valid_until —
-     it never deletes rows and never touches claims.
-  2. invalidated_at means "we no longer believe this was ever right", distinct from a closed
+  1. Relations and observations carry the bi-temporal quartet: valid_from/valid_until (world
+     time) and ingested_at/invalidated_at (belief time); supersession caps valid_until on
+     relations and on CHANGING EFFECTIVE-STATE observations — it never deletes rows and never
+     touches claims.
+  2. Measurement/fixed-period observations obey D43's no-cap rule: they are NEVER capped on
+     valid-time; a conflicting same-period figure coexists in a shared contradiction_group;
+     when belief in a measurement is withdrawn (e.g. source removal, D55) the mechanism is
+     invalidated_at, never a valid-time cap.
+  3. invalidated_at means "we no longer believe this was ever right", distinct from a closed
      validity window ("it ended"); a superseded row stays active in that sense.
-  3. Both time-travel questions are answerable in the query layer: what was true at T
+  4. Both time-travel questions are answerable in the query layer: what was true at T
      (valid-time) and what did we believe at T (transaction-time).
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.

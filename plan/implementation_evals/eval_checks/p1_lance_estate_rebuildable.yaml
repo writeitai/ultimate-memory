@@ -5,7 +5,7 @@ description: P1 is one Lance estate (chunks, claims, relation labels, observatio
 tags: [p1, D8, D9, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D8/D9 and overall_design.md §4-5, then inspect the P1 writers and rebuild
+  Read decisions.md D8/D9 and plan/designs/overall_design.md §4–§5, then inspect the P1 writers and rebuild
   path under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 

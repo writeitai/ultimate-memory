@@ -1,24 +1,30 @@
 schema_version: 1
 id: ops_deletion_cascade_grains
 type: harness_judge
-description: Deletion has grains (version / lineage / hard-forget) and cascades through every derived layer — GCS objects, spine rows, projections, K reach — with facts closed per shape, recorded and reversible.
-tags: [ops, D55, D46, requirements]
+description: Deletion has grains (version / lineage / hard-forget); normal delete purges bytes and ends currency while RETAINING audit history; only hard-forget scrubs content.
+tags: [ops, D55, D46, D54, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read requirements_v3.md §Knowledge lifecycle (deletion cascade), decisions.md D55/D46, and
-  plan/designs/e0_files_design.md §2, then inspect the deletion workers under src/. These are
-  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+  Read decisions.md D55/D54/D46, plan/designs/evidence_lifecycle_design.md §8, and
+  plan/designs/postgres_schema_design.md §13.1, then inspect the deletion workers under src/.
+  These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
+  score 0.
 
   Verify ALL of the following:
-  1. Three grains exist: delete a version (currency ends, lineage continues), delete a lineage
-     (full cascade), hard-forget (indistinguishable-from-never-existed semantics).
-  2. Lineage deletion removes raw + artifact objects and spine rows, cascades chunks -> claims
-     -> evidence links; solely-supported facts are closed per shape (states capped,
-     measurements invalidated), recorded and reversible — never silently vanished.
-  3. Projections converge by rebuild (the document simply is not materialized next cycle), and
-     K is reached mechanically via citations: compiled pages recompile without the removed
-     evidence; authored pages get a review flag (never a rewrite).
-  4. A file observed deleted at its source is treated as lineage deletion, stamped with the
+  1. Three grains exist: delete a version (currency ends; lineage continues), delete a lineage
+     (the full cascade), and hard-forget (indistinguishable-from-never-existed semantics).
+  2. Normal deletion (version or lineage grain) purges raw/artifact bytes and tombstones the
+     lineage/version rows, ends testimony currency for affected claims, recomputes counts, and
+     closes solely-supported facts per shape (states: valid_until cap; measurements:
+     invalidated_at) — recorded and reversible, never silent. Chunks, claims, evidence links,
+     relations, and entities are RETAINED as audit history on a normal delete (claims are NOT
+     deleted; evidence rows remain historical links).
+  3. Hard-forget is the separate grain that scrubs source-bearing payloads across versions so
+     forgotten content is indistinguishable from never-existed.
+  4. Projections converge by rebuild (the deleted document is simply not materialized next
+     cycle), and K is reached mechanically via citations: compiled pages recompile without the
+     removed evidence; authored pages get a review flag (never a rewrite).
+  5. A file observed deleted at its source is treated as lineage deletion, stamped with the
      observing sync cycle.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.

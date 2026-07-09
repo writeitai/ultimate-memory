@@ -2,7 +2,7 @@ schema_version: 1
 id: p2_rebuild_first_snapshots
 type: harness_judge
 description: P2 is rebuild-first — full rebuild, validate, publish an immutable snapshot, pointer-swap; readers are read-only and hot-swap; no incremental event application.
-tags: [p2, D7]
+tags: [p2, D7, D40]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D7 and plan/designs/p2_graph_design.md, then inspect the P2 worker and

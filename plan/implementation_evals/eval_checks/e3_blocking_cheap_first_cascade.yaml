@@ -2,7 +2,7 @@ schema_version: 1
 id: e3_blocking_cheap_first_cascade
 type: harness_judge
 description: Supersession candidates come from (entity, predicate) blocking with a cheap-first escalation cascade — LLM spend scales with ambiguity, not volume.
-tags: [e3, D4]
+tags: [e3, D4, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D4, then inspect the supersession worker under src/. These are acceptance

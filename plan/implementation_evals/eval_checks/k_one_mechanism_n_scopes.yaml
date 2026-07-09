@@ -2,7 +2,7 @@ schema_version: 1
 id: k_one_mechanism_n_scopes
 type: harness_judge
 description: One compile mechanism, N scopes — tiers are configuration; K3 is the stricter-config belief tier; the framework contract itself is not configurable.
-tags: [k, D47]
+tags: [k, D47, D54]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read decisions.md D47 and plan/designs/k_layers_design.md §2, then inspect the scope/tier
