@@ -76,14 +76,24 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 
 # Deliberate deviation from the team-harness/loopy-loop template: they run pyright in
 # "basic" mode with ~20 report* checks disabled. This is a data-integrity system (enums,
-# validity windows, adjudication outcomes), so we run "standard" with NO checks disabled —
-# strict-first; loosen only with a targeted per-line ignore that carries a reason.
+# validity windows, adjudication outcomes), so library code runs "standard" (NOT strict —
+# the noisy reportUnknown* family is off) with no checks disabled.
+#
+# Relax-with-receipts rule: any future report*=false here MUST carry a one-line reason
+# comment and come from observed friction on real code, never pre-emptively. Loosening
+# later is a one-line change; tightening later means fixing accumulated violations.
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 include = ["src"]
 extraPaths = ["src"]
 exclude = ["**/.venv", "**/virtualenvs", "tmp/"]
+
+# Test code has different ergonomics (poking internals, monkeypatching) — relaxed
+# per-directory, so src/ultimate_memory stays at full standard.
+[[tool.pyright.executionEnvironments]]
+root = "src/tests"
+reportPrivateUsage = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
