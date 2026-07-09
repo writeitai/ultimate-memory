@@ -49,9 +49,12 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
   retained (D59)**: "X believes/said/opposes Y" is a verifiable proposition about X, kept and
   normalized to a stance observation on the holder — so "what does X think about Y, and did it
   change?" is answerable memory content.
-- **E3 — Relations**: distinct facts `(subject, predicate, object)` normalized from claims;
-  many-to-many evidence links between claims and relations; the unit of supersession and
-  contradiction.
+- **E3 — Relations + Observations**: the fact layers, normalized from claims. **Relations** are
+  distinct entity→entity facts `(subject, predicate, object)`; **observations** are facts about
+  one entity whose object is a value or statement (a headcount, a revenue figure, an attributed
+  stance — D43, D59), entity-anchored and untyped. Both carry bi-temporal validity and
+  many-to-many evidence links to claims, and both are units of supersession and contradiction;
+  only relations project to the graph.
 - **Registries** (cross-cutting substrate of plane E — registries canonicalize, layers
   transform): canonical **entities** with aliases and resolution; governed **predicate**
   vocabulary with an escape hatch and periodic promotion.
@@ -149,15 +152,16 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
 - Named search recipes on top of composable primitives.
 - **No LLM calls on the core search path** — query latency is retrieval-bound.
 - Full flexibility is the goal: agents choose strategies, the system does not impose one.
-- **The query surface must make the claim/relation temporal split explicit to agents.** Claims have
+- **The query surface must make the claim/fact temporal split explicit to agents.** Claims have
   **no temporal supersession** — they are immutable evidence (what a source asserted, including the
   validity interval *it* asserted), never closed or invalidated. **All supersession / current-fact
-  validity lives only on relations.** So the querying system must surface, and its API/recipe naming
-  must enforce, the distinction: a relation as-of query answers *"what does the system currently
-  believe held at T"* (it honors supersession); a claim query answers *"what did sources assert"*
-  (evidence, possibly stale, contradictory, or later superseded at the relation level). An agent must
-  never read a claim's validity as the system's current belief, and "is this still true?" must route
-  through relations, never through claims. (See D3, D6, D41.)
+  validity lives on the fact layers — relations and observations.** So the querying system must
+  surface, and its API/recipe naming must enforce, the distinction: a fact as-of query (over
+  relations or observations) answers *"what does the system currently believe held at T"* (it honors
+  supersession); a claim query answers *"what did sources assert"* (evidence, possibly stale,
+  contradictory, or later superseded at the fact level). An agent must never read a claim's validity
+  as the system's current belief, and "is this still true?" must route through relations and
+  observations, never through claims. (See D3, D6, D41, D43, D49.)
 
 ## Operational properties
 
