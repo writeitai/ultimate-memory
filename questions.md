@@ -161,7 +161,7 @@ Keep this current: when something here is decided, move it to a decision and pru
     still says** "row counts are contingent on the value gate — size against *gated* volume." Update
     D23.
 27. ~~**P2 graph design ontology is stale vs D18.**~~ **RESOLVED (D44).** `p2_graph_design.md` §2/§3 now
-    use the D18 seed core (8 types + 14 predicates), `DOC_CROSSREF(kind)` (generalizing the old `CITES`),
+    use the D18/D64 seed core (8 types + 16 predicates), `DOC_CROSSREF(kind)` (generalizing the old `CITES`),
     and the `IS_DOCUMENT` bridge — see the Postgres→LadybugDB translation analysis
     (`plan/analysis/ladybug_translation_research/SYNTHESIS.md`) and the `v_graph_*` projection views
     (`postgres_schema_design.md` §10.A).
@@ -191,7 +191,7 @@ Keep this current: when something here is decided, move it to a decision and pru
   belief tier. Open remainders stay tracked above (#5 whose-beliefs, #6 cadence, #24 hard-delete
   residuals) and in the design's §11 spikes.
 
-- **Ontology seed** (was "what seeds the ontology") → **D18** (8 core types + 14 predicates with
+- **Ontology seed** (was "what seeds the ontology") → **D18** (8 core types + 14 predicates, since grown to 16 by D64, with
   domain/range; extension packs; `other:` promotion).
 - **Multi-tenant / ID scoping** (was "single user or multi-tenant") → **D16** + the deployment model
   (`registries_design.md` §1): separate deployments = separate Postgres instances + entity spaces.
