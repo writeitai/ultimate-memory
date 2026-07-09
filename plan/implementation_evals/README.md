@@ -2,7 +2,7 @@
 
 An exhaustive set of [eval-banana](https://github.com/writeitai/eval-banana) `harness_judge`
 checks that verify the **final implementation honors the binding design** — the decision log
-(**D1–D63**), the requirements, and the design docs. Each check points an LLM judge at the
+(**D1–D64**), the requirements, and the design docs. Each check points an LLM judge at the
 binding sources and at the code, states the invariant as concrete conditions, and demands a
 binary verdict.
 
