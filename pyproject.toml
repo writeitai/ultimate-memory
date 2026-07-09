@@ -1,0 +1,111 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ultimate-memory"
+version = "0.1.0"
+description = "A layered, scale-oriented memory system for AI agents."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "WriteIt.ai s.r.o.", email = "info@writeit.ai" },
+]
+keywords = [
+    "ai",
+    "agents",
+    "memory",
+    "knowledge",
+    "evidence",
+    "bitemporal",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/writeitai/ultimate-memory"
+Repository = "https://github.com/writeitai/ultimate-memory"
+Issues = "https://github.com/writeitai/ultimate-memory/issues"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "ruff>=0.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ultimate_memory"]
+
+# Ruff config copied from the writeitai house style (team-harness / loopy-loop).
+[tool.ruff]
+src = ["src"]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "A", "ERA"]
+
+[tool.ruff.lint.isort]
+case-sensitive = false
+force-single-line = true
+force-sort-within-sections = true
+known-first-party = ["ultimate_memory"]
+order-by-type = false
+relative-imports-order = "closest-to-furthest"
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+# Deliberate deviation from the team-harness/loopy-loop template: they run pyright in
+# "basic" mode with ~20 report* checks disabled. This is a data-integrity system (enums,
+# validity windows, adjudication outcomes), so library code runs "standard" (NOT strict —
+# the noisy reportUnknown* family is off) with no checks disabled.
+#
+# Relax-with-receipts rule: any future report*=false here MUST carry a one-line reason
+# comment and come from observed friction on real code, never pre-emptively. Loosening
+# later is a one-line change; tightening later means fixing accumulated violations.
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src"]
+extraPaths = ["src"]
+exclude = ["**/.venv", "**/virtualenvs", "tmp/"]
+
+# Test code has different ergonomics (poking internals, monkeypatching) — relaxed
+# per-directory, so src/ultimate_memory stays at full standard.
+[[tool.pyright.executionEnvironments]]
+root = "src/tests"
+reportPrivateUsage = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]
+testpaths = ["src/tests"]
+
+[tool.coverage.run]
+source = ["src/ultimate_memory"]
+branch = true
+relative_files = true # required by the coverage-comment action
+
+[tool.coverage.report]
+show_missing = true
+precision = 1
