@@ -74,6 +74,21 @@ A few ideas give the design its character:
   cloud storage), the distilled knowledge in a git repo, and the search and graph layers are
   derived, rebuildable projections on top.
 
+## Open source and the cloud
+
+This repository is the complete memory system, not a teaser for a hosted product (D60):
+
+- **Everything that makes the memory trustworthy is here**, under Apache-2.0 — extraction, entity
+  resolution, supersession, grounding and provenance, evals, budgets, dead-letter queues, deletion.
+  If it affects correctness, it will never be paywalled.
+- **The hosted offering runs this same code, unmodified.** What the cloud adds is operation
+  (multi-tenant infrastructure, HA, upgrades, backups) and the human layer (web UI, SSO, teams,
+  billing). The library's consumers are agents, and its agent surfaces — API, CLI, MCP, mounted
+  filesystems — are the complete consumption story.
+- **Self-hosting gives you the full engine for one deployment**, on your own infrastructure via the
+  provider ports (D61): S3-compatible storage, a Postgres-backed queue, local mounts, your own git
+  remote, your own model keys. Support is community-only.
+
 For the full picture, start with [plan/designs/overall_design.md](plan/designs/overall_design.md).
 
 ## The `plan/` directory

@@ -1595,3 +1595,89 @@ quality is a spike** — "the team" must resolve to the right entity or the cand
 Requirements §E2 updated; refines D31/D34 (the Selection lists), touches no schema DDL
 (stance observations are ordinary `observations` rows; the drop ledger's `opinion` reason
 narrows in meaning).
+
+---
+
+## D60. The library boundary — this repo is the complete single-deployment memory system; the human/operations layer is a separate product
+
+**Decision.** The system ships as an **open-source library (Apache-2.0) with a commercial cloud
+around it** — the Sentry-shaped split: fully self-deployable OSS, with the cloud absorbing the
+infrastructure hardship and adding the human layer. This repo delivers the **complete memory system
+for one deployment**: every stage that determines what the memory believes and whether it can be
+trusted — E0–E3, the registries + resolution cascade (D17), supersession/contradiction (D3/D4/D43),
+grounding (D32), the K compile machine (D45–D47), P1/P2/P3, the retrieval primitives/recipes/envelope
++ MCP server + CLI + mounts + consumption skill (D48–D51), the review CLI (D24), the eval harness +
+canaries (D22/D35), cost metering with enforced budgets, DLQ, and the deletion cascade — plus a
+runnable self-host stack (D61). Two **binding constraints on all future design work**:
+
+1. **Correctness is never gated.** No mechanism that determines whether the memory can be trusted
+   may live outside this repo or be conditional on a commercial offering.
+2. **The cloud consumes this library unmodified**, through published extension points; no extension
+   point may allow a consumer to bypass an invariant (ingestion always writes through E0; review
+   always appends reversible D24-style verdicts; a control plane is never an authority for E/K/P
+   truth).
+
+Two **documented non-goals of the library** (scope boundaries, not phases): a **human web UI** — the
+consumers are agent harnesses, and the agent surfaces (API / CLI / MCP / mounted filesystems) are the
+complete consumption story (D48–D51; D24 already draws exactly this line for review tooling — CLI in
+the library, web UI outside — generalized here to every surface); and a **multi-tenant control
+plane** (orgs/users/SSO, billing, fleet management) — one deployment is one trust domain (D16, D50),
+and operating *many* deployments is the cloud product's job.
+
+**Context.** Written into the decision log — rather than left as business context — because this
+boundary erodes *silently*: a design doc casually assumes a dashboard exists, or a
+correctness-adjacent feature lands cloud-side under revenue pressure, and each step looks small. The
+split principle in one line: **agents get the library; humans and operations get the cloud.** The
+system's designed consumers are agent harnesses (requirements §Retrieval); a web UI appears nowhere
+in the library's design, so the human layer is a genuinely separate product, not a carve-out that
+weakens the OSS — which is also why the biggest commercial risk is *not* giving away too much but
+shipping an OSS that nobody can run or trust (either kills the adoption the cloud depends on). The
+supporting analysis lives in the (private) cloud repo; per Rule 1 the reasoning is carried inline
+here so this entry stands alone.
+
+**Consequences.** Future designs must not assume a web UI or shared tenancy. The retrieval API
+carries a swappable perimeter-auth seam (API keys in the library; D50's trust model unchanged).
+Watched-source/connector contracts (D54) write through E0, never around it. `README.md` carries the
+outward promise (the "Open source and the cloud" section); `CLAUDE.md` Rule 3 carries the inward
+enforcement; requirements name self-hostability explicitly. Governance instruments (CLA with a
+relicense grant, trademark policy) are tracked in `questions.md` and must be settled before outside
+contributions are accepted.
+
+---
+
+## D61. Provider ports — the deployment substrate is pluggable; the imposed constraints become the reference deployment
+
+**Decision.** The deployment *substrate* is reached only through narrow **ports** (interfaces with
+swappable implementations), each with exactly **two maintained adapters** — a **self-host adapter**
+and the **reference adapter** (which is also what the cloud offering runs):
+
+| Port | Self-host adapter | Reference adapter |
+|---|---|---|
+| Object store (raw, artifacts, snapshots) | S3-compatible (e.g. MinIO); local FS for dev | GCS |
+| Task queue / scheduler (bounded retries, rate limits, DLQ) | Postgres-backed queue (`SKIP LOCKED` + retry columns — the DLQ already lives in Postgres, D12) | Cloud Tasks + Cloud Run jobs |
+| Mount publication (P3 + artifact/raw/K mounts, D51) | local directory trees | GCS + gcsfuse |
+| K git remote | any git remote | hosted per-deployment repo |
+| Model / embedding providers | BYO keys | configured providers |
+| Telemetry export | OTLP / stdout | managed collection |
+| Auth perimeter | API keys (the D50 trust model) | swappable middleware (SSO lives outside the library) |
+
+**Anti-goal — the engine is not abstracted.** Postgres, LanceDB, LadybugDB, the E/K/P data model,
+PageIndex/semchunk/Claimify, and the K compile machine are the system's *identity*, not substrate; no
+port wraps them, and no design should hedge on them. The requirements' former "Imposed constraints"
+section is re-titled the **reference deployment**: the fixed production profile (Postgres on Hetzner;
+GCP Cloud Run jobs via Cloud Tasks; GCS + gcsfuse) — now *a profile of the ports* rather than an
+assumption embedded in every design.
+
+**Context.** As previously written, the requirements pinned the deployment substrate to one vendor's
+cloud accounts — an "open-source library" a self-hosting user could not actually run (D60's
+biggest-failure-mode). The port set is deliberately narrow — substrate only, two adapters each,
+provider maximalism rejected — so the fix costs little: the queue port's self-host adapter is barely
+new machinery (dead-letter state is already Postgres rows), mount publication already produces plain
+generated files (D40), and the K driver already speaks ordinary git.
+
+**Consequences.** Requirements §"Imposed constraints" reframed (fixed engine choices vs. ports vs.
+reference profile). Designs that reference Cloud Tasks/GCS semantics mean the *port contract*
+(ordering, bounded retries, rate limiting, immutable versioned paths, read-only mounts) with the
+reference adapter as one implementation. A runnable self-host stack (docker-compose profile) becomes
+definable — part of the D60 deliverable. The packaging/distribution design (packages, deployment
+profiles, upgrade + migration policy) is a planned design doc, tracked in `questions.md`.

@@ -10,7 +10,7 @@ in `plan/` and is described in `README.md` — read it first:
 - `plan/plans/` — *in what order* to build it (sequencing)
 - `decisions.md` (root) — the architecture decision log (D1, D2, …), the canonical record
 
-When editing any of these, two rules are **non-negotiable**.
+When editing any of these, three rules are **non-negotiable**.
 
 ## Rule 1 — Design docs must be understandable by both future agents AND humans
 
@@ -50,5 +50,21 @@ is a *requirement*, not a someday-goal). Design and decision docs describe that 
 - Numbers (thresholds, sizes, costs) are starting points to be measured, not committed
   constants — label them as such rather than as "v1 values".
 
-When in doubt on either rule, favor the version a stranger could read cold and fully understand,
+## Rule 3 — The library boundary is binding (D60/D61)
+
+This repo is the **complete single-deployment memory system — and only that**. It ships as open
+source with a commercial cloud built around it; the boundary lives here so it cannot erode
+silently. When writing any design or decision:
+
+- **Never assume a web UI or a multi-tenant control plane exists.** They belong to the separate
+  cloud product. Agent surfaces (API / CLI / MCP / mounted filesystems) must remain the complete
+  consumption story.
+- **Never place a correctness-determining mechanism outside this repo** or make it conditional on
+  a commercial offering — extraction, resolution, supersession, grounding, evals, budgets, DLQ,
+  and deletion are always fully here.
+- **Cloud-facing needs are met only through the declared provider ports (D61)**, and no extension
+  point may let a consumer bypass an invariant (ingestion always writes through E0; review always
+  appends reversible verdicts; a control plane is never an authority for E/K/P truth).
+
+When in doubt on any rule, favor the version a stranger could read cold and fully understand,
 describing the whole system.

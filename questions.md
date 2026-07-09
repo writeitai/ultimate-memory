@@ -50,6 +50,27 @@ Keep this current: when something here is decided, move it to a decision and pru
     (`converter_version`, `structurer_version`, extractor version) and embeddings can migrate
     (overall §6) — but there is no explicit plan for *how* a version bump reprocesses: version-filter
     queries, queue shape + throttling, partial-rebuild ordering, and rollback.
+11a. **OSS governance & release readiness (D60/D61).** Must be settled before outside
+    contributions / public release. Conclusions so far (2026-07-08 comparables + name check; full
+    detail in the cloud repo's split analysis, `04_licensing_naming_findings.md`):
+    - **License: stay Apache-2.0** (already shipped). Verified comparables: Sentry FSL-1.1-Apache-2.0
+      (tightened only after a decade of dominance), E2B Apache-2.0, Hermes agent (Nous Research) MIT —
+      agent-era infrastructure launches permissive; adoption is the existential game. Apache over MIT
+      for the explicit patent grant. FSL stays a *documented trigger* (a competing hosted offering at
+      meaningful scale), never a launch choice.
+    - **CLA with a *bounded* relicense grant** (e.g. "only to licenses that keep self-hosting free")
+      rather than plain DCO — preserves the FSL escape hatch (Apache versions already published stay
+      Apache forever) while blunting the usual contributor objection. Must exist before the first
+      outside PR.
+    - **"Ultimate Memory" is a working title, not the brand — a rename gates public release.**
+      Preliminary knock-out search: an existing commercial software product "Ultimate Memory™"
+      (eReflect, memory-training software) collides directly, and "ultimate" (laudatory) + "memory"
+      (generic for a memory system) makes the mark likely unregistrable-or-weak — unable to do the
+      anti-free-riding work D60's licensing posture assigns to the trademark. Pick a distinctive
+      coined name; attorney clearance required (the check was preliminary, not legal advice).
+    - Still open: the **packaging/distribution design** (packages, container images, the two
+      deployment profiles, upgrade + migration policy, export/import format) — an unwritten design
+      doc (§3).
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 
