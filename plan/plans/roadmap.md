@@ -48,10 +48,21 @@ needs to restate it:
   (grain CI, envelope invariants, canaries) run in the same CI as unit tests.
 - **Migrations:** Alembic, generated against `postgres_schema_design.md` (the schema doc is
   the source of truth; migrations implement it, never fork it).
-- **Fixed infrastructure** (imposed constraints — not choices): Postgres (Hetzner, pgBouncer),
-  LanceDB (P1), LadybugDB (P2), GCS (+`gcsfuse` mounts), Cloud Run jobs + Cloud Tasks
-  (orchestration design), PageIndex (structure), semchunk (packing), Codex/OpenCode (K-plane
-  producer agents) with cross-family checkers (D53).
+- **The engine — fixed everywhere, never abstracted (D61 anti-goal):** Postgres (the spine),
+  LanceDB (P1), LadybugDB (P2), the E/K/P data model, PageIndex (structure), semchunk
+  (packing), Codex/OpenCode (K producers) with cross-family checkers (D53).
+- **The substrate — reached only through the D61 ports**, each with a self-host and a GCP
+  reference adapter: object store (MinIO/local ↔ GCS), task queue (**delivery-only** over
+  `processing_state`: the pg `LISTEN/NOTIFY`+`SKIP LOCKED` shell ↔ Cloud Tasks push, one
+  janitor for both — D62), mount publication (local dirs ↔ gcsfuse), K git remote, model
+  providers, telemetry, auth perimeter. Vendor SDKs live only in `adapters/`; designs naming
+  Cloud Tasks/GCS mean the port contract.
+- **The reference deployment** (the production profile; what the cloud runs): Postgres on
+  Hetzner + pgBouncer, GCP Cloud Run jobs via Cloud Tasks, GCS + gcsfuse.
+- **Code architecture (D62, binding):** hexagonal layout
+  (`model/core/spine/ports/adapters/llm/workers/surfaces/eval/profiles`), dependency arrows
+  **enforced by import-linter in CI** (core is pure; SQL only in `spine/`; vendor SDKs only in
+  `adapters/`); explicit constructor-injection profiles, no DI framework.
 - **Engineering conventions — TO BE PROVIDED by the project owner** *(explicit slots; do not
   improvise these in a WP — ask):* package/dependency manager; lint/format tooling; repository
   layout (mono-package vs workspace); service/module naming conventions; CI provider config;
@@ -82,7 +93,8 @@ as usual):
 
 | Gate | Blocks | What must be decided |
 |---|---|---|
-| stack conventions (§3 slots) | Phase 0 scaffolding WP | owner-provided tooling/layout choices |
+| stack conventions (§3 slots — narrowed by D62: layout + arrows now bound) | Phase 0 WP-0.1 | owner-provided: package manager, lint/format, CI provider, secrets handling |
+| rename + CLA (`questions.md` §11a) | Phase 7 WP-7.7 (release), first outside PR | distinctive name + attorney clearance; CLA before external contributions |
 | **#3 embedding model + dimension** | **Phase 1 entry** | decides whether the E1 prefix stage exists (e1 §5 branch); hardest-to-change choice in the system |
 | #4 LLM per stage | Phase 1 (extractor pick), Phase 2 (adjudicators), Phase 6 (K writers) | concrete model picks per seat (respecting D53 family split) |
 | #7 PageIndex hosted vs self-hosted | Phase 3 (full structure route) | cost/privacy/rebuild trade |
@@ -131,5 +143,5 @@ churn; the designs are not.
 ## References
 
 Designs: `plan/designs/` (index in `overall_design.md` §9). Decisions: `decisions.md`
-(D1–D59). Open items: `questions.md`. Scenario battery: `plan/analysis/retrieval_scenarios.md`.
+(D1–D62). Open items: `questions.md`. Scenario battery: `plan/analysis/retrieval_scenarios.md`.
 Worker inventory + execution classes: `plan/analysis/workers.md`, `orchestration_design.md`.

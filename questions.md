@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D59).
+- **`decisions.md`** — what *is* decided (D1–D62).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -68,9 +68,12 @@ Keep this current: when something here is decided, move it to a decision and pru
       (generic for a memory system) makes the mark likely unregistrable-or-weak — unable to do the
       anti-free-riding work D60's licensing posture assigns to the trademark. Pick a distinctive
       coined name; attorney clearance required (the check was preliminary, not legal advice).
-    - Still open: the **packaging/distribution design** (packages, container images, the two
-      deployment profiles, upgrade + migration policy, export/import format) — an unwritten design
-      doc (§3).
+    - ~~The packaging/distribution design~~ **RESOLVED (D62)** —
+      `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
+      (lineage-aware ingest; connector management vs execution), delivery-only task execution
+      over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
+      compose profiles, release/upgrade/export policy. Still gating here: the **rename** and the
+      **CLA** (above), and the stack-convention slots (roadmap §3).
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 

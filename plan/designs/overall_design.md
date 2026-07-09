@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D59); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D62); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -236,6 +236,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |
 | `orchestration_design.md` | worker runtime: queue topology, lanes, backfill seeding, budget enforcement, DLQ operations (D52–D53) | **current** |
 | `evidence_lifecycle_design.md` | document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) | **current** |
+| `packaging_distribution_design.md` | delivery artifacts, delivery-only task execution, enforced code architecture (D62) | **current** |
 
 ## 10. Open questions
 
