@@ -130,10 +130,10 @@ One canonical cascade. Stop at the first confident match. **Registry-self-contai
 
 ## 4. Ontology — universal core + anchored extensions (D15, D18)
 
-- **Seed core (D18):** 8 entity types — `Person, Organization, Place, Document⊂CreativeWork,
-  Event, Concept, Project, Product` — and the 14 core predicates below. `related_to` is the
-  predicate-side core parent (the extend-never-fork anchor + permissive escape). Time is
-  bi-temporal edge metadata, never a predicate/Date-node.
+- **Seed core (D18, extended by D64):** 8 entity types — `Person, Organization, Place,
+  Document⊂CreativeWork, Event, Concept, Project, Product` — and the 16 core predicates below.
+  `related_to` is the predicate-side core parent (the extend-never-fork anchor + permissive
+  escape). Time is bi-temporal edge metadata, never a predicate/Date-node.
 
 **Core predicates (the authoritative starting set — domain/range is the enforced signature):**
 
@@ -152,7 +152,9 @@ One canonical cascade. Stop at the first confident match. **Registry-self-contai
 | 11 | `knows` | Person → Person | social graph |
 | 12 | `participated_in` | Person \| Organization → Event \| Project | involvement |
 | 13 | `works_on` | Person \| Organization → Project \| Product | active engagement — change-prone |
-| 14 | `related_to` | any → any | permissive core parent (escape + extend-never-fork anchor) |
+| 14 | `uses` | Person \| Organization → Product | adoption/consumption of a product/system/tool — change-prone; distinct from `works_on` (building ≠ using) — promoted from the watchlist, D64 |
+| 15 | `reports_to` | Person → Person | organizational reporting line — change-prone (supersession) — promoted from the watchlist, D64 |
+| 16 | `related_to` | any → any | permissive core parent (escape + extend-never-fork anchor) |
 
 Multi-signature predicates list each allowed `(subject_type, object_type)` pair (Graphiti
 `edge_type_map` shape); subtypes inherit a parent's signatures (D15). Schema.org property
@@ -246,10 +248,13 @@ into the appropriate pack with a tight signature. Adding one is a registry row; 
 premature core predicate (prompt space, golden-set coverage, a split if it's wrong) is the
 reason to wait.
 
+**Two graduations (D64):** `uses` and `reports_to` were promoted into the core (rows 14–15
+above) by owner decision — the named deployments made the demand case without waiting for
+`other:` volume (an as-is system landscape runs on `uses`; people-centric retrieval runs on
+`reports_to`). The rows below remain held back.
+
 | Candidate | Tight signature | Future home |
 |---|---|---|
-| `uses` | Organization \| Person → Product | systems pack |
-| `reports_to` | Person → Person | work/HR pack |
 | `owns` / `acquired_by` | Organization → Organization \| Product | business pack |
 | `lives_in` | Person → Place | personal pack |
 | `enables` | Concept → Concept (tight only) | research scope — guardrailed (see below) |

@@ -699,7 +699,8 @@ between compiled and authored does **not** fall on the as-is/to-be line. The lin
 any other; only content no source yet attests must be authored.
 
 - The systems extension pack (registries §4) makes the landscape *entities*:
-  `System`/`Module ⊂ Product`, `BusinessProcess ⊂ Concept`, predicates `uses`, `depends_on`,
+  `System`/`Module ⊂ Product`, `BusinessProcess ⊂ Concept`, predicates `uses` (core since D64,
+  inherited by the pack's subtypes), `depends_on`,
   `part_of`. Workshop notes, emails, and specs from different people all resolve onto the same
   module entities — that is plane E doing its job.
 - **`as-is/` is compiled.** The ordering-subsystem page holds an `entity_subtree` rule on the

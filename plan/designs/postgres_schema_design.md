@@ -494,8 +494,8 @@ COMMENT ON TABLE scope_interests IS
   'Per-scope interest list (D16): the predicate/type footprint that defines the scope''s PROJECT_GRAPH_CYPHER view and what its K2 compilation selects. A query/compile-time selection over fully-extracted facts — never a promotion trigger (D28 withdrawn).';
 ```
 
-The **seed core** (D18) — 8 entity types and 14 predicates with signatures — is data inserted by a
-migration, not schema. Its authoritative list is in `registries_design.md` §4; the seeding
+The **seed core** (D18, extended by D64) — 8 entity types and 16 predicates with signatures — is
+data inserted by a migration, not schema. Its authoritative list is in `registries_design.md` §4; the seeding
 migration cites that section rather than duplicating it here (avoids drift).
 
 ---

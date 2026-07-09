@@ -154,5 +154,5 @@ and flow downward.
 | [plan/analysis/p3_agent_navigation.md](plan/analysis/p3_agent_navigation.md) | P3 agent navigation — materialized tree vs index-only, the `_index.md` contract, facets/views/fan-out, why directory LLM summaries are rejected (→ e0 §6, F6) |
 | [plan/plans/roadmap.md](plan/plans/roadmap.md) | Build order: phase spine, stack, gate register, WP format (phases 0–8) |
 | [plan/designs/packaging_distribution_design.md](plan/designs/packaging_distribution_design.md) | Delivery artifacts, delivery-only task execution, enforced code architecture (D62) |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D63) with rationale |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D64) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
