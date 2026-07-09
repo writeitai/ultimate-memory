@@ -63,7 +63,15 @@ line-length = 88
 skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
-extend-select = ["I", "B", "A", "ERA"]
+extend-select = ["I", "B", "A", "ERA", "TID251"]
+
+# All configuration goes through pydantic-settings; secrets are SecretStr/SecretBytes
+# (requirements_v3.md §Code). Env vars are read in exactly one place — a BaseSettings
+# class — never ad hoc. Tests set env via pytest's monkeypatch.setenv, which is not banned.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.environ".msg = "Read config via pydantic-settings (BaseSettings), not os.environ (requirements §Code)."
+"os.getenv".msg = "Read config via pydantic-settings (BaseSettings), not os.getenv (requirements §Code)."
+"os.putenv".msg = "Do not mutate the process environment; pass typed settings instead (requirements §Code)."
 
 [tool.ruff.lint.isort]
 case-sensitive = false
