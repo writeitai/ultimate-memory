@@ -136,9 +136,10 @@ both entity-keyed blocking and graph queries. So:
   hatch.
 - A periodic job reviews frequent `other:` values and promotes them (or maps them to existing
   predicates). The ontology evolves by governance, not by accretion.
-- Seed vocabulary = the **14 D18 core predicates** (`works_for, member_of, affiliated_with, founded,
-  located_in, part_of, authored, created, about, knows_about, knows, participated_in, works_on,
-  related_to`); the authoritative list + domain/range signatures live in `registries_design.md` §4.
+- Seed vocabulary = the **16 core predicates** (D18, extended by D64: `works_for, member_of,
+  affiliated_with, founded, located_in, part_of, authored, created, about, knows_about, knows,
+  participated_in, works_on, uses, reports_to, related_to`); the authoritative list +
+  domain/range signatures live in `registries_design.md` §4.
   Extend per K2 domain via packs. (The graph stores `predicate` as a property — D18 domain/range is
   enforced upstream by the E3 normalizer, not in the graph.)
 

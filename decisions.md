@@ -424,6 +424,10 @@ supersession (`registries_design.md` §4, extension packs).
 representation of time. A claim's immutable asserted-validity interval (D41) is *claim metadata*, not
 a relation object/predicate or a Date-node, so it is fully compatible — D18 is unchanged.
 
+**Refined by D64.** The seed core is now 8 types + **16** predicates: `uses`
+(Person | Organization → Product) and `reports_to` (Person → Person) promoted from the
+registries §4 watchlist — the first watchlist graduations. Everything else here is unchanged.
+
 ## D19. Coref is satisfied inside the E2 extraction call (no dedicated model)
 
 **Decision.** Coref is the guarantee that no claim leaves E2 with a dangling pronoun — satisfied
@@ -1768,3 +1772,37 @@ three-calls-per-chunk math). E1 spike 8 narrows from "which model" to "which sto
 prefix quality", measured on the golden set. P1 index/parameter choices unblock (dimension now
 bounded). Questions #3 closes; review finding F8 closes. The embedder port gains its two named
 adapters (OpenRouter-hosted; self-hosted weights).
+
+## D64. Core predicates grow to 16 — `uses` and `reports_to` promoted from the watchlist
+
+**Decision.** The D18 seed core gains two predicates, taking the core from 14 to **16**:
+**`uses`** (Person | Organization → Product — adoption/consumption of a product/system/tool;
+change-prone, ordinary supersession; deliberately distinct from `works_on`, which means
+building/active engagement, not using) and **`reports_to`** (Person → Person — the
+organizational reporting line; change-prone). Both move from the predicate watchlist
+(registries §4) into the core table with these tight signatures; their formerly designated
+pack homes (systems; work/HR) no longer apply to them. The watchlist keeps `owns`/
+`acquired_by`, `lives_in`, and the guardrailed `enables`; the D5 `other:` promotion funnel
+remains the default path for everything else — this is an owner promotion, not a change to
+the funnel rule.
+
+**Context.** The watchlist promotes on demonstrated `other:` volume, not intuition. These two
+are promoted ahead of volume because every named deployment (registries §1) needs them
+first-class from day one: "who uses which system/tool" is the backbone of the migration
+deployment's as-is landscape and a bread-and-butter assistant/agency query ("person A uses
+software X"), and `reports_to` is the org-chart backbone of people-centric retrieval. Both
+carry exactly the properties that qualified the original fourteen: tight domain/range over
+core types (the D18 gate bites), natural evidence aggregation (the same usage/reporting fact
+recurs across sources), and clean supersession semantics (tool adoption and reporting lines
+end and change — the bi-temporal model fits). Waiting for the funnel would have meant an
+interim of `other:uses` / `other:reports_to` edges that bypass domain/range validation
+(tier='other' is ungoverned until promotion) for facts already known to be wanted governed.
+
+**Consequences.** Registries §4: the core table has 16 rows (`related_to` stays last as the
+permissive parent); the watchlist shrinks to three entries. p2 §3's seed vocabulary updated;
+extraction prompts pick both up by registry render (D15 — rows, not prompt engineering).
+Core-tier obligations attach: D22 golden-set coverage for both, and the core stability
+commitment (a future split pays the D15-flagged split cost). Signature notes: systems-pack
+subtypes (`System`/`Module ⊂ Product`) inherit into `uses`'s range via D15 inheritance;
+`reports_to` stays strictly person-to-person (a role-based reporting line is modeled through
+the person holding the role).
