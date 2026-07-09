@@ -1681,3 +1681,54 @@ reference profile). Designs that reference Cloud Tasks/GCS semantics mean the *p
 reference adapter as one implementation. A runnable self-host stack (docker-compose profile) becomes
 definable — part of the D60 deliverable. The packaging/distribution design (packages, deployment
 profiles, upgrade + migration policy) is a planned design doc, tracked in `questions.md`.
+
+**Refined by D62 (the queue row, strengthened).** The task queue port is **delivery-only**:
+`processing_state` (D12) is the sole authority for what must run; both adapters merely *announce*
+rows (self-host: `LISTEN/NOTIFY` + `SKIP LOCKED` claiming with transactional enqueue; reference:
+Cloud Tasks push), and one **janitor sweep** re-announces lost deliveries on both — closing the
+reference adapter's non-transactional-enqueue window with the same mechanism. A third
+**test-tier** in-process adapter exists as test infrastructure, outside the two-maintained-adapter
+discipline. `packaging_distribution_design.md` §3.
+
+---
+
+> **D62 provenance.** D62 formalizes the packaging/distribution brainstorm (July 2026, user +
+> Claude; PR #37), filling the unwritten design D60/D61 named. Binding design:
+> `plan/designs/packaging_distribution_design.md`.
+
+## D62. Delivery artifacts, delivery-only task execution, and the enforced code architecture
+
+**Decision.** The library ships as **three artifacts**: the GitHub repo (source + the design
+corpus), **one PyPI package positioned as the client** (base install = typed SDK + CLI + MCP
+server; extras `[server]`, `[connectors-*]`, `[k]`; name pending the rename gate), and
+**container images on GHCR + a CI-tested docker-compose self-host profile** (Postgres + MinIO +
+api + worker; the ten-minute quickstart is a release gate). The **client surface** is: query
+(SDK/CLI/MCP), **lineage-aware ingest** (`source_kind/source_ref/source_modified_at/
+versioning_mode` optional on push — external feeders get full D54–D56 lifecycle semantics;
+writes always through E0), **connector management never execution** (connectors run
+deployment-side — sync-cycle semantics must not depend on a client process), and the D24
+review/admin CLI. **Task execution is one model with two delivery shells**: work is
+`processing_state` rows (D12 — the sole authority); handlers are registered per stage,
+idempotent, shell-agnostic; the self-host shell wakes on `LISTEN/NOTIFY` and claims with
+`SKIP LOCKED` (enqueue transactional with the caller's state writes), the reference shell is
+Cloud Tasks push; a **janitor sweep** re-announces lost deliveries on both. **The code
+architecture is hexagonal with mechanically enforced arrows**: `model/core/spine/ports/
+adapters/llm/workers/surfaces/eval/profiles`; core is pure and infra-free; SQL only in
+`spine/`; vendor SDKs only in `adapters/`; **import-linter contracts fail CI on illegal
+imports** (architecture erosion fails loudly); profiles are explicit composition roots — no DI
+framework. **Export/import rides rebuild-first (D7)**: portable state = Postgres dump + raw/
+artifacts buckets + the K repo; projections rebuild on import — the cloud↔self-host migration
+path in both directions.
+
+**Context.** Fills D60's deliverable and D61's profile mechanics. Redis/arq was considered for
+the self-host queue and not chosen for maintenance: a second stateful service in every
+deployment and the loss of transactional enqueue, bought for throughput this LLM-bound
+pipeline never needs — the port contract still admits a community adapter. The delivery-only
+framing dissolves the push-vs-pull asymmetry the two shells would otherwise leak into
+application code.
+
+**Consequences.** Roadmap §3 and Phases 0/5/7 updated (port interfaces + self-host adapters +
+compose in Phase 0; PyPI packaging in Phase 5; release engineering + export/import drill in
+Phase 7). The remaining stack-convention slots (package manager, lint, CI provider, secrets)
+still gate WP-0.1. `questions.md` §11a's packaging item closes; the rename + CLA gates stay
+open there.
