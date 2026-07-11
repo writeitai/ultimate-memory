@@ -5,7 +5,7 @@ description: One graph, many lenses — scopes never get their own entity space 
 tags: [cross, D16, D50]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D16 (and D50's trust-model refinement), then inspect scope handling under
+  Read decisions.md D16 (and D50's trust-model refinement) and plan/designs/registries_design.md §1, then inspect scope handling under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 
@@ -18,6 +18,13 @@ instructions: |
      projections only.
   3. Nothing uses scope views as an access-control mechanism — different trust boundaries are
      served by separate deployments, never by in-library per-scope filtering (D50).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

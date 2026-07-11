@@ -5,7 +5,7 @@ description: Extension points cannot bypass invariants — ingestion always writ
 tags: [boundary, D60, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D60 (constraint 2) and D62 (client surface), then inspect every extension
+  Read decisions.md D60 (constraint 2) and D62 (client surface) and plan/designs/packaging_distribution_design.md (the client surface), then inspect every extension
   point (connector interface, ingest API, review sink, provider ports) under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
      shape) — no hook allows destructive merges or direct registry rewrites.
   3. Provider-port adapters (D61) receive substrate operations only — no port interface
      exposes a way to mutate spine semantics (validity, adjudication outcomes, citations).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

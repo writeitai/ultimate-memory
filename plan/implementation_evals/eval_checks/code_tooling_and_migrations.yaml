@@ -18,5 +18,12 @@ instructions: |
   3. Domain contracts are typed (Pydantic models, enums, Literal/TypedDict where the design
      names closed sets — adjudication outcomes, execution classes, grains, negative kinds).
 
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

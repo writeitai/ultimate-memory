@@ -5,7 +5,7 @@ description: Attributed stance is kept and normalized to an observation on the h
 tags: [e2, e3, D59, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D59, then inspect the Selection rubric and E3 normalization under src/.
+  Read decisions.md D59 and plan/designs/observations_design.md, then inspect the Selection rubric and E3 normalization under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 
@@ -22,6 +22,13 @@ instructions: |
   4. Unattributed opinion, advice, hypotheticals, and generic truisms still drop; a stance
      whose holder cannot be decontextualized to a resolvable entity drops (ledger reason
      opinion, meaning unattributed-only).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

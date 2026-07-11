@@ -5,7 +5,7 @@ description: The hexagonal architecture is mechanically enforced — pure infra-
 tags: [code, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D62 (the enforced code architecture), then inspect the package layout and
+  Read decisions.md D62 (the enforced code architecture) and plan/designs/packaging_distribution_design.md (the enforced layout), then inspect the package layout and
   the import-linter configuration under the repo. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
   3. import-linter (or equivalent) contracts encode the allowed arrows and FAIL CI on illegal
      imports — architecture erosion is loud, not gradual.
   4. Profiles are explicit composition roots wiring ports to adapters — no DI framework.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

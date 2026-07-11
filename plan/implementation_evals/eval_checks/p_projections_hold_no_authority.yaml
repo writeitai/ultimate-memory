@@ -5,7 +5,7 @@ description: Validity state has exactly one home (Postgres); projection builders
 tags: [p, D6, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D6 (and D62's enforced architecture), then inspect the projection builders
+  Read decisions.md D6 (and D62's enforced architecture) and plan/designs/overall_design.md §2, then inspect the projection builders
   and the import-linter contracts under src/. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 
@@ -21,6 +21,13 @@ instructions: |
      batch path; nothing in a projection is source-of-truth.
   4. The graph writer is deterministic — no adjudication, no supersession logic, no LLM calls
      inside projection builders.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

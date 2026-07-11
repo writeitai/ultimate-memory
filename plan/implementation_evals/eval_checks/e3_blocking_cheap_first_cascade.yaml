@@ -5,7 +5,7 @@ description: Supersession candidates come from (entity, predicate) blocking with
 tags: [e3, D4, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D4, then inspect the supersession worker under src/. These are acceptance
+  Read decisions.md D4 and plan/designs/e2_e3_claims_relations_design.md §5, then inspect the supersession worker under src/. These are acceptance
   checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
@@ -17,6 +17,13 @@ instructions: |
      frontier model), and the escalation order is visible in code, not just prose.
   4. Observation supersession follows the same cascade blocked on the resolved entity (D43),
      sharing the engine rather than duplicating it.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

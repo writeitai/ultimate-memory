@@ -5,7 +5,7 @@ description: The embedding model is provider-port configuration, never architect
 tags: [p1, e1, D63, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D63 (and D61's embedder port), then inspect the embedder port, its
+  Read decisions.md D63 (and D61's embedder port) and plan/designs/e1_chunks_design.md §5, then inspect the embedder port, its
   adapters, and the E1 pipeline under src/. These are acceptance checks for the FINAL system:
   if the subsystem is absent or partial, score 0.
 
@@ -21,6 +21,13 @@ instructions: |
   4. The E1 context-prefix stage exists as designed (the conventional-embedder branch), its
      output stored and carried forward for unchanged regions (D56) — and prefixes never enter
      reuse keys.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

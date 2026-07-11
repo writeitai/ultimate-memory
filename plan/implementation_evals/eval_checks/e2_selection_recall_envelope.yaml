@@ -5,7 +5,7 @@ description: Selection is recall-conservative — KEEP bias, never-drop classes,
 tags: [e2, D35, D22]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D35, then inspect the Selection prompt/rubric, outcome enum, and eval
+  Read decisions.md D35 and plan/designs/e2_e3_claims_relations_design.md §3.4, then inspect the Selection prompt/rubric, outcome enum, and eval
   harness under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 
@@ -18,6 +18,13 @@ instructions: |
      never hard-deletes a borderline candidate silently.
   4. The eval harness plants rare-fact canaries and fails CI if Selection drops one; drop-rate
      tuning is per-fact, not corpus-average.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

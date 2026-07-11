@@ -5,7 +5,7 @@ description: One trust domain per deployment — no content-level authorization 
 tags: [retrieval, D50, D60, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D50 (trust model) and D60/D61, then inspect the API/mount surfaces under
+  Read decisions.md D50 (trust model) and D60/D61 and plan/designs/retrieval_design.md §9, then inspect the API/mount surfaces under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
      replaceable per D61's auth-perimeter port) — and nothing deeper.
   3. There is no orgs/users/RBAC/SSO machinery in this repository (D60: that is the cloud
      product).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

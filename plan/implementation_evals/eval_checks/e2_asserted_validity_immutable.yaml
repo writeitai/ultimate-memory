@@ -5,7 +5,7 @@ description: Claims carry an immutable source-asserted validity interval (from/u
 tags: [e2, D41, D32]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D41, then inspect the claim schema and the temporal extraction under src/.
+  Read decisions.md D41 and plan/designs/e2_e3_claims_relations_design.md §7, then inspect the claim schema and the temporal extraction under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 
@@ -19,6 +19,13 @@ instructions: |
   4. The relation/observation adjudicator may consult claim_valid_* as evidence input with a
      monotonicity guard (a late retrospective cannot move an adjudicated window), and nothing
      reads claim validity back as current belief.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

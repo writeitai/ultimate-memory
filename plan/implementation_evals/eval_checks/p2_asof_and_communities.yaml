@@ -5,7 +5,7 @@ description: As-of traversal is inline path-predicate filtering (never MATCH ove
 tags: [p2, D10, D11, D44]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D10/D11/D44, then inspect the graph query layer and the community pass
+  Read decisions.md D10/D11/D44 and plan/designs/p2_graph_design.md, then inspect the graph query layer and the community pass
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
      over the same export that feeds the rebuild — not inside LadybugDB.
   3. Community assignments and centrality write back to POSTGRES (the graph stays a
      projection); graph-derived metrics are computed post-load, never reprojected as truth.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

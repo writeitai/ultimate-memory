@@ -5,7 +5,7 @@ description: A typed negative taxonomy — unknown_entity / known_empty / bounda
 tags: [retrieval, D49, D50]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D49 (typed negatives) and D50 (trust model), then inspect the negative
+  Read decisions.md D49 (typed negatives) and D50 (trust model) and plan/designs/retrieval_design.md, then inspect the negative
   result types under src/. These are acceptance checks for the FINAL system: if the subsystem
   is absent or partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
   3. Hard-forgotten content answers exactly like never-existed content — same negative kind,
      same shape, no distinguishing metadata; a contract test (or CI gate wired to the deletion
      cascade) demonstrates the indistinguishability.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

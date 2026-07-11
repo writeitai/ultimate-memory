@@ -5,7 +5,7 @@ description: In living mode, removal retracts — sole-support loss closes facts
 tags: [e0, e3, D55, D54, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D55 (removal semantics) and D54/D43, then inspect the version-supersession
+  Read decisions.md D55 (removal semantics) and D54/D43 and plan/designs/evidence_lifecycle_design.md, then inspect the version-supersession
   and retraction logic under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 
@@ -21,6 +21,13 @@ instructions: |
   4. Retraction checks evaluate only AFTER the connector's sync cycle completes, so an
      intra-cycle section move resolves as a support swap — never retract-then-reassert.
   5. In snapshot mode, version succession never retracts anything.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

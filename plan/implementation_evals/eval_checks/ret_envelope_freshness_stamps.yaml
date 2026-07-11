@@ -5,7 +5,7 @@ description: Per-source freshness stamps ship in every envelope — PG live, P1 
 tags: [retrieval, D49, D48]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D49 (freshness stamps) and D48, then inspect the envelope freshness
+  Read decisions.md D49 (freshness stamps) and D48 and plan/designs/retrieval_design.md, then inspect the envelope freshness
   section under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 
@@ -17,6 +17,13 @@ instructions: |
      an archived snapshot) rather than a silent wrong answer.
   3. The applied temporal parameters (valid_at / believed_at) and the identity regime (current
      aliases vs identity_as_of) are echoed in composition-ready form.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

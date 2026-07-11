@@ -5,7 +5,7 @@ description: Every correctness-determining mechanism the design binds is impleme
 tags: [boundary, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D60, then verify each named correctness module exists in-repo and is
+  Read decisions.md D60 and plan/requirements/requirements_v3.md §Vision, then verify each named correctness module exists in-repo and is
   functional (not a stub raising NotImplemented, not disabled by default, not calling out to a
   proprietary cloud service to do the work).
 
@@ -13,6 +13,13 @@ instructions: |
   Selection; entity resolution (T0-T4); relation/observation supersession + contradiction
   adjudication; grounding validation; the eval harness + canaries; budget enforcement; the
   DLQ; the deletion cascade; the review CLI.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY named mechanism is present and functional in-repo — cite file paths
   in your reason. Otherwise score 0.

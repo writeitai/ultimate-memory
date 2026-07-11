@@ -1,7 +1,7 @@
 schema_version: 1
 id: ret_envelope_contradiction_completeness
 type: harness_judge
-description: Contradiction co-members are never silently absent — inline up to a cap, then group_id + returned/total + continuation; one-sided answers are a contract violation.
+description: Contradiction co-members are never silently absent — inline up to a cap and plan/designs/retrieval_design.md, then group_id + returned/total + continuation; one-sided answers are a contract violation.
 tags: [retrieval, D49]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
@@ -14,6 +14,13 @@ instructions: |
      + a continuation handle.
   2. The code path makes a one-sided answer impossible for contradicted facts (a contract
      test demonstrates it) — never a ranking choice that happens to drop the other side.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

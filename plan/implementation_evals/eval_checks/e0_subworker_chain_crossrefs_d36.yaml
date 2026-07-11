@@ -18,5 +18,12 @@ instructions: |
   3. Crossref extraction records citations/document links as E0 metadata; structuring is not
      promoted to a top-level E layer (E1–E3 keep their meanings).
 
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

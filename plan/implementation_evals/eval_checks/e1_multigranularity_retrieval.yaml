@@ -5,7 +5,7 @@ description: Claims are the needle index, chunks the passage index; default reci
 tags: [e1, p1, D58]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D58 (embedding granularity), then inspect the P1 index writers and default
+  Read decisions.md D58 (embedding granularity) and plan/designs/e1_chunks_design.md, then inspect the P1 index writers and default
   search recipes under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 
@@ -16,6 +16,13 @@ instructions: |
      references/nav/boilerplate/legal chunks retrieval-side — filtering over what was indexed
      (everything is still indexed; the no-pre-extraction-gate invariant is owned by
      e2_no_pre_extraction_gate).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.

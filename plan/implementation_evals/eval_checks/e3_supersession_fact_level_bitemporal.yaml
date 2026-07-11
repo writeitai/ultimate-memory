@@ -5,7 +5,7 @@ description: Supersession closes validity windows on relations and effective-sta
 tags: [e3, D3, D43, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D3 and D43 (the no-cap rule) and D55 (source-removal shapes), then inspect
+  Read decisions.md D3 and D43 (the no-cap rule) and D55 (source-removal shapes) and plan/designs/postgres_schema_design.md §9, then inspect
   the supersession write paths and temporal columns under src/. These are acceptance checks
   for the FINAL system: if the subsystem is absent or partial, score 0.
 
@@ -22,6 +22,13 @@ instructions: |
      validity window ("it ended"); a superseded row stays active in that sense.
   4. Both time-travel questions are answerable in the query layer: what was true at T
      (valid-time) and what did we believe at T (transaction-time).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
 
   Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
   Otherwise score 0.
