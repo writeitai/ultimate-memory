@@ -42,6 +42,16 @@ Two conventions when running:
 - Where an invariant is a *deliberate exception* (e.g. E2 extraction is volume-proportional by
   D25 while adjudication is ambiguity-scaled by D4), the check says so explicitly, so a judge
   cannot fail a correct implementation for obeying the design.
+- **Decisions for coverage, designs for truth.** The decision log is an append-only record
+  whose entries are refined and withdrawn by later ones — it serves as the *coverage index*
+  (which binding decisions have checks), while the design docs are the binding statement of
+  the *current* system. Every check therefore carries an explicit **source-precedence rule**
+  in its instructions: if cited sources appear to disagree, the design docs (including
+  `postgres_schema_design.md`) are controlling, decision entries are read with their
+  refinement/withdrawal annotations, and the judge reports the discrepancy instead of failing
+  an implementation that follows the current design. (This is the repo's own claims-vs-facts
+  epistemology applied to its documentation: the log is testimony; the designs are the
+  adjudicated current belief.)
 
 ## Inventory (69 checks)
 
