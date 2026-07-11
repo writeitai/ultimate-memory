@@ -1,0 +1,55 @@
+# Goal
+
+Implement the complete Ultimate Memory library by executing the build roadmap in
+plan/plans/roadmap.md — phases 0 through 8, in order, to done.
+
+## How to work
+
+- plan/plans/roadmap.md is the sequencing authority. The phase files
+  (plan/plans/phase-0-*.md … phase-8-*.md) define each phase's entry gates, work
+  packages (WP-N.x), and exit criteria. Work proceeds WP by WP.
+- A work package is executed after reading the documents named in its Reads column
+  (plus the repo conventions in the system rules). The design documents are binding;
+  where a plan and a design appear to disagree, the design wins and the discrepancy is
+  recorded.
+- Maintain the WP status columns in the phase files as work progresses
+  (planned | in-progress | done | blocked(<gate>)). Status flips are committed together
+  with the work they describe.
+- Respect the roadmap's gate register: a phase must not start while one of its entry
+  gates is open. If a gate is blocked on a human decision, record it in
+  current_state.md and continue with unblocked work.
+- All implementation lands via branch → PR → checks → merge. CI (ruff, pyright, pytest,
+  coverage) must be green before merge.
+
+## Eval focus
+
+- Keep eval-banana checks central to the loop. The eval workflows maintain
+  session-scoped checks that verify phase exit criteria and the designs' own contract
+  tests (the retrieval S-battery scenarios, CI invariants, planted canaries) — checks
+  must verify behavior, never merely that files exist.
+- goal_check tracks roadmap completion: it may only report goal_met when the
+  completion criteria below hold.
+
+## Completion criteria
+
+The goal is met only when all of the following are true:
+
+- Every phase file (phase-0 through phase-8) shows all of its work packages done and
+  its exit criteria met, with evidence linked from project_state/finished.md.
+- Phase 8's benchmark exit criteria pass and the results are recorded.
+- CI is green on main and all implementation work was merged through PRs (no orphaned
+  implementation branches).
+- project_state/finished.md contains enough evidence per phase for a reviewer to
+  verify completion without re-deriving it.
+
+## Notes
+
+- Phase 0 is already partially complete on main (package scaffold, tooling config, CI
+  with coverage, the pydantic-settings config convention). Read the phase-0 file's
+  statuses and continue from there — do not redo finished work.
+- A curated set of implementation eval checks is being developed in parallel and may
+  land in this repo later; when it does, the eval workflows adopt it as the base check
+  set instead of inventing overlapping ones.
+- Numbers in designs marked as "starting points to measure" are exactly that: measure
+  on the golden set / corpus slices before hard-coding; record measurements where the
+  design's spike list asks for them.

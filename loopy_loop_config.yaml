@@ -1,0 +1,68 @@
+goal_file: loopy_loop_goal.txt
+workflow_set: inner_outer_eval
+# Whole-roadmap goal (phases 0-8): high ceiling; the loop stops on goal_met,
+# this is the runaway backstop, not a target.
+max_turns: 500
+goal_check_consecutive_failures_cap: 3
+team_harness_provider: "codex"
+# GPT-5.6 family (GA 2026-07): sol = flagship, terra = workhorse, luna = fast/cheap.
+# Coordinator on the flagship — it owns loop judgment and synthesis.
+team_harness_model: "gpt-5.6-sol"
+team_harness_agents:
+  - "codex"
+team_harness_agent_models:
+  codex: "gpt-5.6-sol"
+team_harness_agent_reasoning_efforts:
+  codex: "high"
+# Optional coordinator retry controls. Omit to use team-harness defaults.
+# team_harness_max_retries: 8
+# team_harness_retry_base_delay_s: 2.0
+# team_harness_retry_max_delay_s: 60.0
+# Used only if team_harness_provider is switched to openai_compat
+# (OpenRouter id for the same model: openai/gpt-5.6-sol).
+team_harness_api_base: "https://openrouter.ai/api/v1"
+team_harness_api_key_env: "OPENROUTER_API_KEY"
+team_harness_system_prompt_extension: |
+  Session state rule:
+  - project_state/finished.md is the accepted-completion ledger.
+  - Only the outer loop should add entries, after reviewing completed
+    inner-loop work.
+  - Other workers should link their artifacts from current_state.md or their
+    own outputs, not mark work finished.
+  - The outer loop must read updates_from_user.md every run. If it contains
+    content, reflect it into durable project_state files and clear it only
+    after doing so.
+  PR, branch, and merge rule:
+  - For implementation work that changes repo files, create a branch, open a
+    PR, wait for checks, and merge it. One topic per PR.
+  - Default to PR + merge expected unless the task is session-state-only,
+    eval-only, research-only, planning-only, or the repo has no usable remote
+    or CLI auth.
+  - Do not wait for a human for ordinary branch creation, PR creation, GitHub
+    CLI use, browser use, write permissions, or available auth.
+  - Do not merge when checks fail, required review rules block merge, the merge
+    would be destructive or monetary, or the task explicitly says not to merge.
+  - If PR creation or merge is blocked, record the exact blocker, repo, branch,
+    PR URL if any, checks status, and remaining action in current_state.md.
+  This repository's rules (binding for every workflow):
+  - plan/plans/roadmap.md is the sequencing authority. Work is executed as the
+    phase files' work packages (WP-N.x); a WP is executed after reading the
+    documents in its Reads column. Designs are binding; plans reference
+    designs, never override them.
+  - Maintain WP status columns in the phase files
+    (planned | in-progress | done | blocked(<gate>)) — commit status flips
+    together with the work they describe.
+  - Respect the roadmap's gate register: never start a phase whose entry gate
+    is open; record blockers in current_state.md instead of working around
+    them.
+  - Code conventions: typed Python (Pydantic at boundaries), pyright + ruff +
+    pytest green before any merge; all env/config via pydantic-settings with
+    SecretStr (os.environ is banned by lint); tool-config relaxations require
+    recorded receipts.
+  - Before touching P1 (LanceDB) or P2 (LadybugDB) code, read the engine
+    rulebooks: plan/analysis/lance_indexing_maintenance.md and
+    plan/analysis/ladybug_query_semantics.md. They are binding query/indexing
+    rules, not background.
+  - Any edit to plan/ documents follows CLAUDE.md Rule 1 (self-contained,
+    explain-don't-name) and Rule 2 (full scope, no phasing language in
+    designs).

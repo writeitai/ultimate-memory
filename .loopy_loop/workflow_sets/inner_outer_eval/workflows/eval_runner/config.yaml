@@ -1,0 +1,12 @@
+enabled: true
+priority: 90
+run_every: 1
+must_follow: eval_reviewer
+not_before_iteration: 10
+run_after_successes:
+  workflow_id: inner
+  every: 10
+emits_goal_check: true
+description: |
+  Run the session eval-banana checks and write goal_check.json. The loop stops
+  only when all checks pass.

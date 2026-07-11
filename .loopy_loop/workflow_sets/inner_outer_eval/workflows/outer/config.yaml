@@ -1,0 +1,8 @@
+enabled: true
+priority: 10
+run_every: 1
+must_follow: null
+not_before_iteration: 0
+description: |
+  Review current state, update the high-level plan, and prepare the next
+  available leaf task for implementation.
