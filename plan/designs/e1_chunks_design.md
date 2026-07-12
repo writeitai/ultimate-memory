@@ -94,19 +94,23 @@ returns plain Markdown; docling/PyMuPDF-class tools expose richer structure) —
 **Provenance is tiered, and that is acceptable.** The load-bearing offsets for grounding
 (D32) are *into `document.md`* — exact by construction, since we wrote the file. The *source*
 back-pointer degrades by converter capability, expressed as the typed **`SourceLocator`
-union** (D65 — full semantics in `media_design.md` §4):
+union** (D65 — the **normative schema, field conventions, and pinning rules live in
+`media_design.md` §4**; this is the shape for orientation):
 
 ```
 SourceLocator =
-  | { kind: page,         page, bbox?,                     precision: page | region }
-  | { kind: image_region, region (normalized rect),        precision: image | region }
-  | { kind: time,         start_ms, end_ms, track?,        precision: word | segment | shot }
-  | { kind: video_region, start_ms, end_ms, region?, keyframe? }
+  | { kind: page,         page, bbox?,                       precision: page | region }
+  | { kind: source_range, start_offset, end_offset,          precision: exact | approximate }
+  | { kind: image_region, region,                            precision: image | region }
+  | { kind: time,         start_ms, end_ms, track?,          precision: word | segment | shot }
+  | { kind: video_region, start_ms, end_ms, region?,
+      keyframe_asset_id?,                                    precision: segment | shot | frame }
 ```
 
 Page-grain from page maps (Mistral), bbox where a tool exposes it, time ranges from ASR
-segments, absent for pageless/unmappable formats. Locators are **version-pinned** (they name
-the document version whose bytes they index — never a lineage or a P3 path) and
+segments, `source_range` for pageless formats (HTML/email), absent only where genuinely
+unmappable. Locators are pinned via their carrier record to the document **version and
+representation** whose bytes/reading they index — never a lineage or a P3 path — and
 **precision-honest** (the `precision` field says what the tool actually delivered; word
 timing is never fabricated by interpolating characters across a segment). The locator is
 audit/navigation metadata, never a correctness dependency.
@@ -330,8 +334,9 @@ Blocks stay in `blocks.json`; the spine gets derived keys only (D37 discipline):
   context prefix (replayable state), version stamps.
 - `document_sections`: `block_start`/`block_end` ordinals (the grid representation, §3);
   char spans derived.
-- `document_versions`: `blocks_uri` + `blockizer_version` join the artifact/provenance
-  columns.
+- `document_representations` (D65): `blocks_uri` + `blockizer_version` live on the immutable
+  representation row; chunks and sections carry `representation_id` — the reading whose block
+  grid and offsets they index.
 
 ## 9. Decision interactions
 

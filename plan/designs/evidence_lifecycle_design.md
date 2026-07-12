@@ -36,19 +36,32 @@ bytes, new `content_hash`. The schema had no concept connecting the new upload t
 (the versioning problem *is* the inflation problem at document grain), and paying full
 conversion + extraction per edit.
 
-**The shared root.** Define a document's **extraction basis** = the **full representation
-generation**: (content hash of its current version, converter version, blockizer version,
-extractor version) — refined by D65 from the original (content hash, extractor version) pair,
-because the *converter* is a coordinate too: a better ASR or VLM re-reads unchanged bytes and
-produces a different `document.md`, and for media corpora that is the **common** upgrade
-event, not an edge case. Problem A changes a *toolchain* coordinate (converter, blockizer, or
-extractor version); problem B changes the *content* coordinate. In both cases, claims from
-the *old* basis stand in an altered relation to claims from the new basis — and the system
-needs (1) vocabulary for that relation, (2) a counting rule invariant under basis changes,
-and (3) reconciliation machinery that runs when a basis changes. But the *semantics* differ,
-and the design keeps them distinct — "the toolchain changed" (any of the three tool
-coordinates: same testimony, re-derived) and "the source changed" (new testimony) are
-formally distinct events:
+**The shared root — three identities, kept apart (refined by D65).** The original definition
+(content hash, extractor version) was incomplete: the *converter* is a coordinate too — a
+better ASR or VLM re-reads unchanged bytes and produces a different `document.md`, and for
+media corpora that is the **common** upgrade event — and so is the structurer (section roles
+feed Selection; D56 already keys `extraction_input_hash` on `structurer_version`). The
+precise model:
+
+- the **source snapshot** — `version_id` (which bytes; changes when the *source* changes);
+- the **representation** — `representation_id`: one conversion run's immutable output
+  (`document.md` + source map + manifest + blocks; `media_design.md` §6). A version can own
+  several representation generations; one is current (`current_representation_id`, swapped
+  only on completion of the downstream chain);
+- the **extraction basis** = **`(representation_id, blockizer_version, structurer_version,
+  extractor_version)`** — everything whose change means "same testimony, re-derived". The
+  basis coordinate is persisted on the occurrence records (`chunk_claims` via the chunk's
+  representation, schema §7) and on currency transitions, so "which basis produced this
+  claim occurrence" is a stored fact, never an inference.
+
+Problem A changes a *toolchain* coordinate (converter → new representation; blockizer,
+structurer, or extractor version); problem B changes the *source* coordinate (new version).
+In both cases, claims from the *old* basis stand in an altered relation to claims from the
+new basis — and the system needs (1) vocabulary for that relation, (2) a counting rule
+invariant under basis changes, and (3) reconciliation machinery that runs when a basis
+changes. But the *semantics* differ, and the design keeps them distinct — "the toolchain
+changed" (same testimony, re-derived) and "the source changed" (new testimony) are formally
+distinct events:
 
 | | Re-derivation (converter / blockizer / extractor bump) | New version (content change) |
 |---|---|---|
@@ -160,11 +173,11 @@ no-op before any bytes move; unchanged bytes are a `content_hash` no-op as today
 One new, deliberately narrow notion: a claim is **current testimony** iff it belongs to its
 lineage's current extraction basis *under the lineage's mode*:
 
-- **re-derivation**: when toolchain generation v2 completes for a (version, chunk), that
-  chunk's v1 claims flip non-current (`reextracted` — the reason covers any toolchain-driven
-  re-derivation: an extractor bump, a **converter bump** (a better ASR/VLM re-reading
-  unchanged media bytes — the common media event, D65), or a blockizer bump) — wholesale, by
-  coordinates; no content matching;
+- **re-derivation**: when extraction-basis generation v2 completes for a (version, chunk),
+  that chunk's v1 claims flip non-current (`reextracted` — the reason covers any
+  basis-coordinate change: an extractor bump, a **converter bump** (a new representation — a
+  better ASR/VLM re-reading unchanged media bytes, the common media event, D65), a blockizer
+  bump, or a structurer bump) — wholesale, by coordinates; no content matching;
 - **`living` version supersession**: claims whose chunks are absent from the new current
   version flip non-current (`version_superseded`);
 - **`snapshot`**: version succession flips nothing.

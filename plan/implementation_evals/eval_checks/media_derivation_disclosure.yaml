@@ -15,22 +15,33 @@ instructions: |
      source_expression (a fallible rendering of speech/symbols present in the source: a
      transcript sentence, OCR'd text), model_observation (the model's account of what the
      source shows), model_interpretation (the model's reading into the source) — alongside a
-     derivation_kind (asr | vlm_description | ocr | shot_notes | passthrough | …).
-  2. Both labels originate ONLY from the converter's manifest (per-section labeling of its
-     sectioned Markdown output): no LLM call, heuristic, or per-claim judgment assigns them
-     anywhere downstream. Text from non-media routes carries the passthrough/verbatim labels
-     by the same mechanism — the labels are total, not media-only special cases.
-  3. Claims inherit the labels deterministically through their source_span → block → section
-     mapping, and the resolved labels are cached on the claim's evidence link (queryable
-     without re-walking the mapping).
-  4. The retrieval envelope's provenance block surfaces derivation {kind, evidence_mode} for
-     media-derived evidence, so a reader of "Alice looked hesitant" sees it is a model
+     derivation_kind (asr | acoustic_events | vlm_description | ocr | shot_notes |
+     passthrough | …).
+  2. Both labels originate ONLY from the converter's manifest, which labels contiguous
+     MODE-HOMOGENEOUS character ranges of document.md: converter routes emit the model's
+     interpretations in ranges labeled separately from its observations (an output contract
+     obligation on the route), and no LLM call, heuristic, or per-claim judgment assigns
+     labels anywhere downstream. Text from non-media routes carries passthrough/
+     source_expression labels by the same mechanism — the labeling is total, not a media-only
+     special case.
+  3. Claims inherit the labels deterministically through their source_span → labeled-range
+     intersection, with the bound tie-break: a span crossing ranges with different modes
+     takes the MOST-mediated mode it touches (model_interpretation > model_observation >
+     source_expression). The resolved labels are cached on the claim's occurrence record
+     (chunk_claims.derivation_kind/evidence_mode, per schema §7) — queryable without
+     re-walking the mapping. Verify against a fixture whose source mixes observation and
+     interpretation content: the separation must be demonstrably deterministic, not asserted.
+  4. The retrieval envelope surfaces derivation {kind, evidence_mode} PER EVIDENCE ITEM
+     (never one flattened label on a fact-grain result — a fact aggregates claims with
+     possibly different modes), so a reader of "Alice looked hesitant" sees it is a model
      interpretation from a VLM before weighing it.
-  5. The mode is disclosure, never a verdict: no code path uses evidence_mode to auto-drop,
-     down-rank, or invalidate claims (Selection's verifiability rules remain the only keep/
-     drop line), and evidence_count still counts distinct source lineages — never derivation
-     runs — while derivation-family provenance (which converter family produced the evidence)
-     remains queryable for future confidence policy (D42).
+  5. The mode is disclosure, never a verdict, and the correlation policy is exactly as bound:
+     no code path uses evidence_mode to auto-drop, down-rank, or invalidate claims
+     (Selection's verifiability rules remain the only keep/drop line); evidence_count counts
+     distinct source lineages — never derivation runs; distinct-lineage counts are the ONLY
+     confidence input (no correlation-aware adjustment exists — it is a documented
+     alternative); and derivation-family provenance is surfaced as disclosure so callers can
+     see same-family corroboration (D42).
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

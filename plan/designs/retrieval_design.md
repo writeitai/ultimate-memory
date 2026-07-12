@@ -112,11 +112,11 @@ never trigger anything** — all K/E triggering originates from writes).
 |---|---|---|---|
 | `resolve` | text, type?, context_entities? → ranked entity candidates | query-time entity resolution over the registry's **non-LLM tiers T0–T3** (T0 canonical-alias exact, T1 trigram, T2 phonetic, T3 embedding similarity — embedding a query string is not an LLM call and the semantic channel does it anyway; **no T4 adjudication on the hot path**, D17). Inflected names (S50) ride the stored canonical aliases + T1/T2. Ambiguity → ranked candidates, never a silent guess (S51). Returns **current** identities, following `merged_into` survivor chains with the redirect disclosed (S60); *pre-merge* identity reconstruction is the transcript-based `identity_as_of` recipe (S61), never automatic | S1, S50, S51, S60 |
 | `lookup` | relations(s?, p?, o?) / observations(entity, property?) / claims(doc?, entity?) / entity(id) / document(id) | scalar reads on the spine and its indexes; observation property matching is semantic-over-statement (D43) | S1–S4, S26 |
-| `search` | channel × target × query, filters, k — channels: semantic \| bm25 \| fts; targets: chunks \| claims \| relations \| observations \| k_pages \| **media_segments** (D65) | the entry channels (P1 Lance + PG FTS), scalar-filtered before vectors (D8). `media_segments` is the **cross-modal** target: one Lance row per standalone image / video keyframe-or-shot / bounded audio segment, embedded by a CLIP-class model that maps images (or audio) and *text queries* into one vector space — so "the photo with the small red connector" matches pixels the description never mentioned (access is not discovery: an agent can open any file it *found*, never one it didn't retrieve). Rows are keyed by immutable source locators, hydrate to representation passage + preview + raw deep link, and RRF-fuse with the text channels; the media embedder is port config (D63) — **absent, the channel reports as a typed `boundary`** (§5), never a silent gap | S6, S46, S52, S62 |
+| `search` | channel × target × query, filters, k — channels: semantic \| bm25 \| fts; targets: chunks \| claims \| relations \| observations \| k_pages \| **media_segments** (D65) | the entry channels (P1 Lance + PG FTS), scalar-filtered before vectors (D8). `media_segments` is the **cross-modal** target — a logical target over per-modality subindexes: one Lance row per standalone image / video keyframe-or-shot / bounded audio segment, embedded by CLIP-class models that map pixels (or audio) and *text queries* into a shared vector space — so "the photo with the small red connector" matches pixels the description never mentioned (access is not discovery: an agent can open any file it *found*, never one it didn't retrieve). Rows carry modality + embedding family/version + representation + immutable source locator, hydrate to representation passage + preview + raw deep link, and RRF-fuse with the text channels (rank fusion only — different embedding families are never compared by raw distance); embedders are port config (D63), capability advertised **per query→target modality pair** — **any unconfigured pair reports as a typed `boundary`** (§5), never a silent gap | S6, S46, S52, S62 |
 | `graph` | neighborhood(entity, hops, predicates?) / path(a, b, max_hops) | P2 snapshot traversal; as-of via inline path predicates (D44) | S17–S22 |
 | `fuse` | result_sets → RRF-merged set | reciprocal-rank fusion of parallel channels (D9), exposed as an operator so *agent-composed* channel sets fuse the same way recipes do | S46 |
 | `rerank` | candidates × signal — graph_distance(focal), evidence_count, cross_encoder (flagged) | the D9 rerankers as explicit, inspectable stages | S46, S48 |
-| `hydrate` | ids, depth: record \| evidence \| sources \| bytes | the §2 confirmation hop + progressive deepening: record → evidence rows + claims → documents → GCS handles | S5, all |
+| `hydrate` | ids, depth: record \| evidence \| sources \| bytes, locator? | the §2 confirmation hop + progressive deepening: record → evidence rows + claims → documents → GCS handles. At `depth=bytes` an optional **source locator** (D65) scopes the fetch to a time interval / region, returning a seekable, codec-aware segment (§7 — unmounted parity for media) | S5, S59, all |
 | `transcript` | relation \| observation \| entity \| k_page → its decision history | adjudications, resolution decisions, compile provenance — the audit trail as a first-class query ("why do we believe…") | S8, S32, S35 |
 | `delta` | since T, scope?, kinds? → changed evidence / pages | the change feed as a query (new / capped / invalidated / recompiled) | S13, S14, S30 |
 | `pages_about` | entity \| key → K pages (+ freshness/flags) | **the K routing index read backwards**: the rule-key inverted index built for write-side routing doubles as the reader's discovery index — which pages exist about X, mechanically | S31, S45 |
@@ -193,8 +193,9 @@ answer itself** — because the caller is an agent that must *reason about* the 
         evidence_count, confidence,
         contradiction: {group_id, co_members[≤cap], returned, total, continuation} | null,
         provenance: {hydrate_handle, depth_available,
-                     source_locators[]?,               // D65: deep links to the exact page/region/time of the raw original
-                     derivation: {kind, evidence_mode}? } } ] } ],  // D65: how mediated the evidence text is (§below)
+                     // D65 — on EVIDENCE-GRAIN items only (a claim has one derivation;
+                     // a fact aggregates many — its evidence hydrates to per-claim records):
+                     source_locators[]?, derivation: {kind, evidence_mode}? } } ] } ],
   as_of:        {valid_at, believed_at,                 // the temporal params actually applied (echo)
                  identity_regime: current | as_of},     // S61 — which identity boundary answered
   freshness: {                                          // per contributing source (S42)
@@ -231,21 +232,30 @@ Three rules that are contract, not garnish:
   (The third candidate surface — a per-page status sidecar file — is dropped: two surfaces
   cover both consumption modes, and a sidecar would be a second mutable state to keep honest.)
 
-Two media additions to the provenance block (D65, `media_design.md` §4–§5):
+Two media additions to the provenance block (D65, `media_design.md` §4–§5) — both attach at
+the **evidence grain**: a *claim* has one derivation record and one locator set; a *fact*
+aggregates many claims with possibly different modes, models, and locators, so a fact-grain
+result never carries a single flattened `derivation` — its evidence hydrates to per-claim
+provenance records, association intact:
 
 - **Source locators** — for evidence derived from media (or paginated paper), the provenance
   block carries the typed locator(s): the exact page/bbox, image region, or time interval of
-  the raw original the evidence traces to, rendered as deep links (`original.mp3#t=873`).
-  Locators are version-pinned and precision-honest; the agent lands on the moment, not on a
-  90-minute file (S59, S63).
+  the raw original the evidence traces to, rendered as deep links (`original.mp3#t=873` — a
+  display rendering; mounted consumers seek locally with the structured locator, unmounted
+  consumers pass it to `hydrate depth=bytes`; `media_design.md` §8). Locators are pinned to
+  the document version + representation and precision-honest; the agent lands on the moment,
+  not on a 90-minute file (S59, S63).
 - **Derivation disclosure** — evidence extracted from a media representation carries its
-  `derivation_kind` (asr | vlm_description | ocr | shot_notes | …) and **`evidence_mode`**:
+  `derivation_kind` (asr | acoustic_events | vlm_description | ocr | shot_notes | …) and
+  **`evidence_mode`**:
   `source_expression` (a fallible rendering of speech/symbols present in the source — a
   transcript sentence, OCR'd text), `model_observation` (the model's account of what the
   source *shows* — "the image shows a red valve"), or `model_interpretation` (the model's
-  reading *into* the source — "the speaker sounds hesitant"). Inherited deterministically from
-  the converter's sectioned output, never judged per claim; disclosure, never a verdict. An
-  agent reading "Alice looked hesitant" sees `model_interpretation (vlm)` and weighs it.
+  reading *into* the source — "the speaker sounds hesitant"). Inherited deterministically
+  from the converter's mode-homogeneous labeled ranges (a claim spanning modes takes the
+  most-mediated one), cached on the claim's occurrence record, never judged per claim at
+  read time; disclosure, never a verdict. An agent reading "Alice looked hesitant" sees
+  `model_interpretation (vlm)` and weighs it.
 
 **The negative taxonomy — typed "no"s (S29, S39, S55).** Each demands a different agent
 reaction, so they are distinct envelope kinds, fixed now (retrofitting a taxonomy onto a

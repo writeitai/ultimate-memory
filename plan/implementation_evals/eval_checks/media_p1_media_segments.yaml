@@ -1,7 +1,7 @@
 schema_version: 1
 id: media_p1_media_segments
 type: harness_judge
-description: P1 has the media_segments cross-modal search target — locator-keyed rows per image/keyframe/audio-segment, port-configured embedder, RRF-fused, zero LLM on the query path, rebuildable — and a deployment without a media embedder reports the channel as a typed boundary.
+description: P1 has the media_segments cross-modal search target — a logical target over per-modality subindexes, locator-keyed rows per image/keyframe/audio-segment, port-configured embedders, capability advertised per query→target modality pair, RRF-fused, zero LLM on the query path, rebuildable — with any unconfigured pair reported as a typed boundary.
 tags: [p1, ret, media, D65, D63, D49]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
@@ -11,24 +11,31 @@ instructions: |
   FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
-  1. A media_segments target exists in the P1 Lance estate: one row per standalone image, per
-     adaptive video keyframe/shot, and per bounded audio segment, each keyed by its immutable
-     source locator (and document version), holding a cross-modal embedding.
-  2. The media embedding model is provider-port configuration exactly like the text embedder
-     (D63): a versioned, per-deployment choice resolving through pipeline component versions —
-     never a hard-coded model, and changing it is a version-scoped re-embed, not code change.
-  3. search(channel=semantic, target=media_segments, query=…) accepts at least text queries
-     against the cross-modal space, returns locator-bearing rows that hydrate to the
-     representation passage + preview + raw deep link, and fuses with text channels through
-     the existing RRF operator. No LLM is called anywhere on this query path (D9 holds).
+  1. A media_segments target exists in the P1 Lance estate as a LOGICAL target over
+     per-modality subindexes: one row per standalone image, per adaptive video keyframe/shot,
+     and per bounded audio segment, each carrying its modality, embedding family + version +
+     dimension, representation_id, and immutable source locator. Rows from different
+     embedding families are never compared by raw vector distance — only combined by rank.
+  2. Media embedding models are provider-port configuration exactly like the text embedder
+     (D63): versioned, per-deployment choices (one slot per modality pair) resolving through
+     pipeline component versions — never a hard-coded model, and changing one is a
+     version-scoped re-embed, not a code change.
+  3. search(channel=semantic, target=media_segments, query=…) accepts every query modality
+     the deployment has configured (text always; image and audio query inputs where the
+     corresponding embedder pair is configured), returns locator-bearing rows that hydrate to
+     the representation passage + preview + raw deep link, and fuses with text channels
+     through the existing RRF operator. No LLM is called anywhere on this query path (D9
+     holds).
   4. When derived text and visual/acoustic matches disagree, fusion never synthesizes
      agreement: both candidates return with their channel labels.
   5. media_segments is a rebuildable projection like the rest of P1 (droppable and
      reconstructable from the spine + artifacts; no source-of-truth state lives in it).
-  6. A deployment with NO media embedder configured advertises the missing channel as the
-     typed `boundary` negative of the response envelope (named limitation + workaround) when
-     a caller requests media_segments — never an error, never a silent empty result, and the
-     text channels keep working unchanged.
+  6. Capability is advertised and enforced PER (query modality → target modality) PAIR: a
+     deployment supporting text→image but not audio→acoustic answers an audio-target query
+     with the typed `boundary` negative of the response envelope, naming exactly the missing
+     pair and the workaround (text search over derivations) — never an error, never a silent
+     empty result, never all-or-nothing; configured pairs and the text channels keep working
+     unchanged.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

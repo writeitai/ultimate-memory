@@ -28,10 +28,16 @@ instructions: |
      media/ is an interchange copy (provenance-linked) and nothing in the blockizer, E2,
      P1 indexing, or grounding reads text from sidecars.
   4. The generalized contract is implemented for every route: convert(bytes, mime, hints) →
-     { document.md, source_map, derived_assets[], manifest }, where the manifest records the
-     route taken, models + versions used, and each document.md section's derivation labels;
+     { document.md, source_map, derived_assets[], manifest }, where the manifest is the
+     route's complete self-account (media_design §2): route taken, full component graph
+     (models + versions), execution context (which adapter ran each model, local vs provider
+     — D61), output hashes, selected tracks, coverage policy + result (adaptive sampling
+     reports what it skipped), gaps + warnings (corrupt intervals, unsupported codecs), and
+     the labeling of contiguous MODE-HOMOGENEOUS ranges with derivation_kind + evidence_mode;
      media routes emit sectioned Markdown whose sections separate derivation kinds
-     structurally (e.g. Transcript / Visual description / Visible text / Shot notes).
+     structurally (e.g. Transcript / Acoustic events / Visual description / Visible text /
+     Shot notes), with interpretations emitted in ranges labeled separately from
+     observations.
   5. Whole-file media originals are never copied into media/ or the artifacts browse tree —
      they serve from the raw store/mount via the explicit pointer (D51); media/ holds only
      derived assets (keyframes, crops, thumbnails, interchange transcripts).

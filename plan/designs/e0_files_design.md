@@ -46,10 +46,15 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   acceptable because a deployment is **one trust domain** (D50): every agent that reaches the
   mount is trusted with the deployment's content; data with a different trust boundary belongs
   in a separate deployment, never behind an in-library filter.
-- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`
-  (clean Markdown — the immutable coordinate system everything references by offset, D57),
-  `pageindex.json`, `conversion.json` (source map + converter metadata), `blocks.json` (the
-  blockizer's block sequence, D57), `meta.json`, and **`media/`** — the
+- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/<representation_id>/`
+  holding `document.md` (clean Markdown — the immutable coordinate system everything
+  references by offset, D57), `pageindex.json`, `conversion.json` (source map + route
+  manifest + converter metadata), `blocks.json` (the blockizer's block sequence, D57),
+  `meta.json`, and **`media/`** — the path's **representation segment (D65)** exists because
+  one content object can own several conversion generations (a better ASR re-reads the same
+  bytes): each is an immutable `document_representations` row, a re-conversion lands *beside*
+  the old reading (whose coordinate system historical claims still resolve against), never
+  over it, and the version's `current_representation_id` points at the live one — the
   document's *derived* media: figures extracted from documents, video keyframes, crops,
   thumbnails, referenced from `document.md` by relative links. Standard storage. This is the
   per-document material an agent *reads*; it is reachable from the corpus filesystem (§6).
@@ -91,11 +96,17 @@ documents(          -- the LINEAGE (D55): the logical document over time
   origin, current_version_id, title, first_seen_at, last_observed_at)
 
 document_versions(  -- append-only observed snapshots of a lineage
-  version_id, doc_id, content_hash → content_objects,  -- bytes deduplicated (stored/converted once)
+  version_id, doc_id, content_hash → content_objects,  -- bytes deduplicated (stored once; converted once per toolchain, D65)
   version_no, source_version_ref, source_modified_at,  -- → derived claims' asserted_at (D41/D55)
-  markdown_uri, pageindex_uri, conversion_uri, meta_uri,
-  converter_*, structurer_*, pageindex_hash, placement_version, section_index_version,
+  current_representation_id → document_representations, -- the LIVE reading (swap-on-completion, D65)
   status, ingested_at, superseded_at)
+
+document_representations(  -- IMMUTABLE conversion outputs (D65): one row per (version, toolchain) reading
+  representation_id, version_id,
+  route, converter_*, blockizer_version, structurer_*,  -- what produced this reading
+  markdown_uri, pageindex_uri, conversion_uri, blocks_uri, meta_uri,  -- …/<content_hash>/<representation_id>/…
+  markdown_hash, manifest_hash, pageindex_hash, placement_version, section_index_version,
+  status, created_at)                                    -- never updated after ready; never overwritten
 ```
 
 PageIndex, summaries, and placement are **LLM-derived, non-deterministic** E0 state, so every
@@ -130,8 +141,10 @@ gates everything downstream:
   time ranges, image regions — `media_design.md` §4; nullable for pageless/unmappable
   formats), `derived_assets` (extracted images, keyframes, thumbnails, interchange
   transcripts: id, bytes, locator, caption — landing in `media/`, linked from the Markdown),
-  and a **manifest** (route taken, models + versions used, and each document.md section's
-  derivation labels — `media_design.md` §5). **Blocks are not converter output**: the
+  and a **manifest** — the route's complete self-account: route taken, full component graph
+  (models + versions), execution context (which adapter, local vs provider — D61), output
+  hashes, coverage policy + result, gaps/warnings, and the range→derivation labels (required
+  field list: `media_design.md` §2; labels: §5). **Blocks are not converter output**: the
   deterministic **blockizer** (one shared parser, `blockizer_version`) derives the block
   sequence from `document.md` downstream of every route, emitting `blocks.json` — see
   `e1_chunks_design.md` §2. Offsets into `document.md` are load-bearing (E2 grounding, D32;
@@ -270,8 +283,11 @@ plane K's concern, not E0's; see `retrieval_design.md` §7.)
 facade — directories are inferred from object name prefixes, and symlinks/hard-links are not
 first-class. So the corpus filesystem is built from **real generated files**, not links: every leaf
 is a small generated Markdown **stub** with frontmatter (`doc_id`, `artifact_uri`, `content_hash`,
-`section_path`) and a relative pointer to the artifact, so `cat` shows orientation and the agent
-follows `artifact_uri` for the full body. Mount config: **read-only**, `--implicit-dirs` (so prefix
+`section_path`; for media documents additionally `raw_uri` — the mount-relative path to the
+original — plus duration and preview links into the artifact `media/` folder, D65: the browse
+path shows what the file *is* before anyone opens 2 GB, and never materializes whole raw media
+or per-keyframe pseudo-documents in the tree) and a relative pointer to the artifact, so `cat`
+shows orientation and the agent follows `artifact_uri` for the full body. Mount config: **read-only**, `--implicit-dirs` (so prefix
 folders list correctly), with stat/list caching tuned for the rebuild cadence. (gcsfuse semantics:
 https://cloud.google.com/storage/docs/cloud-storage-fuse/overview.)
 

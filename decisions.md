@@ -1421,14 +1421,18 @@ D25 lesson). Schema: a currency ledger + cached flag on claims; count-definition
 relations/observations; `support_withdrawn` review kind. Recount cost is bounded (a lineage's
 evidence links) — hub-lineage cost is a spike.
 
-**Refined by D65 (precision fix).** The extraction basis is defined over the **full
-representation generation** — `(content_hash, converter_version, blockizer_version,
-extractor_version)` — so "the toolchain changed" and "the source changed" are formally
-distinct events. This matters most for media, where the common upgrade is the *converter*
-(a better ASR/VLM re-reads unchanged bytes): such upgrades flow the processing-driven ruleset
-exactly as an extractor bump does (currency swap; counts unmoved — same lineage;
-`support_withdrawn` on non-rederivation; never retraction). `evidence_lifecycle_design.md`
-§1/§3; `plan/designs/media_design.md` §6.
+**Refined by D65 (precision fix).** Three identities kept apart: the **source snapshot**
+(`version_id`), the **representation** (`representation_id` — one conversion run's immutable
+output; a version can own several generations, one current), and the **extraction basis** =
+`(representation_id, blockizer_version, structurer_version, extractor_version)` — so "the
+toolchain changed" and "the source changed" are formally distinct events, and the structurer
+(already an extraction boundary in D56's `extraction_input_hash`) is named in the basis. This
+matters most for media, where the common upgrade is the *converter* (a better ASR/VLM
+re-reads unchanged bytes → a new representation object): such upgrades flow the
+processing-driven ruleset exactly as an extractor bump does (currency swap; counts unmoved —
+same lineage; `support_withdrawn` on non-rederivation; never retraction). The basis
+coordinate is persisted on occurrence records and currency transitions.
+`evidence_lifecycle_design.md` §1/§3; `plan/designs/media_design.md` §6.
 
 ## D55. Document lineages and immutable versions — connector-native identity; snapshot vs living semantics
 
@@ -1517,9 +1521,16 @@ chunk packing is bound in `e1_chunks_design.md` §4 (the spike measures its para
 calling the model; the E2/E3 cost model for watched sources scales with edit volume. Reuse
 hit-rate and per-source conversion floors are spikes.
 
----
-
-> **D57–D58 provenance.** D57–D58 formalize the chunking-strategy design discussion (July
+**Refined by D65 (representation-aware reuse).** "Conversion artifacts key on (content
+object, converter version)" becomes an **identified immutable object**: the
+`document_representations` row (representation-addressed artifact paths; a version's
+`current_representation_id` swaps only on downstream completion — `media_design.md` §6).
+Reuse gains the representation dimension (a chunk belongs to a representation's block grid;
+an unchanged toolchain re-run replays the stored representation per D7), and the
+`chunk_claims` occurrence map becomes the **occurrence-grain provenance home**: it carries
+the resolved derivation labels + locator set for the claim occurrence (schema §7), because
+those vary per representation generation even when the claim text does not (timestamps,
+speaker labels, model family). D57–D58 formalize the chunking-strategy design discussion (July
 > 2026), including the stress-test amendments A1–A3
 > (`plan/analysis/evidence_lifecycle/stress_test_amendments.md`). Binding design:
 > `plan/designs/e1_chunks_design.md`. Numbers are placeholders to be measured (CLAUDE.md).
@@ -1865,7 +1876,7 @@ the person holding the role).
 **Decision.** Standalone images, audio, and video enter the system as **E0 inputs, never a new
 plane or parallel pipeline**: a media file is a source whose testimony reaches the system
 through a lossy, versioned transcription, with the original always one explicit pointer away.
-Seven bindings. (1) **Canonical text lives in `document.md`** — all text eligible for
+Eight bindings. (1) **Canonical text lives in `document.md`** — all text eligible for
 extraction, search, and grounding; a transcript existing only in a sidecar (`.vtt`/JSON) is
 *interchange*, never canonical, and does not exist as testimony (fixes the
 `e0_files_design.md` §2 transcript-placement ambiguity); `media/` holds only regenerable
@@ -1879,27 +1890,45 @@ description** + OCR of visible text, behind a document-vs-picture discriminator 
 tell a scanned page from a photo). Each route emits **sectioned Markdown** whose sections
 carry their derivation kind structurally. (3) The **converter contract generalizes** (refines
 D38/D57 again): `convert(bytes, mime, hints) → { document.md, source_map, derived_assets[],
-manifest }` — the page map becomes a **source map** (character intervals → locators). (4)
-**Typed `SourceLocator` union** (`page | image_region | time | video_region`), version-pinned
-(never a lineage or P3 path), precision-honest (`word | segment | shot` — never fabricated by
-interpolation), integer milliseconds (never frame numbers); grounding becomes **two hops**
+manifest }` — the page map becomes a **source map** (character intervals → locators), and the
+manifest is the route's complete self-account (component graph, execution context per D61,
+output hashes, coverage policy + result, gaps/warnings, range→derivation labels). (4)
+**Typed `SourceLocator` union** (`page | source_range | image_region | time | video_region` —
+normative schema: `media_design.md` §4), pinned via its carrier to the document **version and
+representation** (never a lineage or P3 path), precision-honest on every variant (never
+fabricated by interpolation), integer milliseconds half-open on a declared timeline (never
+frame numbers); grounding becomes **two hops**
 (claim → `source_span`, exact — D32 unchanged; span → source map → raw locator, converter
 precision) and D32's sampled audits become **modality-aware** (the auditor listens to the
 interval / looks at the region — auditing only the derived Markdown would grade the converter
 against its own output); deep links on every surface (P3 stubs, frontmatter, envelope
-provenance handles, a locator-aware serving operation for unmounted parity). (5) **Derivation
-disclosure**: sections carry `derivation_kind` + **`evidence_mode`** (`source_expression |
-model_observation | model_interpretation`); claims **inherit both through their `source_span`
-→ block → section mapping** — deterministic, cached on the evidence link, no per-claim
-judgment anywhere; the retrieval envelope surfaces them; the mode is disclosure, never a
-verdict (Selection's verifiability rules still govern keeps). (6) The **extraction basis is
-the full representation generation** — `(content_hash, converter_version, blockizer_version,
-extractor_version)` (precision-fixes D54): an ASR/VLM upgrade is a processing-driven
-re-derivation (currency swap, counts unmoved, `support_withdrawn` on non-rederivation — never
-retraction). (7) **P1 gains the `media_segments` semantic target** — cross-modal embeddings
-(one row per image / keyframe / bounded audio segment, keyed by immutable locator, RRF-fused,
-zero LLM on the query path, rebuildable); the embedding model is port configuration (D63); a
-deployment without a media embedder advertises the channel as D49's typed `boundary`.
+provenance handles, a locator-aware serving operation for unmounted parity — mounted, the
+structured locator + local seek; the `#t=` fragment is display rendering, not a path). (5)
+**Derivation disclosure**: converters label mode-homogeneous ranges with `derivation_kind` +
+**`evidence_mode`** (`source_expression | model_observation | model_interpretation`; labeling
+is total across all routes); claims **inherit both through their `source_span` →
+labeled-range intersection** (a span crossing modes takes the most-mediated one) —
+deterministic, cached on the claim's occurrence record (`chunk_claims`), no per-claim
+judgment anywhere; the retrieval envelope surfaces them **per evidence item**; the mode is
+disclosure, never a verdict (Selection's verifiability rules still govern keeps), and
+distinct-lineage counts stay the only confidence input — correlation-aware adjustment is a
+documented alternative, not in the system. (6) **Representations become identified immutable
+objects**: a conversion run's output is a `representation_id`-keyed object
+(`document_representations`), representation-addressed artifact paths
+(`<doc_id>/<content_hash>/<representation_id>/…`), a `current_representation_id` pointer
+swapped only on downstream completion — a re-conversion never overwrites the coordinate
+system old claims resolve against; the **extraction basis** is `(representation_id,
+blockizer_version, structurer_version, extractor_version)` (precision-fixes D54/D56): an
+ASR/VLM upgrade is a processing-driven re-derivation (currency swap, counts unmoved,
+`support_withdrawn` on non-rederivation — never retraction). (7) **P1 gains the
+`media_segments` semantic target** — a logical target over per-modality cross-modal
+subindexes (one row per image / keyframe / bounded audio segment; modality + embedding
+family/version/dimension + representation + immutable locator per row; RRF-fused, zero LLM on
+the query path, rebuildable); embedders are port configuration (D63), capability is
+advertised **per query→target modality pair**, and any unconfigured pair answers as D49's
+typed `boundary`. (8) **P3 shows media stubs + previews only** — stub frontmatter carries
+`raw_uri` + duration + preview links; never whole raw media in the tree, never per-keyframe
+pseudo-documents; raw stays off-path but fully reachable, mounted and unmounted (D51).
 
 **Context.** The driving requirement: *the memory ingests the derived information; the
 consuming agent keeps access to the raw files whenever it decides it needs them.* Both
@@ -1927,4 +1956,5 @@ added. Counting is already safe: a caption and a transcript of one video are two
 **one** lineage (D54); the envelope keeps derivation-family provenance visible (ten images
 captioned by one VLM family share one systematic perception error — composes with D42).
 Refines D38/D57 (contract, routes), D51 (completed with locator deep links), D32 (two-hop +
-modality-aware audits), D54 (basis), D49 (envelope + boundary); D8/D9/D63 unchanged.
+modality-aware audits), D54/D56 (representation objects + basis + occurrence provenance),
+D49 (envelope + boundary); D8/D9/D63 unchanged.

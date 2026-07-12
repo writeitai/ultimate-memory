@@ -53,9 +53,9 @@ projection — D40 refined; `e0_files_design.md` §6.)*
 |---|---|---|---|
 | **Postgres** (Hetzner) | spine: inputs, document/section metadata, chunk metadata, claims, entities, predicates, relations, evidence, validity, processing state, costs | **source of truth** for plane E | — (PITR backups) |
 | **GCS — raw** | immutable original files | source of truth for file bytes | — |
-| **GCS — artifacts** | per-document markdown + `pageindex.json` + conversion sidecars (E0, D37) | source of truth for converted bodies | E0 re-run by `converter_version` |
+| **GCS — artifacts** | per-document markdown + `pageindex.json` + conversion sidecars, one immutable **representation** per conversion run (E0, D37/D65: `…/<content_hash>/<representation_id>/…`) | source of truth for converted bodies (nondeterministic converter output is **replayed from storage**, D7 — a toolchain bump creates a new representation beside the old, never regenerates in place) | — (like raw: backed up, not regenerated) |
 | **GCS — corpus fs** | **P3**: corpus organized as a mounted directory tree (D40) | derived | Postgres + artifacts (every cycle) |
-| **LanceDB** | **P1**: vector + FTS indexes over chunks, claims, relation fact labels | derived | Postgres |
+| **LanceDB** | **P1**: vector + FTS indexes over chunks, claims, relation fact labels + **media segments** (cross-modal, D65) | derived | Postgres + artifacts |
 | **git repo** | plane K: compiled + authored knowledge (K1/K2/K3 tiers, D47) | **source of truth** — irreducibly the human-authored content; compiled pages are semantically regenerable from the spine + recorded inputs (D45/D46) | — (own backups) |
 | **LadybugDB** | **P2**: graph projection of entities + relations | derived | Postgres (every cycle) |
 
@@ -110,7 +110,9 @@ budget enforcement, and DLQ operations: `orchestration_design.md`, D52–D53.)
 
 1. **E0** (document layer, a chain of idempotent sub-workers — D36; design: `e0_files_design.md`):
    **ingest** (store raw to GCS + `content_hash`) → **convert** (raw → Markdown via the configurable
-   module, D38) → **structure** (PageIndex tree + roles + spans + summaries + a **placement hint**,
+   module, D38 — incl. the D65 media routes: diarized ASR, video ASR + keyframes, image
+   description; each run lands as an immutable **representation**, `media_design.md` §6) →
+   **structure** (PageIndex tree + roles + spans + summaries + a **placement hint**,
    D39) → **crossref** (citations). Bodies live in GCS (raw + artifacts buckets); Postgres holds only
    metadata + the queryable section index (D37).
 2. **E1** (design: `e1_chunks_design.md`, D57–D58): the **blockizer** derives the deterministic
