@@ -5,17 +5,17 @@ description: E0 is one product layer implemented as separately idempotent, separ
 tags: [e0, D36]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/e0_files_design.md §1 — the binding source — and decisions.md D36 for rationale and
-  refinement history, then inspect the E0 workers
-  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
-  partial, score 0.
+  Read plan/designs/e0_files_design.md §1 — the binding source — and decisions.md D36 for
+  rationale and refinement history, then inspect the E0 workers under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. E0 runs as a chain of distinct sub-workers — ingest, convert, structure, crossref — each
      separately idempotent (keyed on content identity + its OWN version) and separately
      observable (own processing state / status).
-  2. A version bump of one sub-worker re-runs only that sub-worker and its downstream
-     dependents — never the whole chain.
+  2. A version bump of one sub-worker re-runs exactly that sub-worker and its downstream
+     dependents — never unaffected upstream or sibling work (an early-stage bump legitimately
+     cascades downstream; a late-stage bump must not re-run the stages before it).
   3. Crossref extraction records citations/document links as E0 metadata; structuring is not
      promoted to a top-level E layer (E1–E3 keep their meanings).
 

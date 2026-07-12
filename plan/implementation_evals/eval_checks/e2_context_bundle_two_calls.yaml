@@ -2,7 +2,7 @@ schema_version: 1
 id: e2_context_bundle_two_calls
 type: harness_judge
 description: E2 extraction runs over a context bundle (never a bare chunk) as two calls — Selection, then fused decontextualize+decompose+ground.
-tags: [e2, D31, D19]
+tags: [e2, D31, D19, D58, D63]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/e2_e3_claims_relations_design.md §3 — the binding source — and decisions.md D31/D19 for rationale and

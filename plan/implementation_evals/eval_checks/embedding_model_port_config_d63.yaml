@@ -2,7 +2,7 @@ schema_version: 1
 id: embedding_model_port_config_d63
 type: harness_judge
 description: The embedding model is provider-port configuration, never architecture — versioned per artifact, swappable by version-scoped re-embed; the E1 context-prefix stage exists (conventional default).
-tags: [p1, e1, D63, D61]
+tags: [p1, e1, D63, D61, D56]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/e1_chunks_design.md §5 — the binding source — and decisions.md D63 (and D61's embedder port) for rationale and

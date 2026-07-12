@@ -1,0 +1,32 @@
+schema_version: 1
+id: k_hard_forget_git_history
+type: harness_judge
+description: Hard-forget reaches the K git plane — history rewrite/squash for compiled pages that ever cited forgotten evidence, backup treatment, and authored-page redaction duty.
+tags: [k, ops, D46, D55]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/k_layers_design.md §10 — the binding source — and decisions.md D46/D55
+  for rationale and refinement history, then inspect the hard-forget path under src/. These
+  are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Hard-forget identifies, via the citation records, every compiled page (and its git
+     history) that ever cited the forgotten evidence, and rewrites/squashes that history so
+     the content is not recoverable from the repo — current recompilation alone is not
+     enough.
+  2. K repo backups are treated: the mechanism bounds or rewrites backup copies so
+     hard-forgotten content does not survive in a restorable backup beyond the documented
+     window.
+  3. Authored pages that cite forgotten evidence get a redaction-duty flag routed to their
+     owner (the system never rewrites human words itself — but it must not silently leave
+     the reference either).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,19 +1,25 @@
 schema_version: 1
 id: boundary_correctness_in_library_d60
 type: harness_judge
-description: Every correctness-determining mechanism the design binds is implemented in this repository — none stubbed, feature-flagged off, or delegated to an external/commercial service.
-tags: [boundary, D60]
+description: Every correctness-determining mechanism the design binds is implemented in this repository — never gated on, or delegated to, the commercial memory-cloud product; configured provider calls through ports are fine.
+tags: [boundary, D60, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/requirements/requirements_v3.md §Vision — the binding source — and decisions.md D60 for rationale and
-  refinement history, then verify each named correctness module exists in-repo and is
-  functional (not a stub raising NotImplemented, not disabled by default, not calling out to a
-  proprietary cloud service to do the work).
+  Read plan/designs/packaging_distribution_design.md §1–§5 and
+  plan/requirements/requirements_v3.md §Vision — the binding sources — and decisions.md D60
+  for rationale and refinement history, then verify each named correctness module exists
+  in-repo and is functional.
 
-  Check each of these named mechanisms exists in this repository: claim extraction with
-  Selection; entity resolution (T0-T4); relation/observation supersession + contradiction
-  adjudication; grounding validation; the eval harness + canaries; budget enforcement; the
-  DLQ; the deletion cascade; the review CLI.
+  Check each of these named mechanisms exists in this repository and is functional (not a
+  stub raising NotImplemented, not disabled by default): claim extraction with Selection;
+  entity resolution (T0–T4); relation/observation supersession + contradiction adjudication;
+  grounding validation; the eval harness + canaries; budget enforcement; the DLQ; the
+  deletion cascade; the review CLI.
+
+  Boundary of the condition: calling a CONFIGURED model/embedding/OCR provider through the
+  D61 ports is fully conformant (the design routes inference through provider adapters).
+  What fails is a mechanism whose logic lives only in, or is gated on, an out-of-repo
+  commercial control plane (the separate memory-cloud product).
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

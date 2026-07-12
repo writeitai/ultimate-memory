@@ -1,18 +1,16 @@
 schema_version: 1
 id: code_tooling_and_migrations
 type: harness_judge
-description: The code conventions hold — pyright/pytest/ruff wired into CI, all schema changes as Alembic migrations, typed contracts throughout.
+description: The code conventions hold — pyright/pytest/ruff configured and exercised, all schema changes as Alembic migrations, typed contracts throughout.
 tags: [code, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding convention.
-  Read requirements_v3.md §Code, then inspect the tooling configuration, CI workflows, and
-  migrations under the repo. These are acceptance checks for the FINAL system: if the
-  subsystem is absent or partial, score 0.
+  Read plan/requirements/requirements_v3.md §Code — the binding source — then inspect the
+  tooling configuration and migrations under the repo.
 
   Verify ALL of the following:
-  1. Pyright, pytest, and ruff are configured (pyproject.toml) and enforced in CI on every PR;
-     the pyright configuration has not been quietly weakened (per pyproject's
-     relax-with-receipts rule, any disabled check carries a written reason).
+  1. Pyright, pytest, and ruff are configured (pyproject.toml) and actually exercised (a CI
+     workflow or equivalent runs them; broken types/lint/tests cannot land silently).
   2. Every schema change is an Alembic migration — no ad-hoc DDL executed outside the
      migration chain; migrations replay cleanly from empty.
   3. Domain contracts are typed (Pydantic models, enums, Literal/TypedDict where the design

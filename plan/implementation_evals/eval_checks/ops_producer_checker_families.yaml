@@ -1,21 +1,23 @@
 schema_version: 1
 id: ops_producer_checker_families
 type: harness_judge
-description: Every checking seat runs on a different model family than the producer it checks — validated mechanically at startup/CI, auditable via recorded model assignments.
+description: Checking seats never share a model family with the producer they check — validated mechanically, auditable via recorded model assignments.
 tags: [ops, D53]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/orchestration_design.md + plan/designs/k_layers_design.md §7 — the binding source — and decisions.md D53 for rationale and
-  refinement history, then inspect the model assignment configuration under src/. These are
-  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+  Read plan/designs/orchestration_design.md §8 — the binding source ("checker seats never
+  share a family with what they check") — and decisions.md D53 for rationale and refinement
+  history, then inspect the model assignment configuration under src/. These are acceptance
+  checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. Checking seats (the sampled grounding judge, contradiction/citation-faithfulness evals,
-     the review agent, the K reflection pass) are configured on a different model FAMILY than
-     the producer they check.
+     the reviewer seat, the K reflection pass) are configured on a different model FAMILY
+     than the producer they check — the design binds NEVER-share (note: D53's decision prose
+     mentions a recorded-exception mechanism; under source precedence the stricter design
+     controls — if you find a same-family exception mechanism, report the discrepancy).
   2. A mechanical validator (config validation at startup and/or a CI check) FAILS when a
-     checker's model family matches its producer's, unless an explicit recorded exception is
-     present — the separation cannot silently drift.
+     checker's model family matches its producer's — the separation cannot silently drift.
   3. Model assignments are recorded (pipeline_component_versions naming producer and checker
      models) so the separation is auditable after the fact.
 

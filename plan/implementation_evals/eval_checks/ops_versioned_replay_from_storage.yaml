@@ -5,8 +5,8 @@ description: Every model-derived artifact records prompt/model/embedding version
 tags: [ops, D7, D33, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read requirements_v3.md §Operational properties (versioned processing) and decisions.md
-  D7/D33, then inspect version stamping and rebuild paths under src/. These are acceptance
+  Read plan/requirements/requirements_v3.md §Operational properties (versioned processing) —
+  the binding source — and decisions.md D7/D33 for rationale and refinement history, then inspect version stamping and rebuild paths under src/. These are acceptance
   checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

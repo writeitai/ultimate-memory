@@ -1,0 +1,32 @@
+schema_version: 1
+id: ops_orchestration_topology
+type: harness_judge
+description: The orchestration topology holds — per-deployment/stage/lane queues, steady vs backfill lane separation with version-filtered seeding and lane budgets, E3 batching, and front-loaded reads with batched writes.
+tags: [ops, D52]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/orchestration_design.md §2–§5 — the binding source — and decisions.md D52
+  for rationale and refinement history, then inspect the queue/lane wiring under src/. These
+  are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Queues are separated per deployment and per stage (backlogs in one stage never starve
+     another; deployments never share infrastructure paths), with distinct steady-state and
+     BACKFILL lanes.
+  2. Backfills are seeded by version-filter queries (reprocess exactly the artifacts an
+     upstream version bump affects) and run under lane-specific budgets/rate limits so they
+     cannot crowd out steady-state work.
+  3. E3 work is batched per (document, entity) as the design binds — not one queue message
+     per claim.
+  4. Workers front-load their reads and batch their writes (the cross-cloud hop discipline);
+     the representative load test includes the pooling layer (pgBouncer) the design names.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

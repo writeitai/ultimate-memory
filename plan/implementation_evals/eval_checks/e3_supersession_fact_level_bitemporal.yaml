@@ -5,7 +5,9 @@ description: Supersession closes validity windows on relations and effective-sta
 tags: [e3, D3, D43, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/postgres_schema_design.md §9 — the binding source — and decisions.md D3 and D43 (the no-cap rule) and D55 (source-removal shapes) for rationale and
+  Read plan/designs/postgres_schema_design.md §9/§9.A and
+  plan/designs/observations_design.md §3 — the binding sources — and decisions.md D3, D43
+  (the no-cap rule), and D55 (source-removal shapes) for rationale and
   refinement history, then inspect
   the supersession write paths and temporal columns under src/. These are acceptance checks
   for the FINAL system: if the subsystem is absent or partial, score 0.

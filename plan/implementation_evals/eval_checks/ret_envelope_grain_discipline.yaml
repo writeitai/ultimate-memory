@@ -14,7 +14,7 @@ instructions: |
   1. Every primitive and recipe declares a grain (fact / evidence / compiled / composite), and
      the type system or registry validation enforces it at composition time.
   2. Current-fact answers can only be assembled from validity-filtered relations/observations;
-     a claim-grain source composed into a current-fact answer is rejected mechanically.
+     a claim-grain source composed into a current-fact answer is rejected mechanically (D41's bar made mechanical).
   3. A composite answer is parts[], each part strictly single-grain — mixed answers never
      dilute the discipline.
 

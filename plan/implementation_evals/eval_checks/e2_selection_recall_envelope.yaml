@@ -17,7 +17,7 @@ instructions: |
      named-entity+predicate statements, change-of-state language.
   3. A low-confidence kept_flagged outcome exists (mark-for-review, not delete) — Selection
      never hard-deletes a borderline candidate silently.
-  4. The eval harness plants rare-fact canaries and fails CI if Selection drops one; drop-rate
+  4. The eval harness (the D22 golden-set machinery) plants rare-fact canaries and fails CI if Selection drops one; drop-rate
      tuning is per-fact, not corpus-average.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the

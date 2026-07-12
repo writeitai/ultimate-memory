@@ -1,0 +1,32 @@
+schema_version: 1
+id: k_writer_runtime_two_band
+type: harness_judge
+description: The K writer runtime honors the two-band contract — deterministic fact-sheet rendering, fact-sheet-only pages skip writers, sandboxed stock-harness writers with archived transcripts, and driver-only output acceptance.
+tags: [k, D45, D46, D52]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/k_layers_design.md §5/§7 — the binding source — and decisions.md
+  D45/D46/D52 for rationale and refinement history, then inspect the K writer runtime under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. Compiled pages are two-band: a deterministically RENDERED fact-sheet band (generated
+     from spine data, no LLM) and a writer-owned prose band; fact-sheet-only pages skip the
+     writer entirely.
+  2. Writers run as sandboxed stock-harness sessions: no internet access, read-only memory
+     surfaces, a declared write surface they cannot exceed.
+  3. Every writer session's transcript is archived (the D33/D52 ledger discipline applied to
+     K compilation).
+  4. Only the DRIVER accepts writer output into the repo (validation before commit); a writer
+     cannot commit, and rejected output leaves a recorded trace.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -5,7 +5,9 @@ description: Per-layer cost metering exists and budgets are enforced, not adviso
 tags: [ops, D52, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read requirements_v3.md §Operational properties (cost discipline) and decisions.md D52, then
+  Read plan/requirements/requirements_v3.md §Operational properties (cost discipline) and
+  plan/designs/orchestration_design.md — the binding sources — and decisions.md D52 for
+  rationale and refinement history, then
   inspect the cost ledgers and budget checks under src/. These are acceptance checks for the
   FINAL system: if the subsystem is absent or partial, score 0.
 

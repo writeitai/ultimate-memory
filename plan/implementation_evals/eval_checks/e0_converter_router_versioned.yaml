@@ -2,7 +2,7 @@ schema_version: 1
 id: e0_converter_router_versioned
 type: harness_judge
 description: Conversion is a pluggable, versioned router; converters emit document.md + page map + media[], never blocks.
-tags: [e0, D38, D57]
+tags: [e0, D38, D57, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/e0_files_design.md §3 — the binding source — and decisions.md D38 and D57 (the refined converter contract) for rationale and

@@ -1,14 +1,14 @@
 schema_version: 1
 id: e3_observations_untyped_adjudicated
 type: harness_judge
-description: Observations are untyped, entity-anchored, bi-temporal facts — no attribute vocabulary or value columns; supersession by exhaustive entity blocking with the no-cap rule and fail-safe coexist.
+description: Observations are untyped, entity-anchored, bi-temporal facts — no attribute vocabulary or value columns; supersession by exhaustive entity blocking, the shared adjudication_outcome enum, the no-cap rule, and fail-safe coexist.
 tags: [e3, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/observations_design.md — the binding source — and decisions.md D43 for rationale and
-  refinement history, then inspect the observations
-  schema and the add-observation worker under src/. These are acceptance checks for the FINAL
-  system: if the subsystem is absent or partial, score 0.
+  Read plan/designs/observations_design.md and plan/designs/postgres_schema_design.md
+  §1/§9.A — the binding sources — and decisions.md D43 for rationale and refinement history,
+  then inspect the observations schema and the add-observation worker under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. Observations are anchored to a resolved entity with an NL statement carrying the value and
@@ -17,11 +17,12 @@ instructions: |
      + temporal sanity checks).
   2. Blocking fetches ALL of the entity's live observations by exact key (exhaustive; indexed);
      semantic similarity only RANKS candidates for hub entities — it never gates membership.
-  3. The adjudicator outcomes are a typed enum (evidence / supersede / contradict-coexist /
-     new), each gated on a positive same-thing match judged semantically; the no-cap rule
-     holds: only a changing effective state is ever capped; a measurement/fixed-period figure
-     is never capped on valid-time — a conflicting same-period figure coexists with a shared
-     contradiction_group.
+  3. Adjudication outcomes use the binding shared enum (adjudication_outcome: add | noop |
+     supersede | contradict | same_as_merge_proposal | retracted_source_removal — where noop
+     is the evidence-collapse path and add the new-fact path), each gated on a positive
+     same-thing match judged semantically; the no-cap rule holds: only a changing effective
+     state is ever capped; a measurement/fixed-period figure is never capped on valid-time —
+     a conflicting same-period figure coexists with a shared contradiction_group.
   4. The fail-safe contract is concrete in code: an explicit margin/threshold configuration
      gates supersede; every supersede/contradict writes an observation_adjudications reason
      row; and tests exist demonstrating that ambiguous or incomplete comparisons fall to

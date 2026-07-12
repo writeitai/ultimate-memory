@@ -2,7 +2,7 @@ schema_version: 1
 id: boundary_extension_points_no_bypass_d60
 type: harness_judge
 description: Extension points cannot bypass invariants — ingestion always writes through E0; review always appends reversible verdicts; no consumer hook reaches around the pipeline.
-tags: [boundary, D60, D62]
+tags: [boundary, D60, D62, D24, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/packaging_distribution_design.md (the client surface) — the binding source — and decisions.md D60 (constraint 2) and D62 (client surface) for rationale and

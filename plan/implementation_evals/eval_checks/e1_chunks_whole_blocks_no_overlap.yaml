@@ -12,7 +12,7 @@ instructions: |
 
   Verify ALL of the following:
   1. A chunk is an ordered run of WHOLE blocks within one section — chunk boundaries always
-     coincide with block boundaries, and a chunk never crosses a section boundary.
+     coincide with block boundaries (the D57 block grid), and a chunk never crosses a section boundary.
   2. There is NO overlap between chunks anywhere (no sliding windows, no overlap parameters);
      cross-boundary context comes from the E2 bundle's neighbor chunks instead.
   3. Packing uses semchunk to a configured token budget with anchor-stabilized boundaries

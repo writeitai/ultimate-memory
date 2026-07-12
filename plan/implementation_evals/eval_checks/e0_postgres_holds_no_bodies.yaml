@@ -2,7 +2,7 @@ schema_version: 1
 id: e0_postgres_holds_no_bodies
 type: harness_judge
 description: Postgres stores only compact metadata and the queryable section index — never document bodies or Markdown text.
-tags: [e0, D37]
+tags: [e0, D37, D57]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/e0_files_design.md §2 — the binding source — and decisions.md D37 for rationale and

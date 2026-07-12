@@ -5,7 +5,10 @@ description: P1 is one Lance estate (chunks, claims, relation labels, observatio
 tags: [p1, D8, D9, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/overall_design.md §4–§5 — the binding source — and decisions.md D8/D9 for rationale and
+  Read plan/designs/e1_chunks_design.md §5, plan/designs/e2_e3_claims_relations_design.md §5,
+  plan/designs/observations_design.md §5, plan/designs/p2_graph_design.md §6, and
+  plan/designs/overall_design.md §4–§5 — the binding sources — and decisions.md D8/D9 for
+  rationale and
   refinement history, then inspect the P1 writers and rebuild
   path under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
@@ -14,7 +17,7 @@ instructions: |
   1. Lance tables exist for chunks, claims, relation fact-labels (and observation labels), with
      the scalar columns the recipes filter on.
   2. E-plane workers write P1 inline as artifacts land, but a batch rebuild path from Postgres
-     exists and is exercised (tests/drills) — P1 carries no authority.
+     exists and is exercised (tests/drills — the D7 discipline) — P1 carries no authority.
   3. Every embedded row is stamped with its embedding model/version, and re-embedding by
      version filter is a supported batch operation (the embedding-migration path).
 

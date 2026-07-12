@@ -2,11 +2,12 @@ schema_version: 1
 id: ret_claims_never_answer_now
 type: harness_judge
 description: The claim/fact temporal split is enforced in the API surface — claim queries answer "what was asserted"; current-truth routes only through validity-filtered relations and observations.
-tags: [retrieval, D41, D49, requirements]
+tags: [retrieval, D41, D49, D43, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read requirements_v3.md §Retrieval (the temporal-split paragraph), decisions.md D41/D49,
-  then inspect recipe definitions and naming under src/. These are acceptance checks for the
+  Read plan/requirements/requirements_v3.md §Retrieval (the temporal-split paragraph) and
+  plan/designs/retrieval_design.md §4/§6 — the binding sources — and decisions.md D41/D49
+  for rationale and refinement history, then inspect recipe definitions and naming under src/. These are acceptance checks for the
   FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

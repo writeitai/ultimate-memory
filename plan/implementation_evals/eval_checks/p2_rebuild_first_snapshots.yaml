@@ -5,7 +5,8 @@ description: P2 is rebuild-first — full rebuild, validate, publish an immutabl
 tags: [p2, D7, D40]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/p2_graph_design.md — the binding source — and decisions.md D7 for rationale and
+  Read plan/designs/p2_graph_design.md (and plan/designs/e0_files_design.md §6 for the P3
+  condition) — the binding sources — and decisions.md D7 for rationale and
   refinement history, then inspect the P2 worker and
   reader under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.

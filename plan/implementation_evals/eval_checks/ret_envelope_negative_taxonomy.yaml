@@ -2,7 +2,7 @@ schema_version: 1
 id: ret_envelope_negative_taxonomy
 type: harness_judge
 description: A typed negative taxonomy — unknown_entity / known_empty / boundary; no denied kind; hard-forgotten content is indistinguishable from never-existed.
-tags: [retrieval, D49, D50]
+tags: [retrieval, D49, D50, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/retrieval_design.md — the binding source — and decisions.md D49 (typed negatives) and D50 (trust model) for rationale and

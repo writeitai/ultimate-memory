@@ -2,7 +2,7 @@ schema_version: 1
 id: e2_no_pre_extraction_gate
 type: harness_judge
 description: There is no pre-extraction value/salience gate — every chunked document is fully extracted; junk control is in-call Selection plus redundancy collapse.
-tags: [e2, D25, D34]
+tags: [e2, D25, D34, D12, D56]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
   Read plan/designs/e2_e3_claims_relations_design.md §4 — the binding source — and decisions.md D25/D34 for rationale and

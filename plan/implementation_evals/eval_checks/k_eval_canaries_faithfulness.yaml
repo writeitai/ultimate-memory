@@ -1,0 +1,31 @@
+schema_version: 1
+id: k_eval_canaries_faithfulness
+type: harness_judge
+description: K compilation has its own eval machinery — planted writer-completeness canaries, sampled citation-faithfulness audits, and a measured evidence-change→recompile staleness latency.
+tags: [k, D45, D22, D53]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/k_layers_design.md §7 — the binding source — and decisions.md D45/D22 for
+  rationale and refinement history, then inspect the K eval harness under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Writer-completeness canaries exist: planted evidence that a compiled page MUST surface;
+     a compile that drops a canary fails the eval.
+  2. Citation-faithfulness audits run on a sampled stream: does the cited evidence actually
+     support the compiled prose — judged by a checker on a different model family than the
+     writer (D53).
+  3. Staleness latency is measured: the time from an evidence change to the affected pages'
+     recompile is tracked against the configured cadence.
+  4. Results land in the same recorded eval-run machinery as the ER/retrieval evals
+     (versioned, comparable across prompt/model bumps).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

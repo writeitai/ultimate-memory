@@ -5,16 +5,17 @@ description: One compile mechanism, N scopes — tiers are configuration; K3 is 
 tags: [k, D47, D54]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/k_layers_design.md §2 — the binding source — and decisions.md D47 for rationale and
-  refinement history, then inspect the scope/tier
-  configuration under src/. These are acceptance checks for the FINAL system: if the subsystem
-  is absent or partial, score 0.
+  Read plan/designs/k_layers_design.md §2/§7/§8 — the binding source — and decisions.md D47
+  for rationale and refinement history, then inspect the scope/tier configuration under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
 
   Verify ALL of the following:
   1. There is exactly ONE compile pipeline; K1/K2/K3 exist as configuration (scopes = git
      subtree + registry rows + rules), not as separate machinery or code paths.
-  2. Each scope has a shared model page that is a declared compile input of every page in the
-     scope.
+  2. Each scope has a shared model page that is a declared input of every WRITER invocation
+     in the scope (authored pages have no compile inputs; fact-sheet-only pages skip the
+     writer — the requirement binds writer runs, not literally every page).
   3. The belief tier (K3) is stricter configuration: rules select only settled evidence
      (evidence_count >= N, no live contradiction_group, D54-flagged facts excluded), updates
      are evidence-gated (never timer-driven), and every belief cites supporting AND

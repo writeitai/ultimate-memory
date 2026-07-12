@@ -1,0 +1,32 @@
+schema_version: 1
+id: k_trigger_surface_acyclic
+type: harness_judge
+description: The K trigger surface holds — page watches and subscription-owned routing rules with debounced delta-carrying dispatch, idempotent subscribers, declaration lint, and one-way E → compiled → authored acyclicity.
+tags: [k, D45, D46]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/k_layers_design.md §5 — the binding source — and decisions.md D45/D46 for
+  rationale and refinement history, then inspect the K trigger machinery under src/. These
+  are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Page watches and subscriptions exist as declared, registered routing rules (owned by
+     their subscriber), evaluated mechanically — never ad-hoc LLM routing at
+     evidence-arrival time.
+  2. Dispatch is debounced and carries deltas (what changed), and subscribers are idempotent
+     (re-delivery of the same delta is a no-op).
+  3. Authored pages get their notification channels as flags/alerts (never rewrites), and a
+     declaration lint validates watch/subscription declarations.
+  4. The trigger surface is acyclic one-way: evidence changes trigger compiled pages;
+     compiled changes may flag authored pages; nothing flows back from authored/compiled
+     pages into E-plane truth (loops are structurally impossible, not just discouraged).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,27 +1,25 @@
 schema_version: 1
 id: p_projections_hold_no_authority
 type: harness_judge
-description: Validity state has exactly one home (Postgres); projection builders are architecturally barred from decision-making — enforced import boundaries, dumb deterministic writers.
+description: Validity state has exactly one home (Postgres); projection builders are dumb, deterministic, and decision-free — the architectural outcome, however the modules are split.
 tags: [p, D6, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/overall_design.md §2 — the binding source — and decisions.md D6 (and D62's enforced architecture) for rationale and
-  refinement history, then inspect the projection builders
-  and the import-linter contracts under src/. These are acceptance checks for the FINAL
-  system: if the subsystem is absent or partial, score 0.
+  Read plan/designs/overall_design.md §2 and plan/designs/p2_graph_design.md §1 — the binding
+  sources — and decisions.md D6 (and D62's enforced package architecture) for rationale and
+  refinement history, then inspect the projection builders under src/. These are acceptance
+  checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
-  1. Projection builders (P1/P2/P3 writers) import only read-side repositories and projection
-     writers — the architecture contracts (D62 import-linter) bar them from importing
-     adjudicators, LLM clients, or any repository that mutates validity/contradiction state;
-     CI fails on illegal imports.
-  2. No code path mutates validity/invalidation/contradiction state in a projection store —
+  1. No code path mutates validity/invalidation/contradiction state in a projection store —
      Lance/Ladybug/P3 receive filtered copies from Postgres and are never the site of a
-     decision.
-  3. Every projection is deletable and rebuildable from Postgres (+ artifacts) by a tested
+     decision. Judge the OUTCOME (no adjudication, no supersession logic, no LLM calls inside
+     projection builders), whatever the internal module split; the D62 package-level import
+     contracts (CI-enforced) are supporting evidence, not a prescribed submodule graph.
+  2. Every projection is deletable and rebuildable from Postgres (+ artifacts) by a tested
      batch path; nothing in a projection is source-of-truth.
-  4. The graph writer is deterministic — no adjudication, no supersession logic, no LLM calls
-     inside projection builders.
+  3. The projection writers are deterministic (same inputs, same snapshot — modulo declared
+     versioning).
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

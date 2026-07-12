@@ -1,22 +1,26 @@
 schema_version: 1
 id: er_review_queue_cli
 type: harness_judge
-description: Human review is a thin Postgres-backed CLI cluster queue — impact-band routed, hub merges never auto-accepted, verdicts reversible and provenance-stamped; no web UI in the library.
-tags: [registries, D24, D60]
+description: Review is a thin Postgres-backed CLI cluster queue — impact-band routed to an accountable reviewer (human or designated reviewer agent), hub merges never auto-accepted, verdicts reversible; no web UI in the library.
+tags: [registries, D24, D21, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/registries_design.md — the binding source — and decisions.md D24 (and D60) for rationale and
-  refinement history, then inspect the review tooling under src/. These are
-  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+  Read plan/designs/registries_design.md §8 and plan/designs/k_layers_design.md §7 (the
+  reviewer-seat generalization) — the binding sources — and decisions.md D24 for rationale
+  and refinement history, then inspect the review tooling under src/. These are acceptance
+  checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. A CLI review queue over Postgres exists, reviewing CLUSTERS (not pairwise), routing only
-     the expected_impact = blast_radius x (1 - confidence) middle band to humans.
+     the expected_impact = blast_radius x (1 - confidence) middle band to an accountable
+     reviewer — a human or a designated reviewer agent (the design permits both; agent
+     review is normal in agent-operated deployments and must run on a different model family
+     than the proposer, D53).
   2. High-degree hub merges never auto-accept regardless of confidence.
   3. Every review action appends a reversible, provenance-stamped record consistent with D21
      (redirect-preserving; nothing destructive).
   4. No web review UI ships in this repository (D60: the web UI is the cloud product's
-     surface; the library's review surface is the CLI).
+     surface; the library's review surface is the CLI/agent consumer).
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together
