@@ -5,7 +5,8 @@ description: No web UI and no multi-tenant control plane ship in this repository
 tags: [boundary, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D60 and CLAUDE.md Rule 3, then survey the repository's shipped surfaces.
+  Read CLAUDE.md Rule 3 — the binding source — and decisions.md D60 for rationale and
+  refinement history, then survey the repository's shipped surfaces.
   These are acceptance checks for the FINAL system.
 
   Verify ALL of the following:

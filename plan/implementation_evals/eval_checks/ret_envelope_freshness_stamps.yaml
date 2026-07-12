@@ -5,7 +5,8 @@ description: Per-source freshness stamps ship in every envelope — PG live, P1 
 tags: [retrieval, D49, D48]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D49 (freshness stamps) and D48 and plan/designs/retrieval_design.md, then inspect the envelope freshness
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D49 (freshness stamps) and D48 for rationale and
+  refinement history, then inspect the envelope freshness
   section under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 

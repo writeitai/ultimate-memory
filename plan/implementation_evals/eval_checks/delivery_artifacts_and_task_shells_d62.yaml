@@ -5,7 +5,8 @@ description: The delivery contract holds — PyPI client package with extras, GH
 tags: [boundary, ops, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D62 and plan/designs/packaging_distribution_design.md, then inspect the packaging, compose profile, client surface, and task
+  Read plan/designs/packaging_distribution_design.md — the binding source — and decisions.md D62 for rationale and
+  refinement history, then inspect the packaging, compose profile, client surface, and task
   execution under the repo. These are acceptance checks for the FINAL system: if the subsystem
   is absent or partial, score 0.
 

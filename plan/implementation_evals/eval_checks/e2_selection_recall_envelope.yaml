@@ -5,7 +5,8 @@ description: Selection is recall-conservative — KEEP bias, never-drop classes,
 tags: [e2, D35, D22]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D35 and plan/designs/e2_e3_claims_relations_design.md §3.4, then inspect the Selection prompt/rubric, outcome enum, and eval
+  Read plan/designs/e2_e3_claims_relations_design.md §3.4 — the binding source — and decisions.md D35 for rationale and
+  refinement history, then inspect the Selection prompt/rubric, outcome enum, and eval
   harness under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 

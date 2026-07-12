@@ -5,7 +5,8 @@ description: The Postgres->LadybugDB boundary is the v_graph_* views with merge-
 tags: [p2, D44]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D44 and plan/designs/postgres_schema_design.md §10.A, then inspect the
+  Read plan/designs/postgres_schema_design.md §10.A — the binding source — and decisions.md D44 for rationale and
+  refinement history, then inspect the
   projection views and the graph build under src/. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 

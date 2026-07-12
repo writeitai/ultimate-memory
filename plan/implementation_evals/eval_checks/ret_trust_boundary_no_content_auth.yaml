@@ -5,7 +5,8 @@ description: One trust domain per deployment — no content-level authorization 
 tags: [retrieval, D50, D60, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D50 (trust model) and D60/D61 and plan/designs/retrieval_design.md §9, then inspect the API/mount surfaces under
+  Read plan/designs/retrieval_design.md §9 — the binding source — and decisions.md D50 (trust model) and D60/D61 for rationale and
+  refinement history, then inspect the API/mount surfaces under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

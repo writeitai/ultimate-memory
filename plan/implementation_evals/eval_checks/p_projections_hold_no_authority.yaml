@@ -5,7 +5,8 @@ description: Validity state has exactly one home (Postgres); projection builders
 tags: [p, D6, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D6 (and D62's enforced architecture) and plan/designs/overall_design.md §2, then inspect the projection builders
+  Read plan/designs/overall_design.md §2 — the binding source — and decisions.md D6 (and D62's enforced architecture) for rationale and
+  refinement history, then inspect the projection builders
   and the import-linter contracts under src/. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 

@@ -5,7 +5,8 @@ description: The hexagonal architecture is mechanically enforced — pure infra-
 tags: [code, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D62 (the enforced code architecture) and plan/designs/packaging_distribution_design.md (the enforced layout), then inspect the package layout and
+  Read plan/designs/packaging_distribution_design.md (the enforced layout) — the binding source — and decisions.md D62 (the enforced code architecture) for rationale and
+  refinement history, then inspect the package layout and
   the import-linter configuration under the repo. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 

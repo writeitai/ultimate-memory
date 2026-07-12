@@ -5,7 +5,8 @@ description: The predicate vocabulary is a governed registry with an other:<free
 tags: [e3, D5, D18, D15, D64]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D5/D15/D18/D64 (the current seed core) and plan/designs/registries_design.md, then inspect the
+  Read plan/designs/registries_design.md — the binding source — and decisions.md D5/D15/D18/D64 (the current seed core) for rationale and
+  refinement history, then inspect the
   predicate registry and extraction constraints under src/. These are acceptance checks for
   the FINAL system: if the subsystem is absent or partial, score 0.
 

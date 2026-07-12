@@ -5,7 +5,8 @@ description: Entity resolution is the T0–T4 cascade — exact, fuzzy blocking 
 tags: [registries, D17, D20]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D17 and plan/designs/registries_design.md, then inspect the resolver under
+  Read plan/designs/registries_design.md — the binding source — and decisions.md D17 for rationale and
+  refinement history, then inspect the resolver under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

@@ -44,14 +44,17 @@ Two conventions when running:
   cannot fail a correct implementation for obeying the design.
 - **Decisions for coverage, designs for truth.** The decision log is an append-only record
   whose entries are refined and withdrawn by later ones — it serves as the *coverage index*
-  (which binding decisions have checks), while the design docs are the binding statement of
-  the *current* system. Every check therefore carries an explicit **source-precedence rule**
-  in its instructions: if cited sources appear to disagree, the design docs (including
-  `postgres_schema_design.md`) are controlling, decision entries are read with their
-  refinement/withdrawal annotations, and the judge reports the discrepancy instead of failing
-  an implementation that follows the current design. (This is the repo's own claims-vs-facts
-  epistemology applied to its documentation: the log is testimony; the designs are the
-  adjudicated current belief.)
+  (which binding decisions have checks; the D-numbers in tags and conditions are the repo's
+  *names* for invariants, used by the design docs themselves), while the design docs are the
+  binding statement of the *current* system. Every check therefore **reads design-first**
+  (its Read instruction leads with the design doc or requirements section as "the binding
+  source"; the decision entries are cited for rationale and refinement history) **and carries
+  an explicit source-precedence rule** in its instructions: if cited sources appear to
+  disagree, the design docs (including `postgres_schema_design.md`) are controlling, decision
+  entries are read with their refinement/withdrawal annotations, and the judge reports the
+  discrepancy instead of failing an implementation that follows the current design. (This is
+  the repo's own claims-vs-facts epistemology applied to its documentation: the log is
+  testimony; the designs are the adjudicated current belief.)
 
 ## Inventory (69 checks)
 

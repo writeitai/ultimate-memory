@@ -5,7 +5,8 @@ description: Projections propose, the spine disposes — all query surfaces rout
 tags: [retrieval, D48]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D48 and plan/designs/retrieval_design.md, then inspect the query engine
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D48 for rationale and
+  refinement history, then inspect the query engine
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

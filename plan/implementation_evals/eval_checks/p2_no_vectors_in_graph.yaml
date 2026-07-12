@@ -5,7 +5,8 @@ description: The graph holds no embeddings and no FTS — vectors live in Lance;
 tags: [p2, p1, D8]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D8 and plan/designs/p2_graph_design.md, then inspect the P2 snapshot contents and the Lance table definitions
+  Read plan/designs/p2_graph_design.md — the binding source — and decisions.md D8 for rationale and
+  refinement history, then inspect the P2 snapshot contents and the Lance table definitions
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

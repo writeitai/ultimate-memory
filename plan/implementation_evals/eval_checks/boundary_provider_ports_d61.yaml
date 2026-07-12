@@ -5,7 +5,8 @@ description: The deployment substrate is reached only through the provider ports
 tags: [boundary, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D61 and requirements_v3.md §Fixed choices & the reference deployment, then
+  Read requirements_v3.md §Fixed choices & the reference deployment — the binding source — and decisions.md D61 for rationale and
+  refinement history, then
   inspect the adapter layer and self-host stack under src/ and the deploy profiles. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 

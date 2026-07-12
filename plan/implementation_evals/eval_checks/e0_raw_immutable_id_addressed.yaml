@@ -5,8 +5,8 @@ description: Raw bytes are stored immutably in a dedicated raw store, ID-address
 tags: [e0, D36, D37, D51]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D36/D37 (+ the "Refined by D51" note) and plan/designs/e0_files_design.md
-  §2, then locate the implementation under src/ (storage layout, ingest worker, mount config).
+  Read plan/designs/e0_files_design.md §2 — the binding source — and decisions.md D36/D37 (+ the "Refined by D51" note) for rationale and
+  refinement history, then locate the implementation under src/ (storage layout, ingest worker, mount config).
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

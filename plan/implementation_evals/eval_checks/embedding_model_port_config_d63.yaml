@@ -5,7 +5,8 @@ description: The embedding model is provider-port configuration, never architect
 tags: [p1, e1, D63, D61]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D63 (and D61's embedder port) and plan/designs/e1_chunks_design.md §5, then inspect the embedder port, its
+  Read plan/designs/e1_chunks_design.md §5 — the binding source — and decisions.md D63 (and D61's embedder port) for rationale and
+  refinement history, then inspect the embedder port, its
   adapters, and the E1 pipeline under src/. These are acceptance checks for the FINAL system:
   if the subsystem is absent or partial, score 0.
 

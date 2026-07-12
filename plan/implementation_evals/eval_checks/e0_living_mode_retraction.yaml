@@ -5,7 +5,8 @@ description: In living mode, removal retracts — sole-support loss closes facts
 tags: [e0, e3, D55, D54, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D55 (removal semantics) and D54/D43 and plan/designs/evidence_lifecycle_design.md, then inspect the version-supersession
+  Read plan/designs/evidence_lifecycle_design.md — the binding source — and decisions.md D55 (removal semantics) and D54/D43 for rationale and
+  refinement history, then inspect the version-supersession
   and retraction logic under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 

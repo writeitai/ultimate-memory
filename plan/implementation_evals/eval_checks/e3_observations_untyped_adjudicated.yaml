@@ -5,7 +5,8 @@ description: Observations are untyped, entity-anchored, bi-temporal facts — no
 tags: [e3, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D43 and plan/designs/observations_design.md, then inspect the observations
+  Read plan/designs/observations_design.md — the binding source — and decisions.md D43 for rationale and
+  refinement history, then inspect the observations
   schema and the add-observation worker under src/. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 

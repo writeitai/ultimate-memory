@@ -5,7 +5,8 @@ description: Every document gets a section structure (synthetic root fallback), 
 tags: [e0, D39]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D39 and plan/designs/e0_files_design.md §4, then locate the structurer and
+  Read plan/designs/e0_files_design.md §4 — the binding source — and decisions.md D39 for rationale and
+  refinement history, then locate the structurer and
   the document_sections schema under src/. These are acceptance checks for the FINAL system:
   if the subsystem is absent or partial, score 0.
 

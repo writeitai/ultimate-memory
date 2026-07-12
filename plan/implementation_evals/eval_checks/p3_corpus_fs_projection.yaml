@@ -5,8 +5,8 @@ description: P3 is a rebuildable corpus-filesystem projection — generated stub
 tags: [p3, D40, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D40 (and D55's stability contract) and plan/designs/e0_files_design.md §6
-  plus plan/analysis/p3_agent_navigation.md, then inspect the P3 builder under src/. These are
+  Read plan/designs/e0_files_design.md §6 plus plan/analysis/p3_agent_navigation.md — the binding source — and decisions.md D40 (and D55's stability contract) for rationale and
+  refinement history, then inspect the P3 builder under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

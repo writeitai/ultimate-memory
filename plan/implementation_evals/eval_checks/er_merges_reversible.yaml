@@ -5,7 +5,8 @@ description: Entity merges are reversible, append-only adjudications — decisio
 tags: [registries, D21]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D21 and plan/designs/registries_design.md, then inspect the merge/cluster machinery under src/. These are
+  Read plan/designs/registries_design.md — the binding source — and decisions.md D21 for rationale and
+  refinement history, then inspect the merge/cluster machinery under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

@@ -5,7 +5,8 @@ description: As-of traversal is inline path-predicate filtering (never MATCH ove
 tags: [p2, D10, D11, D44]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D10/D11/D44 and plan/designs/p2_graph_design.md, then inspect the graph query layer and the community pass
+  Read plan/designs/p2_graph_design.md — the binding source — and decisions.md D10/D11/D44 for rationale and
+  refinement history, then inspect the graph query layer and the community pass
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

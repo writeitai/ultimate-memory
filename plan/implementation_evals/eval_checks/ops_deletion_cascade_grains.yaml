@@ -5,8 +5,8 @@ description: Deletion has grains (version / lineage / hard-forget); normal delet
 tags: [ops, D55, D46, D54, requirements]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D55/D54/D46, plan/designs/evidence_lifecycle_design.md §8, and
-  plan/designs/postgres_schema_design.md §13.1, then inspect the deletion workers under src/.
+  Read plan/designs/evidence_lifecycle_design.md §8, and plan/designs/postgres_schema_design.md §13.1 — the binding source — and decisions.md D55/D54/D46 for rationale and
+  refinement history, then inspect the deletion workers under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 

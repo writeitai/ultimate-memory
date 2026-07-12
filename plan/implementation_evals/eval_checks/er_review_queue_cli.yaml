@@ -5,7 +5,8 @@ description: Human review is a thin Postgres-backed CLI cluster queue — impact
 tags: [registries, D24, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D24 (and D60) and plan/designs/registries_design.md, then inspect the review tooling under src/. These are
+  Read plan/designs/registries_design.md — the binding source — and decisions.md D24 (and D60) for rationale and
+  refinement history, then inspect the review tooling under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

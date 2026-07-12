@@ -5,7 +5,8 @@ description: The split source of truth holds — Postgres authoritative for the 
 tags: [cross, D1, D46]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D1 and D46 and plan/designs/overall_design.md §2, then inspect the store boundaries under src/. These are
+  Read plan/designs/overall_design.md §2 — the binding source — and decisions.md D1 and D46 for rationale and
+  refinement history, then inspect the store boundaries under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:

@@ -5,7 +5,8 @@ description: One graph, many lenses — scopes never get their own entity space 
 tags: [cross, D16, D50]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D16 (and D50's trust-model refinement) and plan/designs/registries_design.md §1, then inspect scope handling under
+  Read plan/designs/registries_design.md §1 — the binding source — and decisions.md D16 (and D50's trust-model refinement) for rationale and
+  refinement history, then inspect scope handling under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

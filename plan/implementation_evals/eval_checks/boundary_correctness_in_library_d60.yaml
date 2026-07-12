@@ -5,7 +5,8 @@ description: Every correctness-determining mechanism the design binds is impleme
 tags: [boundary, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D60 and plan/requirements/requirements_v3.md §Vision, then verify each named correctness module exists in-repo and is
+  Read plan/requirements/requirements_v3.md §Vision — the binding source — and decisions.md D60 for rationale and
+  refinement history, then verify each named correctness module exists in-repo and is
   functional (not a stub raising NotImplemented, not disabled by default, not calling out to a
   proprietary cloud service to do the work).
 

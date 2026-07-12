@@ -5,8 +5,8 @@ description: Every worker is idempotent on the key fitting its grain; work is pr
 tags: [ops, D12, D56, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D12, D56, and D62 (task execution) and
-  plan/designs/orchestration_design.md, then inspect the workers and queue handling under
+  Read plan/designs/orchestration_design.md — the binding source — and decisions.md D12, D56, and D62 (task execution) for rationale and
+  refinement history, then inspect the workers and queue handling under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

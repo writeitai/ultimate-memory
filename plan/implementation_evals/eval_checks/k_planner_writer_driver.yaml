@@ -5,7 +5,8 @@ description: Plane K is compiled by planner/writer/driver — mechanical zero-LL
 tags: [k, D45]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D45 and plan/designs/k_layers_design.md, then inspect the K compile system
+  Read plan/designs/k_layers_design.md — the binding source — and decisions.md D45 for rationale and
+  refinement history, then inspect the K compile system
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

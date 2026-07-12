@@ -5,7 +5,8 @@ description: Extension points cannot bypass invariants — ingestion always writ
 tags: [boundary, D60, D62]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D60 (constraint 2) and D62 (client surface) and plan/designs/packaging_distribution_design.md (the client surface), then inspect every extension
+  Read plan/designs/packaging_distribution_design.md (the client surface) — the binding source — and decisions.md D60 (constraint 2) and D62 (client surface) for rationale and
+  refinement history, then inspect every extension
   point (connector interface, ingest API, review sink, provider ports) under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 

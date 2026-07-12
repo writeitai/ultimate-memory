@@ -5,7 +5,8 @@ description: Claims and relations are distinct, joined many-to-many with stance;
 tags: [e3, D2]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D2 and plan/analysis/concepts.md, then inspect the relations and
+  Read plan/analysis/concepts.md — the binding source — and decisions.md D2 for rationale and
+  refinement history, then inspect the relations and
   relation_evidence schema and the E3 normalization under src/. These are acceptance checks
   for the FINAL system: if the subsystem is absent or partial, score 0.
 

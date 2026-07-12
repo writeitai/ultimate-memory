@@ -5,7 +5,8 @@ description: Claims carry an immutable source-asserted validity interval (from/u
 tags: [e2, D41, D32]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D41 and plan/designs/e2_e3_claims_relations_design.md §7, then inspect the claim schema and the temporal extraction under src/.
+  Read plan/designs/e2_e3_claims_relations_design.md §7 — the binding source — and decisions.md D41 for rationale and
+  refinement history, then inspect the claim schema and the temporal extraction under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 

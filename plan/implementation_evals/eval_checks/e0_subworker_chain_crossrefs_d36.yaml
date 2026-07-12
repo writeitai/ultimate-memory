@@ -5,7 +5,8 @@ description: E0 is one product layer implemented as separately idempotent, separ
 tags: [e0, D36]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D36 and plan/designs/e0_files_design.md §1, then inspect the E0 workers
+  Read plan/designs/e0_files_design.md §1 — the binding source — and decisions.md D36 for rationale and
+  refinement history, then inspect the E0 workers
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

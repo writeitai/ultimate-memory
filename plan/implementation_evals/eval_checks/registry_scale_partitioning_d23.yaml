@@ -5,7 +5,8 @@ description: The registry scale rules hold — big append-only tables partitione
 tags: [registries, D23, D17]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D23 and plan/designs/postgres_schema_design.md, then inspect the
+  Read plan/designs/postgres_schema_design.md — the binding source — and decisions.md D23 for rationale and
+  refinement history, then inspect the
   migrations under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 

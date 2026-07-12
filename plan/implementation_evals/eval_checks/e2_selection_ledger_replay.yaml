@@ -5,8 +5,8 @@ description: Selection drops, kept_flagged outcomes, and decontextualization edi
 tags: [e2, D33, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D33 (and D7's replay discipline) and plan/designs/postgres_schema_design.md
-  §8, then inspect the claim_extraction_decisions ledger and the rebuild paths under src/.
+  Read plan/designs/postgres_schema_design.md §8 — the binding source — and decisions.md D33 (and D7's replay discipline) for rationale and
+  refinement history, then inspect the claim_extraction_decisions ledger and the rebuild paths under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 

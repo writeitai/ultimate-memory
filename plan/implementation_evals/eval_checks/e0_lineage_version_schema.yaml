@@ -5,7 +5,8 @@ description: Documents are lineages with connector-native identity; versions are
 tags: [e0, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D55 and plan/designs/evidence_lifecycle_design.md, then inspect the
+  Read plan/designs/evidence_lifecycle_design.md — the binding source — and decisions.md D55 for rationale and
+  refinement history, then inspect the
   documents/document_versions/content_objects schema and the sync logic under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 

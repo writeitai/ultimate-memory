@@ -5,7 +5,8 @@ description: Claim grounding is dual-field (standalone claim_text + verbatim sou
 tags: [e2, D32, D53]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D32 and plan/designs/e2_e3_claims_relations_design.md §3.3, then inspect
+  Read plan/designs/e2_e3_claims_relations_design.md §3.3 — the binding source — and decisions.md D32 for rationale and
+  refinement history, then inspect
   the claim schema and grounding validation under src/. These are acceptance checks for the
   FINAL system: if the subsystem is absent or partial, score 0.
 

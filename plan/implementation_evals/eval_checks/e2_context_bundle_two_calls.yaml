@@ -5,7 +5,8 @@ description: E2 extraction runs over a context bundle (never a bare chunk) as tw
 tags: [e2, D31, D19]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D31/D19 and plan/designs/e2_e3_claims_relations_design.md §3, then locate
+  Read plan/designs/e2_e3_claims_relations_design.md §3 — the binding source — and decisions.md D31/D19 for rationale and
+  refinement history, then locate
   the extractor under src/. These are acceptance checks for the FINAL system: if the subsystem
   is absent or partial, score 0.
 

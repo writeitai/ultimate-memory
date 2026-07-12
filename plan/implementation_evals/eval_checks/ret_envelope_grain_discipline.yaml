@@ -5,7 +5,8 @@ description: Every response declares its grain (fact/evidence/compiled/composite
 tags: [retrieval, D49, D41]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D49 and plan/designs/retrieval_design.md, then inspect the envelope types
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D49 for rationale and
+  refinement history, then inspect the envelope types
   and grain enforcement under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 

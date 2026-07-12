@@ -5,7 +5,8 @@ description: evidence_count means distinct current-testimony lineages per stance
 tags: [e2, e3, D54]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D54 and plan/designs/evidence_lifecycle_design.md, then inspect the
+  Read plan/designs/evidence_lifecycle_design.md — the binding source — and decisions.md D54 for rationale and
+  refinement history, then inspect the
   currency ledger, the count maintenance, and the zero-support paths under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 

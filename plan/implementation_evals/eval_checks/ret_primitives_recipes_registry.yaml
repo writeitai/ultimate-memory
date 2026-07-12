@@ -5,7 +5,8 @@ description: The query machine is typed zero-LLM primitives + recipes as registr
 tags: [retrieval, D50, D9]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D50 and plan/designs/retrieval_design.md, then inspect the primitives and
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D50 for rationale and
+  refinement history, then inspect the primitives and
   recipe registry under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 

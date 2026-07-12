@@ -5,8 +5,8 @@ description: Re-ingesting an edited document costs proportional to the edit — 
 tags: [e0, e2, D56]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D56 and plan/designs/evidence_lifecycle_design.md ("Content-addressed
-  reuse"), then inspect the E2 idempotency keys, the version-diff logic, and the tests under
+  Read plan/designs/evidence_lifecycle_design.md ("Content-addressed reuse") — the binding source — and decisions.md D56 for rationale and
+  refinement history, then inspect the E2 idempotency keys, the version-diff logic, and the tests under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

@@ -5,7 +5,8 @@ description: A typed negative taxonomy — unknown_entity / known_empty / bounda
 tags: [retrieval, D49, D50]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D49 (typed negatives) and D50 (trust model) and plan/designs/retrieval_design.md, then inspect the negative
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D49 (typed negatives) and D50 (trust model) for rationale and
+  refinement history, then inspect the negative
   result types under src/. These are acceptance checks for the FINAL system: if the subsystem
   is absent or partial, score 0.
 

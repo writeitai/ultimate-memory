@@ -5,7 +5,8 @@ description: One deterministic, versioned blockizer derives the block sequence; 
 tags: [e0, e1, D57]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D57 and plan/designs/e1_chunks_design.md §2–§3, then locate the blockizer
+  Read plan/designs/e1_chunks_design.md §2–§3 — the binding source — and decisions.md D57 for rationale and
+  refinement history, then locate the blockizer
   under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

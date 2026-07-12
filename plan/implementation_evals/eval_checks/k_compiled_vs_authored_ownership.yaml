@@ -5,7 +5,8 @@ description: Two page kinds with an ownership contract — compiled bodies machi
 tags: [k, D46]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D46 and plan/designs/k_layers_design.md, then inspect the page-kind
+  Read plan/designs/k_layers_design.md — the binding source — and decisions.md D46 for rationale and
+  refinement history, then inspect the page-kind
   handling under src/. These are acceptance checks for the FINAL system: if the subsystem is
   absent or partial, score 0.
 

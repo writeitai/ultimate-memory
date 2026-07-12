@@ -5,7 +5,8 @@ description: Consumption is filesystem-first — four read-only mounts (raw off-
 tags: [retrieval, D51]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D51 and plan/designs/retrieval_design.md, then inspect the mount
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D51 for rationale and
+  refinement history, then inspect the mount
   publication and the shipped skill under src/. These are acceptance checks for the FINAL
   system: if the subsystem is absent or partial, score 0.
 

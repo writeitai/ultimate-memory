@@ -5,7 +5,8 @@ description: Claims are the needle index, chunks the passage index; default reci
 tags: [e1, p1, D58]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D58 (embedding granularity) and plan/designs/e1_chunks_design.md, then inspect the P1 index writers and default
+  Read plan/designs/e1_chunks_design.md — the binding source — and decisions.md D58 (embedding granularity) for rationale and
+  refinement history, then inspect the P1 index writers and default
   search recipes under src/. These are acceptance checks for the FINAL system: if the
   subsystem is absent or partial, score 0.
 

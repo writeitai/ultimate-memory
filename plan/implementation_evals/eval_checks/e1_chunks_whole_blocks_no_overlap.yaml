@@ -5,7 +5,8 @@ description: Chunks are non-overlapping runs of whole blocks within one section,
 tags: [e1, D58, D57]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D58 and plan/designs/e1_chunks_design.md §4, then locate the chunker under
+  Read plan/designs/e1_chunks_design.md §4 — the binding source — and decisions.md D58 for rationale and
+  refinement history, then locate the chunker under
   src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
   partial, score 0.
 

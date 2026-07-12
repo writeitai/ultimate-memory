@@ -5,7 +5,8 @@ description: There is no pre-extraction value/salience gate — every chunked do
 tags: [e2, D25, D34]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D25/D34 and plan/designs/e2_e3_claims_relations_design.md §4, then inspect
+  Read plan/designs/e2_e3_claims_relations_design.md §4 — the binding source — and decisions.md D25/D34 for rationale and
+  refinement history, then inspect
   the pipeline between chunking and extraction under src/. These are acceptance checks for the
   FINAL system: if the subsystem is absent or partial, score 0.
 

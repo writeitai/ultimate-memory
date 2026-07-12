@@ -5,7 +5,8 @@ description: Attributed stance is kept and normalized to an observation on the h
 tags: [e2, e3, D59, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D59 and plan/designs/observations_design.md, then inspect the Selection rubric and E3 normalization under src/.
+  Read plan/designs/observations_design.md — the binding source — and decisions.md D59 for rationale and
+  refinement history, then inspect the Selection rubric and E3 normalization under src/.
   These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
   score 0.
 

@@ -5,7 +5,8 @@ description: Claims are immutable, append-only evidence — no update path, no s
 tags: [e2, D2, D3, D54]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D2/D3 (and D54's "currency is bookkeeping, never validity") and plan/designs/e2_e3_claims_relations_design.md, then inspect
+  Read plan/designs/e2_e3_claims_relations_design.md — the binding source — and decisions.md D2/D3 (and D54's "currency is bookkeeping, never validity") for rationale and
+  refinement history, then inspect
   the claims schema/models and every code path that touches claim rows under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 

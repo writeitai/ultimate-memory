@@ -5,7 +5,8 @@ description: Supersession candidates come from (entity, predicate) blocking with
 tags: [e3, D4, D43]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read decisions.md D4 and plan/designs/e2_e3_claims_relations_design.md §5, then inspect the supersession worker under src/. These are acceptance
+  Read plan/designs/e2_e3_claims_relations_design.md §5 — the binding source — and decisions.md D4 for rationale and
+  refinement history, then inspect the supersession worker under src/. These are acceptance
   checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
