@@ -426,7 +426,8 @@ derived → P3.
 Decisions: **D36** (E0 = document layer of sub-workers, no renumber), **D37** (storage split +
 Postgres-metadata rule + ID-addressed paths + read-only mount), **D38** (configurable conversion
 module), **D39** (PageIndex structure: sidecar + PG index, structure-only, summaries kept, placement
-hint), **D40** (P3 corpus-filesystem projection).
+hint), **D40** (P3 corpus-filesystem projection), **D65** (media routes + generalized contract +
+canonical-text rule — binding home: `media_design.md`).
 
 Open spikes (measure before committing):
 1. **Conversion fidelity vs cost** — OCR is the expensive, quality-critical step; cheap-extract →
