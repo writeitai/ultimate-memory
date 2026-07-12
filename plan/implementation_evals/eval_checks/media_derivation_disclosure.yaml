@@ -1,0 +1,43 @@
+schema_version: 1
+id: media_derivation_disclosure
+type: harness_judge
+description: Derivation disclosure is deterministic and block-inherited — sections carry derivation_kind + evidence_mode from the converter manifest, claims inherit through their span→block→section mapping, the envelope surfaces both, and the mode is disclosure never a verdict.
+tags: [e2, ret, media, D65, D49]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/media_design.md §5 and plan/designs/retrieval_design.md §5 — the binding
+  sources — and decisions.md D65 (with the D49 refinement annotation) for rationale, then
+  locate the disclosure propagation and envelope code under src/. These are acceptance checks
+  for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The evidence_mode trichotomy exists as a typed enum with exactly the three values —
+     source_expression (a fallible rendering of speech/symbols present in the source: a
+     transcript sentence, OCR'd text), model_observation (the model's account of what the
+     source shows), model_interpretation (the model's reading into the source) — alongside a
+     derivation_kind (asr | vlm_description | ocr | shot_notes | passthrough | …).
+  2. Both labels originate ONLY from the converter's manifest (per-section labeling of its
+     sectioned Markdown output): no LLM call, heuristic, or per-claim judgment assigns them
+     anywhere downstream. Text from non-media routes carries the passthrough/verbatim labels
+     by the same mechanism — the labels are total, not media-only special cases.
+  3. Claims inherit the labels deterministically through their source_span → block → section
+     mapping, and the resolved labels are cached on the claim's evidence link (queryable
+     without re-walking the mapping).
+  4. The retrieval envelope's provenance block surfaces derivation {kind, evidence_mode} for
+     media-derived evidence, so a reader of "Alice looked hesitant" sees it is a model
+     interpretation from a VLM before weighing it.
+  5. The mode is disclosure, never a verdict: no code path uses evidence_mode to auto-drop,
+     down-rank, or invalidate claims (Selection's verifiability rules remain the only keep/
+     drop line), and evidence_count still counts distinct source lineages — never derivation
+     runs — while derivation-family provenance (which converter family produced the evidence)
+     remains queryable for future confidence policy (D42).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

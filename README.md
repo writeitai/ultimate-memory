@@ -134,7 +134,7 @@ and flow downward.
 | [plan/designs/p2_graph_design.md](plan/designs/p2_graph_design.md) | P2 graph layer design (formerly L6) |
 | [plan/designs/k_layers_design.md](plan/designs/k_layers_design.md) | K plane: manifest-driven compiled + authored knowledge (D45–D47) |
 | [plan/designs/retrieval_design.md](plan/designs/retrieval_design.md) | The query machine: primitives, recipes, envelope, mounts, consumption skill (D48–D51) |
-| [plan/analysis/retrieval_scenarios.md](plan/analysis/retrieval_scenarios.md) | Retrieval stress battery S1–S61 — drives the retrieval design + the D22 golden set |
+| [plan/analysis/retrieval_scenarios.md](plan/analysis/retrieval_scenarios.md) | Retrieval stress battery S1–S63 — drives the retrieval design + the D22 golden set |
 | [plan/analysis/objections.md](plan/analysis/objections.md) | Step-back critique O1–O6 with acceptance status |
 | [plan/analysis/retrieval_review/](plan/analysis/retrieval_review/) | External adversarial review of the retrieval design (Codex) + reconciliation |
 | [plan/designs/evidence_lifecycle_design.md](plan/designs/evidence_lifecycle_design.md) | Document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) |
@@ -154,5 +154,7 @@ and flow downward.
 | [plan/analysis/p3_agent_navigation.md](plan/analysis/p3_agent_navigation.md) | P3 agent navigation — materialized tree vs index-only, the `_index.md` contract, facets/views/fan-out, why directory LLM summaries are rejected (→ e0 §6, F6) |
 | [plan/plans/roadmap.md](plan/plans/roadmap.md) | Build order: phase spine, stack, gate register, WP format (phases 0–8) |
 | [plan/designs/packaging_distribution_design.md](plan/designs/packaging_distribution_design.md) | Delivery artifacts, delivery-only task execution, enforced code architecture (D62) |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D64) with rationale |
+| [plan/designs/media_design.md](plan/designs/media_design.md) | Media (images/audio/video): converter routes, source locators, derivation disclosure, media search (D65) |
+| [plan/analysis/media_handling/](plan/analysis/media_handling/) | Parallel analyses (internal + Codex) + SYNTHESIS behind D65 |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D65) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

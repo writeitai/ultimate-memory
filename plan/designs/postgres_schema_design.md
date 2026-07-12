@@ -913,7 +913,7 @@ CREATE TABLE document_versions (
   -- GCS artifact URIs for THIS snapshot (bodies live there, not in PG — D37):
   markdown_uri    text,                        -- gs://…-artifacts/<doc_id>/<content_hash>/document.md (clean Markdown — the immutable coordinate system, D57)
   pageindex_uri   text,                        -- …/pageindex.json
-  conversion_uri  text,                        -- …/conversion.json (page map + converter metadata, D57-refined D38)
+  conversion_uri  text,                        -- …/conversion.json (source map + route manifest + converter metadata, D57/D65-refined D38)
   blocks_uri      text,                        -- …/blocks.json (the blockizer's block sequence — identity substrate, D57)
   meta_uri        text,                        -- …/meta.json
   -- conversion + structure provenance (per snapshot; D38/D39/D7):

@@ -1,4 +1,4 @@
-# Retrieval Stress Scenarios — the query battery (S1–S61)
+# Retrieval Stress Scenarios — the query battery (S1–S63)
 
 The scenario set that drives `retrieval_design.md` (binding, D48–D51): concrete questions the system
 must answer (or must *honestly refuse*), spanning every plane, both time axes, all four target
@@ -233,9 +233,16 @@ masquerade as the other (requirements §Retrieval, D41).
 - **S59** *(any, multimodal)* "Review the recorded steering call and check what was actually
   agreed about the cutover date" — the agent finds the meeting via P3/K, reads the transcript
   from artifacts, then follows the **explicit raw pointer** to ingest the original MP3/video
-  itself (the transcript is lossy; tone and the exact exchange matter).
+  itself (the transcript is lossy; tone and the exact exchange matter). **Strengthened (D65):**
+  the pointer is not to the whole file — the claim's **source locator** deep-links the exact
+  interval (`original.mp3#t=873`, segment-or-word precision as the ASR delivered), so the
+  agent lands at 14:33, not at the start of 90 minutes. And **parity is part of the pass
+  bar**: a *mounted* agent seeks via the deep link; an *unmounted* agent gets the same ten
+  seconds through the locator-aware serving operation (`hydrate depth=bytes` + time range) —
+  it must never need to download 2 GB to check one exchange.
   Stresses: the raw mount (D51) — whole-file media originals reachable read-only, off the
-  navigation path, audit-logged; storage-class routing keeps the read cheap.
+  navigation path, audit-logged; storage-class routing keeps the read cheap; typed source
+  locators + codec-aware segment serving (D65).
 
 ## N. Security and lifecycle
 
@@ -269,6 +276,30 @@ masquerade as the other (requirements §Retrieval, D41).
   un-merge (D21 reversal) is the same machinery mirrored. The envelope must say which identity
   regime answered.
 
+## P. Media discovery and grounding (D65)
+
+- **S62** *(assistant, multimodal)* "Find the photo with the **small red connector**" — where
+  the VLM's stored description of the right photo says "a workshop bench with a disassembled
+  pump" and never mentions any connector. Text search over descriptions **must** fail here
+  (the words don't exist), and that failure is the scenario's point: discovery must not be
+  bounded by what the derivation happened to write down.
+  Path: `search(channel=semantic, target=media_segments, query="small red connector")` —
+  cross-modal embeddings match the *pixels*; the hit hydrates to description passage +
+  thumbnail preview + the raw deep link, RRF-fusable with the text channels.
+  Stresses: the `media_segments` P1 target; **access ≠ discovery** (an agent can open any file
+  it found, never one it didn't retrieve); the typed `boundary` negative when the deployment
+  has no media embedder configured — the missing channel is stated, never silently absent.
+- **S63** *(any, multimodal)* "Where exactly does the **Q3 roadmap slide** appear in the
+  recorded all-hands, and does the fact we extracted from it actually match what's on screen?"
+  — the agent retrieves the fact, reads its provenance: `evidence_mode: model_observation
+  (vlm_shot_notes)`, follows the **video-region locator** (`start_ms`/`end_ms` + keyframe +
+  region) to the exact moment and frame, and verifies against the raw pixels.
+  Stresses: image-region/video-region locators — version-pinned (the locator names the
+  document *version* whose bytes it indexes, never the lineage), precision-honest; derivation
+  disclosure in the envelope (the agent knows it is checking a model's observation, not
+  rendered text); the two-hop grounding chain (claim → span → source map → raw region) that
+  the modality-aware D32 audit walks.
+
 ---
 
 ## Coverage map — what the battery exercises
@@ -285,6 +316,7 @@ masquerade as the other (requirements §Retrieval, D41).
 | K plane as answer + meta-queries | S31–S35, S45 |
 | entity resolution at query time | S1, S50, S51, S60 |
 | identity lifecycle (merge / un-merge / identity-as-of) | S60, S61 |
+| media: raw access, locators, discovery, disclosure | S56, S59, S62, S63 |
 | freshness / staleness exposure | S31, S34, S35, S42 |
 | negative answers + capability errors | S29, S39, S55 |
 | scale / batch / hubs | S18, S49, S52, S53 |

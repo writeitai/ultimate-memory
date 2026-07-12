@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D64); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D65); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 

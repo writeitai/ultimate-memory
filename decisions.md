@@ -645,6 +645,13 @@ the verbatim-substring gate, which is incompatible with decontextualization. No 
 **Context.** A decontextualized claim is a rewrite, so it is never a verbatim substring; grounding must
 be provenance + entailment, as every surveyed decompose-then-verify system does. (C6.)
 
+**Refined by D65 (media).** For media-derived documents grounding is **two hops**: the anchor
+(layer 1) proves the claim derives from the *representation* (document.md); it cannot prove the
+ASR heard or the VLM saw correctly. The layer-4 sampled audit therefore becomes
+**modality-aware** — the auditor listens to the referenced time interval / looks at the
+referenced frame or region, never only the derived Markdown (which would grade the converter
+against its own output). `plan/designs/media_design.md` §4.
+
 ## D33. E2 selection-drops and decontextualization edits are append-only, versioned state
 
 **Decision.** Every Selection drop (with reason) and every decontextualization edit is written to an
@@ -761,6 +768,14 @@ and a single shared, deterministic **blockizer** (ours, `blockizer_version`) der
 sequence from `document.md`. Offsets into document.md stay exact (grounding, D32); source
 back-pointers become best-effort provenance tiers. The conversion route is pinned per lineage.
 `e1_chunks_design.md` §2.
+
+**Refined by D65 (media).** The router gains three media routes (audio → diarized ASR; video →
+ASR + adaptive keyframes + optional shot notes; standalone picture → VLM description behind a
+document-vs-picture discriminator), and the contract generalizes once more: the page map
+becomes a **source map** (character intervals → typed locators: page / image region / time
+range / video region) and the output adds a **manifest** recording route, models, versions,
+and per-section derivation labels — `convert(bytes, mime, hints) → { document.md, source_map,
+derived_assets[], manifest }`. `plan/designs/media_design.md` §2/§4.
 
 ## D39. PageIndex provides per-document structure — sidecar + PG index, structure-only, summaries kept, placement-hint-extended
 
@@ -1210,6 +1225,13 @@ the data as a type, not a doc-comment.
 truncation marking, forgotten≡never-existed). Agents plan against freshness and
 flag counts instead of guessing. Envelope size on hub answers is a named spike.
 
+**Refined by D65 (media).** The envelope's provenance block additionally carries **source
+locators** (deep links to the exact page/region/time interval of the raw original) and the
+**derivation disclosure** labels (`derivation_kind` + `evidence_mode`) for media-derived
+evidence; a deployment without a configured media embedder reports the missing
+`media_segments` search channel as the existing typed `boundary` negative — configuration
+absence, never design absence. `plan/designs/media_design.md` §4/§5/§7.
+
 ## D50. Query capability = composable zero-LLM primitives; recipes are registry data
 
 **Decision.** The query machine is **primitives + recipes + surfaces**. Primitives are typed,
@@ -1288,6 +1310,13 @@ via raw is accepted under per-deployment IAM — the deployment is one trust dom
 with a different trust boundary belongs in a separate deployment, never behind an in-library
 filter. The skill joins the eval surface (S58). Requirements §Retrieval is reframed around
 harness-first consumption.
+
+**Refined by D65 (media).** Confirmed and completed: raw pointers gain **typed source
+locators** rendered as deep links (`original.mp3#t=873`) so the agent lands on the exact
+moment/region, not a 90-minute file; unmounted parity requires a **locator-aware serving
+operation** (a seekable, codec-aware segment — a naive byte-range is a false promise for
+arbitrary video); the skill additionally teaches the three kinds of time and the derivation
+disclosure labels. `plan/designs/media_design.md` §4/§8.
 
 ## D52. Execution classes are bound — no agent harness on volume or query paths; every LLM worker carries a ledger
 
@@ -1391,6 +1420,15 @@ assumed. Fail-safe direction preserved: withdrawn support flags, never silent va
 D25 lesson). Schema: a currency ledger + cached flag on claims; count-definition comments on
 relations/observations; `support_withdrawn` review kind. Recount cost is bounded (a lineage's
 evidence links) — hub-lineage cost is a spike.
+
+**Refined by D65 (precision fix).** The extraction basis is defined over the **full
+representation generation** — `(content_hash, converter_version, blockizer_version,
+extractor_version)` — so "the toolchain changed" and "the source changed" are formally
+distinct events. This matters most for media, where the common upgrade is the *converter*
+(a better ASR/VLM re-reads unchanged bytes): such upgrades flow the processing-driven ruleset
+exactly as an extractor bump does (currency swap; counts unmoved — same lineage;
+`support_withdrawn` on non-rederivation; never retraction). `evidence_lifecycle_design.md`
+§1/§3; `plan/designs/media_design.md` §6.
 
 ## D55. Document lineages and immutable versions — connector-native identity; snapshot vs living semantics
 
@@ -1519,6 +1557,12 @@ identity.
 gains one fixed coordinate system with tiered source provenance (exact into document.md;
 page/bbox best-effort); a converter swap or blockizer bump is a document-wide reuse boundary
 (route pinned per lineage). Design: `e1_chunks_design.md` §2–§3.
+
+**Refined by D65 (media).** The best-effort provenance tier generalizes from `{page?, bbox?}`
+to the typed **`SourceLocator` union** (page / image region / time range / video region —
+version-pinned, precision-honest, integer milliseconds), fed by the converter's **source map**
+(the page map generalized). Blocks from time-coded media carry time-range locators the same
+way paper blocks carry pages. `e1_chunks_design.md` §2; `plan/designs/media_design.md` §4.
 
 ## D58. Chunks are non-overlapping runs of whole blocks; retrieval is multi-granularity by architecture
 
@@ -1806,3 +1850,81 @@ commitment (a future split pays the D15-flagged split cost). Signature notes: sy
 subtypes (`System`/`Module ⊂ Product`) inherit into `uses`'s range via D15 inheritance;
 `reports_to` stays strictly person-to-person (a role-based reporting line is modeled through
 the person holding the role).
+
+---
+
+> **D65 provenance.** D65 binds the media-handling analysis (July 2026) — produced as two
+> parallel independent analyses (internal + Codex gpt-5.6-sol) with a reconciling SYNTHESIS:
+> `plan/analysis/media_handling/`. Both divergences were resolved in Codex's favor
+> (media search designed-in, not a boundary; claim-grain derivation disclosure). Binding
+> design: `plan/designs/media_design.md`. Numbers and tool picks are starting points to be
+> measured (CLAUDE.md).
+
+## D65. Media is an E0 input modality — bound routes, typed source locators, derivation disclosure, and direct media search
+
+**Decision.** Standalone images, audio, and video enter the system as **E0 inputs, never a new
+plane or parallel pipeline**: a media file is a source whose testimony reaches the system
+through a lossy, versioned transcription, with the original always one explicit pointer away.
+Seven bindings. (1) **Canonical text lives in `document.md`** — all text eligible for
+extraction, search, and grounding; a transcript existing only in a sidecar (`.vtt`/JSON) is
+*interchange*, never canonical, and does not exist as testimony (fixes the
+`e0_files_design.md` §2 transcript-placement ambiguity); `media/` holds only regenerable
+derived assets (keyframes, crops, thumbnails, interchange transcripts), whole-file originals
+stay on the raw mount (D51 unchanged). (2) The **D38 router gains three media routes**, each a
+versioned converter: audio → **diarized ASR** (one block per speaker turn; speakers resolved
+to entities only on positive evidence, else kept as stable anonymous labels — wrong
+attribution corrupts stance memory (D59), missing attribution merely loses claims); video →
+ASR + **adaptive keyframes** + optional VLM shot notes; standalone picture → **VLM
+description** + OCR of visible text, behind a document-vs-picture discriminator (MIME cannot
+tell a scanned page from a photo). Each route emits **sectioned Markdown** whose sections
+carry their derivation kind structurally. (3) The **converter contract generalizes** (refines
+D38/D57 again): `convert(bytes, mime, hints) → { document.md, source_map, derived_assets[],
+manifest }` — the page map becomes a **source map** (character intervals → locators). (4)
+**Typed `SourceLocator` union** (`page | image_region | time | video_region`), version-pinned
+(never a lineage or P3 path), precision-honest (`word | segment | shot` — never fabricated by
+interpolation), integer milliseconds (never frame numbers); grounding becomes **two hops**
+(claim → `source_span`, exact — D32 unchanged; span → source map → raw locator, converter
+precision) and D32's sampled audits become **modality-aware** (the auditor listens to the
+interval / looks at the region — auditing only the derived Markdown would grade the converter
+against its own output); deep links on every surface (P3 stubs, frontmatter, envelope
+provenance handles, a locator-aware serving operation for unmounted parity). (5) **Derivation
+disclosure**: sections carry `derivation_kind` + **`evidence_mode`** (`source_expression |
+model_observation | model_interpretation`); claims **inherit both through their `source_span`
+→ block → section mapping** — deterministic, cached on the evidence link, no per-claim
+judgment anywhere; the retrieval envelope surfaces them; the mode is disclosure, never a
+verdict (Selection's verifiability rules still govern keeps). (6) The **extraction basis is
+the full representation generation** — `(content_hash, converter_version, blockizer_version,
+extractor_version)` (precision-fixes D54): an ASR/VLM upgrade is a processing-driven
+re-derivation (currency swap, counts unmoved, `support_withdrawn` on non-rederivation — never
+retraction). (7) **P1 gains the `media_segments` semantic target** — cross-modal embeddings
+(one row per image / keyframe / bounded audio segment, keyed by immutable locator, RRF-fused,
+zero LLM on the query path, rebuildable); the embedding model is port configuration (D63); a
+deployment without a media embedder advertises the channel as D49's typed `boundary`.
+
+**Context.** The driving requirement: *the memory ingests the derived information; the
+consuming agent keeps access to the raw files whenever it decides it needs them.* Both
+analyses found the conceptual model already right (built in the D51 round) and the machinery
+below it missing: no media routes at all in the router table; block provenance built for paper
+(`{page?, bbox?}` — a claim from minute 14 of a recording could only point at the whole
+file); model-mediated testimony auditable and correctable but invisible at read time; the
+basis definition not naming the converter whose upgrade is the *common* media event. Direct
+media search is designed in rather than deferred because **access is not discovery**: an agent
+can open any file it has found, but it cannot decide to open a file it never retrieved, and
+derivations are selective — the VLM never mentioned the small red connector, the transcript
+says nothing about the alarm sound; under CLAUDE.md Rule 2 the earlier "documented boundary
+with an admission condition" framing was deferral dressed as a boundary, and the mechanism is
+cheap by design (one more Lance target riding existing port machinery).
+
+**Consequences.** Design home: `plan/designs/media_design.md` (routes, locators, disclosure,
+lifecycle, search, mounts, spikes). Cross-edits: `e0_files_design.md` §2–§3 (canonical-text
+rule; generalized contract; routes), `e1_chunks_design.md` §2 (locator union replaces
+`{page?, bbox?}`), `evidence_lifecycle_design.md` §1/§3 (basis), `e2_e3` §3.3
+(modality-aware audits), `retrieval_design.md` §3/§5/§8 (media_segments target; envelope
+locators + disclosure; skill teaches the three kinds of time — media-timeline `start_ms` ≠
+world validity D41 ≠ transaction time). Scenarios: S59 strengthened (deep link to the exact
+interval, mounted and unmounted); S62 (media-segment discovery), S63 (image-region grounding)
+added. Counting is already safe: a caption and a transcript of one video are two views of
+**one** lineage (D54); the envelope keeps derivation-family provenance visible (ten images
+captioned by one VLM family share one systematic perception error — composes with D42).
+Refines D38/D57 (contract, routes), D51 (completed with locator deep links), D32 (two-hop +
+modality-aware audits), D54 (basis), D49 (envelope + boundary); D8/D9/D63 unchanged.

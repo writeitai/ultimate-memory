@@ -6,7 +6,7 @@ multi-store system honest. Binding design for decisions **D48–D51**, building 
 Lance), D9 (parallel channels + RRF, zero LLM on the query path), D10/D44 (as-of mechanics),
 D16 (scope views), D41 (`claims_as_of` and its bar), D43 (observation retrieval), D22 (the
 retrieval eval). Driven by the scenario battery `plan/analysis/retrieval_scenarios.md`
-(S1–S61) — every design element below cites the scenarios that forced it. Numbers are starting
+(S1–S63) — every design element below cites the scenarios that forced it. Numbers are starting
 points to measure, not committed constants (CLAUDE.md).
 
 > **Reading this cold (CLAUDE.md Rule 1).** The memory has three planes: **E** (evidence —
@@ -112,7 +112,7 @@ never trigger anything** — all K/E triggering originates from writes).
 |---|---|---|---|
 | `resolve` | text, type?, context_entities? → ranked entity candidates | query-time entity resolution over the registry's **non-LLM tiers T0–T3** (T0 canonical-alias exact, T1 trigram, T2 phonetic, T3 embedding similarity — embedding a query string is not an LLM call and the semantic channel does it anyway; **no T4 adjudication on the hot path**, D17). Inflected names (S50) ride the stored canonical aliases + T1/T2. Ambiguity → ranked candidates, never a silent guess (S51). Returns **current** identities, following `merged_into` survivor chains with the redirect disclosed (S60); *pre-merge* identity reconstruction is the transcript-based `identity_as_of` recipe (S61), never automatic | S1, S50, S51, S60 |
 | `lookup` | relations(s?, p?, o?) / observations(entity, property?) / claims(doc?, entity?) / entity(id) / document(id) | scalar reads on the spine and its indexes; observation property matching is semantic-over-statement (D43) | S1–S4, S26 |
-| `search` | channel × target × query, filters, k — channels: semantic \| bm25 \| fts; targets: chunks \| claims \| relations \| observations \| k_pages | the entry channels (P1 Lance + PG FTS), scalar-filtered before vectors (D8) | S6, S46, S52 |
+| `search` | channel × target × query, filters, k — channels: semantic \| bm25 \| fts; targets: chunks \| claims \| relations \| observations \| k_pages \| **media_segments** (D65) | the entry channels (P1 Lance + PG FTS), scalar-filtered before vectors (D8). `media_segments` is the **cross-modal** target: one Lance row per standalone image / video keyframe-or-shot / bounded audio segment, embedded by a CLIP-class model that maps images (or audio) and *text queries* into one vector space — so "the photo with the small red connector" matches pixels the description never mentioned (access is not discovery: an agent can open any file it *found*, never one it didn't retrieve). Rows are keyed by immutable source locators, hydrate to representation passage + preview + raw deep link, and RRF-fuse with the text channels; the media embedder is port config (D63) — **absent, the channel reports as a typed `boundary`** (§5), never a silent gap | S6, S46, S52, S62 |
 | `graph` | neighborhood(entity, hops, predicates?) / path(a, b, max_hops) | P2 snapshot traversal; as-of via inline path predicates (D44) | S17–S22 |
 | `fuse` | result_sets → RRF-merged set | reciprocal-rank fusion of parallel channels (D9), exposed as an operator so *agent-composed* channel sets fuse the same way recipes do | S46 |
 | `rerank` | candidates × signal — graph_distance(focal), evidence_count, cross_encoder (flagged) | the D9 rerankers as explicit, inspectable stages | S46, S48 |
@@ -192,7 +192,9 @@ answer itself** — because the caller is an agent that must *reason about* the 
         validity: {valid_from, valid_until, ingested_at, invalidated_at},
         evidence_count, confidence,
         contradiction: {group_id, co_members[≤cap], returned, total, continuation} | null,
-        provenance: {hydrate_handle, depth_available} } ] } ],
+        provenance: {hydrate_handle, depth_available,
+                     source_locators[]?,               // D65: deep links to the exact page/region/time of the raw original
+                     derivation: {kind, evidence_mode}? } } ] } ],  // D65: how mediated the evidence text is (§below)
   as_of:        {valid_at, believed_at,                 // the temporal params actually applied (echo)
                  identity_regime: current | as_of},     // S61 — which identity boundary answered
   freshness: {                                          // per contributing source (S42)
@@ -228,6 +230,22 @@ Three rules that are contract, not garnish:
   "this to-be page has 3 unresolved evidence-change flags" *before* planning against it (S34).
   (The third candidate surface — a per-page status sidecar file — is dropped: two surfaces
   cover both consumption modes, and a sidecar would be a second mutable state to keep honest.)
+
+Two media additions to the provenance block (D65, `media_design.md` §4–§5):
+
+- **Source locators** — for evidence derived from media (or paginated paper), the provenance
+  block carries the typed locator(s): the exact page/bbox, image region, or time interval of
+  the raw original the evidence traces to, rendered as deep links (`original.mp3#t=873`).
+  Locators are version-pinned and precision-honest; the agent lands on the moment, not on a
+  90-minute file (S59, S63).
+- **Derivation disclosure** — evidence extracted from a media representation carries its
+  `derivation_kind` (asr | vlm_description | ocr | shot_notes | …) and **`evidence_mode`**:
+  `source_expression` (a fallible rendering of speech/symbols present in the source — a
+  transcript sentence, OCR'd text), `model_observation` (the model's account of what the
+  source *shows* — "the image shows a red valve"), or `model_interpretation` (the model's
+  reading *into* the source — "the speaker sounds hesitant"). Inherited deterministically from
+  the converter's sectioned output, never judged per claim; disclosure, never a verdict. An
+  agent reading "Alice looked hesitant" sees `model_interpretation (vlm)` and weighs it.
 
 **The negative taxonomy — typed "no"s (S29, S39, S55).** Each demands a different agent
 reaction, so they are distinct envelope kinds, fixed now (retrofitting a taxonomy onto a
@@ -288,7 +306,12 @@ a filesystem can do** — navigate, read, grep — because harnesses are excepti
 filesystem work, it costs the serving stack nothing, and it needs no network round-trips. The
 API/CLI is reserved for what has **no filesystem equivalent**: semantic search, graph
 traversal, temporal as-of, hydration, transcripts, deltas. When mounts are unavailable, the
-API/CLI carries everything, including artifact/media byte fetches by handle (S57).
+API/CLI carries everything, including artifact/media byte fetches by handle (S57) — and for
+time-coded media, a **locator-aware serving operation** (D65): `hydrate depth=bytes` accepts
+a source locator and returns a seekable, codec-aware segment for the referenced interval or
+region, so an unmounted agent inspects ten seconds of a 2 GB recording without downloading it
+(S59 parity; a naive byte-range is a false promise for arbitrary video codecs). Clip
+extraction is a serving operation, never a new stored artifact.
 
 **Progressive disclosure as a query strategy.** The skill teaches one default motion: **orient
 on K** (cheap, pre-paid synthesis — `brief`, `pages_about`, or just reading the mounted repo)
@@ -318,6 +341,20 @@ curriculum, explicitly:
 - **The `support: withdrawn` marker**: a fact carrying it has lost all current support (its
   case is in review) — read it as "standing but shaky": fine to report with the caveat, not
   fine to build plans on without checking the transcript.
+- **Media: the three kinds of time, named apart** (D65). `start_ms` in a source locator is
+  *where in the file* the evidence occurs (minute 14 of the recording); `valid_from`/D41
+  asserted validity is *when the fact held in the world*; `ingested_at`/`believed_at` is
+  *when the system learned it*. They are different axes — a claim spoken at minute 14 of a
+  2023 recording about a 2019 event has all three, all different — and calling any two of
+  them "the timestamp" produces wrong as-of queries.
+- **Media: derivation disclosure and the drop to raw** (D65). Evidence from media carries its
+  `evidence_mode` — `source_expression` (rendered speech/text: a transcript sentence),
+  `model_observation` (what the model saw: "the image shows a red valve"),
+  `model_interpretation` (what the model read into it: "the speaker sounds hesitant") — read
+  it before weighing the fact. Every media-derived answer carries source locators as deep
+  links; when the derivation isn't enough (tone matters, the detail is visual), follow the
+  locator to the raw original — mounted (off-path, via the explicit pointer) or served by
+  interval — and look/listen yourself. The transcript is the map, not the territory.
 - **Validity and the two time axes; contradiction semantics** (expect co-members; never pick
   silently); **the envelope and the negative taxonomy**; **the mount layout and the
   precedence rule**; **the orient→verify→audit motion** (orient on K pages, verify
@@ -384,7 +421,7 @@ labels, same trust model (§9).
 
 ## 11. Evaluation — the battery is the harness
 
-The scenario battery (S1–S61) is the retrieval golden set's skeleton (D22): each scenario
+The scenario battery (S1–S63) is the retrieval golden set's skeleton (D22): each scenario
 class becomes labeled query/expected-result pairs; the harness measures recall@k and
 precision per **recipe × scenario class × corpus slice**, plus contract tests that are
 non-negotiable CI: grain labels present and truthful; contradiction co-members always
@@ -429,7 +466,7 @@ harness, never in production.
 
 ## References
 
-Scenarios: `plan/analysis/retrieval_scenarios.md` (S1–S61, the coverage map, the boundary
+Scenarios: `plan/analysis/retrieval_scenarios.md` (S1–S63, the coverage map, the boundary
 list). Decisions: **D48–D51** (this design), D8, D9, D10, D13, D16, D22, D41, D43, D44
 (`decisions.md`). Adjacent designs: `p2_graph_design.md` §6 (store roles, reranking),
 `k_layers_design.md` §5 (reader-facing flags → §5 here; reads-never-trigger),

@@ -121,6 +121,15 @@ Acceptance layers four checks, cheapest first:
    claim; includes the rule that "*X said* Y" entails "X said Y", not "Y".
 4. **Sampled independent audit** (offline, not per-claim): a separate judge re-checks a sample, because
    self-grading is optimistic; only a borderline band ever escalates to a per-claim judge.
+   **For media-derived documents the audit is modality-aware (D65):** the anchor (layer 1)
+   proves the claim derives from the *representation* — the transcript or description in
+   `document.md` — but it cannot prove the ASR heard or the VLM saw correctly, because the
+   representation is itself model output. The auditor therefore follows the claim's source
+   locator to the raw asset and checks against **the source modality**: listen to the
+   referenced time interval, look at the referenced frame or region. Auditing only the derived
+   Markdown would grade the converter against its own output. (Grounding is thus **two hops**
+   for media: claim → `source_span`, exact and deterministic; span → source map → raw locator,
+   at the converter's disclosed precision — `media_design.md` §4.)
 
 So in the example, `"Project Atlas launched in 2024"` is accepted: its anchor is the verbatim "It
 launched last year", and the additions "Project Atlas" (→ neighbour) and "2024" (→ header) both exist

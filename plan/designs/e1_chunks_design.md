@@ -35,7 +35,7 @@ chunks      = [c1: b1–b3][c2: b4–b5][c3: b6–b7][c4: b8][c5: b9–b10]  CHU
 | | Blocks | Sections | Chunks |
 |---|---|---|---|
 | produced by | the **blockizer** (deterministic, ours — §2) | PageIndex (**LLM** — may redraw on re-run) | the packer (deterministic — §4) |
-| carry | **identity**: hashes, offsets, page back-pointers | **meaning**: hierarchy, roles, summaries, placement | **the unit**: embedding, extraction, claim anchoring |
+| carry | **identity**: hashes, offsets, source back-pointers | **meaning**: hierarchy, roles, summaries, placement | **the unit**: embedding, extraction, claim anchoring |
 | used for | reuse diff (D56), the grounding chain, edit locality | chunk boundaries, E2 role signal, P1 role filter, P3 placement | P1 index rows, E2 bundles, `claims.chunk_id` |
 | in identity/reuse keys? | **yes — exclusively** | **never** (non-deterministic) | derived (a chunk's key *is* its block-hash sequence) |
 
@@ -58,12 +58,14 @@ yield roughly one block per paragraph — tens to a few hundred per document.
 returns plain Markdown; docling/PyMuPDF-class tools expose richer structure) — so blocks are
 **not** part of the converter contract. The contract splits:
 
-1. **Converters produce `document.md` + a page map + media** (refines D38). Mistral OCR:
+1. **Converters produce `document.md` + a source map + derived assets + a manifest** (refines
+   D38; generalized by D65 — the *page map* is the paper case of the source map). Mistral OCR:
    concatenate `pages[].markdown`, recording each page's char-range — the page map falls out
-   of concatenation. markitdown: Markdown, no page map (emails/HTML have no pages — `page` is
-   nullable). Tools that expose real layout use it to render *better-segmented Markdown*
-   (true paragraph breaks, correctly fenced tables) — structure informs rendering; it never
-   bypasses the next step.
+   of concatenation. markitdown: Markdown, no source map (emails/HTML have no pages — the
+   locator is nullable). Media routes (ASR, VLM description — `media_design.md` §2) emit
+   time-range / image-region locators the same way. Tools that expose real layout use it to
+   render *better-segmented Markdown* (true paragraph breaks, correctly fenced tables) —
+   structure informs rendering; it never bypasses the next step.
 2. **One shared `blockizer` — deterministic, ours, versioned (`blockizer_version`) — derives
    the block sequence from `document.md`**, on a **pinned parser profile: GFM** (GitHub
    Flavored Markdown — CommonMark + the table extension; "pipe tables" are GFM, not core
@@ -85,15 +87,29 @@ returns plain Markdown; docling/PyMuPDF-class tools expose richer structure) —
 { ordinal: 17,                        // position in the document sequence
   type: paragraph | heading | table | list_item | code | figure_caption | quote,
   char_start: 4812, char_end: 5203,   // slice of document.md — the block's text IS this slice
-  page: 3,                            // provenance, best-effort (see tiers below)
+  source_locator: { … },              // provenance, best-effort (typed union, see below)
   block_hash: sha256(normalized text) }
 ```
 
 **Provenance is tiered, and that is acceptable.** The load-bearing offsets for grounding
 (D32) are *into `document.md`* — exact by construction, since we wrote the file. The *source*
-back-pointer degrades by converter capability: page-grain from page maps (Mistral), bbox
-where a tool exposes it, absent for pageless formats. `{page?, bbox?}` is audit/navigation
-metadata, never a correctness dependency.
+back-pointer degrades by converter capability, expressed as the typed **`SourceLocator`
+union** (D65 — full semantics in `media_design.md` §4):
+
+```
+SourceLocator =
+  | { kind: page,         page, bbox?,                     precision: page | region }
+  | { kind: image_region, region (normalized rect),        precision: image | region }
+  | { kind: time,         start_ms, end_ms, track?,        precision: word | segment | shot }
+  | { kind: video_region, start_ms, end_ms, region?, keyframe? }
+```
+
+Page-grain from page maps (Mistral), bbox where a tool exposes it, time ranges from ASR
+segments, absent for pageless/unmappable formats. Locators are **version-pinned** (they name
+the document version whose bytes they index — never a lineage or a P3 path) and
+**precision-honest** (the `precision` field says what the tool actually delivered; word
+timing is never fabricated by interpolating characters across a segment). The locator is
+audit/navigation metadata, never a correctness dependency.
 
 **Determinism, scoped precisely:** blocks = f(`document.md`, `blockizer_version`), and
 `document.md` = f(bytes, `converter_version`). Same bytes through the same toolchain →
@@ -321,7 +337,8 @@ Blocks stay in `blocks.json`; the spine gets derived keys only (D37 discipline):
 
 | Decision | Effect |
 |---|---|
-| D38 (conversion) | **refined**: converter contract = `document.md` + page map + media; `blocks[]` moves out of converters into the blockizer; route pinned per lineage |
+| D38 (conversion) | **refined**: converter contract = `document.md` + source map + derived assets + manifest (D65); `blocks[]` moves out of converters into the blockizer; route pinned per lineage |
+| D65 (media) | **composes**: media routes emit the same contract; block provenance is the typed `SourceLocator` union (§2); `media_design.md` |
 | D39 (PageIndex) | **refined in representation**: sections persist as block ranges (snap rule §3); the tool, roles, summaries, placement hints unchanged |
 | D25 (no gate) | **untouched**: everything is extracted; the role filter is retrieval-side (§5) |
 | D32 (grounding) | **strengthened**: one immutable coordinate system (document.md) with block-grain back-pointers; provenance tiers named honestly |

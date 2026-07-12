@@ -1,0 +1,42 @@
+schema_version: 1
+id: media_lifecycle_representation_basis
+type: harness_judge
+description: The extraction basis is the full representation generation (content_hash, converter_version, blockizer_version, extractor_version); an ASR/VLM converter upgrade flows the processing-driven ruleset — currency swap, counts unmoved, support_withdrawn on non-rederivation, never retraction — and old representations stay immutable.
+tags: [e0, ops, media, D65, D54, D56]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/evidence_lifecycle_design.md §1/§3 and plan/designs/media_design.md §6 —
+  the binding sources — and decisions.md D65 (with the D54 refinement annotation) for
+  rationale, then locate the lifecycle/currency and reprocessing code under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The extraction basis is keyed on the full representation generation — content_hash,
+     converter_version, blockizer_version, AND extractor_version — so a converter bump on
+     unchanged bytes is a formally distinct event from a source content change, and the
+     invalidation/reuse keys treat all three toolchain coordinates as basis coordinates.
+  2. A converter upgrade (e.g. a better ASR or VLM re-reading unchanged media bytes)
+     re-converts affected lineages and flows the PROCESSING-DRIVEN ruleset, identical to an
+     extractor bump: superseded-generation claims flip non-current via the currency ledger
+     (reason covering toolchain-driven re-derivation), evidence_count does not move (same
+     lineage — no double count from the new generation), and a fact the new conversion fails
+     to re-derive is flagged support_withdrawn for review — it is NEVER closed/retracted
+     (retraction is reserved for source/curator-driven events; nothing about the source
+     changed).
+  3. Old representations (document.md, blocks.json, source map, sidecars of superseded
+     generations) remain immutable and resolvable — historical claims' grounding spans and
+     locators still resolve against the version/generation they were extracted from;
+     transaction-time reconstructions still see the old generation's contribution.
+  4. Non-deterministic converter output is replay-from-storage (D7): re-running a pipeline
+     over the same version + same converter_version replays the stored representation and
+     never silently re-calls the model.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.
