@@ -1,0 +1,29 @@
+schema_version: 1
+id: e0_postgres_holds_no_bodies
+type: harness_judge
+description: Postgres stores only compact metadata and the queryable section index — never document bodies or Markdown text.
+tags: [e0, D37, D57]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/e0_files_design.md §2 — the binding source — and decisions.md D37 for rationale and
+  refinement history, then inspect the schema
+  (migrations/models) under src/. These are acceptance checks for the FINAL system: if the
+  subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. No Postgres table/column stores document body text or converted Markdown (documents and
+     related tables hold identity, versions, state, artifact URIs, hashes, costs, section
+     titles/paths/roles/spans/summaries only).
+  2. Bodies (document.md, blocks.json, pageindex.json) are stored as object-store artifacts and
+     referenced from Postgres by URI.
+  3. Blocks (D57) are NOT Postgres rows — a sidecar artifact plus derived keys only.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

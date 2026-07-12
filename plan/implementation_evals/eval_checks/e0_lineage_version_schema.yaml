@@ -1,0 +1,33 @@
+schema_version: 1
+id: e0_lineage_version_schema
+type: harness_judge
+description: Documents are lineages with connector-native identity; versions are append-only rows over deduplicated content objects; ingestion debounces and no-ops on unchanged content.
+tags: [e0, D55]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/evidence_lifecycle_design.md — the binding source — and decisions.md D55 for rationale and
+  refinement history, then inspect the
+  documents/document_versions/content_objects schema and the sync logic under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The logical document is a lineage with a stable doc_id identified by (source_kind,
+     source_ref); renames/moves are metadata updates on the same lineage; a new ref is a new
+     lineage.
+  2. Versions are append-only rows (one per observed snapshot, carrying conversion/structure
+     provenance and source_modified_at feeding derived claims' asserted time) referencing
+     content objects deduplicated by content_hash — bytes stored and converted once, even
+     across lineages.
+  3. Each lineage carries a versioning_mode: snapshot (fail-safe default) or living.
+  4. Watched-source ingestion debounces rapid edits (a stability window), and unchanged
+     revision/etag or unchanged bytes are no-ops.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,0 +1,34 @@
+schema_version: 1
+id: ret_hydration_reverifies
+type: harness_judge
+description: Projections propose, the spine disposes — all query surfaces route through one shared hydrator against live Postgres; drops are counted; compound results revalidate as units.
+tags: [retrieval, D48]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D48 for rationale and
+  refinement history, then inspect the query engine
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. There is a SINGLE shared query service/hydrator boundary that API, CLI, and MCP all route
+     through (verify the three surfaces share it — contract tests covering all three paths
+     count as evidence); P1/P2 hits only NOMINATE candidates.
+  2. Hydration re-reads validity windows, invalidation state, and contradiction membership by
+     ID from live Postgres before results reach a caller; candidates the spine no longer holds
+     live are dropped and the drop count is reported in the response envelope.
+  3. Compound results (e.g. graph paths) revalidate as units: one invalidated edge drops the
+     whole path — never returned with a hole or silently re-routed.
+  4. The two exempt surfaces are exactly the designed ones: mounted reads (snapshot semantics +
+     freshness metadata) and K prose (compiled-grain with staleness state) — nothing else skips
+     hydration.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

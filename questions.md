@@ -172,6 +172,14 @@ Keep this current: when something here is decided, move it to a decision and pru
 29. **E3 claim→predicate mapping is thin.** §5 delegates internals to the registries but doesn't
     specify how the governed predicate is *chosen* from claim text or where domain/range is enforced
     in the flow.
+30. ~~**Requirements temporal-split paragraph predates D43/D49.**~~ **RESOLVED (PR #43).**
+    `requirements_v3.md` §Retrieval now reads "current-fact validity lives on the fact layers —
+    relations and observations" (the claim/fact split; citations extended with D43/D49). (Found
+    while authoring `plan/implementation_evals/`.)
+31. ~~**Requirements E3 bullet omits observations.**~~ **RESOLVED (PR #43).** The E3 bullet now
+    names both fact layers (relations + observations, incl. D59 stance observations), both
+    bi-temporal units of supersession/contradiction, with the graph-projection distinction. (Found
+    while authoring `plan/implementation_evals/`.)
 
 ## Resolved since the last version of this file (moved to decisions)
 

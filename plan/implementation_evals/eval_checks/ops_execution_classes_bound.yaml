@@ -1,0 +1,39 @@
+schema_version: 1
+id: ops_execution_classes_bound
+type: harness_judge
+description: Every worker declares an execution class; agent harnesses exist only on plane K and review/audit seats; every LLM worker has an append-only transcript.
+tags: [ops, D52, D33, D25, D31]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/orchestration_design.md §8 — the binding source — and decisions.md D52
+  for rationale and refinement history (plan/analysis/workers.md is the inventory, useful as
+  an implementation mapping, not itself binding), then inspect the worker implementations
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent
+  or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every worker is classified deterministic / programmatic-LLM / agent-harness in a
+     complete, inspectable inventory or configuration mapping (code registry, config, or
+     equivalent — the classification must be auditable for every worker, whatever its
+     storage representation).
+  2. NO agent-harness worker exists on any per-document, per-claim, or query path — harnesses
+     appear only as K planner/writers and review/audit seats, each with a declared write
+     surface it cannot exceed.
+  3. Every worker that makes an LLM call writes an append-only transcript/ledger (the D33
+     discipline: extraction decisions, adjudications, compilations) — no LLM call without a
+     durable record.
+  4. Programmatic-LLM workers are fixed-shape, schema-constrained, transcripted, and budgeted.
+     Resolution/adjudication workers sit inside cheap-first cascades (spend scales with
+     ambiguity); E2 extraction is the DELIBERATE volume-proportional exception (D25/D31: every
+     chunked document is fully extracted by the fixed two-call extractor) — do not fail it for
+     scaling with volume, and do not accept it becoming an agent harness.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

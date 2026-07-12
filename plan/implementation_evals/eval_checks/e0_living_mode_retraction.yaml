@@ -1,0 +1,34 @@
+schema_version: 1
+id: e0_living_mode_retraction
+type: harness_judge
+description: In living mode, removal retracts — sole-support loss closes facts per shape, recorded as retracted_source_removal, loud and reversible, evaluated only after the sync cycle completes.
+tags: [e0, e3, D55, D54, D43]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/evidence_lifecycle_design.md — the binding source — and decisions.md D55 (removal semantics) and D54/D43 for rationale and
+  refinement history, then inspect the version-supersession
+  and retraction logic under src/. These are acceptance checks for the FINAL system: if the
+  subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. In living mode, when content removal leaves a fact with zero current support, the fact is
+     adjudicated CLOSED per shape: relations and effective-state observations get valid_until
+     capped at the version's source_modified_at; measurement/fixed-period observations get
+     invalidated_at (never a valid-time cap — D43 no-cap).
+  2. The closure is recorded as retracted_source_removal — attributed, reversible, and NOT
+     routed through a review flag (removal retracts; there is no removal_semantics: review
+     softener).
+  3. With other current support remaining, the effect is a decrement only.
+  4. Retraction checks evaluate only AFTER the connector's sync cycle completes, so an
+     intra-cycle section move resolves as a support swap — never retract-then-reassert.
+  5. In snapshot mode, version succession never retracts anything.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

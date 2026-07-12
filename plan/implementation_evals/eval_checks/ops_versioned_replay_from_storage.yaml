@@ -1,0 +1,28 @@
+schema_version: 1
+id: ops_versioned_replay_from_storage
+type: harness_judge
+description: Every model-derived artifact records prompt/model/embedding versions, and every nondeterministic stage replays from storage on rebuild — never re-derives.
+tags: [ops, D7, D33, requirements]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/requirements/requirements_v3.md §Operational properties (versioned processing) —
+  the binding source — and decisions.md D7/D33 for rationale and refinement history, then inspect version stamping and rebuild paths under src/. These are acceptance
+  checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every derived artifact carries its producing versions (converter, structurer, blockizer,
+     extractor prompt+model, embedding model, resolver, compile prompt) as persisted columns.
+  2. Rebuild/replay paths for every nondeterministic stage read stored outputs — no rebuild
+     path re-invokes an LLM/structurer/OCR to regenerate what storage already holds.
+  3. A version bump reprocesses exactly the affected artifacts (version-filtered batch), and
+     downstream invalidation keys include upstream versions.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

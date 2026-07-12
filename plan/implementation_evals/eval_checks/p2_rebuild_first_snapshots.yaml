@@ -1,0 +1,32 @@
+schema_version: 1
+id: p2_rebuild_first_snapshots
+type: harness_judge
+description: P2 is rebuild-first — full rebuild, validate, publish an immutable snapshot, pointer-swap; readers are read-only and hot-swap; no incremental event application.
+tags: [p2, D7, D40]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/p2_graph_design.md (and plan/designs/e0_files_design.md §6 for the P3
+  condition) — the binding sources — and decisions.md D7 for rationale and
+  refinement history, then inspect the P2 worker and
+  reader under src/. These are acceptance checks for the FINAL system: if the subsystem is
+  absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The graph worker periodically rebuilds the ENTIRE graph from a Postgres export (Parquet
+     hop as the committed transport), validates it, and publishes an immutable versioned
+     snapshot with a write-then-pointer-swap.
+  2. Readers download the latest snapshot, open READ_ONLY, and hot-swap on updates — never a
+     writable shared graph.
+  3. There is NO incremental event application to a live graph (a deliberate non-goal) —
+     entity merges are handled by the rebuild, not by re-pointing edges in the graph.
+  4. P3 follows the same discipline: full snapshot build + atomic latest-pointer swap (D40).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

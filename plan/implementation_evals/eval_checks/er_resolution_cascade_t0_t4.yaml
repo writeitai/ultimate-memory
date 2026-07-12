@@ -1,0 +1,33 @@
+schema_version: 1
+id: er_resolution_cascade_t0_t4
+type: harness_judge
+description: Entity resolution is the T0–T4 cascade — exact, fuzzy blocking (recall-first), phonetic, embedding, LLM — with per-type versioned thresholds; cheap tiers escalate, never auto-reject.
+tags: [registries, D17, D20]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/registries_design.md — the binding source — and decisions.md D17 for rationale and
+  refinement history, then inspect the resolver under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. The cascade runs T0 exact match on the canonical name form → T1 fuzzy blocking (pg_trgm,
+     recall-first low floor — candidate generation, never a decision) → T2 phonetic
+     (Daitch-Mokotoff, not Soundex) → T3 embedding similarity on the residue → T4 LLM
+     adjudication on the ambiguous band, with human review for high blast-radius.
+  2. Accept/reject bands are per-type, versioned configuration stamped with resolver_version —
+     not hardcoded global constants.
+  3. Cheap tiers escalate near-misses rather than auto-rejecting (blocking sets a recall
+     ceiling; no tier below T4 makes a final negative decision on a near-miss).
+  4. No third-party external authority (Wikidata, ORCID, etc.) is called anywhere on the
+     resolution path, and no external_ids table exists (D20).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

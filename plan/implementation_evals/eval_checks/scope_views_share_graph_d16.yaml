@@ -1,0 +1,33 @@
+schema_version: 1
+id: scope_views_share_graph_d16
+type: harness_judge
+description: One graph, many lenses — scopes never get their own entity space or graph; scope views are registry-declared filters; different trust boundaries mean separate deployments.
+tags: [cross, D16, D50]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/registries_design.md §1 (deployment separation) and §4 (scopes share one
+  graph) and plan/designs/retrieval_design.md §9 — the binding sources — and decisions.md
+  D16 (and D50's trust-model refinement) for rationale and
+  refinement history, then inspect scope handling under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. K2 scopes never create a separate entity space, a separate registry, or a separate
+     canonical graph — one deployment has one entity space and one P2 graph.
+  2. Scope-specific graph views are registry/config-declared filters (predicate/type lists)
+     over the shared graph or its export — materialized filtered snapshots, if implemented,
+     are emitted by the same rebuild from the same truth, as performance/scope-view
+     projections only.
+  3. Nothing uses scope views as an access-control mechanism — different trust boundaries are
+     served by separate deployments, never by in-library per-scope filtering (D50).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

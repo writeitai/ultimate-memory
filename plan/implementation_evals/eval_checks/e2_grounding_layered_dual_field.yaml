@@ -1,0 +1,38 @@
+schema_version: 1
+id: e2_grounding_layered_dual_field
+type: harness_judge
+description: Claim grounding is dual-field (standalone claim_text + verbatim source_span with offsets + added_context[]) with layered acceptance — anchor, window-membership, entailment, sampled audit with borderline escalation.
+tags: [e2, D32, D53, D57]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/e2_e3_claims_relations_design.md §3.3 — the binding source — and
+  decisions.md D32 for rationale and refinement history, then inspect the claim schema and
+  grounding validation under src/. These are acceptance checks for the FINAL system: if the
+  subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Every claim stores BOTH a standalone claim_text and a verbatim source_span with character
+     offsets into document.md (the D57 coordinate system), plus an added_context list naming
+     the bundle source of every added substring.
+  2. Acceptance layers, cheapest first: (a) deterministic anchor — source_span verified in code
+     as a real slice of the source (never trusted from the model); (b) deterministic
+     window-membership — every declared added substring verbatim-exists in its declared bundle
+     element (fabrications rejected); (c) an in-call entailment self-verdict including the
+     attribution rule ("X said Y" entails "X said Y", never bare "Y"); (d) an independent
+     entailment audit on a SAMPLED stream by default — with the designed escalation: only a
+     borderline-confidence band goes to a per-claim judge — run on a different model family
+     (D53).
+  3. A decontextualized claim whose text is not a verbatim substring is ACCEPTED when its
+     anchor + declared additions check out (the old verbatim-substring hard reject must not
+     exist); a claim with an unverifiable added substring is REJECTED.
+  4. Grounding uses the bundle only — no external/world knowledge is permitted or injected.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,0 +1,27 @@
+schema_version: 1
+id: code_tooling_and_migrations
+type: harness_judge
+description: The code conventions hold — pyright/pytest/ruff configured and exercised, all schema changes as Alembic migrations, typed contracts throughout.
+tags: [code, requirements]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding convention.
+  Read plan/requirements/requirements_v3.md §Code — the binding source — then inspect the
+  tooling configuration and migrations under the repo.
+
+  Verify ALL of the following:
+  1. Pyright, pytest, and ruff are configured (pyproject.toml) and actually exercised (a CI
+     workflow or equivalent runs them; broken types/lint/tests cannot land silently).
+  2. Every schema change is an Alembic migration — no ad-hoc DDL executed outside the
+     migration chain; migrations replay cleanly from empty.
+  3. Domain contracts are typed (Pydantic models, enums, Literal/TypedDict where the design
+     names closed sets — adjudication outcomes, execution classes, grains, negative kinds).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,0 +1,31 @@
+schema_version: 1
+id: ret_claims_never_answer_now
+type: harness_judge
+description: The claim/fact temporal split is enforced in the API surface — claim queries answer "what was asserted"; current-truth routes only through validity-filtered relations and observations.
+tags: [retrieval, D41, D49, D43, requirements]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/requirements/requirements_v3.md §Retrieval (the temporal-split paragraph) and
+  plan/designs/retrieval_design.md §4/§6 — the binding sources — and decisions.md D41/D49
+  for rationale and refinement history, then inspect recipe definitions and naming under src/. These are acceptance checks for the
+  FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Claim-grain recipes (e.g. claims_as_of) are typed evidence-grain and structurally CANNOT
+     be composed into a current-fact answer (the registry linter rejects answer_intent =
+     current_facts over claim primitives).
+  2. "Is this true now / was this true at T as current belief" routes exclusively through
+     validity-filtered relations AND observations (both fact layers, D43).
+  3. Recipe/API naming makes the distinction explicit to an agent consumer (asserted vs
+     believed), matching the requirement that an agent must never read a claim's validity as
+     the system's current belief.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

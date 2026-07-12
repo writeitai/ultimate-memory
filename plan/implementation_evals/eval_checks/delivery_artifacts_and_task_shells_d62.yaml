@@ -1,0 +1,37 @@
+schema_version: 1
+id: delivery_artifacts_and_task_shells_d62
+type: harness_judge
+description: The delivery contract holds — PyPI client package with extras, GHCR images + CI-tested compose profile, client surface limits, and delivery-only task execution with two shells.
+tags: [boundary, ops, D62]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/packaging_distribution_design.md — the binding source — and decisions.md D62 for rationale and
+  refinement history, then inspect the packaging, compose profile, client surface, and task
+  execution under the repo. These are acceptance checks for the FINAL system: if the subsystem
+  is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The package is positioned as the client: base install = typed SDK + CLI + MCP server;
+     server/connectors/K machinery live behind extras ([server], [connectors-*], [k]).
+  2. Container images are published (GHCR) and a CI-TESTED docker-compose self-host profile
+     exists (Postgres + MinIO + api + worker); a quickstart brings up a working deployment
+     (the ten-minute quickstart is a release gate).
+  3. The client surface is exactly: query (SDK/CLI/MCP), lineage-aware ingest (source_kind/
+     source_ref/source_modified_at/versioning_mode on push; writes through E0), connector
+     MANAGEMENT never execution (connectors run deployment-side), and the review/admin CLI.
+  4. Task execution is one model with two delivery shells: processing_state rows are the sole
+     authority; the self-host shell wakes on LISTEN/NOTIFY and claims with SKIP LOCKED
+     (enqueue transactional with the caller's state writes); the reference shell is Cloud
+     Tasks push; a janitor sweep re-announces lost deliveries on both.
+  5. Export/import rides rebuild-first: portable state = Postgres dump + raw/artifacts buckets
+     + the K repo; projections rebuild on import.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

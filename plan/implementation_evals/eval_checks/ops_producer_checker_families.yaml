@@ -1,0 +1,32 @@
+schema_version: 1
+id: ops_producer_checker_families
+type: harness_judge
+description: Checking seats never share a model family with the producer they check — validated mechanically, auditable via recorded model assignments.
+tags: [ops, D53]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/orchestration_design.md §8 — the binding source ("checker seats never
+  share a family with what they check") — and decisions.md D53 for rationale and refinement
+  history, then inspect the model assignment configuration under src/. These are acceptance
+  checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Checking seats (the sampled grounding judge, contradiction/citation-faithfulness evals,
+     the reviewer seat, the K reflection pass) are configured on a different model FAMILY
+     than the producer they check — the design binds NEVER-share (note: D53's decision prose
+     mentions a recorded-exception mechanism; under source precedence the stricter design
+     controls — if you find a same-family exception mechanism, report the discrepancy).
+  2. A mechanical validator (config validation at startup and/or a CI check) FAILS when a
+     checker's model family matches its producer's — the separation cannot silently drift.
+  3. Model assignments are recorded (pipeline_component_versions naming producer and checker
+     models) so the separation is auditable after the fact.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

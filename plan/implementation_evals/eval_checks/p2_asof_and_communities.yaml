@@ -1,0 +1,30 @@
+schema_version: 1
+id: p2_asof_and_communities
+type: harness_judge
+description: As-of traversal is inline path-predicate filtering (never MATCH over PROJECT_GRAPH); community detection runs externally and writes back to Postgres.
+tags: [p2, D10, D11, D44]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/p2_graph_design.md — the binding source — and decisions.md D10/D11/D44 for rationale and
+  refinement history, then inspect the graph query layer and the community pass
+  under src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. Temporal as-of graph queries filter edges inline in path predicates over the four temporal
+     columns (or use a materialized persistent graph for heavy analytics) — no code attempts
+     MATCH-traversal over PROJECT_GRAPH (which feeds GDS algorithms only).
+  2. Community detection (Louvain/Leiden-class) runs as an external pass (igraph/graspologic)
+     over the same export that feeds the rebuild — not inside LadybugDB.
+  3. Community assignments and centrality write back to POSTGRES (the graph stays a
+     projection); graph-derived metrics are computed post-load, never reprojected as truth.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

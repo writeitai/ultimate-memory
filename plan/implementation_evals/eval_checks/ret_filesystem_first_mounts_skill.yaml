@@ -1,0 +1,34 @@
+schema_version: 1
+id: ret_filesystem_first_mounts_skill
+type: harness_judge
+description: Consumption is filesystem-first — four read-only mounts (raw off-path, audit-logged, mime-routed), full mount/API parity, and a versioned consumption skill ships with the system.
+tags: [retrieval, D51]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/retrieval_design.md — the binding source — and decisions.md D51 for rationale and
+  refinement history, then inspect the mount
+  publication and the shipped skill under src/. These are acceptance checks for the FINAL
+  system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Four read-only surfaces are mountable: P3, E0 artifacts (Markdown + structure + derived
+     media), E0 raw originals, and the K repo checkout.
+  2. Raw is OFF the navigation path — reached only via explicit pointers from stubs/frontmatter
+     — with mandatory data-access audit logging and mime-routed storage classes
+     (agent-readable media standard/nearline; audit-only originals archive).
+  3. Full mount/API parity: everything readable through mounts is also reachable via API/CLI
+     (including byte fetches by artifact handle) for environments that cannot mount.
+  4. A consumption skill ships with the system — versioned, partially rendered per deployment
+     (scopes, mounts, enabled recipes) — teaching planes, grains, contradiction/freshness
+     semantics, the mount layout, and the precedence rule (filesystem for what a filesystem
+     can do; API for search/graph/as-of/hydration).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

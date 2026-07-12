@@ -1,0 +1,35 @@
+schema_version: 1
+id: e2_context_bundle_two_calls
+type: harness_judge
+description: E2 extraction runs over a context bundle (never a bare chunk) as two calls — Selection, then fused decontextualize+decompose+ground.
+tags: [e2, D31, D19, D58, D63]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/e2_e3_claims_relations_design.md §3 — the binding source — and decisions.md D31/D19 for rationale and
+  refinement history, then locate
+  the extractor under src/. These are acceptance checks for the FINAL system: if the subsystem
+  is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The extraction call receives a bundle: document header, section path/role (+ summary), the
+     chunk's context prefix (the E1 prefix stage exists per D63), same-section neighbor chunks,
+     and known-entity hints — never a bare chunk.
+  2. The call architecture is two calls: Selection (verifiability KEEP/REWRITE/DROP) as its own
+     call, then a fused disambiguation/decontextualization + decomposition + grounding call. A
+     one-call collapse is only acceptable if the repo documents a measured ablation justifying
+     it; the literal per-sentence multi-call loop must not be the implementation.
+  3. Coreference is handled in-call (D19): no dedicated coref model or pre-pass exists; the
+     extraction schema/prompt requires decontextualized claims with resolved referents; and
+     deterministic validation rejects unresolved pronouns/references where detectable.
+  4. Extraction batching (if present) batches a section's contiguous chunks per call while
+     keeping claims anchored per-chunk and idempotency keys per-chunk (D58).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

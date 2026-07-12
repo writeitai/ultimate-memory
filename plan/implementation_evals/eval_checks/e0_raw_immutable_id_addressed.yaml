@@ -1,0 +1,31 @@
+schema_version: 1
+id: e0_raw_immutable_id_addressed
+type: harness_judge
+description: Raw bytes are stored immutably in a dedicated raw store, ID-addressed, off the navigation path with audited access.
+tags: [e0, D36, D37, D51]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/e0_files_design.md §2 — the binding source — and decisions.md D36/D37 (+ the "Refined by D51" note) for rationale and
+  refinement history, then locate the implementation under src/ (storage layout, ingest worker, mount config).
+  These are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Original file bytes are written to a dedicated raw store, keyed by ID + content hash
+     (never title-addressed paths), and nothing in the codebase ever mutates or overwrites a
+     stored raw object (write-once).
+  2. Converted artifacts (document.md, sidecars) live in a separate artifacts store, not the
+     raw store.
+  3. Raw originals are reachable only via explicit pointers (P3 stubs / document frontmatter),
+     never listed on the navigation path — and raw reads go through a path with data-access
+     audit logging (D51).
+  4. content_hash = sha256 of raw bytes is computed at ingest and used as the idempotency key.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

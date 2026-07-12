@@ -1,0 +1,30 @@
+schema_version: 1
+id: source_of_truth_split_d1_d46
+type: harness_judge
+description: The split source of truth holds — Postgres authoritative for the E spine and control state; the K git repo authoritative for authored content; compiled pages semantically regenerable.
+tags: [cross, D1, D46]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/overall_design.md §2 — the binding source — and decisions.md D1 and D46 for rationale and
+  refinement history, then inspect the store boundaries under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Postgres is authoritative for E0–E3 and for deterministic/projection control state;
+     nothing treats a projection or the K repo as authority for evidence or validity.
+  2. The K git repo is a source of truth for human-authored pages and curation sidecars, with
+     its own backup/export path; Postgres holds K provenance/control rows (plans, citations,
+     compilations), never K bodies as the authority.
+  3. Compiled K pages are semantically regenerable: the recorded compile inputs (routing keys,
+     citations, inputs_hash, prompt/model versions) are sufficient to recompile a page from
+     the spine without consulting the old page body.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

@@ -1,0 +1,32 @@
+schema_version: 1
+id: e0_structure_contract_unconditional
+type: harness_judge
+description: Every document gets a section structure (synthetic root fallback), with roles, summaries-as-context, and a placement hint.
+tags: [e0, D39]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/e0_files_design.md §4 — the binding source — and decisions.md D39 for rationale and
+  refinement history, then locate the structurer and
+  the document_sections schema under src/. These are acceptance checks for the FINAL system:
+  if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. The output contract is unconditional: every document ends up with document_sections rows —
+     short/simple documents get a single synthetic root section (full span, role=body) rather
+     than no structure.
+  2. Sections carry a role from a defined enum (body, references, boilerplate, nav, etc.), used
+     downstream by E2 Selection at proposition grain — never as a pre-extraction skip.
+  3. Per-section summaries are stored as context (feeding prefixes/navigation), never as facts;
+     the structurer run is versioned (structurer_version) and replayed from storage on rebuild.
+  4. A placement hint (a proposed corpus-filesystem path) is produced and stored as advisory
+     input for P3 — not a commitment.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

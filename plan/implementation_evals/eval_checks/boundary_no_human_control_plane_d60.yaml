@@ -1,0 +1,27 @@
+schema_version: 1
+id: boundary_no_human_control_plane_d60
+type: harness_judge
+description: No web UI and no multi-tenant control plane ship in this repository — agent surfaces (API/CLI/MCP/mounts) are the complete consumption story.
+tags: [boundary, D60]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/packaging_distribution_design.md §1–§2 and §5 and
+  plan/designs/retrieval_design.md §7/§9 — the binding sources — and decisions.md D60 (plus
+  CLAUDE.md Rule 3 as repo guidance) for rationale and refinement history, then survey the
+  repository's shipped surfaces.
+
+  Verify ALL of the following:
+  1. No web UI ships (no frontend app, no server-rendered dashboards); consumption surfaces
+     are API, CLI, MCP server, and mounted filesystems.
+  2. No multi-tenant machinery exists: no orgs/users/roles tables, no SSO/SAML, no billing —
+     one deployment is one trust domain.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

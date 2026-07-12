@@ -1,0 +1,31 @@
+schema_version: 1
+id: e2_selection_ledger_replay
+type: harness_judge
+description: Selection drops, kept_flagged outcomes, and decontextualization edits are append-only versioned ledger state; rebuilds replay from storage and never re-call the model.
+tags: [e2, D33, D7]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/postgres_schema_design.md §8 — the binding source — and decisions.md D33 (and D7's replay discipline) for rationale and
+  refinement history, then inspect the claim_extraction_decisions ledger and the rebuild paths under src/.
+  These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
+  score 0.
+
+  Verify ALL of the following:
+  1. An append-only, version-stamped ledger records every Selection DROP (with reason class),
+     every low-confidence kept_flagged outcome, and every decontextualization edit. Plain
+     keeps are represented by the inserted claim row itself and are NOT required to have
+     ledger rows (per the schema design).
+  2. The ledger is never updated or deleted from — corrections append.
+  3. Rebuild paths read stored claims + decisions and never re-invoke the LLM (nondeterministic
+     rungs are replay-from-storage); the extraction worker is idempotent on its content-based
+     input hash + extractor version.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

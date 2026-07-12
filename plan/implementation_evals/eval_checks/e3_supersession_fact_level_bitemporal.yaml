@@ -1,0 +1,37 @@
+schema_version: 1
+id: e3_supersession_fact_level_bitemporal
+type: harness_judge
+description: Supersession closes validity windows on relations and effective-state observations — never on claims; measurements obey the no-cap rule; both time axes are queryable.
+tags: [e3, D3, D43, D55]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/postgres_schema_design.md §9/§9.A and
+  plan/designs/observations_design.md §3 — the binding sources — and decisions.md D3, D43
+  (the no-cap rule), and D55 (source-removal shapes) for rationale and
+  refinement history, then inspect
+  the supersession write paths and temporal columns under src/. These are acceptance checks
+  for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Relations and observations carry the bi-temporal quartet: valid_from/valid_until (world
+     time) and ingested_at/invalidated_at (belief time); supersession caps valid_until on
+     relations and on CHANGING EFFECTIVE-STATE observations — it never deletes rows and never
+     touches claims.
+  2. Measurement/fixed-period observations obey D43's no-cap rule: they are NEVER capped on
+     valid-time; a conflicting same-period figure coexists in a shared contradiction_group;
+     when belief in a measurement is withdrawn (e.g. source removal, D55) the mechanism is
+     invalidated_at, never a valid-time cap.
+  3. invalidated_at means "we no longer believe this was ever right", distinct from a closed
+     validity window ("it ended"); a superseded row stays active in that sense.
+  4. Both time-travel questions are answerable in the query layer: what was true at T
+     (valid-time) and what did we believe at T (transaction-time).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

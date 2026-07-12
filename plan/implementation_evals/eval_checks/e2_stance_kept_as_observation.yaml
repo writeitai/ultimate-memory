@@ -1,0 +1,35 @@
+schema_version: 1
+id: e2_stance_kept_as_observation
+type: harness_judge
+description: Attributed stance is kept and normalized to an observation on the holder; stance content never becomes a world-fact; unattributed opinion still drops.
+tags: [e2, e3, D59, D43]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/observations_design.md — the binding source — and decisions.md D59 for rationale and
+  refinement history, then inspect the Selection rubric and E3 normalization under src/.
+  These are acceptance checks for the FINAL system: if the subsystem is absent or partial,
+  score 0.
+
+  Verify ALL of the following:
+  1. Selection keeps stances attributed to a resolvable holder ("X said/believes/prefers/
+     opposes Y", including the document author's own voice via the bundle header) as
+     verifiable propositions about X.
+  2. E3 normalizes a kept stance into an observation anchored on the HOLDER (ordinary D43
+     machinery: untyped, bi-temporal); a changed mind is ordinary supersession (old stance's
+     window caps at the new stance's asserted time); conflicting same-time reports coexist via
+     contradiction_group.
+  3. The guard: no relation or observation about Y itself is ever derived from "X believes Y" —
+     only the stance-about-X.
+  4. Unattributed opinion, advice, hypotheticals, and generic truisms still drop; a stance
+     whose holder cannot be decontextualized to a resolvable entity drops (ledger reason
+     opinion, meaning unattributed-only).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

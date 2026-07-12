@@ -1,0 +1,34 @@
+schema_version: 1
+id: e2_asserted_validity_immutable
+type: harness_judge
+description: Claims carry an immutable source-asserted validity interval (from/until + precision + kind incl. effective_period), grounded by window-membership, never revisable, never a belief authority.
+tags: [e2, D41, D32]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/postgres_schema_design.md §1/§8 and
+  plan/designs/e2_e3_claims_relations_design.md §3.3/§7 — the binding sources — and
+  decisions.md D41 for rationale and refinement history, then inspect the claim schema and
+  the temporal extraction under src/. These are acceptance checks for the FINAL system: if
+  the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. Claims carry claim_valid_from/claim_valid_until + a precision + a kind matching the
+     binding enum (proposition_validity | event_time | measurement_period |
+     effective_period), emitted in the same E2 call.
+  2. The interval is grounded: the date substring must verbatim-exist in the bundle
+     (window-membership, D32) — ungrounded dates are rejected.
+  3. The columns are immutable: no UPDATE path, no invalidated_at/status/superseded_by on
+     them; a contradicting source yields a NEW claim with its own interval.
+  4. The relation/observation adjudicator may consult claim_valid_* as one evidence input,
+     and nothing anywhere reads claim validity back as the system's current belief —
+     adjudicated windows live only on relations/observations.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

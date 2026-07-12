@@ -1,0 +1,30 @@
+schema_version: 1
+id: ret_skill_s58_acceptance
+type: harness_judge
+description: The consumption skill has its binding acceptance test (S58) — a never-seen harness uses the memory correctly from the skill alone, run per skill revision.
+tags: [retrieval, D51]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/retrieval_design.md §8/§11 — the binding source — and decisions.md D51
+  for rationale and refinement history, then inspect the skill eval under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. An executable S58 acceptance test exists: a cold agent harness (no prior context beyond
+     the shipped consumption skill) performs representative memory tasks — orient via K,
+     verify on the spine, audit to evidence, respect the claim/fact split and freshness
+     semantics — and is scored.
+  2. The test runs per skill REVISION (wired to CI or the release process, not a one-off
+     script), and its results are recorded.
+  3. The harness used for the test is exchangeable (the skill must work for a never-seen
+     harness, not one tuned-for harness).
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.
