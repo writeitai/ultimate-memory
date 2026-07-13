@@ -47,9 +47,10 @@ The goal is met only when all of the following are true:
 - Phase 0 is already partially complete on main (package scaffold, tooling config, CI
   with coverage, the pydantic-settings config convention). Read the phase-0 file's
   statuses and continue from there — do not redo finished work.
-- A curated set of implementation eval checks is being developed in parallel and may
-  land in this repo later; when it does, the eval workflows adopt it as the base check
-  set instead of inventing overlapping ones.
+- The curated implementation eval checks live in plan/implementation_evals/eval_checks/
+  (eval-banana design-conformance checks, maintained in-repo). The eval workflows use
+  them as the base check set — run them, don't invent overlapping ones; session-scoped
+  checks add phase-specific behavior verification on top.
 - Numbers in designs marked as "starting points to measure" are exactly that: measure
   on the golden set / corpus slices before hard-coding; record measurements where the
   design's spike list asks for them.
