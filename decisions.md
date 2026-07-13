@@ -1759,7 +1759,9 @@ discipline. `packaging_distribution_design.md` §3.
 
 **Decision.** The library ships as **three artifacts**: the GitHub repo (source + the design
 corpus), **one PyPI package positioned as the client** (base install = typed SDK + CLI + MCP
-server; extras `[server]`, `[connectors-*]`, `[k]`; name pending the rename gate), and
+server; extras `[server]`, `[connectors-*]`, `[k]`; name decided 2026-07-13: dist
+`remember-dev`, CLI `remember`, import `remember`, brand `remember.dev` — questions.md §11a;
+the mechanical rename executes at the release gate), and
 **container images on GHCR + a CI-tested docker-compose self-host profile** (Postgres + MinIO +
 api + worker; the ten-minute quickstart is a release gate). The **client surface** is: query
 (SDK/CLI/MCP), **lineage-aware ingest** (`source_kind/source_ref/source_modified_at/
