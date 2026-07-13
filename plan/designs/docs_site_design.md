@@ -49,7 +49,7 @@ package rather than re-deriving them:
   mandatory). The app has its own `package.json`/toolchain and is never published to PyPI —
   it is a delivery artifact beside D62's three (repo, package, images), not part of the
   library.
-- **GitHub Pages at `memory.writeit.ai`** via `.github/workflows/docs-deploy.yml`: pushes
+- **GitHub Pages at `ultimate-memory.writeit.ai`** via `.github/workflows/docs-deploy.yml`: pushes
   to `main` touching `website/**` build (Next export + Pagefind index) and deploy; PRs run
   the build as a check only. Pages + custom domain require a one-time provisioning step
   (Pages source = GitHub Actions; custom domain bound in Settings; a `CNAME` DNS record in

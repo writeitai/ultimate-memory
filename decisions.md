@@ -1964,7 +1964,7 @@ D49 (envelope + boundary); D8/D9/D63 unchanged.
 **Decision.** The project ships a **public documentation site** for humans (developers
 evaluating, installing, operating the system) as a delivery artifact beside D62's three: a
 self-contained static Next.js + MDX app at **`website/`** in this repository, exported to
-plain HTML and served by **GitHub Pages at `memory.writeit.ai`** (CNAME in the `writeit.ai`
+plain HTML and served by **GitHub Pages at `ultimate-memory.writeit.ai`** (CNAME in the `writeit.ai`
 zone; deploy via `.github/workflows/docs-deploy.yml` on pushes to main touching
 `website/**`; PRs build as a check). The stack **replicates the proven WriteIt docs module**
 (loopy-loop's documentation site, itself lifted from orchestra's — the pattern of Next.js's

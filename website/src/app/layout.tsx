@@ -10,7 +10,7 @@ const hanken = Hanken_Grotesk({
   variable: "--font-hanken",
 });
 
-const siteUrl = "https://memory.writeit.ai";
+const siteUrl = "https://ultimate-memory.writeit.ai";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

@@ -123,7 +123,7 @@ analysis says **why we think so**. A change should land at the highest level it 
 and flow downward.
 
 Beside the plan lives **`website/`** — the public documentation site
-([memory.writeit.ai](https://memory.writeit.ai)), a self-contained Next.js/MDX static app
+([ultimate-memory.writeit.ai](https://ultimate-memory.writeit.ai)), a self-contained Next.js/MDX static app
 that documents the system *as it ships* (D66): user-facing changes update their docs page in
 the same PR, and the full-scope design intent stays here in `plan/`.
 

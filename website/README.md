@@ -1,7 +1,7 @@
 # ultimate-memory docs site
 
 The public documentation for [ultimate-memory](https://github.com/writeitai/ultimate-memory),
-published at **[memory.writeit.ai](https://memory.writeit.ai)**.
+published at **[ultimate-memory.writeit.ai](https://ultimate-memory.writeit.ai)**.
 
 It is a self-contained static site: a Next.js App-Router app whose pages are authored
 as MDX, exported to static HTML, and served by GitHub Pages. The stack replicates the
@@ -99,9 +99,9 @@ provisioned once in the repository — the `public/CNAME` file does **not** conf
 domain on its own for an Actions-based deployment:
 
 1. **Settings → Pages → Build and deployment → Source:** select **GitHub Actions**.
-2. **Settings → Pages → Custom domain:** enter `memory.writeit.ai` and save (this is
+2. **Settings → Pages → Custom domain:** enter `ultimate-memory.writeit.ai` and save (this is
    what actually binds the domain; the committed `CNAME` file just records the intent).
-3. **DNS** (in the `writeit.ai` zone): add `memory.writeit.ai CNAME writeitai.github.io.`
+3. **DNS** (in the `writeit.ai` zone): add `ultimate-memory.writeit.ai CNAME writeitai.github.io.`
 4. Once DNS resolves, enable **Enforce HTTPS** in Settings → Pages.
 
 Until the custom domain is bound, the site would be served under
