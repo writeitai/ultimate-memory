@@ -65,12 +65,19 @@ Keep this current: when something here is decided, move it to a decision and pru
       rather than plain DCO — preserves the FSL escape hatch (Apache versions already published stay
       Apache forever) while blunting the usual contributor objection. Must exist before the first
       outside PR.
-    - **"Ultimate Memory" is a working title, not the brand — a rename gates public release.**
-      Preliminary knock-out search: an existing commercial software product "Ultimate Memory™"
-      (eReflect, memory-training software) collides directly, and "ultimate" (laudatory) + "memory"
-      (generic for a memory system) makes the mark likely unregistrable-or-weak — unable to do the
-      anti-free-riding work D60's licensing posture assigns to the trademark. Pick a distinctive
-      coined name; attorney clearance required (the check was preliminary, not legal advice).
+    - ~~"Ultimate Memory" is a working title — a rename gates public release~~ **NAME DECIDED
+      (2026-07-13): the brand is `remember.dev`** — the domain-as-brand pattern (Cal.com/Fly.io;
+      registrable per the *Booking.com* doctrine), extending the author's existing product-domain
+      family (writeit.ai · answerit.ai · askit.dev). The author has acquired the `remember.dev`
+      domain. The full stack: **brand `remember.dev`; CLI `remember`; import `remember`;
+      distribution `remember-dev`** on PyPI/npm (bare `remember` is squatted by dead/unrelated
+      packages; an optional PEP 541 reclaim of PyPI `remember` may be filed). Fallback if counsel
+      advises against the generic+TLD mark: `RememberIt` (family series mark). Verified 2026-07-13:
+      `remember-dev` free on PyPI/npm; no in-category product on remember.ai/.io/.com; three-round
+      candidate exploration recorded in `_feature_planning/naming/` (local, gitignored). **Still
+      gating public release:** attorney clearance (generic+TLD mark backed by the writeit.ai house
+      brand; classes 9/42, EUIPO first) and the mechanical rename of the repo / package / docs —
+      deliberately deferred; development continues under the working title until the release gate.
     - ~~The packaging/distribution design~~ **RESOLVED (D62)** —
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
