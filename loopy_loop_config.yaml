@@ -1,0 +1,79 @@
+goal_file: loopy_loop_goal.txt
+# Double loop from day one (loopy-loop decision D6): the PM parent decomposes
+# the roadmap into work packages; each WP runs as a child session on the
+# inner_outer_eval set.
+workflow_set: pm_planner_dispatcher
+# Applies to the PM parent AND to every child session (children read this same
+# config). High ceiling as a runaway backstop, not a target; the loop stops on
+# goal_met.
+max_turns: 500
+goal_check_consecutive_failures_cap: 3
+# Per-workflow circuit breaker (coordinator-side): consecutive failed
+# iterations of one workflow stop that session with
+# stop_reason=workflow_failure_cap instead of burning max_turns. A capped
+# CHILD is evidence the planner reviews (rescope / re-dispatch / blocked),
+# not the end of the run.
+workflow_consecutive_failures_cap: 5
+team_harness_provider: "codex"
+# GPT-5.6 family (GA 2026-07): sol = flagship, terra = workhorse, luna = fast/cheap.
+# Coordinator on the flagship — it owns loop judgment and synthesis.
+team_harness_model: "gpt-5.6-sol"
+team_harness_agents:
+  - "codex"
+team_harness_agent_models:
+  codex: "gpt-5.6-sol"
+team_harness_agent_reasoning_efforts:
+  codex: "xhigh"
+# Optional coordinator retry controls. Omit to use team-harness defaults.
+# team_harness_max_retries: 8
+# team_harness_retry_base_delay_s: 2.0
+# team_harness_retry_max_delay_s: 60.0
+# Used only if team_harness_provider is switched to openai_compat
+# (OpenRouter id for the same model: openai/gpt-5.6-sol).
+team_harness_api_base: "https://openrouter.ai/api/v1"
+team_harness_api_key_env: "OPENROUTER_API_KEY"
+# Cost budget intentionally NOT set: the codex provider bills through the
+# Codex subscription, not per token, so model_prices would fabricate a number.
+# Token usage is still recorded per session (loopy status shows it). If the
+# provider is switched to openai_compat, set both of these:
+# model_prices:
+#   prompt_usd_per_1m: <price>
+#   completion_usd_per_1m: <price>
+# max_cost_usd: <budget>
+#
+# NOTE: this extension reaches EVERY harness run in this repo — the PM
+# planner/dispatcher AND every inner_outer_eval child workflow — at system
+# prompt level. Keep it strictly workflow-set-neutral: only repo-wide facts
+# and conventions belong here. Role-specific process (who owns finished.md,
+# PR policy, review flow) lives in the workflow prompts themselves.
+team_harness_system_prompt_extension: |
+  This repository's rules (binding for every workflow):
+  - plan/plans/roadmap.md is the sequencing authority. Work is executed as the
+    phase files' work packages (WP-N.x); a WP is executed after reading the
+    documents in its Reads column plus plan/analysis/concepts.md §0. Designs
+    are binding. If a WP appears to require deviating from a design, that is a
+    DESIGN CHANGE: stop and raise it so the authoritative document is amended
+    first — do not implement around it and merely record a note.
+  - WP status columns in the phase files
+    (planned | in-progress | done | blocked(<gate>)) are maintained ONLY by
+    the implementation session that owns the dispatched WP, committed together
+    with the work they describe. PM (planner/dispatcher) and eval workflows
+    never edit plan/ files.
+  - Respect the roadmap's gate register: never start a phase whose entry gate
+    is open; record blockers instead of working around them.
+  - Code conventions: typed Python (Pydantic at boundaries), pyright + ruff +
+    pytest green before any merge; all configuration enters through
+    pydantic-settings BaseSettings, and secret-bearing settings use
+    SecretStr/SecretBytes (os.environ is banned by lint); tool-config
+    relaxations require recorded receipts.
+  - Documentation ships with behavior (D66): a change that affects user-facing
+    behavior updates its page under website/src/app/docs/**/page.mdx and keeps
+    /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;
+    website/ is the product documentation.
+  - Before touching P1 (LanceDB) or P2 (LadybugDB) code, read the engine
+    rulebooks: plan/analysis/lance_indexing_maintenance.md and
+    plan/analysis/ladybug_query_semantics.md. They are binding query/indexing
+    rules, not background.
+  - Any edit to plan/ documents follows CLAUDE.md Rule 1 (self-contained,
+    explain-don't-name) and Rule 2 (full scope, no phasing language in
+    designs).
