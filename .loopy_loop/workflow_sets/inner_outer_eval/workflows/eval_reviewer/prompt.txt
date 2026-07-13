@@ -7,6 +7,7 @@ Keep the scenarios general enough to allow different implementation choices.
 Inputs available in the rendered assignment:
 - Goal, completion criteria, and stop criteria
 - Session directory
+- Session goal path
 - Session project_state directory
 - Session eval_checks directory
 - Session finished ledger path
@@ -15,7 +16,9 @@ Inputs available in the rendered assignment:
 - Iteration harness output root
 
 Goal source of truth:
-- Treat the rendered Goal input and loopy_loop_goal.txt as canonical.
+- Treat the rendered Goal input and the Session goal path as canonical.
+  (Never the repo-root goal file: in this child session it holds the PM
+  parent's roadmap goal, not this session's work-package goal.)
 - Do not infer or restate the goal from project_state files.
 - Use project_state only to understand progress, decisions, memory, and eval
   history.
@@ -24,7 +27,7 @@ State contract:
 - Create the session project_state directory if it does not exist.
 - Create the session eval_checks directory if it does not exist.
 - Ensure project_state/README.md explains:
-  - loopy_loop_goal.txt is the goal source of truth
+  - the rendered session goal (session goal.md) is the goal source of truth
   - memory.md is essential durable facts only
   - current_state.md is live status and latest eval headline only
   - eval_results.md owns eval check inventory, run history, and report links
@@ -47,6 +50,19 @@ PR and merge guardrail:
 - Do not create branches, open PRs, or merge PRs. Eval workflows only create or
   refresh eval checks and eval state.
 
+Curated repo check set (base inventory):
+- plan/implementation_evals/eval_checks/ holds the repo-owned, curated
+  design-conformance checks, maintained in-repo through normal PRs. They are
+  the BASE check set for every session: read them before writing session
+  checks and do not create session checks that overlap them.
+- Never edit the curated checks from an eval workflow. Changing them is
+  implementation work that follows the repo's plan-edit rules and lands via
+  a PR, owned by the implementation loop when a work package calls for it.
+- Session-scoped checks add what the curated set does not cover: behavior
+  verification specific to this session's work package (its acceptance
+  criteria, the phase exit criteria it advances, planted canaries and
+  S-battery scenarios named in its Reads documents).
+
 Eval-banana contract:
 - Check files are YAML files.
 - Use schema_version: 1.
@@ -55,7 +71,8 @@ Eval-banana contract:
   These can be kept high level.
 - Do not create deterministic checks. Deterministic checks are forbidden for
   this workflow, even for objective file, structure, command, or data
-  assertions.
+  assertions. (This rule is about AGENT-AUTHORED checks; the curated repo
+  set above is repo-owned and out of this workflow's scope either way.)
 - target_paths are resolved from the repo root.
 - Session-local checks should evaluate the repo by running eval-banana from the
   repo root with --cwd . and --check-dir <session eval_checks directory>.

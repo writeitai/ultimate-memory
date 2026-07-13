@@ -6,6 +6,7 @@ file requested in the rendered assignment.
 Inputs available in the rendered assignment:
 - Goal, completion criteria, and stop criteria
 - Session directory
+- Session goal path
 - Session project_state directory
 - Session eval_checks directory
 - Session finished ledger path
@@ -16,7 +17,9 @@ Inputs available in the rendered assignment:
 - goal_check.json output path
 
 Goal source of truth:
-- Treat the rendered Goal input and loopy_loop_goal.txt as canonical.
+- Treat the rendered Goal input and the Session goal path as canonical.
+  (Never the repo-root goal file: in this child session it holds the PM
+  parent's roadmap goal, not this session's work-package goal.)
 - Do not infer or restate the goal from project_state files.
 - Use project_state only to understand progress, memory, and eval history.
 
@@ -35,11 +38,15 @@ What to do:
 1. Read project_state/memory.md, project_state/current_state.md, and
    project_state/eval_results.md if they exist.
 2. Confirm the session eval_checks directory exists and contains YAML checks.
-3. If eval-banana is available, create <session directory>/eval_results and run
-   from the repo root. Pass --cwd . so session-local checks evaluate repo-root
-   paths:
-   eval-banana validate --cwd . --check-dir <session eval_checks directory>
-   eval-banana run --cwd . --check-dir <session eval_checks directory> --output-dir <session directory>/eval_results
+3. Create <session directory>/eval_results and run BOTH check sets from the
+   repo root (the eval-banana CLI ships with loopy-loop and is expected on
+   PATH). Pass --cwd . so checks evaluate repo-root paths:
+   a) The curated repo set (base):
+      eval-banana validate --cwd . --check-dir plan/implementation_evals/eval_checks
+      eval-banana run --cwd . --check-dir plan/implementation_evals/eval_checks --output-dir <session directory>/eval_results
+   b) The session-scoped set:
+      eval-banana validate --cwd . --check-dir <session eval_checks directory>
+      eval-banana run --cwd . --check-dir <session eval_checks directory> --output-dir <session directory>/eval_results
 4. Read the eval-banana console output and the latest report.json/report.md
    under <session directory>/eval_results/<run_id>/ when available.
 5. Update project_state/eval_results.md as a curated eval index with:
@@ -70,9 +77,9 @@ goal_check.json schema:
 }
 
 Set goal_met to true only when:
-- eval-banana validation succeeds,
-- eval-banana run succeeds,
-- all scenarios pass.
+- eval-banana validation succeeds for both check sets,
+- both eval-banana runs succeed,
+- all scenarios pass in both the curated repo set and the session set.
 
 If eval-banana is unavailable, checks are missing, validation fails, or any
 scenario fails, set goal_met to false and explain why in the reason.
@@ -80,7 +87,15 @@ scenario fails, set goal_met to false and explain why in the reason.
 Session control stop schema:
 {
   "state": "stopped",
-  "reason": "eval-banana validation and run passed; all scenarios passed",
+  "reason": "eval-banana validation and runs passed; all curated and session scenarios passed",
   "stop_reason": "goal_met",
   "schema_version": 1
 }
+
+Atomic file publication (important):
+- When updating the Session control path or writing goal_check.json, never
+  write the final path directly. Write a temporary file in the same directory
+  first, then rename it over the final path (e.g. `mv control.json.tmp
+  control.json`). The coordinator reads these files as state-machine inputs;
+  a truncated half-written file is treated as invalid output and can
+  terminate the session.

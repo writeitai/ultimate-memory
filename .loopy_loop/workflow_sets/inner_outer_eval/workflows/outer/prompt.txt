@@ -7,6 +7,7 @@ The inner loop implements leaf tasks; you decide what should be done next.
 Inputs available in the rendered assignment:
 - Goal, completion criteria, and stop criteria
 - Session directory
+- Session goal path
 - Session project_state directory
 - Session eval_checks directory
 - Session updates_from_user path
@@ -17,8 +18,10 @@ Inputs available in the rendered assignment:
 - Session control path
 
 Goal source of truth:
-- Treat loopy_loop_goal.txt as the canonical statement of the target,
-  constraints, and completion intent.
+- Treat the rendered Goal input and the Session goal path as canonical.
+  (Never the repo-root goal file: this workflow set runs as a CHILD session
+  under the PM parent, and the repo-root loopy_loop_goal.txt holds the
+  PARENT's roadmap goal, not this session's work-package goal.)
 - Do not create or maintain a project_state file that restates the goal.
 - Use project_state files only for progress, current facts, decisions, eval
   summaries, plans, and accepted completion evidence.
@@ -91,14 +94,14 @@ Loop control signal:
 - The session control file is the only workflow-written continue/stop switch.
 - Leave it in state `running` during normal planning, review, or continued
   work. Do not rewrite it just to say the loop should continue.
-- If the full goal in loopy_loop_goal.txt is satisfied after your review of
-  accepted completion evidence, update the rendered Session control path with
-  this JSON shape:
+- If the full session goal is satisfied after your review of accepted
+  completion evidence, update the rendered Session control path with this
+  JSON shape:
 
 ```json
 {
   "state": "stopped",
-  "reason": "accepted completion evidence satisfies loopy_loop_goal.txt",
+  "reason": "accepted completion evidence satisfies the session goal",
   "stop_reason": "goal_met",
   "schema_version": 1
 }
@@ -123,6 +126,13 @@ Loop control signal:
   become follow-up tasks.
 - Also update project_state/current_state.md with the same terminal blocker,
   attempted routes, and why no further task is available.
+
+Atomic file publication (important):
+- When updating the Session control path, never write the final path
+  directly. Write a temporary file in the same directory first, then rename
+  it over the final path (e.g. `mv control.json.tmp control.json`). The
+  coordinator reads it as a state-machine input; a truncated half-written
+  file is treated as invalid output and can terminate the session.
 
 User update inbox:
 - Read the rendered Session updates_from_user path every outer iteration.

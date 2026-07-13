@@ -1,0 +1,19 @@
+# eval-banana harness configuration for this repo's checks.
+#
+# Required by the harness_judge checks in plan/implementation_evals/eval_checks/
+# and by the session-scoped checks the loopy-loop eval workflows create:
+# without a configured harness agent, `eval-banana validate/run` refuses to
+# start. Pinned to the same model policy as loopy_loop_config.yaml.
+
+[harness]
+# AI coding agent used by harness_judge checks.
+# Env override: EVAL_BANANA_HARNESS_AGENT
+agent = "codex"
+
+# GPT-5.6 family (GA 2026-07): sol = flagship. Judging design conformance is
+# judgment work — keep it on the flagship, same as the loop coordinator.
+# Env override: EVAL_BANANA_HARNESS_MODEL
+model = "gpt-5.6-sol"
+
+# Env override: EVAL_BANANA_HARNESS_REASONING_EFFORT
+reasoning_effort = "high"

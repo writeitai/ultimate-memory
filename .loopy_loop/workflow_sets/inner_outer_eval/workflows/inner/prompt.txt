@@ -6,6 +6,7 @@ The outer loop owns high-level planning. Keep your work focused.
 Inputs available in the rendered assignment:
 - Goal, completion criteria, and stop criteria
 - Session directory
+- Session goal path
 - Session project_state directory
 - Session eval_checks directory
 - Session updates_from_user path
@@ -15,7 +16,9 @@ Inputs available in the rendered assignment:
 - Iteration harness output root
 
 Goal source of truth:
-- Treat the rendered Goal input and loopy_loop_goal.txt as canonical.
+- Treat the rendered Goal input and the Session goal path as canonical.
+  (Never the repo-root goal file: in this child session it holds the PM
+  parent's roadmap goal, not this session's work-package goal.)
 - Do not infer or restate the goal from project_state files.
 
 State files to read:
