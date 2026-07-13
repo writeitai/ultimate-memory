@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * Brand palette lifted from writeit.ai (writeit/fe/styles/globals.scss):
+ *   sand #f7ebbd · ink #222433 · green #5ca493 · gold #ebaa1a · red #f34832
+ * Mapped onto shadcn-style tokens so the docs read as part of the WriteIt family.
+ */
+:root {
+  --background: #f7ebbd; /* sand */
+  --foreground: #222433; /* ink */
+  --card: #fdf8e6;
+  --card-foreground: #222433;
+  --popover: #fdf8e6;
+  --popover-foreground: #222433;
+  /* Text-bearing green, darkened from the brand green to meet WCAG AA on sand
+     (4.57:1) and with white (5.46:1). Used for links and primary buttons. */
+  --primary: #2f7563;
+  --primary-foreground: #ffffff;
+  --secondary: #efe1a8;
+  --secondary-foreground: #222433;
+  --muted: #efe1a8;
+  --muted-foreground: #59583f;
+  --accent: #ecdf9c;
+  --accent-foreground: #222433;
+  --destructive: #d63a25; /* red, darkened for AA with white text */
+  --destructive-foreground: #ffffff;
+  --border: #e0d29a;
+  --input: #e0d29a;
+  --ring: #5ca493;
+  /* Vivid writeit brand green — decorative only (logo/focus accents), never text. */
+  --brand: #5ca493;
+  --gold: #ebaa1a; /* gold */
+  --gold-foreground: #222433;
+  --radius: 0.5rem;
+}
+
+/* Dormant dark palette — wired up when a theme toggle is added later. */
+.dark {
+  --background: #1b1c24;
+  --foreground: #f3ecd2;
+  --card: #24252f;
+  --card-foreground: #f3ecd2;
+  --popover: #24252f;
+  --popover-foreground: #f3ecd2;
+  --primary: #6cb7a4;
+  --primary-foreground: #14231f;
+  --secondary: #2a2b36;
+  --secondary-foreground: #f3ecd2;
+  --muted: #2a2b36;
+  --muted-foreground: #a8a58c;
+  --accent: #2f3340;
+  --accent-foreground: #f3ecd2;
+  --destructive: #f3654f;
+  --destructive-foreground: #14231f;
+  --border: #34353f;
+  --input: #34353f;
+  --ring: #6cb7a4;
+  --brand: #6cb7a4;
+  --gold: #ebaa1a;
+  --gold-foreground: #14231f;
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  max-width: 1400px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}
+
+/* On-brand typography for the rendered MDX. */
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--primary);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--foreground);
+  --tw-prose-quote-borders: var(--primary);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: #222433;
+  --tw-prose-pre-bg: #fbf4d6;
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+/* Inline code (not fenced blocks). */
+.prose :where(code):not(pre code) {
+  background-color: var(--secondary);
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.875em;
+}
+.prose :where(code):not(pre code)::before,
+.prose :where(code):not(pre code)::after {
+  content: "";
+}
+
+/* Fenced code blocks (rehype-pretty-code, keepBackground: false). */
+.prose pre {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+}
+.prose pre code {
+  background-color: transparent;
+  padding: 0;
+  font-weight: 400;
+}
+[data-rehype-pretty-code-figure] {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}

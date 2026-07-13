@@ -1,0 +1,57 @@
+export const metadata = {
+  title: "Architecture",
+  description:
+    "How Ultimate Memory's three planes fit together: the evidence pipeline (E0–E3), the knowledge plane (K), and the projections (P1–P3) agents actually consume.",
+};
+
+# Architecture
+
+Ultimate Memory is organized as **three planes** — Evidence, Knowledge, and Projections. The plane a component lives in determines its rules: what triggers it, whether it is a source of truth, and whether it can be thrown away and rebuilt. This page walks the system end to end.
+
+```
+  inputs (files, mail, web, audio, video, images)
+      │
+      ▼
+  E0 files ─→ E1 chunks ─→ E2 claims ─→ E3 facts        Plane E — evidence spine
+      │                                    │              (Postgres + object storage;
+      │                                    │               source of truth)
+      │              ┌─────────────────────┤
+      ▼              ▼                     ▼
+  P3 corpus fs    P1 search indexes    P2 knowledge graph  Plane P — projections
+                                                           (derived; rebuildable)
+                     K knowledge pages (git)               Plane K — compiled +
+                     compiled from E, cited, versioned      authored knowledge
+```
+
+## Plane E — the evidence spine
+
+Every input flows one pipeline, and each stage's output is durable and inspectable:
+
+- **E0 — Files.** Raw bytes are preserved immutably; a configurable, versioned conversion module normalizes everything to clean Markdown — OCR for scans, diarized speech-to-text for audio/video, model-written descriptions for images. Each document also gets a per-document structure tree (sections, roles, summaries). Edited documents from watched sources (a Drive folder, a mailbox) become new *versions* of the same logical document, with prior versions kept as dated testimony.
+- **E1 — Chunks.** A deterministic layer derives paragraph-grain blocks from the Markdown; retrieval-sized chunks are packed from whole blocks, so re-ingesting an edited document costs proportional to the *edit*, not the document.
+- **E2 — Claims.** An extraction model decomposes chunks into atomic, verifiable assertions — each grounded to the exact character span it derives from, and through it to the exact page, image region, or time interval of the original file. Claims are immutable forever.
+- **E3 — Facts.** Claims about the same thing are resolved onto canonical entities and adjudicated into **relations** and **observations** with bi-temporal validity (see [Concepts](/docs/concepts)). Contradictions are recorded, supersession closes validity windows, and every adjudication is a replayable, logged decision.
+
+Postgres is the source of truth for the spine; original bytes and converted artifacts live in object storage.
+
+## Plane K — compiled and authored knowledge
+
+Above the fact layer sits a git repository of **knowledge pages**: prose syntheses compiled by LLM workers from the fact layer, with every statement citing its evidence, plus pages authored or curated by agents for purposes the compiler can't derive (plans, target states). Mechanical routing rules decide which facts belong to which pages; when the underlying evidence changes, affected pages are flagged and recompiled. K is where "what do we know about X?" gets a pre-written, citation-bearing answer — with a freshness stamp, never pretending to be live.
+
+## Plane P — the projections agents consume
+
+Projections are derived read structures. All of them can be dropped and rebuilt from the spine — which is what makes aggressive indexing safe:
+
+- **P1 — Search indexes.** Vector + full-text indexes over chunks, claims, fact labels — and media segments (cross-modal embeddings over images, video keyframes, and audio, so a photo is findable by what it *shows*, not just what its description mentioned).
+- **P2 — Knowledge graph.** The entity–relation graph, snapshot-published for traversal ("everything within two hops of Acme") with as-of query support.
+- **P3 — Corpus filesystem.** The whole corpus materialized as a navigable directory tree — topic and entity folders, per-document stubs, generated index files — mounted read-only so agents can browse and `grep` the memory like a codebase.
+
+## Consumption: filesystem-first, honest by contract
+
+Agent harnesses mount four read-only surfaces (the corpus tree, document artifacts, raw originals off the navigation path, and the K repo) and are taught — by a consumption skill that ships with the system — to prefer the filesystem for what filesystems do well, and the API/CLI/MCP surfaces for the rest: semantic search, graph traversal, time-travel, and provenance drilling. Every query response is a structured envelope that declares its grain, freshness, contradictions, truncation, and typed negatives — the contract that lets an agent *reason about* an answer instead of just receiving it.
+
+There is deliberately **no LLM on the query path**: retrieval is fast, deterministic, and inspectable; the intelligence lives in the calling agent (and, at write time, in the recorded extraction and adjudication steps).
+
+## Where the full detail lives
+
+This page is the map. The binding design — every mechanism, schema, and decision with its rationale — lives in the repository under [`plan/`](https://github.com/writeitai/ultimate-memory/tree/main/plan), anchored by the [architecture decision log](https://github.com/writeitai/ultimate-memory/blob/main/decisions.md). As implementation lands, each subsystem gets its own page here.

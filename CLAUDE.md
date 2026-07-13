@@ -66,5 +66,20 @@ silently. When writing any design or decision:
   point may let a consumer bypass an invariant (ingestion always writes through E0; review always
   appends reversible verdicts; a control plane is never an authority for E/K/P truth).
 
+## The docs site ships with the code (D66)
+
+`website/` is the public documentation site (Next.js + MDX, statically exported to
+GitHub Pages at `memory.writeit.ai`). Two standing obligations when implementing:
+
+- **Same-PR docs.** Any PR that changes user-facing behavior — CLI commands, API/MCP
+  surface, configuration, mounts, connectors, deployment, the consumption skill — updates
+  the affected `website/src/app/docs/**/page.mdx` in the *same PR* (creating the page per
+  the target IA in `website/README.md` if it doesn't exist yet), and keeps
+  `/docs/project-status` truthful.
+- **Docs describe what ships, designs describe the full scope.** A `page.mdx` documents
+  behavior that exists on `main` — never aspirations (readers will run what it says). The
+  full-scope intent lives in `plan/`; do not blur the two. Authoring conventions and the
+  page template: `website/README.md`.
+
 When in doubt on any rule, favor the version a stranger could read cold and fully understand,
 describing the whole system.

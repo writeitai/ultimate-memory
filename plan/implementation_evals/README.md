@@ -2,7 +2,7 @@
 
 An exhaustive set of [eval-banana](https://github.com/writeitai/eval-banana) `harness_judge`
 checks that verify the **final implementation honors the binding design** — the design docs
-under `plan/designs/`, the requirements, and the decision log (**D1–D65**) as the coverage
+under `plan/designs/`, the requirements, and the decision log (**D1–D66**) as the coverage
 index. Each check points an LLM judge at the binding sources and at the code, states the
 invariant as concrete conditions, and demands a binary verdict.
 
@@ -58,7 +58,7 @@ Two conventions when running:
   the repo's own claims-vs-facts epistemology applied to its documentation: the log is
   testimony; the designs are the adjudicated current belief.)
 
-## Inventory (81 checks)
+## Inventory (82 checks)
 
 Counts by area; the sources column names the **primary** binding decisions (not every
 cross-reference).
@@ -74,7 +74,7 @@ cross-reference).
 | Projections (`p_*`, `p1_*`, `p2_*`, `p3_*`, `embedding_*`) | 8 | D6–D11, D40, D44, D55, D61, D63 |
 | Retrieval (`ret_*`) | 11 | D9, D41, D43, D48–D51 |
 | Ops/cross-cutting (`ops_*`, `source_of_truth_*`, `scope_views_*`) | 9 | D1, D7, D12, D16, D33, D46, D52–D56, D62 |
-| Code & boundary (`code_*`, `boundary_*`, `delivery_*`) | 8 | D60–D62, requirements §Code |
+| Code & boundary (`code_*`, `boundary_*`, `delivery_*`) | 9 | D60–D62, D66, requirements §Code |
 | Media (`media_*`) | 5 | D65, D32, D38, D49, D51, D54, D63 |
 
 Not every decision needs its own check: withdrawn decisions (D26–D30), naming/plane decisions

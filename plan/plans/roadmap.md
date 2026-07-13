@@ -132,6 +132,10 @@ this maps them to the phase that must run them, at entry or inside):
 Rules for executing agents: read *only* the listed sections plus `concepts.md` §0; if a WP
 seems to require deviating from a design, that is a **design change** — stop and raise it
 (the design gets amended first, the WP second); every WP lands as a PR referencing its id.
+A WP whose deliverable changes **user-facing behavior** (CLI, API/MCP, configuration,
+mounts, connectors, deployment, the consumption skill) also updates the public docs site in
+the same PR (`website/` — the same-PR rule and target page map live in `website/README.md`;
+D66). Docs pages describe what the PR ships, never the unbuilt full scope.
 
 ## 7. Maintenance
 

@@ -1,0 +1,43 @@
+export const metadata = {
+  title: "Introduction",
+  description:
+    "Ultimate Memory is a memory system for AI agents: millions of heterogeneous documents distilled into auditable evidence, adjudicated facts, and compiled knowledge.",
+};
+
+# Introduction
+
+**Ultimate Memory** is a memory system for AI agents. It ingests heterogeneous inputs — documents, email, web pages, audio recordings, video, images — and distills them into progressively more abstract, navigable knowledge, while keeping every step auditable by humans. Scale is a requirement, not an aspiration: the system is designed to still be useful at a **million documents**.
+
+> **Status: in development.** The design came first and is complete — requirements, architecture, research, and a decision log — and implementation is under way, following the [public roadmap](https://github.com/writeitai/ultimate-memory/blob/main/plan/plans/roadmap.md). There is no installable release yet. This site documents the system as it ships, page by page; the [Project Status](/docs/project-status) page tracks what exists today.
+
+## The problem it solves
+
+Pour a million documents into a system and you want to ask more than *"where did I read this?"* You want to ask *"what do we actually know — and what changed our mind?"*
+
+Most retrieval systems answer the first question: they find passages. Ultimate Memory is built for the second. It separates **what sources said** from **what the system currently holds true**, keeps both queryable, and records how every conclusion was reached — so an agent (or a human) can always drill from a summary down to the exact sentence, page, or second of audio that supports it.
+
+## The three planes
+
+The whole system is organized as three planes. This is the one mental model to keep:
+
+| Plane | Plain-English meaning | What it holds | Rebuildable? |
+| --- | --- | --- | --- |
+| **E — Evidence** | *what we ingested* | Raw inputs broken down step by step: files → chunks → atomic claims → facts | No — it is the ground truth |
+| **K — Knowledge** | *what we concluded* | Distilled, citation-bearing knowledge pages, version-controlled like code | No — compiled/authored |
+| **P — Projections** | *how we reach it* | Search indexes, a knowledge graph, and a browsable filesystem, all derived from the evidence | Yes — regenerate any time |
+
+The one-line version: **E** is what we ingested, **K** is what we concluded, **P** is how we reach it — and **P can always be rebuilt from E**.
+
+## Built for agent consumers
+
+The primary consumers are agentic coding harnesses (Claude Code, Codex, OpenCode and friends). That shapes the whole consumption story:
+
+- **Filesystem-first.** The memory mounts read-only as navigable directories — browse the corpus, `grep` it, follow links down to sources — with API/CLI/MCP surfaces carrying everything a filesystem can't (semantic search, graph traversal, time-travel queries).
+- **Honest answers.** Every response is labeled with its epistemic grain (source testimony vs. current fact vs. compiled synthesis), carries freshness stamps, surfaces contradictions instead of hiding them, and types its "no"s — *unknown*, *known-empty*, or *stated capability boundary*.
+- **Raw always reachable.** Derived text (transcripts, descriptions, OCR) feeds the pipeline, but the original file — the recording, the photo — is always one explicit pointer away, down to the exact time interval or image region.
+
+## Where to go next
+
+- [Concepts](/docs/concepts) — claims, facts, and compiled knowledge: the vocabulary everything else uses.
+- [Architecture](/docs/architecture) — how the planes fit together, end to end.
+- [Project Status](/docs/project-status) — what is designed, what is built, and where the plan lives.

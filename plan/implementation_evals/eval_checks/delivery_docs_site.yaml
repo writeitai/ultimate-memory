@@ -1,0 +1,41 @@
+schema_version: 1
+id: delivery_docs_site
+type: harness_judge
+description: The public docs site ships in-repo (website/, Next.js + MDX static export with Pagefind search and Pages deploy) and honors the truthfulness contract — pages describe shipped behavior, user-facing surfaces have current pages, no empty placeholder stubs.
+tags: [delivery, docs, D66, D62]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/docs_site_design.md and website/README.md — the binding sources — and
+  decisions.md D66 for rationale, then inspect website/ and the shipped code surfaces under
+  src/. These are acceptance checks for the FINAL system: if the subsystem is absent or
+  partial, score 0.
+
+  Verify ALL of the following:
+  1. website/ contains the self-contained static docs app: @next/mdx page-as-route authoring
+     (src/app/docs/**/page.mdx), a hand-maintained navigation array
+     (src/lib/docs/navigation.ts) covering every published page, Pagefind + cmdk keyboard
+     search, and output: 'export' — the site builds to plain static files with no server
+     process and no external search/docs service.
+  2. .github/workflows/docs-deploy.yml builds the site (Next export + Pagefind index) on
+     pushes to main touching website/**, deploys to GitHub Pages, and runs the build as a
+     check on pull requests.
+  3. The truthfulness contract holds against the code: for the user-facing surfaces the
+     system actually ships (CLI commands, API/MCP surface, configuration, mounts, connectors,
+     deployment), the corresponding docs pages exist and describe the CURRENT behavior —
+     sample several surfaces and cross-check the prose against the implementation (flags,
+     endpoints, config keys). Documentation that describes behavior that does not exist on
+     main is a failure.
+  4. No empty placeholder pages exist (a page.mdx whose body is a stub/"coming soon"), and
+     /docs/project-status states what exists versus what is designed without overclaiming.
+  5. The same-PR docs rule is bound where implementing agents read: CLAUDE.md carries the
+     docs-ship-with-the-code section and plan/plans/roadmap.md §6 carries the WP rule.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.
