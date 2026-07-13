@@ -1958,3 +1958,47 @@ captioned by one VLM family share one systematic perception error — composes w
 Refines D38/D57 (contract, routes), D51 (completed with locator deep links), D32 (two-hop +
 modality-aware audits), D54/D56 (representation objects + basis + occurrence provenance),
 D49 (envelope + boundary); D8/D9/D63 unchanged.
+
+## D66. The public documentation site — the WriteIt docs module in-repo, with a same-PR truthfulness contract
+
+**Decision.** The project ships a **public documentation site** for humans (developers
+evaluating, installing, operating the system) as a delivery artifact beside D62's three: a
+self-contained static Next.js + MDX app at **`website/`** in this repository, exported to
+plain HTML and served by **GitHub Pages at `ultimate-memory.writeit.ai`** (CNAME in the `writeit.ai`
+zone; deploy via `.github/workflows/docs-deploy.yml` on pushes to main touching
+`website/**`; PRs build as a check). The stack **replicates the proven WriteIt docs module**
+(loopy-loop's documentation site, itself lifted from orchestra's — the pattern of Next.js's
+own docs), inheriting its argued decisions and its adversarial-review fixes wholesale:
+`@next/mdx` page-as-route authoring, Tailwind v4 + typography themed to the WriteIt palette
+with an open font, `remark-gfm`/`rehype-slug`/`rehype-pretty-code`, **Pagefind + `cmdk`** ⌘K
+search over the built HTML (self-hostable, no search service), a hand-maintained navigation
+array, `output: 'export'`. Two standing rules keep it truthful through implementation:
+(1) **same-PR docs** — any PR changing user-facing behavior (CLI, API/MCP, configuration,
+mounts, connectors, deployment, the consumption skill) updates the affected `page.mdx` in
+that PR, bound in `CLAUDE.md` and in the roadmap's WP execution rules; (2) **docs describe
+what ships** — pages document behavior on `main`, never aspirations; the full-scope intent
+stays in `plan/`; unshipped subsystems appear only on `/docs/project-status`; pages are
+created when their subject ships (target IA in `website/README.md`), and empty placeholder
+stubs are prohibited. Seeded now: Introduction, Concepts, Architecture, Project Status —
+the material already true before features ship.
+
+**Context.** The coding agents are about to build the system phase by phase; if docs are an
+afterthought they will drift from day one — so the contract is installed *before* phase 1,
+at the two places implementing agents already read (CLAUDE.md, roadmap §6). Replicating the
+sibling module instead of redesigning: the decisions were already argued and reviewed for
+loopy-loop (framework choice vs Fumadocs, GitHub Pages vs Firebase/Vercel, Pagefind vs
+hosted search, palette/font substitution, accessibility fixes), and org-wide consistency of
+the docs stack is itself worth more than any local optimization. The docs/skill split
+mirrors the system's own epistemology: the *site* serves humans, the D51 *consumption skill*
+serves agents against a running deployment — they must agree but never merge; and
+plan-vs-docs is claims-vs-facts honesty applied to the project itself (the design states
+intent; the docs state what is currently true of the artifact).
+
+**Consequences.** Design home: `plan/designs/docs_site_design.md`; authoring conventions +
+target IA: `website/README.md`; CLAUDE.md gains the docs section; roadmap §6 gains the
+same-PR rule; eval check `delivery_docs_site` guards the contract. One-time ops step
+recorded (Pages source + custom domain + DNS) — until bound, the site serves under
+`writeitai.github.io/ultimate-memory/` where root-relative assets do not resolve.
+Non-goals: versioned docs, docs SaaS/external search, server-rendered features;
+API-reference pages render from the recipe registry when retrieval ships (D50) rather than
+being hand-maintained.

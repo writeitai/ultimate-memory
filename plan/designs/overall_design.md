@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D65); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D66); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -240,6 +240,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `evidence_lifecycle_design.md` | document versions, testimony currency, the counting rule, content-addressed reuse (D54–D56) | **current** |
 | `packaging_distribution_design.md` | delivery artifacts, delivery-only task execution, enforced code architecture (D62) | **current** |
 | `media_design.md` | media (images/audio/video): converter routes, source locators, derivation disclosure, media search (D65) | **current** |
+| `docs_site_design.md` | public docs site: in-repo Next.js/MDX static module + same-PR truthfulness contract (D66) | **current** |
 
 ## 10. Open questions
 

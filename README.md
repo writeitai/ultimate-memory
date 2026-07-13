@@ -122,6 +122,11 @@ Rule of thumb: requirements say **what**, designs say **how**, plans say **in wh
 analysis says **why we think so**. A change should land at the highest level it applies to
 and flow downward.
 
+Beside the plan lives **`website/`** — the public documentation site
+([ultimate-memory.writeit.ai](https://ultimate-memory.writeit.ai)), a self-contained Next.js/MDX static app
+that documents the system *as it ships* (D66): user-facing changes update their docs page in
+the same PR, and the full-scope design intent stays here in `plan/`.
+
 ## Document index
 
 | Doc | Purpose |
@@ -156,5 +161,6 @@ and flow downward.
 | [plan/designs/packaging_distribution_design.md](plan/designs/packaging_distribution_design.md) | Delivery artifacts, delivery-only task execution, enforced code architecture (D62) |
 | [plan/designs/media_design.md](plan/designs/media_design.md) | Media (images/audio/video): converter routes, source locators, derivation disclosure, media search (D65) |
 | [plan/analysis/media_handling/](plan/analysis/media_handling/) | Parallel analyses (internal + Codex) + SYNTHESIS behind D65 |
-| [decisions.md](decisions.md) | Architecture decision log (D1–D65) with rationale |
+| [plan/designs/docs_site_design.md](plan/designs/docs_site_design.md) | Public docs site: in-repo Next.js/MDX static module + same-PR truthfulness contract (D66) |
+| [decisions.md](decisions.md) | Architecture decision log (D1–D66) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |

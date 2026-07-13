@@ -1,0 +1,43 @@
+export const metadata = {
+  title: "Project Status",
+  description:
+    "Where Ultimate Memory stands: the design is complete and public; implementation follows a phased roadmap. What exists today and what lands next.",
+};
+
+# Project Status
+
+Ultimate Memory is being built **design-first**: the complete system — requirements, architecture, data model, and every load-bearing decision with its rationale — was designed and reviewed before implementation began. That design is public in the repository and is the authority these docs summarize.
+
+> **There is no installable release yet.** If you need a working memory library today, this isn't one — yet. If you want to follow (or join) a system being built in the open against a fully argued design, read on.
+
+## What exists today
+
+- **The complete design** — in [`plan/`](https://github.com/writeitai/ultimate-memory/tree/main/plan): requirements, binding per-subsystem designs, the research and analyses behind them, and a build-order roadmap.
+- **The decision log** — [`decisions.md`](https://github.com/writeitai/ultimate-memory/blob/main/decisions.md): every architecture decision (D1, D2, …) with context, rationale, and its later refinements. If you want to know *why* something is the way it is, start there.
+- **Design-conformance evals** — a suite of acceptance checks (in [`plan/implementation_evals/`](https://github.com/writeitai/ultimate-memory/tree/main/plan/implementation_evals)) that judge the implementation against the binding design as it lands.
+- **Early scaffolding** — the Python project skeleton and CI are in place; pipeline functionality is landing phase by phase.
+
+## The build order
+
+Implementation follows [`plan/plans/roadmap.md`](https://github.com/writeitai/ultimate-memory/blob/main/plan/plans/roadmap.md) — nine phases, each keyed to the designs it realizes:
+
+| Phase | What it delivers |
+| --- | --- |
+| 0 | Foundations: scaffolding, migrations, task queues, the eval harness |
+| 1 | Walking skeleton — one document end-to-end, minimal retrieval |
+| 2 | Truth machinery — entity resolution, adjudication, supersession |
+| 3 | Evidence lifecycle — document versions, watched sources, efficient re-ingestion |
+| 4 | Projections — the knowledge graph and the browsable corpus filesystem |
+| 5 | Retrieval complete — full query surface, MCP/CLI, the consumption skill |
+| 6 | Plane K — compiled and authored knowledge pages |
+| 7 | Scale and operations — backfill, load tests, budgets, hard-delete end-to-end |
+| 8 | Competitive benchmarks — published methodology and results |
+
+## How these docs grow
+
+These pages are part of the repository and ship with the code: every change that alters user-facing behavior updates its documentation in the same pull request. As each phase lands, its pages appear here — getting started, ingestion and connectors, retrieval, configuration, deployment, and the API/CLI/MCP references. Until a page exists, the design documents linked above are the truth.
+
+## Following along
+
+- Watch the [GitHub repository](https://github.com/writeitai/ultimate-memory) — work lands as reviewed pull requests referencing roadmap work packages.
+- Read the [decision log](https://github.com/writeitai/ultimate-memory/blob/main/decisions.md) for the ideas; skim merged PRs for the build.

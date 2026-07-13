@@ -1,0 +1,50 @@
+export const metadata = {
+  title: "Concepts",
+  description:
+    "The core vocabulary of Ultimate Memory: claims, relations, observations, facts, and compiled knowledge — and why separating testimony from verdict matters.",
+};
+
+# Concepts
+
+Everything in Ultimate Memory rests on one distinction: **what a source said** is not the same thing as **what is currently true**. Sources go stale, contradict each other, and get corrected. A memory that conflates the two either serves outdated statements as facts or silently rewrites history. This page defines the small vocabulary the whole system — and every answer it returns — is built from.
+
+**The courtroom analogy** carries most of it: claims are the *transcript* (immutable testimony — who said what, when), facts are the *verdict* (the current adjudicated position, revisable as evidence arrives), and evidence is the recorded link between the two.
+
+## The terminology ladder
+
+| Term | What it is | Can it change? |
+| --- | --- | --- |
+| **claim** | what one source *said* — the permanent record of a single assertion, traceable to the exact place in the document it came from | never (immutable) |
+| **relation** | a fact linking **two entities** — *(Alice, works_for, Acme)* | its validity window closes when superseded |
+| **observation** | a fact stating a **value about one entity** — *"Acme headcount: 600"* | same rules; lives beside relations |
+| **fact** | the umbrella word for *relation or observation* — what the system currently holds true | revisable, with the full history kept |
+| **core belief** | a distilled knowledge page: compiled prose built only from well-supported, uncontradicted facts, every statement citing its evidence | recompiled when its evidence changes |
+
+A sentence like *"the roster says Bob is CFO"* travels the ladder: it enters as a **claim** ("this file said it"), is adjudicated into a **relation** (*Bob works_for Acme*, the fact the system holds), and may end up cited by a **core belief** page if it is well-supported. Three layers, three words, no synonyms.
+
+## The grains — how answers are labeled
+
+Every answer the system returns is typed with the **grain** of what it contains, so a caller always knows what kind of thing it is holding:
+
+- **`fact`** — relations and observations: what the system *currently holds true*, filtered by validity. This is the default place for "is it true now?" questions.
+- **`evidence`** — claims: what sources *asserted*, possibly stale, superseded, or contradictory. This answers "who said what, when" — and is never allowed to pose as a current fact.
+- **`compiled`** — knowledge pages: pre-paid synthesis with a freshness timestamp, useful for orientation before verifying specifics on the fact layer.
+
+The default reading motion for an agent is **orient → verify → audit**: skim compiled knowledge to get oriented, verify anything load-bearing against the fact layer, and drill into claims and raw sources when the stakes demand it.
+
+## Two clocks
+
+Facts carry **two independent time axes**, and keeping them apart is what makes time-travel queries honest:
+
+- **World time** (validity): when something was true *in the world* — Alice worked at Acme from 2021 to 2024.
+- **System time** (belief): when the *system* learned or stopped believing it — we found out in March.
+
+"Who worked at Acme in 2022?" and "what did we believe last March?" are different questions with different answers, and both are askable. (Media adds a third, unrelated timestamp — *where in a recording* something was said — which is deliberately named apart so the three are never confused.)
+
+## Contradictions are surfaced, never resolved silently
+
+When sources disagree — two documents state different FY2023 revenues — the system keeps **both** positions, groups them as a live contradiction, and returns the group together. Ranking may order them; nothing hides one side. Resolution is an explicit, recorded act, never a side effect of retrieval.
+
+## Evidence counting — what "well-supported" means
+
+A fact's support counts **distinct source lineages** — independent documents that currently attest to it. Re-processing a document, repeated statements within one document, or ten versions of the same edited file never inflate support. When a source is deleted or its current version withdraws a statement, the facts it alone supported are closed — recorded and reversible, never silently vanished.

@@ -1,0 +1,66 @@
+name: Docs Site
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "website/**"
+      - ".github/workflows/docs-deploy.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "website/**"
+      - ".github/workflows/docs-deploy.yml"
+  workflow_dispatch:
+
+# Allow GITHUB_TOKEN to deploy to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `next build` type-checks the project and generates .next/types, so a
+      # separate pre-build `tsc` step is intentionally omitted (it would run
+      # before those generated types exist).
+      - name: Build static site (Next.js export + Pagefind index)
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/out
+
+  deploy:
+    # Only publish from main; PRs run the build job above as a check.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    # Serialize production deployments only, so PR build-checks stay concurrent.
+    concurrency:
+      group: "pages-deploy"
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
