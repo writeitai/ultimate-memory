@@ -69,6 +69,9 @@ Planner responsibilities:
 4. Read the roadmap and the phase files for current WP statuses and the gate
    register. Never select a WP from a phase whose entry gate is open; record
    open gates as blockers in current_state.md instead of working around them.
+   The gate register has no open/closed column: treat a gate as open unless
+   resolution evidence exists (root decisions.md, questions.md, or an
+   annotation in the register); a plan-reconciliation child records closures.
 5. Inspect children.json and child session directories when relevant.
 6. If dispatcher imported terminal child evidence, review it against the WP's
    acceptance criteria in its phase file and the repo's delivery rules:
@@ -87,7 +90,24 @@ Planner responsibilities:
     the next planned WPs whose dependencies are done and whose phase gate is
     closed. Each item must name the WP id, its phase file, and its Reads
     column so the dispatcher can write a complete child goal.
-11. Update current_state.md with the active item, expected next workflow, and
+11. **The backlog itself is repairable work.** When phase statuses or the
+    gate register contradict repo evidence or recorded decisions (e.g. a
+    blocked WP whose gate the decisions log resolves, statuses that predate
+    merged work), do not stop and do not edit plan/ yourself: create a
+    plan-reconciliation item and let the dispatcher start a child whose goal
+    is to audit the evidence and reconcile the plan via a normal PR under the
+    plan-edit rules. If a fresh session finds no selectable WP at all, this
+    is the expected first item.
+12. **Phase closeout.** When the last WP of a phase is accepted, create a
+    phase-closeout item: its child verifies every exit criterion of the
+    phase, records the evidence at the top of the phase file in its PR, and
+    runs the phase-relevant curated eval subset.
+13. **Final closeout.** Before concluding the whole goal is met, create a
+    final-closeout item: its child runs the complete curated eval suite
+    (plan/implementation_evals/eval_checks/, all checks, no tag filter) and
+    fixes or precisely reports any gap. goal_met without this evidence is
+    not credible.
+14. Update current_state.md with the active item, expected next workflow, and
     any blockers.
 
 Child-session review guidance:

@@ -76,8 +76,12 @@ Eval-banana contract:
 - target_paths are resolved from the repo root.
 - Session-local checks should evaluate the repo by running eval-banana from the
   repo root with --cwd . and --check-dir <session eval_checks directory>.
-- The eval runner will run only this session's checks with:
+- The eval runner runs two things: the curated repo subset relevant to this
+  session's work package (selected with --tag using the tags named in the
+  session goal — the full curated suite is a final-closeout gate, not a
+  per-WP gate) and this session's checks:
   eval-banana run --cwd . --check-dir <session eval_checks directory> --output-dir <session directory>/eval_results
+  Design your session checks to complement that tagged subset, not repeat it.
 
 What to do:
 1. Read .agents/skills/eval-banana/SKILL.md if present. If it is absent, use

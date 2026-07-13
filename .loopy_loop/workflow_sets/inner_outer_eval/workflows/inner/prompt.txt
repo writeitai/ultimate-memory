@@ -77,6 +77,10 @@ PR, branch, and merge policy:
 
 Implementation rules:
 - Implement the selected task only.
+- If the task appears to require deviating from a binding design, STOP the
+  task: that is a design change (roadmap rule) — mark the task failed with the
+  exact conflict recorded in current_state.md for outer/PM review. Do not
+  implement around the design.
 - Keep changes small and directly tied to the task acceptance criteria.
 - Run the relevant project checks you can reasonably run.
 - Do not mark parent tasks completed.
@@ -149,14 +153,14 @@ Create an agent team to do it. They should be responsible for:
       `_additional_context/` and inspect them locally.
     - write down your findings into markdown file/s.
 - coming up with a plan how to do it using CODEX
-    - the plan should be outputted to `/_feature_planning` directory and should be based on the findings from the previous research
-    - Create a dedicated directory withing the `/_feature_planning` and then create markdown file there called "plan.md".
+    - the plan should be outputted to the `_feature_planning/` directory inside the rendered Session directory and should be based on the findings from the previous research
+    - Create a dedicated subdirectory there for this task and then create markdown file there called "plan.md".
     - After writing the plan, you can ask me additional questions in "questions.md". Always include a recommended solution.
     - Think very deeply before you start writing.
     - Try to keep the potential solution simple.
     - think of acceptance criteria and write them down
     - The goal is to make a system that would be easy to understand and maintain.
-    - think if and how to update README.md and docs/ referenced by CLAUDE.md and AGENTS.md.
+    - documentation ships with behavior (D66): if the work affects user-facing behavior, its page under website/src/app/docs/**/page.mdx and /docs/project-status must be updated IN THE SAME PR (this repo has no docs/ tree; website/ is the product documentation).
 - if the plan is updated after reviews, tend to pass the updated plan and questions to reviewers again
 - reviewing the plan and the acceptance criteria and also the recommended solutions to the questions using CODEX
     - if there are any shortcomings with the plan, return the work back to the planning agent together with the feedback
@@ -200,8 +204,9 @@ Create an agent team to do it. They should be responsible for:
 - running all the relevant tests and fix if something is not passing using CLAUDE
     - BE changes - unit tests, pyright checks, listings
 - documenting everything well:
-    - README.md
-    - docs/
+    - README.md when the repo-level picture changes
+    - website/src/app/docs/**/page.mdx and /docs/project-status for any
+      user-facing behavior change — required in the same PR (D66)
 - making sure you the "Completion rules" above were followed
 - for implementation work that changes repo files, making a new branch, opening a PR, waiting for checks, and merging it
     - choose the main development branch, e.g. develop, dev, or main

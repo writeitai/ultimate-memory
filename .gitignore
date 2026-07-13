@@ -12,3 +12,4 @@ dist/
 .coverage*
 htmlcov/
 .loopy_loop/sessions/
+.eval-banana/results/

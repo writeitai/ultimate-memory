@@ -3,17 +3,19 @@
 # Required by the harness_judge checks in plan/implementation_evals/eval_checks/
 # and by the session-scoped checks the loopy-loop eval workflows create:
 # without a configured harness agent, `eval-banana validate/run` refuses to
-# start. Pinned to the same model policy as loopy_loop_config.yaml.
+# start.
 
 [harness]
-# AI coding agent used by harness_judge checks.
+# Judge family (D53 producer/checker separation, and this suite's own running
+# convention): the implementation loop's only producer is Codex, so the judge
+# runs on a DIFFERENT family. Claude is the repo's default checker for Codex
+# producers.
 # Env override: EVAL_BANANA_HARNESS_AGENT
-agent = "codex"
+agent = "claude"
 
-# GPT-5.6 family (GA 2026-07): sol = flagship. Judging design conformance is
-# judgment work — keep it on the flagship, same as the loop coordinator.
+# Claude flagship via the claude CLI.
 # Env override: EVAL_BANANA_HARNESS_MODEL
-model = "gpt-5.6-sol"
+model = "claude-opus-4-8"
 
 # Env override: EVAL_BANANA_HARNESS_REASONING_EFFORT
 reasoning_effort = "high"

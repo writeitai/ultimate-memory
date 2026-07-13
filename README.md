@@ -131,6 +131,7 @@ the same PR, and the full-scope design intent stays here in `plan/`.
 
 | Doc | Purpose |
 |---|---|
+| [loopy_loop_runbook.md](loopy_loop_runbook.md) | Operating the autonomous implementation loop (start/monitor/resume/stop) |
 | [plan/requirements/requirements_v3.md](plan/requirements/requirements_v3.md) | Requirements (current) |
 | [plan/designs/overall_design.md](plan/designs/overall_design.md) | Overall system design — **best place to start** |
 | [plan/designs/registries_design.md](plan/designs/registries_design.md) | Entity resolution, ontology, governance, review, eval (D15–D24) |

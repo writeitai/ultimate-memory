@@ -1,7 +1,7 @@
 # Goal
 
 Implement the complete Ultimate Memory library by executing the build roadmap in
-plan/plans/roadmap.md — phases 0 through 8, in order, to done.
+plan/plans/roadmap.md — every phase (0 through 8) to done.
 
 ## How to work (double loop)
 
@@ -11,46 +11,64 @@ plan/plans/roadmap.md — phases 0 through 8, in order, to done.
   reviews the child's evidence before accepting.
 - plan/plans/roadmap.md is the sequencing authority. The phase files
   (plan/plans/phase-0-*.md … phase-8-*.md) define each phase's entry gates, work
-  packages (WP-N.x) with Reads columns and acceptance criteria, and exit
+  packages (WP-N.x) with Reads/Depends/Deliverable/Acceptance columns, and exit
   criteria. The phase files are the backlog; PM state tracks selection and
   review, never a parallel copy.
+- Sequencing follows each phase's and WP's DECLARED dependencies and entry
+  gates, not bare phase numbers. Prefer numeric order when several items are
+  available, but honor documented early eligibility (e.g. phase 8 opens once
+  its own entry dependencies are done, regardless of phases 6–7) and route
+  around human-blocked items instead of stopping.
 - Each child session implements exactly one WP (or a small WP group the phase
   file itself couples) on the inner_outer_eval workflow set. The child's goal
-  must be self-contained: WP id, Reads column, acceptance criteria, delivery
-  and eval expectations (the dispatcher writes it that way).
-- A work package is executed after reading the documents named in its Reads
-  column (plus the repo conventions in the system rules). The design documents
-  are binding; where a plan and a design appear to disagree, the design wins
-  and the discrepancy is recorded.
+  must be self-contained: the dispatcher composes it from the WP's full row
+  (Goal, Reads resolved to real paths, Depends, Deliverable, Acceptance) plus
+  the repo's delivery and eval rules.
+- Design conflicts follow the roadmap's rule: if a WP appears to require
+  deviating from a binding design, that is a design change — the child stops
+  with the exact conflict for PM review and the authoritative document is
+  amended first (via a normal PR). Nobody implements around a design and merely
+  records a note.
 - WP status columns (planned | in-progress | done | blocked(<gate>)) are
-  flipped by the child, committed together with the work; the planner verifies
-  the flip during review.
-- Respect the roadmap's gate register: a phase must not start while one of its
-  entry gates is open. If a gate is blocked on a human decision, record it and
-  continue with unblocked work.
+  flipped by the owning child, committed together with the work; the planner
+  verifies the flip during review.
+- Besides WP implementation children, the planner dispatches maintenance
+  children when the roadmap itself needs work:
+  - a PLAN-RECONCILIATION child when phase statuses or the gate register
+    contradict repo evidence or recorded decisions (it reconciles the plan
+    with evidence via a normal PR, following the plan-edit rules);
+  - a PHASE-CLOSEOUT child when a phase's last WP is accepted (it verifies
+    every exit criterion, records the evidence at the top of the phase file
+    in its PR, and runs the phase-relevant curated eval subset);
+  - a FINAL-CLOSEOUT child before goal_met (it runs the complete curated
+    eval suite and fixes or precisely reports any gap).
 - All implementation lands via branch → PR → checks → merge. CI (ruff, pyright,
-  pytest, coverage) must be green before merge.
+  pytest, coverage) must be green before merge. PRs reference the WP id.
 
 ## Eval focus
 
-- Keep eval-banana checks central to the loop. The curated repo check set in
-  plan/implementation_evals/eval_checks/ (design-conformance checks, maintained
-  in-repo) is the base: child eval workflows run it, don't invent overlapping
-  checks, and add session-scoped checks that verify the WP's specific behavior —
-  phase exit criteria, the designs' own contract tests (the retrieval S-battery
-  scenarios, CI invariants, planted canaries). Checks must verify behavior,
-  never merely that files exist.
-- A child reports goal_met only when both the curated set and its session set
-  pass.
+- The curated repo check set in plan/implementation_evals/eval_checks/ (82
+  design-conformance harness_judge checks) is the FINISH LINE, not a per-WP
+  progress bar: its own README says a check whose subsystem is not yet built
+  scores 0 by design. Children therefore run only the curated subset relevant
+  to their WP (selected by `--tag` with the area/decision tags named in the
+  child goal) plus session-scoped checks that verify the WP's specific
+  behavior. The complete 82-check suite is the final-closeout gate.
+- Session-scoped checks must verify behavior, never merely that files exist,
+  and must not duplicate curated checks.
+- A child reports goal_met only when its tagged curated subset (when the goal
+  names one) and its session checks all pass.
 
 ## Completion criteria
 
 The goal is met only when all of the following are true:
 
 - Every phase file (phase-0 through phase-8) shows all of its work packages done
-  and its exit criteria met, with evidence linked from the PM session's
+  and carries recorded exit-criteria evidence, with links from the PM session's
   project_state/finished.md.
 - Phase 8's benchmark exit criteria pass and the results are recorded.
+- A final-closeout run of the complete curated eval suite (all 82 checks)
+  passes.
 - CI is green on main and all implementation work was merged through PRs (no
   orphaned implementation branches).
 - The PM session's project_state/finished.md contains enough evidence per phase
@@ -58,9 +76,18 @@ The goal is met only when all of the following are true:
 
 ## Notes
 
-- Phase 0 is already partially complete on main (package scaffold, tooling
-  config, CI with coverage, the pydantic-settings config convention). Read the
-  phase-0 file's statuses and continue from there — do not redo finished work.
+- The repo already contains real scaffold evidence (package skeleton, tooling
+  config, CI with coverage, the pydantic-settings config convention), but the
+  phase-0 file currently shows WP-0.1 blocked on the stack-conventions entry
+  gate and no WP done. Do not treat either side as truth by itself: the first
+  order of business is a plan-reconciliation child that audits the evidence,
+  closes or re-scopes the gate and statuses accordingly (with the resolution
+  recorded where the gate register and decisions expect it), and lands it as a
+  normal PR. Only then can implementation WPs be selected.
+- The gate register has no explicit open/closed column. Treat a gate as open
+  unless resolution evidence exists (root decisions.md, questions.md, or an
+  annotation in the register itself); reconciliation children record closures
+  so the register stays truthful.
 - Numbers in designs marked as "starting points to measure" are exactly that:
   measure on the golden set / corpus slices before hard-coding; record
   measurements where the design's spike list asks for them.

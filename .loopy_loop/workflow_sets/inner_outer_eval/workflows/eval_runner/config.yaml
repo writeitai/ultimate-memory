@@ -2,10 +2,13 @@ enabled: true
 priority: 90
 run_every: 1
 must_follow: eval_reviewer
-not_before_iteration: 10
+# One-WP child sessions typically need only a handful of inner runs; waiting
+# ten iterations (the whole-project default) would delay the first eval past
+# most children's useful life.
+not_before_iteration: 3
 run_after_successes:
   workflow_id: inner
-  every: 10
+  every: 3
 emits_goal_check: true
 description: |
   Run the session eval-banana checks and write goal_check.json. The loop stops

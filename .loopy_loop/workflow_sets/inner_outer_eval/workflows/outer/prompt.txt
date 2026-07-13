@@ -40,7 +40,9 @@ Session project_state files:
 Create missing state files as needed. Keep them concise.
 
 project_state/README.md contract:
-- Explain that loopy_loop_goal.txt is the goal source of truth.
+- Explain that the rendered session goal (the session's goal.md) is the goal
+  source of truth — never the repo-root loopy_loop_goal.txt, which holds the
+  PM parent's roadmap goal.
 - List each project_state file and its owner.
 - State that memory.md is essential durable facts only.
 - State that finished.md is outer-owned accepted completions only.
@@ -124,6 +126,13 @@ Loop control signal:
 - Do not stop for ordinary blockers, missing access, missing research, write
   permissions, browser work, PR work, or implementation failures that can
   become follow-up tasks.
+- **Bounded eval retries:** if the session's eval has reported goal_met false
+  three consecutive times with no new acceptance-relevant implementation work
+  between the runs (the work is merged and no follow-up task changes the
+  outcome), stop with `unresolvable_error` and put the exact evidence in the
+  reason: which checks fail, why the session's own scope cannot fix them, and
+  what the parent should change (rescope, different tags, plan fix). Burning
+  hundreds of iterations re-running the same failing eval is never useful.
 - Also update project_state/current_state.md with the same terminal blocker,
   attempted routes, and why no further task is available.
 
@@ -294,14 +303,14 @@ Create an agent team to do it. They should be responsible for:
       `_additional_context/` and inspect them locally.
     - write down your findings into markdown file/s.
 - coming up with a plan how to do it using CODEX
-    - the plan should be outputted to `_feature_planning` directory and should be based on the findings from the previous research
-    - Create a dedicated directory withing the `_feature_planning` and then create markdown file there called "plan.md".
+    - the plan should be outputted to the `_feature_planning/` directory inside the rendered Session directory and should be based on the findings from the previous research
+    - Create a dedicated subdirectory there for this task and then create markdown file there called "plan.md".
     - After writing the plan, you can ask me additional questions in "questions.md". Always include a recommended solution.
     - Think very deeply before you start writing.
     - Try to keep the potential solution simple.
     - think of acceptance criteria and write them down
     - The goal is to make a system that would be easy to understand and maintain.
-    - think if and how to update README.md and docs/ referenced by CLAUDE.md and AGENTS.md.
+    - documentation ships with behavior (D66): if the work affects user-facing behavior, its page under website/src/app/docs/**/page.mdx and /docs/project-status must be updated IN THE SAME PR (this repo has no docs/ tree; website/ is the product documentation).
 - if the plan is updated after reviews, tend to pass the updated plan and questions to reviewers again
 - reviewing the plan and the acceptance criteria and also the recommended solutions to the questions using CODEX
     - if there are any shortcomings with the plan, return the work back to the planning agent together with the feedback

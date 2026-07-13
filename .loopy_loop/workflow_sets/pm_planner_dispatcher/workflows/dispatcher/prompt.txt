@@ -26,9 +26,10 @@ State files to read:
 - project_state/child_sessions.md
 - project_state/decisions.md
 - children.json
-- The selected WP's phase file (plan/plans/phase-N-*.md) — the WP row, its
-  Reads column, and its acceptance criteria are the raw material for the
-  child goal.
+- The selected WP's phase file (plan/plans/phase-N-*.md) — the full WP row
+  (WP | Goal | Reads | Depends | Deliverable | Acceptance | Status) is the
+  raw material for the child goal — plus plan/plans/roadmap.md for the
+  WP-table conventions and the mandatory shared pre-reads.
 
 Dispatcher responsibilities:
 1. Read the selected work item from project_state/work_items.md and
@@ -55,27 +56,57 @@ Child request schema:
 }
 
 Child goal requirements — the child session sees ONLY this goal text plus the
-repo itself, so it must be complete:
-- Name the WP id and title exactly as in its phase file, and the phase file
-  path.
-- List the WP's Reads column verbatim (document paths) as required
-  pre-reading, plus: designs are binding — where a plan and a design appear to
-  disagree, the design wins and the discrepancy is recorded.
-- State the WP's acceptance criteria from the phase file as the child's
-  completion criteria.
+repo itself, so it must be complete. Compose it from the FULL WP row:
+- Name the WP id and its phase file path, and quote the row's Goal cell.
+- Resolve the Reads cell to real document paths with sections and list them
+  as required pre-reading. Reads cells use aliases and decision references
+  (e.g. `postgres_schema_design (all §; §0 conventions)`, `schema §2`, `D12`)
+  — resolve aliases via the roadmap's conventions and the README document
+  index; decision references point into the root decisions.md. Always add
+  the roadmap's mandatory shared pre-read plan/analysis/concepts.md §0.
+- State the Depends cell and the evidence each dependency is satisfied
+  (which WP is done / which gate closed). Never dispatch a WP whose
+  dependencies are not evidenced as done.
+- State the Deliverable cell — it is part of what the planner will accept
+  against, not decoration.
+- State the WP's Acceptance cell as the child's completion criteria.
+- State the design-conflict rule: designs are binding; if the WP appears to
+  require deviating from a design, that is a design change — stop with the
+  exact conflict recorded for PM review so the authoritative document is
+  amended first. Do not implement around it.
 - State delivery expectations: implementation lands via branch → PR → green CI
-  (ruff, pyright, pytest, coverage) → merge; the WP status flip to done in the
-  phase file is committed together with the work; delivery evidence (PR URL,
-  merge commit, CI status) recorded in the child's project_state/finished.md.
-- State eval expectations: the child's eval workflows run the curated repo
-  check set in plan/implementation_evals/eval_checks/ as the base and add
-  session-scoped checks for this WP's specific behavior; goal_met requires
-  both to pass.
+  (ruff, pyright, pytest, coverage) → merge; the PR references the WP id; the
+  WP status flip to done in the phase file is committed together with the
+  work; user-facing behavior updates its website/src/app/docs/**/page.mdx
+  page and keeps /docs/project-status truthful in the same PR (D66);
+  delivery evidence (PR URL, merge commit, CI status) recorded in the
+  child's project_state/finished.md.
+- State eval expectations: session-scoped checks verify this WP's specific
+  behavior, and the curated repo set is run ONLY as the subset relevant to
+  this WP — name the exact tags (area prefixes and decision numbers from the
+  WP's Reads/Acceptance, e.g. `e0`, `D42`) the child's eval runner should
+  pass via --tag. The full 82-check suite is a final-closeout gate, not a
+  per-WP gate. goal_met requires the named subset (when any) and the session
+  checks to pass.
 - Include relevant constraints and known context from the phase file and PM
   state (e.g. open questions already answered in decisions.md, follow-up
   findings when re-dispatching after needs_rework).
 - Keep the goal focused on the one WP (or the explicitly-coupled WP group the
   planner selected). Do not ask the child to manage the roadmap or other WPs.
+
+Maintenance child goals (dispatched the same way, workflow_set
+"inner_outer_eval"):
+- PLAN-RECONCILIATION: goal = audit the named contradiction between plan
+  state and repo evidence / recorded decisions, then reconcile the phase
+  file / gate register via a normal PR under the plan-edit rules (CLAUDE.md
+  Rules 1-2). Name the exact rows/gates in question and the evidence sources
+  (decisions.md entries, questions.md, merged PRs, existing code/CI). No
+  eval tags.
+- PHASE-CLOSEOUT: goal = verify every exit criterion of the named phase,
+  record the evidence at the top of the phase file in a PR, and run the
+  phase-relevant curated subset (name the tags).
+- FINAL-CLOSEOUT: goal = run the complete curated suite (no tag filter) and
+  fix or precisely report every gap.
 
 Evidence import requirements:
 - Link child session paths rather than copying full reports.

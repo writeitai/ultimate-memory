@@ -38,12 +38,17 @@ What to do:
 1. Read project_state/memory.md, project_state/current_state.md, and
    project_state/eval_results.md if they exist.
 2. Confirm the session eval_checks directory exists and contains YAML checks.
-3. Create <session directory>/eval_results and run BOTH check sets from the
+3. Create <session directory>/eval_results and run the check sets from the
    repo root (the eval-banana CLI ships with loopy-loop and is expected on
    PATH). Pass --cwd . so checks evaluate repo-root paths:
-   a) The curated repo set (base):
-      eval-banana validate --cwd . --check-dir plan/implementation_evals/eval_checks
-      eval-banana run --cwd . --check-dir plan/implementation_evals/eval_checks --output-dir <session directory>/eval_results
+   a) The curated repo subset named by the session goal. The goal lists the
+      relevant tags (area prefixes / decision numbers); pass each as --tag
+      (repeatable, OR logic). NEVER run the curated set unfiltered unless the
+      session goal explicitly says to run the complete suite (final
+      closeout): the full set is the finish line for the whole system and
+      scores 0 on subsystems that are not built yet, by design.
+      eval-banana run --cwd . --check-dir plan/implementation_evals/eval_checks --tag <tag> [--tag <tag> ...] --output-dir <session directory>/eval_results
+      If the session goal names no tags, skip the curated set entirely.
    b) The session-scoped set:
       eval-banana validate --cwd . --check-dir <session eval_checks directory>
       eval-banana run --cwd . --check-dir <session eval_checks directory> --output-dir <session directory>/eval_results
@@ -77,9 +82,10 @@ goal_check.json schema:
 }
 
 Set goal_met to true only when:
-- eval-banana validation succeeds for both check sets,
-- both eval-banana runs succeed,
-- all scenarios pass in both the curated repo set and the session set.
+- eval-banana validation succeeds for the session set,
+- every eval-banana run performed in step 3 succeeds,
+- all scenarios pass in the session set AND in the goal-named curated subset
+  (when the goal names one).
 
 If eval-banana is unavailable, checks are missing, validation fails, or any
 scenario fails, set goal_met to false and explain why in the reason.
@@ -87,7 +93,7 @@ scenario fails, set goal_met to false and explain why in the reason.
 Session control stop schema:
 {
   "state": "stopped",
-  "reason": "eval-banana validation and runs passed; all curated and session scenarios passed",
+  "reason": "eval-banana runs passed; all session scenarios and the goal-named curated subset passed",
   "stop_reason": "goal_met",
   "schema_version": 1
 }
