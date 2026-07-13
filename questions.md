@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D64).
+- **`decisions.md`** — what *is* decided (D1–D65).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -101,7 +101,7 @@ Keep this current: when something here is decided, move it to a decision and pru
     spikes in `k_layers_design.md` §11 (rule-kind coverage, planner blast-radius bands, writer
     completeness eval, compile-cycle economics, git-history erasure) and #5/#6 above.
 16. ~~**Retrieval — the consumer surface.**~~ **RESOLVED (D48–D51)** — `retrieval_design.md` is
-    written, driven by the S1–S61 scenario battery (`plan/analysis/retrieval_scenarios.md`):
+    written, driven by the S1–S63 scenario battery (`plan/analysis/retrieval_scenarios.md`):
     zero-LLM primitives + registry recipes, the response envelope (grain / contradictions /
     freshness / typed negatives), propose-dispose hydration, four mounts + filesystem-first
     precedence, the consumption skill. Remaining retrieval items: the spikes in

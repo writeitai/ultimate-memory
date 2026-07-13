@@ -846,7 +846,10 @@ anchors on the lineage; per-snapshot state lives on the version. Full design:
 -- ─────────────────────────────────────────────────────────────────────────
 -- content_objects — immutable bytes, deduplicated (D55/D56). One row per distinct byte content
 -- per deployment; two lineages carrying identical bytes (the same PDF in two Drive folders)
--- share one object — stored once, converted once. NEVER dedup across deployments (D37/D16).
+-- share one object — stored once; converted once PER TOOLCHAIN (D65): one byte object can own
+-- several representation generations (document_representations below) — a new ASR/VLM re-reads
+-- the same bytes into a new immutable representation beside the old one, never over it.
+-- NEVER dedup across deployments (D37/D16).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE content_objects (
   deployment_id   uuid NOT NULL REFERENCES deployments,
@@ -910,24 +913,7 @@ CREATE TABLE document_versions (
   source_modified_at timestamptz,              -- when the SOURCE says this snapshot was authored/modified → derived claims' asserted_at
   published_at    timestamptz,                 -- document's own date (resolves "last year"); world-time origin
   language        text,                        -- detected primary language (per version — it can change)
-  -- GCS artifact URIs for THIS snapshot (bodies live there, not in PG — D37):
-  markdown_uri    text,                        -- gs://…-artifacts/<doc_id>/<content_hash>/document.md (clean Markdown — the immutable coordinate system, D57)
-  pageindex_uri   text,                        -- …/pageindex.json
-  conversion_uri  text,                        -- …/conversion.json (page map + converter metadata, D57-refined D38)
-  blocks_uri      text,                        -- …/blocks.json (the blockizer's block sequence — identity substrate, D57)
-  meta_uri        text,                        -- …/meta.json
-  -- conversion + structure provenance (per snapshot; D38/D39/D7):
-  converter_name  text,
-  converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump re-converts + rebuilds downstream
-  blockizer_version text,                      -- LOGICAL FK → pipeline_component_versions; blocks = f(document.md, blockizer_version) — a bump is a document-wide reuse boundary (D57)
-  structurer_name text,
-  structurer_version text,
-  structurer_model text,
-  structurer_prompt_version text,
-  pageindex_hash  text,
-  placement_version text,
-  section_index_version text,
-  crossref_version text,
+  current_representation_id uuid,              -- → document_representations (D65): the LIVE reading of this snapshot; swapped only after the new representation's conversion→E1→E2 chain completes (real FK added after that table)
   status          document_status NOT NULL DEFAULT 'ingesting', -- ingesting | converting | structuring | ready | failed | deleted
   error           text,
   ingested_at     timestamptz NOT NULL DEFAULT now(),  -- system-time origin for everything derived from this version
@@ -941,7 +927,7 @@ CREATE TABLE document_versions (
   FOREIGN KEY (deployment_id, content_hash) REFERENCES content_objects (deployment_id, content_hash)
 );
 COMMENT ON TABLE document_versions IS
-  'Append-only snapshots of a lineage (D55). Per-snapshot artifacts/provenance/status; source_modified_at dates the testimony (→ claims.asserted_at). The lineage''s current_version_id points here; superseding never deletes. Chunks/sections/claims derive from ONE version and denormalize doc_id.';
+  'Append-only snapshots of a lineage (D55). source_modified_at dates the testimony (→ claims.asserted_at). Artifacts + conversion provenance live on document_representations (D65) — a version can own several immutable readings; current_representation_id names the live one. The lineage''s current_version_id points here; superseding never deletes. Chunks/sections/claims derive from ONE (version, representation) and denormalize doc_id.';
 CREATE INDEX ix_docversions_doc     ON document_versions (doc_id, version_no DESC);
 CREATE INDEX ix_docversions_status  ON document_versions (deployment_id, status) WHERE status <> 'ready';
 CREATE INDEX ix_docversions_hash    ON document_versions (deployment_id, content_hash);
@@ -951,6 +937,61 @@ ALTER TABLE documents ADD FOREIGN KEY (deployment_id, doc_id, current_version_id
   -- the current-snapshot pointer, moved transactionally with currency (D54). The THREE-column FK
   -- (incl. doc_id) makes cross-lineage pointers unrepresentable — a lineage can only point at its
   -- own version (Codex review F6).
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- document_representations — one conversion run's IMMUTABLE output (D65): the identified
+-- "reading" of a version's bytes. A version owns 1..n representations over its life (the 2026
+-- ASR's transcript and the 2027 ASR's transcript of the same recording are two rows, both
+-- kept); document_versions.current_representation_id names the live one and is swapped ONLY
+-- on completion of the new representation's conversion→E1→E2 chain (no window where old
+-- testimony is retired and new hasn't landed — the D54 completion rule). Artifact paths carry
+-- the representation dimension (…/<doc_id>/<content_hash>/<representation_id>/…), so a
+-- re-conversion can never overwrite the coordinate system historical claims' spans and
+-- locators resolve against. Rows are NEVER updated after status='ready'; a re-run of the same
+-- (content, route, versions) replays this row's stored output (D7) — the model is not
+-- re-called. Old representations are deleted only by the version/lineage deletion cascade.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE document_representations (
+  representation_id uuid PRIMARY KEY,
+  deployment_id   uuid NOT NULL REFERENCES deployments,
+  version_id      uuid NOT NULL,               -- composite FK below → document_versions: a representation reads ONE snapshot
+  -- route + component identity (what produced this reading — the reuse key with content_hash):
+  route           text NOT NULL,               -- router route taken (digital_pdf | ocr | markitdown | asr_diarized | video_asr_keyframes | image_description | …, D38/D65)
+  converter_name  text,
+  converter_version text,                      -- LOGICAL FK → pipeline_component_versions; a bump creates a NEW representation (never mutates this one)
+  blockizer_version text,                      -- LOGICAL FK → pipeline_component_versions; blocks = f(document.md, blockizer_version) (D57)
+  structurer_name text,
+  structurer_version text,
+  structurer_model text,
+  structurer_prompt_version text,
+  -- GCS artifact URIs (bodies live there, not in PG — D37); all under …/<content_hash>/<representation_id>/:
+  markdown_uri    text,                        -- document.md (clean Markdown — the immutable coordinate system, D57)
+  pageindex_uri   text,                        -- pageindex.json
+  conversion_uri  text,                        -- conversion.json (source map + route manifest: component graph, execution context (D61), coverage, gaps/warnings, range→derivation labels — D65)
+  blocks_uri      text,                        -- blocks.json (the blockizer's block sequence — identity substrate, D57)
+  meta_uri        text,                        -- meta.json
+  -- output identity (from the manifest — replay/verification, D7/D65):
+  markdown_hash   text,                        -- sha256 of document.md
+  manifest_hash   text,                        -- sha256 of the manifest (covers source map + derived-asset hashes)
+  pageindex_hash  text,
+  placement_version text,
+  section_index_version text,
+  crossref_version text,
+  status          text NOT NULL DEFAULT 'converting',  -- converting | structuring | ready | failed
+  error           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deployment_id, representation_id),    -- composite-FK target
+  UNIQUE (deployment_id, version_id, representation_id), -- composite-FK target for the CURRENT pointer
+  FOREIGN KEY (deployment_id, version_id) REFERENCES document_versions (deployment_id, version_id) ON DELETE CASCADE
+);
+COMMENT ON TABLE document_representations IS
+  'Immutable conversion outputs (D65): one row per (version, toolchain) reading. The extraction basis (D54-refined) is (representation_id, blockizer_version, structurer_version, extractor_version). Never updated after ready; never overwritten by re-conversion; replayed, not regenerated, on re-runs (D7).';
+CREATE INDEX ix_docreps_version ON document_representations (version_id, created_at DESC);
+
+ALTER TABLE document_versions ADD FOREIGN KEY (deployment_id, version_id, current_representation_id)
+  REFERENCES document_representations (deployment_id, version_id, representation_id);
+  -- the current-reading pointer (D65): three-column FK — a version can only point at its OWN
+  -- representation; swapped transactionally with the currency flip on chain completion (D54).
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- connector_sync_cycles — the D55 retract-timing barrier (Codex review F8). A watched
@@ -996,6 +1037,7 @@ CREATE TABLE document_sections (
   deployment_id   uuid NOT NULL REFERENCES deployments,
   doc_id          uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE (the lineage — denormalized for routing)
   version_id      uuid NOT NULL,               -- composite FK below → document_versions: structure derives from ONE snapshot (D55)
+  representation_id uuid NOT NULL,             -- LOGICAL FK → document_representations (D65): the reading whose document.md these spans index — offsets are meaningless without it
   parent_section_id uuid REFERENCES document_sections ON DELETE CASCADE, -- tree structure; NULL for root; cascades the subtree
   node_path       text NOT NULL,               -- materialized path, e.g. '0.2.1' — cheap ancestor/subtree queries
   block_start     integer NOT NULL,            -- first block ordinal of the section (D57: sections are BLOCK RANGES on the deterministic grid)
@@ -1066,6 +1108,7 @@ CREATE TABLE chunks (
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
   doc_id          uuid NOT NULL,               -- LOGICAL FK → documents (the lineage — denormalized for routing/counting)
   version_id      uuid NOT NULL,               -- LOGICAL FK → document_versions: a chunk belongs to ONE snapshot (D55)
+  representation_id uuid NOT NULL,             -- LOGICAL FK → document_representations (D65): the reading whose block grid + document.md offsets this chunk is cut from — the basis coordinate on every occurrence
   section_id      uuid,                        -- LOGICAL FK → document_sections; section (role/path signal for E2)
   ordinal         integer NOT NULL,            -- position within the document
   block_start     integer NOT NULL,            -- first block ordinal packed into this chunk (D57/D58: a chunk = a run of whole blocks)
@@ -1091,23 +1134,32 @@ CREATE INDEX ix_chunks_reuse   ON chunks (deployment_id, doc_id, extraction_inpu
 CREATE INDEX ix_chunks_section ON chunks (section_id);
 
 -- ─────────────────────────────────────────────────────────────────────────
--- chunk_claims — the claim OCCURRENCE map (D56; Codex review F4). claims.chunk_id names the
--- ORIGIN chunk (immutable provenance); when a new version's chunk REUSES prior claims, the link
--- is recorded here — one row per (chunk, claim) attachment, making "which versions carried this
--- claim" an exact join (never an ambiguous chunk_content_hash match — duplicate identical
--- chunks within a version stay distinguishable). claims_as_of over living documents, currency
--- transitions, and K (lineage, chunk)-grain citations read THIS table. Written by the E1/E2
+-- chunk_claims — the claim OCCURRENCE map (D56; Codex review F4) and, since D65, the
+-- OCCURRENCE-GRAIN PROVENANCE home. claims.chunk_id names the ORIGIN chunk (immutable
+-- provenance); when a new version's chunk REUSES prior claims, the link is recorded here —
+-- one row per (chunk, claim) attachment, making "which versions carried this claim" an exact
+-- join (never an ambiguous chunk_content_hash match — duplicate identical chunks within a
+-- version stay distinguishable). The derivation labels + locator set live HERE, not on
+-- claims, because they are occurrence facts: the same claim text re-derived by a new ASR
+-- generation keeps its text but gets new timestamps, speaker labels, and model family — the
+-- claim is immutable, its occurrence provenance varies per representation (reached via the
+-- chunk's representation_id). claims_as_of over living documents, currency transitions,
+-- K (lineage, chunk)-grain citations, envelope evidence provenance (retrieval §5), and
+-- modality-aware audits (which raw target to judge) read THIS table. Written by the E1/E2
 -- workers on both fresh extraction and reuse; append-only; monthly-partitioned like chunks.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE chunk_claims (
   deployment_id   uuid NOT NULL,               -- LOGICAL FK → deployments
-  chunk_id        uuid NOT NULL,               -- LOGICAL FK → chunks (a specific version's chunk row)
+  chunk_id        uuid NOT NULL,               -- LOGICAL FK → chunks (a specific version's chunk row; representation via chunks.representation_id)
   claim_id        uuid NOT NULL,               -- LOGICAL FK → claims
+  derivation_kind text,                        -- D65 disclosure, resolved from the manifest's labeled ranges: asr | acoustic_events | vlm_description | ocr | shot_notes | passthrough | …
+  evidence_mode   text,                        -- D65: source_expression | model_observation | model_interpretation (most-mediated wins on range-crossing spans)
+  source_locators jsonb,                       -- D65: resolved locator set for THIS occurrence (SourceLocator[], media_design §4) — the span→source-map intersection, cached
   created_at      timestamptz NOT NULL DEFAULT now(),  -- partition key
   PRIMARY KEY (chunk_id, claim_id, created_at)
 ) PARTITION BY RANGE (created_at);
 COMMENT ON TABLE chunk_claims IS
-  'Claim occurrences per version-chunk (F4): fresh extraction AND reuse both link here, so one immutable claim attaches to every version-chunk that carries it. The exact occurrence record behind claims_as_of on living documents and the (lineage, chunk)-grain K citation keys. Monthly-partitioned; logical FKs (D23).';
+  'Claim occurrences per version-chunk (F4) + occurrence-grain provenance (D65): fresh extraction AND reuse both link here, so one immutable claim attaches to every version-chunk that carries it, each attachment carrying its resolved derivation labels + locators. The exact occurrence record behind claims_as_of on living documents, the (lineage, chunk)-grain K citation keys, and envelope evidence provenance. Monthly-partitioned; logical FKs (D23).';
 CREATE INDEX ix_chunkclaims_claim ON chunk_claims (claim_id);
 ```
 
@@ -2318,7 +2370,8 @@ Labs."*
 | D54 testimony currency + counting rule | `testimony_currency_events` (partitioned ledger + reconciliation idempotency key) + `claims.is_current_testimony` (cache); `evidence_count`/`contradict_count` redefined (distinct current lineages — write-once `doc_id` on evidence rows makes the recount single-table); `review_item_kind = 'support_withdrawn'` |
 | D55 document lineages + versions | `documents` (lineage: `source_kind/source_ref`, `versioning_mode`, three-column current-version FK), `document_versions` (append-only; `source_modified_at` → `asserted_at`; `sync_cycle_id`), `content_objects`; `connector_sync_cycles` (the retract barrier); `adjudication_outcome='retracted_source_removal'` (living removal retracts — no review softener) |
 | D56 content-addressed reuse | `chunks.chunk_content_hash` + `chunks.extraction_input_hash` (+ `ix_chunks_reuse`); `chunk_claims` — the exact claim-occurrence map (fresh + reused attachments) |
-| D57 block substrate + blockizer; sections on the grid | `document_versions.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
+| D57 block substrate + blockizer; sections on the grid | `document_representations.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
+| D65 media: immutable representations + occurrence provenance | `document_representations` (immutable conversion outputs; route + component graph + output hashes; representation-addressed artifact paths) + `document_versions.current_representation_id` (swap-on-completion); `representation_id` on `document_sections`/`chunks` (the basis coordinate); `chunk_claims.derivation_kind`/`evidence_mode`/`source_locators` (occurrence-grain disclosure + locators, media_design §4–§6) |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
 
 ---

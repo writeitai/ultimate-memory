@@ -1,0 +1,56 @@
+schema_version: 1
+id: media_source_locators
+type: harness_judge
+description: Source locators are a typed union (page/image_region/time/video_region), version-pinned, precision-honest, millisecond-based; the source map connects document.md intervals to locators; deep links appear on every surface; grounding audits for media are modality-aware.
+tags: [e0, e1, ret, media, D65, D32, D51]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
+  Read plan/designs/media_design.md §4 and plan/designs/e1_chunks_design.md §2 — the binding
+  sources — and decisions.md D65 (with D32/D51/D57 refinement annotations) for rationale, then
+  locate the locator types, the source map, and the grounding/audit code under src/. These are
+  acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+
+  Verify ALL of the following:
+  1. A typed SourceLocator union exists matching the normative schema of media_design.md §4 —
+     the five kinds page / source_range (the pageless case: HTML, email, plain text) /
+     image_region / time / video_region — EVERY variant carrying a precision field. It is a
+     discriminated/tagged type, not a bag of nullable columns. Field conventions hold: pages
+     1-based; regions normalized {x,y,w,h} in [0,1], origin top-left; time intervals
+     half-open [start_ms, end_ms) in integer milliseconds on the manifest-declared timeline;
+     frame numbers never used as time coordinates.
+  2. Locators are pinned via their carrier record: every record carrying a locator (source-map
+     entry, block, claim occurrence, envelope provenance item) names the document version
+     (version_id/content_hash) AND the representation (representation_id) it belongs to —
+     never a lineage id and never a P3 path. A claim extracted from an old version/
+     representation must deep-link into those bytes even after the lineage moves on. A span
+     may carry a locator LIST (a sentence crossing a page break or edit cut), and a claim's
+     locator set is the union over its intersected source-map entries.
+  3. Precision honesty is enforced in code: time locators carry the granularity the ASR
+     actually delivered (word vs segment), and nothing fabricates word-level timing by
+     interpolating character positions across a segment.
+  4. The converter's source map (character intervals of document.md → locators) is persisted
+     per immutable representation (conversion sidecar under the representation-addressed
+     path), and the grounding chain resolves in two hops:
+     claim → source_span (exact, deterministic — the D32 anchor, unchanged) → source-map
+     intersection → raw locator at the converter's disclosed precision.
+  5. Deep links surface everywhere the design binds, with the correct semantics per surface
+     (media_design §8): rendered fragments (e.g. original.mp3#t=873) are display metadata,
+     never treated as paths; stubs/frontmatter/envelope carry the mount-relative raw path
+     PLUS the structured locator so a mounted consumer can seek locally; the retrieval
+     envelope's provenance carries source_locators[] on evidence-grain items; and a
+     locator-aware serving operation exists for unmounted parity (hydrate depth=bytes
+     accepting a locator, returning a seekable, codec-aware segment — not a bare byte-range
+     promise). Clip extraction is a serving operation, never a new stored artifact.
+  6. The D32 layer-4 sampled audit is modality-aware for media-derived claims: the audit path
+     fetches the raw interval/region via the locator and judges against the source modality
+     (audio interval, image region/frame), not solely against the derived Markdown.
+
+  Source precedence: the design docs under plan/designs/ are the binding statement of the
+  current system; the decision log is its indexed record — read cited decisions together
+  with their refinement/withdrawal annotations. If sources appear to disagree, treat the
+  design docs (including postgres_schema_design.md) as controlling, and note the
+  discrepancy in your reason rather than failing an implementation that follows the
+  current design.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths in your reason.
+  Otherwise score 0.

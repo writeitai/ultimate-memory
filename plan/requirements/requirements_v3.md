@@ -24,10 +24,15 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 ### Plane E — Evidence (per-document; relational spine is the source of truth)
 
 - **E0 — Files** *(formerly L0)*: every input tracked and preserved (raw bytes kept immutably);
-  normalized to a common text form via a **configurable conversion module** (OCR where needed);
-  per-document **structure** (hierarchy + section roles + summaries) extracted, plus a **placement
-  hint** for the corpus filesystem; cross-references between documents (e.g. citations) tracked.
-  Converted bodies live in object storage; the spine holds only metadata + the queryable structure.
+  normalized to a common text form via a **configurable conversion module** (OCR, audio/video
+  **transcription** with speaker attribution, image **description** where needed — media are
+  first-class inputs, D65); per-document **structure** (hierarchy + section roles + summaries)
+  extracted, plus a **placement hint** for the corpus filesystem; cross-references between
+  documents (e.g. citations) tracked. Converted bodies live in object storage; the spine holds
+  only metadata + the queryable structure. Evidence derived from media traces to the **exact
+  place in the original** (page/region/time interval) and discloses **how mediated** it is
+  (rendered speech vs the model's observation vs its interpretation); the consuming agent can
+  always reach the raw original — the memory ingests the derivation, never replaces the source.
 - **Watched sources & document versions** (D54–D56): sources may be **watched** (a Google
   Drive folder, a mailbox, a URL — polled on a cadence); an edited document is ingested as a
   **new version of the same logical document** (identity survives edits and renames), with
@@ -88,7 +93,11 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
 
 ### Plane P — Projections (derived, no authority; rebuilt on schedule)
 
-- **P1 — Search indexes**: vector/FTS indexes over chunks, claims, and relation fact labels;
+- **P1 — Search indexes**: vector/FTS indexes over chunks, claims, and relation fact labels,
+  plus **media segments** (cross-modal embeddings over images, video keyframes, and audio
+  segments, so media are discoverable by what they *show and sound like*, not only by what
+  their transcript/description happened to mention — D65; the media embedding model is
+  per-deployment configuration, and its absence is reported as a stated capability boundary);
   fully rebuildable from the spine.
 - **P2 — Graph** *(formerly L6)*: relationships between entities; bi-temporal; supports
   as-of queries; ontology starts small and evolves by governance; fully rebuildable from the

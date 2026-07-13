@@ -46,18 +46,29 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   acceptable because a deployment is **one trust domain** (D50): every agent that reaches the
   mount is trusted with the deployment's content; data with a different trust boundary belongs
   in a separate deployment, never behind an in-library filter.
-- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/` holding `document.md`
-  (clean Markdown — the immutable coordinate system everything references by offset, D57),
-  `pageindex.json`, `conversion.json` (page map + converter metadata), `blocks.json` (the
-  blockizer's block sequence, D57), `meta.json`, and **`media/`** — the
-  document's *derived* media: figures extracted from documents, thumbnails, transcripts,
-  referenced from `document.md` by relative links. Standard storage. This is the per-document
-  material an agent *reads*; it is reachable from the corpus filesystem (§6). Media matters
-  because conversion is lossy exactly where a source is visual: agents are pointed
-  **Markdown-first**, but a multimodal harness must be able to open the referenced image
-  directly from the browse path. **Whole-file media originals** (a video, an MP3, a photo
-  input) are *not* duplicated into `media/` — they are served from the raw mount (above) via
-  the explicit raw pointer; `media/` holds only what conversion *derived*.
+- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/<representation_id>/`
+  holding `document.md` (clean Markdown — the immutable coordinate system everything
+  references by offset, D57), `pageindex.json`, `conversion.json` (source map + route
+  manifest + converter metadata), `blocks.json` (the blockizer's block sequence, D57),
+  `meta.json`, and **`media/`** — the path's **representation segment (D65)** exists because
+  one content object can own several conversion generations (a better ASR re-reads the same
+  bytes): each is an immutable `document_representations` row, a re-conversion lands *beside*
+  the old reading (whose coordinate system historical claims still resolve against), never
+  over it, and the version's `current_representation_id` points at the live one — the
+  document's *derived* media: figures extracted from documents, video keyframes, crops,
+  thumbnails, referenced from `document.md` by relative links. Standard storage. This is the
+  per-document material an agent *reads*; it is reachable from the corpus filesystem (§6).
+  Media matters because conversion is lossy exactly where a source is visual: agents are
+  pointed **Markdown-first**, but a multimodal harness must be able to open the referenced
+  image directly from the browse path. **Whole-file media originals** (a video, an MP3, a
+  photo input) are *not* duplicated into `media/` — they are served from the raw mount (above)
+  via the explicit raw pointer; `media/` holds only what conversion *derived*. **The
+  canonical-text rule (D65):** all text eligible for extraction, search, and grounding lives
+  in `document.md` — a transcript is the *body* of a recording's document.md, never (only) a
+  sidecar. `media/` may additionally hold a `.vtt`/JSON **interchange** copy of a transcript
+  (timing-preserving, provenance-linked, for players and external tools), but text that
+  exists *only* in a sidecar is invisible to the blockizer, E2, P1, and D32 grounding — it
+  does not exist as testimony.
 
 (`content_hash` = sha256 of the raw bytes — the canonical *byte* identity, deduplicated in
 `content_objects` and used in the path; the *logical document* identity is the lineage's
@@ -85,11 +96,17 @@ documents(          -- the LINEAGE (D55): the logical document over time
   origin, current_version_id, title, first_seen_at, last_observed_at)
 
 document_versions(  -- append-only observed snapshots of a lineage
-  version_id, doc_id, content_hash → content_objects,  -- bytes deduplicated (stored/converted once)
+  version_id, doc_id, content_hash → content_objects,  -- bytes deduplicated (stored once; converted once per toolchain, D65)
   version_no, source_version_ref, source_modified_at,  -- → derived claims' asserted_at (D41/D55)
-  markdown_uri, pageindex_uri, conversion_uri, meta_uri,
-  converter_*, structurer_*, pageindex_hash, placement_version, section_index_version,
+  current_representation_id → document_representations, -- the LIVE reading (swap-on-completion, D65)
   status, ingested_at, superseded_at)
+
+document_representations(  -- IMMUTABLE conversion outputs (D65): one row per (version, toolchain) reading
+  representation_id, version_id,
+  route, converter_*, blockizer_version, structurer_*,  -- what produced this reading
+  markdown_uri, pageindex_uri, conversion_uri, blocks_uri, meta_uri,  -- …/<content_hash>/<representation_id>/…
+  markdown_hash, manifest_hash, pageindex_hash, placement_version, section_index_version,
+  status, created_at)                                    -- never updated after ready; never overwritten
 ```
 
 PageIndex, summaries, and placement are **LLM-derived, non-deterministic** E0 state, so every
@@ -116,25 +133,38 @@ deletion/forget requirement end-to-end (incl. GDPR-style hard delete of the orig
 A **configurable, pluggable** converter — the boundary is library-shaped and reusable; its quality
 gates everything downstream:
 
-- **Interface (refined by D57):** `convert(bytes, mime, hints) -> { markdown, page_map,
-  media[] }` — converters are heterogeneous (Mistral OCR exposes only per-page Markdown), so
-  they emit only what every tool can deliver: the Markdown, a **page map** (which char-ranges
-  of `document.md` came from which source page — nullable for pageless formats), and `media`
-  (extracted images: id, bytes, page/position, caption — landing in `media/`, linked from the
-  Markdown). **Blocks are not converter output**: the deterministic **blockizer** (one shared
-  parser, `blockizer_version`) derives the block sequence from `document.md` downstream of
-  every route, emitting `blocks.json` — see `e1_chunks_design.md` §2. Offsets into
-  `document.md` are load-bearing (E2 grounding, D32; chunking; PageIndex); source page/bbox
-  provenance is best-effort per converter capability.
+- **Interface (refined by D57, generalized by D65):** `convert(bytes, mime, hints) ->
+  { document.md, source_map, derived_assets[], manifest }` — converters are heterogeneous
+  (Mistral OCR exposes only per-page Markdown), so they emit only what every tool can deliver:
+  the Markdown, a **source map** (which char-intervals of `document.md` came from which part
+  of the source — for paper that is the old *page map*; for media it maps to typed locators:
+  time ranges, image regions — `media_design.md` §4; nullable for pageless/unmappable
+  formats), `derived_assets` (extracted images, keyframes, thumbnails, interchange
+  transcripts: id, bytes, locator, caption — landing in `media/`, linked from the Markdown),
+  and a **manifest** — the route's complete self-account: route taken, full component graph
+  (models + versions), execution context (which adapter, local vs provider — D61), output
+  hashes, coverage policy + result, gaps/warnings, and the range→derivation labels (required
+  field list: `media_design.md` §2; labels: §5). **Blocks are not converter output**: the
+  deterministic **blockizer** (one shared parser, `blockizer_version`) derives the block
+  sequence from `document.md` downstream of every route, emitting `blocks.json` — see
+  `e1_chunks_design.md` §2. Offsets into `document.md` are load-bearing (E2 grounding, D32;
+  chunking; PageIndex); source locator provenance is best-effort per converter capability.
 - **Router by input type** (per-deployment config): digital PDF → direct text extraction; scanned /
-  complex PDF + images → **OCR** (e.g. Mistral OCR / docling / marker); office / html / email →
-  **markitdown**; plain text → passthrough. (This generalizes the common practice of *Mistral OCR for
-  PDFs, markitdown for the rest* into a routing table.)
+  complex PDF + images-that-are-documents → **OCR** (e.g. Mistral OCR / docling / marker); office /
+  html / email → **markitdown**; plain text → passthrough. (This generalizes the common practice of
+  *Mistral OCR for PDFs, markitdown for the rest* into a routing table.) **Media routes (D65),
+  bound in `media_design.md` §2:** audio → **diarized ASR** (transcript as document.md, one
+  block per speaker turn); video → ASR + **adaptive keyframes** + optional VLM shot notes;
+  standalone image that is a *picture* → **VLM description** + OCR of visible text, behind a
+  document-vs-picture discriminator (MIME alone cannot tell a scanned page from a photo).
+  Media converters are versioned like every other — an ASR/VLM upgrade is a
+  `converter_version` bump, flowing the processing-driven lifecycle ruleset
+  (`evidence_lifecycle_design.md` §3).
 - **Versioned** (`converter_version`): a converter or routing change re-converts the affected docs (a
   batch keyed by version), which rebuilds everything downstream — the D7 rebuildability discipline
   applied to the foundation.
 
-Output Markdown → artifacts bucket; the page map + converter metadata → `conversion.json`; the
+Output Markdown → artifacts bucket; the source map + manifest + converter metadata → `conversion.json`; the
 blockizer's `blocks.json` beside them; Postgres gets only the URIs + `converter_version` +
 `blockizer_version`. The convert sub-worker runs converter-adapter + blockizer as one stage
 (the blockizer is deterministic and cheap — no separate queue step). **The conversion route is
@@ -253,8 +283,11 @@ plane K's concern, not E0's; see `retrieval_design.md` §7.)
 facade — directories are inferred from object name prefixes, and symlinks/hard-links are not
 first-class. So the corpus filesystem is built from **real generated files**, not links: every leaf
 is a small generated Markdown **stub** with frontmatter (`doc_id`, `artifact_uri`, `content_hash`,
-`section_path`) and a relative pointer to the artifact, so `cat` shows orientation and the agent
-follows `artifact_uri` for the full body. Mount config: **read-only**, `--implicit-dirs` (so prefix
+`section_path`; for media documents additionally `raw_uri` — the mount-relative path to the
+original — plus duration and preview links into the artifact `media/` folder, D65: the browse
+path shows what the file *is* before anyone opens 2 GB, and never materializes whole raw media
+or per-keyframe pseudo-documents in the tree) and a relative pointer to the artifact, so `cat`
+shows orientation and the agent follows `artifact_uri` for the full body. Mount config: **read-only**, `--implicit-dirs` (so prefix
 folders list correctly), with stat/list caching tuned for the rebuild cadence. (gcsfuse semantics:
 https://cloud.google.com/storage/docs/cloud-storage-fuse/overview.)
 
@@ -409,7 +442,8 @@ derived → P3.
 Decisions: **D36** (E0 = document layer of sub-workers, no renumber), **D37** (storage split +
 Postgres-metadata rule + ID-addressed paths + read-only mount), **D38** (configurable conversion
 module), **D39** (PageIndex structure: sidecar + PG index, structure-only, summaries kept, placement
-hint), **D40** (P3 corpus-filesystem projection).
+hint), **D40** (P3 corpus-filesystem projection), **D65** (media routes + generalized contract +
+canonical-text rule — binding home: `media_design.md`).
 
 Open spikes (measure before committing):
 1. **Conversion fidelity vs cost** — OCR is the expensive, quality-critical step; cheap-extract →

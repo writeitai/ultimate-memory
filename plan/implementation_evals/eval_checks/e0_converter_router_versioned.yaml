@@ -1,21 +1,24 @@
 schema_version: 1
 id: e0_converter_router_versioned
 type: harness_judge
-description: Conversion is a pluggable, versioned router; converters emit document.md + page map + media[], never blocks.
-tags: [e0, D38, D57, D7]
+description: Conversion is a pluggable, versioned router; converters emit document.md + source map + derived assets + manifest, never blocks.
+tags: [e0, D38, D57, D65, D7]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/e0_files_design.md §3 — the binding source — and decisions.md D38 and D57 (the refined converter contract) for rationale and
+  Read plan/designs/e0_files_design.md §3 — the binding source — and decisions.md D38, D57,
+  and D65 (the refined converter contract) for rationale and
   refinement history, then locate the conversion module under src/. These are
   acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
   1. A converter interface exists with a router selecting a converter by input type from
      per-deployment configuration (not hardcoded if/else on one format).
-  2. The converter contract returns document.md + a page map + media[] — converters do NOT
-     emit blocks (block derivation is the blockizer's job, downstream of every route).
-  3. Every conversion is stamped with converter_name/converter_version on the document version
-     row, and a converter/routing change triggers re-conversion keyed by version (D7 discipline).
+  2. The converter contract returns document.md + a source map (char intervals → typed
+     locators; the page map is its paper case) + derived_assets[] + a manifest — converters
+     do NOT emit blocks (block derivation is the blockizer's job, downstream of every route).
+  3. Every conversion is stamped with converter_name/converter_version on its immutable
+     document_representations row (D65), and a converter/routing change creates a NEW
+     representation for affected versions (D7 discipline) — never mutates an existing one.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together
