@@ -16,7 +16,10 @@ uv tool install "loopy-loop==0.5.0"
 ```
 
 loopy-loop 0.5.0 or newer is required (session-goal rendering, child-session
-recovery, `*.json` child-request scanning, failure caps, events/usage ledger).
+recovery, `*.json` child-request scanning, failure caps, events/usage ledger),
+with team-harness 0.3.1 or newer underneath (the antigravity model pin —
+older versions silently ignore it; a fresh `uv tool install` resolves it,
+an existing install may need `uv tool upgrade loopy-loop`).
 The `eval-banana` CLI installs with it and is made visible to spawned agents
 automatically. The worker delegates to agent CLIs — this run needs `codex`, `claude`, and
 `agy` (Antigravity) authenticated: codex is the harness coordinator and

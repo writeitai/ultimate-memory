@@ -25,9 +25,9 @@ team_harness_agents:
 team_harness_agent_models:
   codex: "gpt-5.6-sol"
   claude: "claude-opus-4-8"
-  # antigravity: no model pin — team-harness 0.3.0 cannot set a model for the
-  # agy CLI (its template has no model flag and no model env vars; a pin here
-  # would be silently ignored). It runs the account-default Gemini model.
+  # agy takes its models list's display names verbatim (`agy models`).
+  # Requires team-harness >= 0.3.1 (older versions silently ignore the pin).
+  antigravity: "Gemini 3.5 Flash (High)"
 team_harness_agent_reasoning_efforts:
   codex: "xhigh"
   claude: "high"
