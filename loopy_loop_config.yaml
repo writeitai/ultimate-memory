@@ -66,6 +66,11 @@ team_harness_system_prompt_extension: |
     pydantic-settings BaseSettings, and secret-bearing settings use
     SecretStr/SecretBytes (os.environ is banned by lint); tool-config
     relaxations require recorded receipts.
+  - implementation_core_values.md (repo root) is binding for all code: fully
+    typed; no magic values outside pydantic-settings; simplicity first (no
+    conditionals/feature flags unless absolutely needed); most important
+    functions at the top of the file; tests verify behavior and contracts. A
+    PR violating a core value is not done, whatever it delivers.
   - Documentation ships with behavior (D66): a change that affects user-facing
     behavior updates its page under website/src/app/docs/**/page.mdx and keeps
     /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;
