@@ -69,8 +69,11 @@ team_harness_system_prompt_extension: |
   - implementation_core_values.md (repo root) is binding for all code: fully
     typed; no magic values outside pydantic-settings; simplicity first (no
     conditionals/feature flags unless absolutely needed); most important
-    functions at the top of the file; tests verify behavior and contracts. A
-    PR violating a core value is not done, whatever it delivers.
+    functions at the top of the file; tests verify behavior and contracts;
+    exceptions are never buried or trimmed (full tracebacks via
+    traceback.print_exc, chains preserved with raise-from, handlers ready for
+    Sentry-class capture). A PR violating a core value is not done, whatever
+    it delivers.
   - Documentation ships with behavior (D66): a change that affects user-facing
     behavior updates its page under website/src/app/docs/**/page.mdx and keeps
     /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;

@@ -22,3 +22,12 @@ reviews all assume these; a PR that violates one is not done, regardless of what
 5. **Everything is well-tested, and the tests are thought out.** Tests verify behavior and
    the design's contracts — not line coverage for its own sake, and never mere existence of
    code. A test that couldn't fail for a real reason is not a test.
+
+6. **Exceptions are never buried or trimmed.** No `except: pass`, no swallowed errors, no
+   truncated or paraphrased tracebacks. An exception is either handled meaningfully or it
+   propagates; where one must be caught at a boundary, surface the full traceback
+   (`traceback.print_exc()`) and preserve the original exception and its chain
+   (`raise ... from err`) — never a stringified summary. Write every handler with future
+   error-tracking integration in mind (Sentry-class): a capture hook must be able to see the
+   real exception object with its full context. This is the code-level form of the system
+   rule that failures never disappear.
