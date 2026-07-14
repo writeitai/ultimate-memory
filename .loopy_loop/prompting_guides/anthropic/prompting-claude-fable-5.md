@@ -1,5 +1,6 @@
 > **Vendored snapshot** of https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5
-> Retrieved 2026-07-14 · © Anthropic. Verbatim vendor documentation, kept
+> Retrieved 2026-07-14 · © Anthropic. Docs-site components flattened to plain
+> markdown, content otherwise unabridged; kept
 > in-repo so agent workflows can read it offline at a stable path. It goes
 > stale silently — when prompting behavior seems off for a newer model,
 > re-fetch the source (append `.md` to the URL) and update this file via PR.
@@ -16,11 +17,9 @@ Claude Fable 5 takes on problems that were previously too complex, long-running,
 
 Claude Fable 5 has several behavioral differences from Claude Opus 4.8 that may require prompt or scaffolding updates. Capability improvements at this level are also a good prompt to re-evaluate which instructions, tools, and guardrails are still needed. The patterns below cover the behaviors that most often require tuning.
 
-<Note>
-  For API parameter changes specific to Claude Fable 5 and Claude Mythos 5 (adaptive thinking only, summarized-only thinking output, no extended thinking budgets, the `refusal` stop reason and fallback handling), see [Introducing Claude Fable 5 and Claude Mythos 5](/docs/en/about-claude/models/introducing-claude-fable-5-and-claude-mythos-5).
+**Note:** For API parameter changes specific to Claude Fable 5 and Claude Mythos 5 (adaptive thinking only, summarized-only thinking output, no extended thinking budgets, the `refusal` stop reason and fallback handling), see [Introducing Claude Fable 5 and Claude Mythos 5](https://platform.claude.com/docs/en/about-claude/models/introducing-claude-fable-5-and-claude-mythos-5).
 
-  Claude Fable 5 runs safety classifiers that target offensive cybersecurity techniques (such as building exploits, malware, or attack tooling), biology and life sciences content (such as lab methods or molecular mechanisms), and extraction of the model's summarized thinking. Benign cybersecurity work and beneficial life sciences tasks may also trigger these safeguards. To re-route declined requests automatically, configure [server-side or client-side fallback](/docs/en/build-with-claude/refusals-and-fallback) to Claude Opus 4.8.
-</Note>
+**Note:** Claude Fable 5 runs safety classifiers that target offensive cybersecurity techniques (such as building exploits, malware, or attack tooling), biology and life sciences content (such as lab methods or molecular mechanisms), and extraction of the model's summarized thinking. Benign cybersecurity work and beneficial life sciences tasks may also trigger these safeguards. To re-route declined requests automatically, configure server-side or client-side fallback to Claude Opus 4.8.
 
 ## Capability improvements
 
