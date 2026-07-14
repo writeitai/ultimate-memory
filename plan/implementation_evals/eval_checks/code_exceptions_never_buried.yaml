@@ -1,0 +1,46 @@
+schema_version: 1
+id: code_exceptions_never_buried
+type: harness_judge
+description: Exceptions are never buried or trimmed — failures stay visible (full tracebacks, recorded failures, no fabricated success values); contain-and-continue is legitimate, disappearing failures are not.
+tags: [code, core-values]
+instructions: |
+  You are judging whether this repository's IMPLEMENTATION honors a binding rule.
+  Read implementation_core_values.md (repo root), value 6 — the binding source — then
+  inspect the Python source under the package (production code; test files are exempt from
+  these rules where they intentionally provoke exceptions, e.g. pytest.raises).
+
+  The governing invariant: every exception either propagates, or is handled so the failure
+  stays VISIBLE — full traceback logged, the failure recorded where the system tracks
+  failures, and the caller seeing a failure. Continuing past a CONTAINED failure is correct
+  behavior (a batch worker skipping a poison item and dead-lettering it must score 1, not 0).
+  What fails this check is a failure DISAPPEARING.
+
+  Verify ALL of the following over the production source:
+  1. No silent swallows: no bare `except:` or `except Exception:` whose body discards the
+     error (`pass`, `continue`, bare `return`) without logging the full traceback AND
+     recording the failure.
+  2. No trimmed tracebacks: no handler whose only trace of the error is a message string
+     (f-string with `{e}`, `str(e)`, `repr(e)` into a plain log call). Boundary handlers use
+     `logger.exception(...)` (or `traceback.print_exc()` where no logging is configured) so
+     the complete traceback is emitted.
+  3. Chains preserved: re-wrapping uses `raise NewError(...) from err` — no re-raise sites
+     that discard the original cause.
+  4. No fabricated success values: no handler that converts a failure into a value
+     indistinguishable from success for the caller (returning [], {}, None-as-data, or a
+     default object on error without any failure signal). Contained per-item failures must
+     leave a record (failed status / processing state / dead letter) and be visible in the
+     unit's result.
+  5. Catch-to-log lives at explicit boundaries only (worker/CLI top level; per-item
+     boundaries in batch loops) — not layered catch-log-reraise that would report one
+     failure many times.
+  6. No vendor error-tracking SDK inline in core/spine/workers: Sentry-class capture belongs
+     behind the telemetry port (vendor SDKs only in adapters, per the provider-ports rule).
+     Handlers must keep the real exception object reachable for such capture — no
+     capture-and-destroy.
+
+  If the repository contains no production source yet, or only scaffolding with no exception
+  handlers, score 0 — this is an acceptance check for the final system, and absence of the
+  discipline is not compliance.
+
+  Score 1 only if EVERY condition demonstrably holds — cite file paths (and representative
+  handler sites) in your reason. Otherwise score 0, naming each violating site.

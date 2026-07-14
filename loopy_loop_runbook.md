@@ -18,10 +18,11 @@ uv tool install "loopy-loop==0.5.0"
 loopy-loop 0.5.0 or newer is required (session-goal rendering, child-session
 recovery, `*.json` child-request scanning, failure caps, events/usage ledger).
 The `eval-banana` CLI installs with it and is made visible to spawned agents
-automatically. The worker delegates to agent CLIs — this run needs `codex`
-authenticated (implementation, provider `codex` in the config) and `claude`
-authenticated (`.eval-banana/config.toml` judges on the Claude family per the
-D53 producer/checker separation).
+automatically. The worker delegates to agent CLIs — this run needs `codex`, `claude`, and
+`agy` (Antigravity) authenticated: codex is the harness coordinator and
+primary implementer, claude and antigravity serve the in-team review/research
+roles (`team_harness_agents`), and claude additionally judges the eval checks
+(`.eval-banana/config.toml`, D53 producer/checker separation).
 
 ## Preflight
 

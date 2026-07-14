@@ -145,7 +145,7 @@ Create an agent team to do it. They should be responsible for:
     - take this step especially seriously when the selected task mentions
       meaningful uncertainty, third-party APIs, SaaS behavior, auth, browser
       setup, SDK/version ambiguity, or unclear live-system contracts.
-- if the research step is necessary, then trigger researching agents using GEMINI, CODEX, CLAUDE
+- if the research step is necessary, then trigger researching agents using ANTIGRAVITY, CODEX, CLAUDE
     - use internet, GitHub search/CLI, official docs, source repos, SDK
       examples, GitHub issues, CLI help, browser automation, live read-only
       probes, and downloaded repos/docs as appropriate.
@@ -174,7 +174,7 @@ Create an agent team to do it. They should be responsible for:
     - review for simplicity and robustness
     - think of possible deployment-related shortcomings as well
     - think ultradeeply on this one
-- reviewing the plan and the acceptance criteria and also the recommended solutions to the questions WITH GEMINI!
+- reviewing the plan and the acceptance criteria and also the recommended solutions to the questions WITH ANTIGRAVITY!
     - if there are any shortcomings with the plan, return the work back to the planning agent together with the feedback
     - if you don't agree with the recommended solutions to the questions, or can have better alternative, return the work back to the planning agent together with the feedback
     - review for simplicity and robustness
@@ -193,7 +193,7 @@ Create an agent team to do it. They should be responsible for:
 - reviewing that the plan was followed and that the acceptance criteria were met using CLAUDE
     - be extra thorough in you examination
     - if there are any shortcomings in the implementation, return it back to the execution agent
-- reviewing that the plan was followed and that the acceptance criteria were met WITH GEMINI!
+- reviewing that the plan was followed and that the acceptance criteria were met WITH ANTIGRAVITY!
     - be extra thorough in you examination
     - if there are any shortcomings in the implementation, return it back to the execution agent
 - reviewing that the plan was followed and that the acceptance criteria were met USING CODEX

@@ -295,7 +295,7 @@ Create an agent team to do it. They should be responsible for:
     - take this step especially seriously when the selected task mentions
       meaningful uncertainty, third-party APIs, SaaS behavior, auth, browser
       setup, SDK/version ambiguity, or unclear live-system contracts.
-- if the research step is necessary, then trigger researching agents using GEMINI, CODEX, CLAUDE
+- if the research step is necessary, then trigger researching agents using ANTIGRAVITY, CODEX, CLAUDE
     - use internet, GitHub search/CLI, official docs, source repos, SDK
       examples, GitHub issues, CLI help, browser automation, live read-only
       probes, and downloaded repos/docs as appropriate.

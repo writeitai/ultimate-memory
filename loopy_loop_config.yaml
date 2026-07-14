@@ -6,8 +6,8 @@ workflow_set: pm_planner_dispatcher
 # Applies to the PM parent AND to every child session (children read this same
 # config). High ceiling as a runaway backstop, not a target; the loop stops on
 # goal_met.
-max_turns: 500
-goal_check_consecutive_failures_cap: 3
+max_turns: 1000
+goal_check_consecutive_failures_cap: 5
 # Per-workflow circuit breaker (coordinator-side): consecutive failed
 # iterations of one workflow stop that session with
 # stop_reason=workflow_failure_cap instead of burning max_turns. A capped
@@ -20,10 +20,17 @@ team_harness_provider: "codex"
 team_harness_model: "gpt-5.6-sol"
 team_harness_agents:
   - "codex"
+  - "claude"
+  - "antigravity"
 team_harness_agent_models:
   codex: "gpt-5.6-sol"
+  claude: "claude-opus-4-8"
+  # antigravity: no model pin — team-harness 0.3.0 cannot set a model for the
+  # agy CLI (its template has no model flag and no model env vars; a pin here
+  # would be silently ignored). It runs the account-default Gemini model.
 team_harness_agent_reasoning_efforts:
   codex: "xhigh"
+  claude: "high"
 # Optional coordinator retry controls. Omit to use team-harness defaults.
 # team_harness_max_retries: 8
 # team_harness_retry_base_delay_s: 2.0
@@ -66,6 +73,18 @@ team_harness_system_prompt_extension: |
     pydantic-settings BaseSettings, and secret-bearing settings use
     SecretStr/SecretBytes (os.environ is banned by lint); tool-config
     relaxations require recorded receipts.
+  - implementation_core_values.md (repo root) is binding for all code: fully
+    typed; no magic values outside pydantic-settings; simplicity first (no
+    conditionals/feature flags unless absolutely needed); most important
+    functions at the top of the file; tests verify behavior and contracts;
+    exceptions are never buried or trimmed (propagate, or keep the failure
+    VISIBLE: full traceback via logger.exception / print_exc, failure
+    recorded, caller sees a failure — never a fabricated success value;
+    contained continue-past-failure is fine, disappearing failures are not;
+    chains preserved with raise-from; catch-to-log at explicit boundaries
+    only; real exception objects reachable for Sentry-class capture behind
+    the telemetry port). A PR violating a core value is not done, whatever
+    it delivers.
   - Documentation ships with behavior (D66): a change that affects user-facing
     behavior updates its page under website/src/app/docs/**/page.mdx and keeps
     /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;
