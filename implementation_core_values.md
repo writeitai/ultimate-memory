@@ -23,14 +23,16 @@ reviews all assume these; a PR that violates one is not done, regardless of what
    the design's contracts — not line coverage for its own sake, and never mere existence of
    code. A test that couldn't fail for a real reason is not a test.
 
-6. **Exceptions are never buried or trimmed.** No `except: pass`, no swallowed errors, no
-   truncated or paraphrased tracebacks, no stringified summaries (`str(e)` destroys the
-   traceback and the cause chain). An exception is either handled meaningfully or it
-   propagates — chains preserved with `raise ... from err`. Where one must be caught at a
-   boundary, surface the full traceback: `logger.exception(...)` where logging is configured
-   (it emits the complete traceback and is what error-tracking integrations hook),
-   `traceback.print_exc()` otherwise. Capture happens at **one** boundary — the worker/CLI
-   top level — never at every layer (catch-log-reraise at each level reports one failure
-   many times). Handlers must leave the real exception object, with its full context,
-   reachable for Sentry-class capture behind the telemetry port (vendor SDKs live only in
-   adapters). This is the code-level form of the system rule that failures never disappear.
+6. **Exceptions are never buried or trimmed.** Every exception either propagates, or is
+   handled in a way that keeps the failure **visible**: the full traceback logged
+   (`logger.exception(...)`; `traceback.print_exc()` where no logging exists), the failure
+   recorded where the system tracks failures (a failed result, processing state, the dead
+   letter), and the caller seeing a failure — never a fabricated success value
+   (`return []` on error is a lie to the caller). Continuing past a contained failure is
+   fine — a batch skips its poison item and dead-letters it; hard-failing everything is not
+   the goal. What is banned is the failure *disappearing*: `except: pass`, `str(e)`-only
+   handlers (the traceback and cause chain are destroyed), silent fallbacks. Re-wrapping
+   preserves the chain (`raise ... from err`); catch-to-log lives at explicit boundaries
+   (worker/CLI top level; per-item boundaries in batch loops) — not at every layer, which
+   reports one failure many times. Real exception objects stay reachable for Sentry-class
+   capture behind the telemetry port. "Failures never disappear," at code level.

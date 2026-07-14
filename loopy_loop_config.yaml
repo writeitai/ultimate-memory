@@ -70,12 +70,14 @@ team_harness_system_prompt_extension: |
     typed; no magic values outside pydantic-settings; simplicity first (no
     conditionals/feature flags unless absolutely needed); most important
     functions at the top of the file; tests verify behavior and contracts;
-    exceptions are never buried or trimmed (full tracebacks —
-    logger.exception where logging exists, traceback.print_exc otherwise;
-    chains preserved with raise-from; capture at ONE boundary, not every
-    layer; real exception objects kept reachable for Sentry-class capture
-    behind the telemetry port). A PR violating a core value is not done,
-    whatever it delivers.
+    exceptions are never buried or trimmed (propagate, or keep the failure
+    VISIBLE: full traceback via logger.exception / print_exc, failure
+    recorded, caller sees a failure — never a fabricated success value;
+    contained continue-past-failure is fine, disappearing failures are not;
+    chains preserved with raise-from; catch-to-log at explicit boundaries
+    only; real exception objects reachable for Sentry-class capture behind
+    the telemetry port). A PR violating a core value is not done, whatever
+    it delivers.
   - Documentation ships with behavior (D66): a change that affects user-facing
     behavior updates its page under website/src/app/docs/**/page.mdx and keeps
     /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;
