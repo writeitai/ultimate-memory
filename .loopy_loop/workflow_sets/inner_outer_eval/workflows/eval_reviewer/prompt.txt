@@ -63,6 +63,11 @@ Curated repo check set (base inventory):
   criteria, the phase exit criteria it advances, planted canaries and
   S-battery scenarios named in its Reads documents).
 
+Check instructions are prompts for a Claude judge (.eval-banana/config.toml):
+when writing or reworking a check's instructions, consult the vendored guide
+.loopy_loop/prompting_guides/anthropic/claude-prompting-best-practices.md
+(once per session, not per check).
+
 Eval-banana contract:
 - Check files are YAML files.
 - Use schema_version: 1.

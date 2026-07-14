@@ -93,6 +93,11 @@ repo itself, so it must be complete. Compose it from the FULL WP row:
   findings when re-dispatching after needs_rework).
 - Keep the goal focused on the one WP (or the explicitly-coupled WP group the
   planner selected). Do not ask the child to manage the roadmap or other WPs.
+- Write the goal the way GPT-5.6 wants to be prompted (the child's harness
+  coordinator is GPT-5.6): outcome, constraints, evidence available, and the
+  completion bar — not a step-by-step script. The vendored guide is
+  .loopy_loop/prompting_guides/openai/gpt-5.6-prompting-guidance.md; consult
+  it when composing or reworking goal text.
 
 Maintenance child goals (dispatched the same way, workflow_set
 "inner_outer_eval"):

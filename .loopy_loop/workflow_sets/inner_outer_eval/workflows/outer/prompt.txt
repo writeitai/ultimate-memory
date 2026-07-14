@@ -340,6 +340,14 @@ Create an agent team to do it. They should be responsible for:
 
 Create any additional agents as you see fit.
 
+When composing prompts for spawned agents, consult the vendored provider
+prompting guides in .loopy_loop/prompting_guides/ (openai/ for codex,
+anthropic/ for claude; see its README for the mapping). Read a guide once per
+session when you first compose prompts, not on every spawn — they materially
+change how much instruction each model family wants (GPT-5.6 prefers
+outcome-first prompts with explicit stopping conditions; current Claude models
+degrade under over-prescriptive step lists).
+
 All the agents should think ultra deeply. At the same time, try to keep things simple.
 
 A reminder - you have access to the following CLIs:
