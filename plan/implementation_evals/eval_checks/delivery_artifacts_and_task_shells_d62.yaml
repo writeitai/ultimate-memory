@@ -12,7 +12,9 @@ instructions: |
 
   Verify ALL of the following:
   1. The package is positioned as the client: base install = typed SDK + CLI + MCP server;
-     server/connectors/K machinery live behind extras ([server], [connectors-*], [k]).
+     server/connectors/K machinery live behind extras ([server], [connectors-*], [k]). The
+     RELEASED package ships under the decided names (questions.md §11a): dist remember-dev,
+     CLI remember, import remember (brand remember.dev).
   2. Container images are published (GHCR) and a CI-TESTED docker-compose self-host profile
      exists (Postgres + MinIO + api + worker); a quickstart brings up a working deployment
      (the ten-minute quickstart is a release gate).

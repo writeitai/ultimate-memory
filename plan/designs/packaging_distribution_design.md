@@ -30,7 +30,7 @@ await the owner-provided stack conventions (roadmap §3).
 | Artifact | Consumer | Contents |
 |---|---|---|
 | **The GitHub repository** | contributors, evaluators | source + the `plan/` design corpus (itself a differentiator: the architecture rationale ships with the code) |
-| **The PyPI package** *(name pending — the rename gates release, `questions.md` §11a)* | **agent harnesses and their operators** — positioned as *the client* | base install = the **client surface** (§2): typed SDK, CLI, MCP server. Extras: `[server]` (workers, spine, adapters), `[connectors-gdrive]` etc. (per-connector, server-side), `[k]` (the K compile machine's driver dependencies) |
+| **The PyPI package** — dist **`remember-dev`**, CLI **`remember`**, import **`remember`** (brand **`remember.dev`**, decided 2026-07-13 — `questions.md` §11a; the mechanical rename executes at the release gate) | **agent harnesses and their operators** — positioned as *the client* | base install = the **client surface** (§2): typed SDK, CLI, MCP server. Extras: `[server]` (workers, spine, adapters), `[connectors-gdrive]` etc. (per-connector, server-side), `[k]` (the K compile machine's driver dependencies) |
 | **Container images + compose profiles** (published on **GHCR** — same org as the repo, no second registry account) | self-hosters, CI, benchmarks | `api` and `worker` images; `docker compose up` brings up the **self-host profile**: Postgres + MinIO + api + worker(s). The ten-minute quickstart is a release-gating, CI-tested artifact — an infrastructure-shaped OSS that cannot be *tried* quickly dies |
 
 One package, not a package family: the same distribution contains client and server code;
@@ -163,7 +163,8 @@ ports and published extension points, keeping it portable off GCP too.
 
 - **Versioning**: semantic versioning on the package and images (same version string);
   every release publishes PyPI + GHCR images + the compose file pinned to that tag.
-  *(Package/registry names pending the rename gate — `questions.md` §11a.)*
+  *(Names decided — dist `remember-dev`, CLI `remember`, brand `remember.dev`; container
+  images follow the dist name when the rename gate executes — `questions.md` §11a.)*
 - **Upgrades**: Alembic migrations run **before** workers roll (the schema doc is the source
   of truth; migrations implement it). Processing-version stamps (D7/D12) mean code upgrades
   never silently invalidate derived state — reprocessing is explicit, per version filters,
