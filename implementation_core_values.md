@@ -24,10 +24,13 @@ reviews all assume these; a PR that violates one is not done, regardless of what
    code. A test that couldn't fail for a real reason is not a test.
 
 6. **Exceptions are never buried or trimmed.** No `except: pass`, no swallowed errors, no
-   truncated or paraphrased tracebacks. An exception is either handled meaningfully or it
-   propagates; where one must be caught at a boundary, surface the full traceback
-   (`traceback.print_exc()`) and preserve the original exception and its chain
-   (`raise ... from err`) — never a stringified summary. Write every handler with future
-   error-tracking integration in mind (Sentry-class): a capture hook must be able to see the
-   real exception object with its full context. This is the code-level form of the system
-   rule that failures never disappear.
+   truncated or paraphrased tracebacks, no stringified summaries (`str(e)` destroys the
+   traceback and the cause chain). An exception is either handled meaningfully or it
+   propagates — chains preserved with `raise ... from err`. Where one must be caught at a
+   boundary, surface the full traceback: `logger.exception(...)` where logging is configured
+   (it emits the complete traceback and is what error-tracking integrations hook),
+   `traceback.print_exc()` otherwise. Capture happens at **one** boundary — the worker/CLI
+   top level — never at every layer (catch-log-reraise at each level reports one failure
+   many times). Handlers must leave the real exception object, with its full context,
+   reachable for Sentry-class capture behind the telemetry port (vendor SDKs live only in
+   adapters). This is the code-level form of the system rule that failures never disappear.
