@@ -24,3 +24,10 @@ test:
 	uv run pytest src/tests -v --tb=short --cov --cov-report=term
 
 check: lint typecheck test
+
+SKILL_INSTALL_AGENTS := -a codex -a claude-code -a antigravity-cli
+
+.PHONY: install_skills
+install_skills:
+	npx skills add git@github.com:writeitai/eval-banana.git --skill eval-banana $(SKILL_INSTALL_AGENTS) -y
+	npx skills add https://github.com/anthropics/skills --skill skill-creator $(SKILL_INSTALL_AGENTS) -y

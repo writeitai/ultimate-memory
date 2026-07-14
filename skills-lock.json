@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "skills": {
+    "eval-banana": {
+      "source": "git@github.com:writeitai/eval-banana.git",
+      "sourceUrl": "git@github.com:writeitai/eval-banana.git",
+      "sourceType": "git",
+      "skillPath": "skills/eval-banana/SKILL.md",
+      "computedHash": "c898ec6685ad613f89ae92cb294802558ba5cf150fa508f1095ca0acbcda7805"
+    },
+    "skill-creator": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/skill-creator/SKILL.md",
+      "computedHash": "5ea13a6d9f0d4bb694405d79acd00cadec0d21bb138c4dd10fcf3c500cb835c2"
+    }
+  }
+}
