@@ -36,3 +36,8 @@ reviews all assume these; a PR that violates one is not done, regardless of what
    (worker/CLI top level; per-item boundaries in batch loops) — not at every layer, which
    reports one failure many times. Real exception objects stay reachable for Sentry-class
    capture behind the telemetry port. "Failures never disappear," at code level.
+
+7. **Arguments are passed by name.** Call sites read as documentation:
+   `pack(text=body, max_blocks=limit)`, never `pack(body, 512)`.
+
+8. **Every function has a docstring.**
