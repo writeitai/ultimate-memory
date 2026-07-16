@@ -38,12 +38,6 @@ reviews all assume these; a PR that violates one is not done, regardless of what
    capture behind the telemetry port. "Failures never disappear," at code level.
 
 7. **Arguments are passed by name.** Call sites read as documentation:
-   `pack(text=body, max_blocks=limit)`, never `pack(body, 512)` — positional calls hide
-   meaning and break silently when a signature reorders. Signatures enforce it: parameters
-   beyond the first are keyword-only (`*`). The only exemption is the single, unmistakable
-   argument (`len(items)`, `Path(raw)`).
+   `pack(text=body, max_blocks=limit)`, never `pack(body, 512)`.
 
-8. **Every function has a docstring.** It states what the function does and — where it is
-   not obvious — why it exists; never a restatement of the signature (the types already
-   carry that). A reader must understand the function's contract without reading its body;
-   public surfaces also document raised exceptions and non-obvious argument semantics.
+8. **Every function has a docstring.**

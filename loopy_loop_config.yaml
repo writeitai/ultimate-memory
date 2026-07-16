@@ -83,11 +83,9 @@ team_harness_system_prompt_extension: |
     contained continue-past-failure is fine, disappearing failures are not;
     chains preserved with raise-from; catch-to-log at explicit boundaries
     only; real exception objects reachable for Sentry-class capture behind
-    the telemetry port); arguments passed by name at every call site
-    (keyword-only signatures beyond the first parameter; single unmistakable
-    argument exempt); every function carries a docstring stating what it
-    does and why it exists (never a signature restatement). A PR violating
-    a core value is not done, whatever it delivers.
+    the telemetry port); arguments passed by name; every function has a
+    docstring. A PR violating a core value is not done, whatever it
+    delivers.
   - Documentation ships with behavior (D66): a change that affects user-facing
     behavior updates its page under website/src/app/docs/**/page.mdx and keeps
     /docs/project-status truthful IN THE SAME PR. The repo has no docs/ tree;
