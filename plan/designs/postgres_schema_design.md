@@ -302,7 +302,9 @@ COMMENT ON TABLE pipeline_component_versions IS
 -- content+version idempotency key D12 calls for. content_hash is carried for diagnostics/replay.
 -- Lane is intentionally not part of that key: it routes one logical unit of work. A duplicate
 -- steady enqueue may promote pending/failed backfill work (never the reverse); an explicit
--- dead-letter replay may also reroute it. The dead-letter queue is status='dead_letter' rows.
+-- dead-letter replay may also reroute it. Promotion clears only defer_reason='budget' and resets
+-- that row's not_before to now(); scheduled and retry_backoff waits are preserved. The dead-letter
+-- queue is status='dead_letter' rows.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE processing_state (
   processing_id   uuid PRIMARY KEY,
@@ -324,6 +326,7 @@ CREATE TABLE processing_state (
   started_at      timestamptz,
   finished_at     timestamptz,
   UNIQUE (deployment_id, target_kind, target_id, stage, component_version),
+  UNIQUE (deployment_id, processing_id),       -- supports tenancy-safe cost_ledger FK
   CHECK (attempts >= 0 AND max_attempts >= 1 AND attempts <= max_attempts),
   CHECK (status <> 'failed' OR attempts < max_attempts),
   CHECK (
@@ -341,6 +344,24 @@ COMMENT ON TABLE processing_state IS
 CREATE INDEX ix_procstate_dlq      ON processing_state (deployment_id, stage) WHERE status = 'dead_letter';
 CREATE INDEX ix_procstate_due      ON processing_state (deployment_id, stage, lane, not_before, enqueued_at, processing_id) WHERE status IN ('pending','failed');
 CREATE INDEX ix_procstate_target   ON processing_state (target_kind, target_id);
+
+-- Transactional initial wake for the self-host shell (D67). PostgreSQL delivers NOTIFY only if
+-- the INSERT commits; future-scheduled rows are discovered by the due-work fallback poll. The
+-- delivery port never INSERTs processing_state. Explicit retry/replay/janitor announcements call
+-- the same pg_notify operation through spine after their state transition commits.
+CREATE FUNCTION notify_due_processing_insert() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status IN ('pending','failed') AND NEW.not_before <= now() THEN
+    PERFORM pg_notify('queue_wake', NEW.processing_id::text);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER tr_processing_state_initial_wake
+AFTER INSERT ON processing_state
+FOR EACH ROW EXECUTE FUNCTION notify_due_processing_insert();
 
 -- A self-host worker has one configured route. Use `lane = $3` for steady/backfill and the
 -- equivalent `lane IS NULL` form for an unlaned K/P route; both use ix_procstate_due.
@@ -362,19 +383,26 @@ FOR UPDATE SKIP LOCKED;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- cost_ledger — per-invocation cost/latency metering for enforced per-layer budgets (§8 overall).
--- A succeeded-but-ack-lost call must not be re-billed on the Cloud Tasks retry, so a ledger row is
--- anchored to a single logical call by (target,stage,version,attempt); enforcement reads the
--- deduplicated total.
+-- A succeeded-but-ack-lost call must not be re-billed on retry, while D31 and other handlers may
+-- make several calls in one attempt. A ledger row is therefore anchored to one processing row,
+-- handler attempt, and deterministic stage-local call_key; provider_call_id groups pro-rata
+-- attribution slices when one batched call spans several processing rows. Enforcement reads that
+-- deduplicated total. The spine cost-write method accepts processing_id + call_key + measured cost;
+-- while the processing row is locked/running it copies stage, lane, and attempts from that row.
+-- Callers and delivery envelopes cannot supply or override those three attribution fields.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE cost_ledger (
   cost_id         uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
+  processing_id   uuid NOT NULL,               -- owning processing_state row; composite FK below
+  provider_call_id uuid NOT NULL,               -- one actual provider invocation; shared by D31 pro-rata batch slices
   stage           pipeline_stage NOT NULL,     -- which layer/stage incurred the spend
   lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67)
   target_kind     processing_target,           -- optional: what was being processed
   target_id       uuid,                        -- LOGICAL FK → target
   component_version text,                       -- LOGICAL FK → pipeline_component_versions(version)
-  attempt         smallint NOT NULL DEFAULT 0, -- the processing_state.attempts this call belongs to (dedup anchor)
+  attempt         smallint NOT NULL,           -- processing_state.attempts value when this call began; starts at 1
+  call_key        text NOT NULL,               -- deterministic key within the attempt, e.g. selection | decontextualize | adjudicate:<candidate_id>
   model_name      text,                        -- model billed
   tier            text,                        -- cascade rung that fired (e.g. 'T4-small','T4-frontier','selection','decontext') — cost scales with ambiguity (D4/D17)
   tokens_in       bigint,                      -- prompt tokens (incl. cached-prefix accounting where applicable)
@@ -382,15 +410,18 @@ CREATE TABLE cost_ledger (
   cost_usd        numeric(12,6),               -- billed cost in USD
   latency_ms      integer,                     -- wall-clock of the call
   occurred_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (deployment_id, target_kind, target_id, stage, component_version, attempt), -- one billed row per logical call+attempt (no double-count on retry)
+  FOREIGN KEY (deployment_id, processing_id) REFERENCES processing_state (deployment_id, processing_id),
+  UNIQUE (deployment_id, processing_id, attempt, call_key), -- multiple calls per attempt; one row per logical call
+  CHECK (attempt >= 1),
   CHECK (
     (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
     (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
   )
 );
 COMMENT ON TABLE cost_ledger IS
-  'Append-only spend/latency per LLM/embedding call, attributed to the processing_state lane for D67 per-(deployment,stage,lane,window) budgets. Idempotent per (target,stage,version,attempt), so a retried-but-already-billed call cannot double-count.';
+  'Append-only LLM/embedding call attribution for D67 budgets. Idempotent per (processing_id,attempt,call_key), so multi-call handlers are complete and acknowledged-late retries cannot double-count. provider_call_id groups lane-homogeneous pro-rata slices of one batched call (D31); their token/cost shares sum to the provider total. Nullable diagnostic target fields do not weaken deduplication.';
 CREATE INDEX ix_cost_budget_window ON cost_ledger (deployment_id, stage, lane, occurred_at);
+CREATE INDEX ix_cost_provider_call ON cost_ledger (deployment_id, provider_call_id);
 ```
 
 ---
@@ -2316,7 +2347,8 @@ From `concepts.md`'s running example — *Doc C (Jan 2026): "Alice Novak left Ac
 Labs."*
 
 1. **E0** `documents` row (`ingesting`→`ready`), `document_sections` rows; `processing_state` tracks
-   each sub-worker; `cost_ledger` logs the OCR/structure calls (idempotent per attempt).
+   each sub-worker; `cost_ledger` logs the OCR/structure calls (idempotent per
+   `(processing_id, attempt, call_key)`).
 2. **E1** `chunks` rows with offsets + `context_prefix`; vectors land in Lance keyed by `chunk_id`.
 3. **E2 Selection** keeps the two verifiable propositions (any drop/edit → `claim_extraction_decisions`).
    Kept propositions → `claims` (`c3`, `c4`) with `source_span`, offsets, `added_context`,
@@ -2418,7 +2450,7 @@ Labs."*
 | D57 block substrate + blockizer; sections on the grid | `document_representations.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
 | D65 media: immutable representations + occurrence provenance | `document_representations` (immutable conversion outputs; route + component graph + output hashes; representation-addressed artifact paths) + `document_versions.current_representation_id` (swap-on-completion); `representation_id` on `document_sections`/`chunks` (the basis coordinate); `chunk_claims.derivation_kind`/`evidence_mode`/`source_locators` (occurrence-grain disclosure + locators, media_design §4–§6) |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
-| D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; `ix_procstate_due`; `cost_ledger.lane`; `ix_cost_budget_window`; `payload` explicitly non-authoritative |
+| D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; transactional `tr_processing_state_initial_wake`; `ix_procstate_due`; `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + per-call UNIQUE; `ix_cost_budget_window` / `ix_cost_provider_call`; `payload` explicitly non-authoritative |
 
 ---
 

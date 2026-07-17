@@ -81,17 +81,23 @@ field or API alias. Neither route nor due time may be hidden in `payload`.
 **Application code is written once, as handlers.** Each stage registers
 `handle_<stage>(task) → result`. A completing handler writes its results + its
 `processing_state` transition + the successor's `processing_state` row (the chain rule,
-orchestration §1), then asks the port to announce that committed row. Handlers are idempotent
+orchestration §1) through one shell-agnostic scheduling service. That service persists through
+`spine/`; the self-host insert trigger supplies the initial transactional wake, while the
+reference profile calls the queue port after commit. Retry/replay/janitor paths call the port in
+both profiles. The port never inserts `processing_state`. Handlers are idempotent
 (D12; both adapters are at-least-once) and never know which shell invoked them. On delivery the
 dispatcher re-reads and atomically claims the row; delivery-envelope fields and provider headers
 are hints, never inputs to a state transition.
 
 **The two shells (~200 lines each, in `adapters/`):**
 
-- **Self-host shell — `LISTEN/NOTIFY` + `SKIP LOCKED` (not naive polling).** Announcement =
-  `INSERT` the task row **in the same transaction** as the caller's state writes plus
-  `NOTIFY queue_wake` (crash between "state written" and "wake-up recorded" is impossible by
-  construction — the decisive correctness argument for Postgres here). Worker processes sleep
+- **Self-host shell — `LISTEN/NOTIFY` + `SKIP LOCKED` (not naive polling).** `spine/` inserts
+  the task row. A schema-owned Postgres `AFTER INSERT` trigger performs
+  `pg_notify('queue_wake', processing_id)` in that transaction; Postgres delivers it only after
+  commit, so crash between "state committed" and "initial wake-up recorded" is impossible by
+  construction. The self-host adapter's `announce` method never inserts: for retry, replay, or
+  janitor re-announcement it invokes the injected `spine/` notification primitive for the
+  existing row (SQL remains exclusively in `spine/`). Worker processes sleep
   on `LISTEN`; a notify wakes them in milliseconds; the woken worker claims only rows on its
   configured `(deployment, stage, lane)` route whose `not_before <= now()`, using
   `SELECT … FOR UPDATE SKIP LOCKED LIMIT n` and the schema §2 due-work index. A **slow fallback
@@ -117,8 +123,9 @@ lanes, and budgets sit on top, adapter-agnostic) has one operation:
 `announce(processing_id: UUID, route_snapshot: QueueRoute,
 not_before_snapshot: UTC datetime)`, where `QueueRoute` is the typed snapshot
 `{deployment_id: UUID, stage: pipeline_stage, lane: processing_lane | None}`. The snapshots let an
-adapter pick the physical queue and delivery time; only `processing_id` identifies work, and the
-receiver must validate the snapshots against Postgres. An early, stale, or mismatched delivery is
+adapter pick the physical queue and delivery time; the row must already be committed and only
+`processing_id` identifies work. The port refuses to create or mutate state, and the receiver must
+validate the snapshots against Postgres. An early, stale, or mismatched delivery is
 acknowledged without entering the handler; the current row is announced on its authoritative route
 when due. The contract provides at-least-once delivery, per-route rate limits, and scheduled
 announcement. **Application** retry/backoff, attempt limits,
@@ -141,7 +148,7 @@ This is the implementation map; each row has one canonical owner and a delivery-
 | Earliest delivery | D67: `not_before` is the only term | `processing_state.not_before` + typed `defer_reason` | schedule snapshot is a latency hint; early delivery no-ops |
 | Retry / DLQ | orchestration §6: handler starts count; limit or non-retryable failure dead-letters | `status`, `attempts`, `max_attempts`, `last_error`; DLQ = `status='dead_letter'` | provider attempts/headers are diagnostic and cannot change state |
 | Budget parking | orchestration §4: pending until window roll, no attempt consumed | `status='pending'`, `defer_reason='budget'`, future `not_before` | re-announce for that time; never a failure delivery |
-| Cost attribution | orchestration §4: sum by deployment/stage/lane/window | `cost_ledger.lane` + budget-window index | no adapter-owned accounting |
+| Cost attribution | orchestration §4: one row per processing/attempt/logical call attribution; batch slices share provider call; sum by deployment/stage/lane/window | `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + unique key + budget-window index | no adapter-owned accounting |
 | Due claim | D67: only due pending/failed work is runnable | `ix_procstate_due` + schema §2 `SKIP LOCKED` query | self-host polls/claims; GCP dispatch claims its named row |
 
 ## 4. Code architecture — hexagonal, with the arrows enforced in CI
