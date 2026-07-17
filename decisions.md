@@ -254,6 +254,12 @@ fingerprint + extractor version), so re-ingesting an edited document re-extracts
 changed chunks; embeddings key on (chunk content hash, embedding version). Same principle,
 finer grain.
 
+**Refined by D67.** "Max 2 retries" means one initial handler execution plus at most two
+application retries: `processing_state.attempts` counts handler starts and its starting-point
+`max_attempts` is three. Cloud Tasks retries transport delivery only; provider headers never
+become the application counter or DLQ authority. Normalized backoff and budget-parking state lives
+on the Postgres row.
+
 ---
 
 ## D13. LadybugDB accepted as the L6 engine (P2 after D14)
@@ -1713,7 +1719,7 @@ and the **reference adapter** (which is also what the cloud offering runs):
 | Port | Self-host adapter | Reference adapter |
 |---|---|---|
 | Object store (raw, artifacts, snapshots) | S3-compatible (e.g. MinIO); local FS for dev | GCS |
-| Task queue / scheduler (bounded retries, rate limits, DLQ) | Postgres-backed queue (`SKIP LOCKED` + retry columns — the DLQ already lives in Postgres, D12) | Cloud Tasks + Cloud Run jobs |
+| Task queue / scheduler (at-least-once announcement, scheduled delivery, rate limits) | Postgres-backed queue (`SKIP LOCKED`; application retry/DLQ state is the row, D12/D67) | Cloud Tasks + Cloud Run jobs |
 | Mount publication (P3 + artifact/raw/K mounts, D51) | local directory trees | GCS + gcsfuse |
 | K git remote | any git remote | hosted per-deployment repo |
 | Model / embedding providers | BYO keys | configured providers |
@@ -1736,10 +1742,11 @@ generated files (D40), and the K driver already speaks ordinary git.
 
 **Consequences.** Requirements §"Imposed constraints" reframed (fixed engine choices vs. ports vs.
 reference profile). Designs that reference Cloud Tasks/GCS semantics mean the *port contract*
-(ordering, bounded retries, rate limiting, immutable versioned paths, read-only mounts) with the
-reference adapter as one implementation. A runnable self-host stack (docker-compose profile) becomes
-definable — part of the D60 deliverable. The packaging/distribution design (packages, deployment
-profiles, upgrade + migration policy) is a planned design doc, tracked in `questions.md`.
+(at-least-once delivery, scheduling, rate limiting, immutable versioned paths, read-only mounts)
+with the reference adapter as one implementation. A runnable self-host stack (docker-compose
+profile) becomes definable — part of the D60 deliverable. The packaging/distribution design
+(packages, deployment profiles, upgrade + migration policy) is a planned design doc, tracked in
+`questions.md`.
 
 **Refined by D62 (the queue row, strengthened).** The task queue port is **delivery-only**:
 `processing_state` (D12) is the sole authority for what must run; both adapters merely *announce*
@@ -1748,6 +1755,11 @@ Cloud Tasks push), and one **janitor sweep** re-announces lost deliveries on bot
 reference adapter's non-transactional-enqueue window with the same mechanism. A third
 **test-tier** in-process adapter exists as test infrastructure, outside the two-maintained-adapter
 discipline. `packaging_distribution_design.md` §3.
+
+**Refined by D67 (queue state and vocabulary).** The port announces an existing
+`processing_state` row by `processing_id`; route and `not_before` in a delivery envelope are
+snapshots only. Postgres owns nullable lane, due time, defer reason, handler-attempt limit, and the
+DLQ. Cloud Tasks delivery attempts and self-host wake-ups cannot consume an application attempt.
 
 ---
 
@@ -1793,6 +1805,11 @@ compose in Phase 0; PyPI packaging in Phase 5; release engineering + export/impo
 Phase 7). The remaining stack-convention slots (package manager, lint, CI provider, secrets)
 still gate WP-0.1. `questions.md` §11a's packaging item closes; the rename + CLA gates stay
 open there.
+
+**Refined by D67 (task execution only).** Both shells announce a `processing_id`; any route or
+schedule values carried by the delivery provider are non-authoritative snapshots. The handler
+re-reads Postgres, where lane, `not_before`, defer reason, application attempts, budget parking,
+and dead-letter state have one normalized home.
 
 > **Superseding note (2026-07-17) — `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` /
 > WP-0.1.** The final historical sentence above no longer describes the repository: the
@@ -2023,3 +2040,69 @@ recorded (Pages source + custom domain + DNS) — until bound, the site serves u
 Non-goals: versioned docs, docs SaaS/external search, server-rendered features;
 API-reference pages render from the recipe registry when retrieval ships (D50) rather than
 being hand-maintained.
+
+---
+
+## D67. Queue routing and retry state have one normalized home in Postgres
+
+**Decision.** `processing_state` is the authoritative work ledger and also owns the fields that
+govern delivery: `lane`, `not_before`, `defer_reason`, `attempts`, and `max_attempts`. A plane-E
+row has `lane='steady'` or `lane='backfill'`; a K- or P-plane job has `lane IS NULL` because those
+trigger models do not use lanes. The logical queue route is therefore
+`(deployment_id, stage, lane)`, with `NULL` meaning the one unlaned route for that deployment and
+stage. No physical queue name is persisted. Lane is routing and cost-attribution state, not part of
+the D12 idempotency key: discovering the same `(deployment, target, stage, component_version)` in
+both lanes cannot create two units of work. First insertion establishes the route; a duplicate
+steady enqueue may promote a pending/failed backfill row so live work keeps its freshness
+guarantee, while a backfill enqueue can never demote steady work. An explicit operator replay may
+also reroute a dead letter. Historical cost rows keep the lane on which each billed call ran.
+
+`not_before` is the one canonical name for the earliest instant at which work may be claimed;
+`run_after` is retired as a synonym. `defer_reason` makes the reason queryable:
+`scheduled` is caller-requested future delivery, `retry_backoff` is a failed application attempt
+waiting for its backoff, and `budget` is healthy work parked until its budget window rolls.
+Immediate work has no defer reason. Budget parking sets `status='pending'`, moves `not_before`,
+and changes neither `attempts` nor `last_error`; it can never cause dead-lettering.
+
+`attempts` counts application handler executions that actually began, not Cloud Tasks delivery
+attempts or self-host wake-ups. `max_attempts` is the total execution limit; its starting value is
+three, preserving D12's initial attempt plus at most two retries. A retryable handler failure with
+attempts remaining sets `status='failed'`, records the full failure through the worker boundary,
+and schedules `not_before` with `defer_reason='retry_backoff'`. A failure at the limit, or a
+classified non-retryable failure, sets `status='dead_letter'`. The DLQ remains exactly those
+Postgres rows; there is no adapter-owned DLQ.
+
+Attempts are monotonic across manual replay so cost-ledger deduplication remains stable. Replaying
+a dead letter sets it back to `pending` and raises `max_attempts` above the current `attempts` by
+the operator-approved allowance; it does not reset `attempts` to zero.
+
+`cost_ledger.lane` records the authoritative lane copied from the claimed `processing_state` row
+when a billed call begins. Budget enforcement sums by
+`(deployment_id, stage, lane, occurred_at-window)`; unlaned K/P costs use `lane IS NULL` rather
+than inventing a third operational lane. A matching btree begins with
+`(deployment_id, stage, lane, occurred_at)`. The self-host runnable index begins with
+`(deployment_id, stage, lane, not_before)` over pending/failed rows, so workers can claim due work
+with `FOR UPDATE SKIP LOCKED` without inspecting `payload`.
+
+The task-queue port and its adapters are **delivery-only**. They may announce a delivery envelope
+containing `processing_id` plus a snapshot of route and `not_before`, but the receiving worker
+must re-read and atomically claim the Postgres row. A stale duplicate, an early delivery, a
+mismatched route snapshot, or a Cloud Tasks attempt header cannot override the row and cannot
+increment `attempts`. Cloud Tasks scheduling and self-host `NOTIFY` are latency optimizations;
+the shared janitor re-announces rows whose authoritative state says they are due. Correctness-
+critical route, schedule, retry, budget, and DLQ state is never hidden in `payload`.
+
+**Context.** D61/D62 made adapters delivery-only, packaging required queue/lane plus scheduled
+delivery, and orchestration required per-lane budgets with no-retry parking. The schema had none
+of the normalized lane/due-time fields or indexes, leaving an implementer to put them in opaque
+JSON, trust delivery-provider metadata, or fork semantics between self-host and GCP. This decision
+makes the same state machine implementable by both shells and keeps D16 deployment isolation,
+D12 idempotency, and D60's correctness-in-the-library boundary intact.
+
+**Consequences.** `plan/designs/packaging_distribution_design.md` §3 uses `not_before` and an
+announce-existing-row contract; `plan/designs/orchestration_design.md` §§2–4 and §6 use the same
+state transitions; `plan/designs/postgres_schema_design.md` §§1–2 specify the enums, columns,
+constraints, claim query, and indexes, and §16 maps this decision to both tables. D12 is refined
+only in retry vocabulary (`attempts` is total handler starts; default three means two retries),
+and D61/D62 are refined only by making delivery snapshots explicitly non-authoritative. No queue
+Protocol, migration, adapter, or runtime implementation is created by this decision.

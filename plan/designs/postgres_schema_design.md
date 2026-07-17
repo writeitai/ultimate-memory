@@ -11,7 +11,7 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 `registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
 `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
 `concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
-(D1–D41). Where a table or column exists *because of* a decision, the decision is cited inline.
+(D1–D67). Where a table or column exists *because of* a decision, the decision is cited inline.
 
 > **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
 > conversation. Each module opens with what it stores and *why it has the shape it has*; each
@@ -145,6 +145,10 @@ CREATE TYPE pipeline_component     AS ENUM (
 CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','observation','entity','snapshot','knowledge_artifact');
 CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge');
 CREATE TYPE processing_status      AS ENUM ('pending','running','succeeded','failed','dead_letter','skipped');
+-- D67: only plane-E routes use operational lanes. K/P (and other scheduled aggregate) jobs
+-- represent their single unlaned route with SQL NULL, never a synthetic third enum value.
+CREATE TYPE processing_lane        AS ENUM ('steady','backfill');
+CREATE TYPE processing_defer_reason AS ENUM ('scheduled','retry_backoff','budget');
 
 CREATE TYPE ontology_tier          AS ENUM ('core','extension','other','deprecated');
 CREATE TYPE ontology_status        AS ENUM ('active','deprecated');
@@ -244,8 +248,8 @@ model / frontier LLM).
 
 The substrate every other module sits on: the deployment registry, the component-version catalog
 that gives every `*_version` string meaning, the idempotency/dead-letter ledger that makes workers
-re-runnable (D12), and the cost ledger that meters LLM/embedding spend per layer
-(`overall_design.md` §8).
+re-runnable (D12), D67's normalized queue route/due/retry state, and the cost ledger that meters
+LLM/embedding spend per stage and lane (`overall_design.md` §8).
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
@@ -296,7 +300,9 @@ COMMENT ON TABLE pipeline_component_versions IS
 -- and stable (a document re-upload resolves to the same doc_id via documents' UNIQUE(deployment,
 -- content_hash); sub-document targets are deterministic), the (target,stage,version) tuple IS the
 -- content+version idempotency key D12 calls for. content_hash is carried for diagnostics/replay.
--- The dead-letter queue is the rows with status='dead_letter' (no separate table).
+-- Lane is intentionally not part of that key: it routes one logical unit of work. A duplicate
+-- steady enqueue may promote pending/failed backfill work (never the reverse); an explicit
+-- dead-letter replay may also reroute it. The dead-letter queue is status='dead_letter' rows.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE processing_state (
   processing_id   uuid PRIMARY KEY,
@@ -306,21 +312,53 @@ CREATE TABLE processing_state (
   stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
   content_hash    text NOT NULL,               -- sha256 carried for diagnostics/replay; = doc raw-bytes hash, or parent-hash+salt for sub-document targets
+  lane            processing_lane,             -- steady | backfill for plane E; NULL for K/P and other unlaned scheduled aggregate jobs (D67)
   status          processing_status NOT NULL DEFAULT 'pending',
-  attempts        smallint NOT NULL DEFAULT 0, -- Cloud Tasks retries so far
-  max_attempts    smallint NOT NULL DEFAULT 2, -- per-stage retry budget (D12 starting point, tunable per stage — not a committed constant); ≥ this and still failing ⇒ dead_letter
-  last_error      text,                        -- truncated error of the most recent failure
-  payload         jsonb,                       -- enqueue payload, kept for DLQ inspection / manual replay
+  not_before      timestamptz NOT NULL DEFAULT now(), -- canonical earliest claim time; never hidden in payload (D67)
+  defer_reason    processing_defer_reason,      -- scheduled | retry_backoff | budget; constrained to the corresponding status below
+  attempts        smallint NOT NULL DEFAULT 0, -- handler executions actually begun; delivery attempts and budget parking do not increment it
+  max_attempts    smallint NOT NULL DEFAULT 3, -- total handler-attempt limit; starting point = initial + D12's two retries
+  last_error      text,                        -- full traceback + cause chain for the most recent handler failure; failures never disappear
+  payload         jsonb,                       -- open-ended handler input for DLQ inspection/replay; never route, due, retry, budget, or DLQ state
   enqueued_at     timestamptz NOT NULL DEFAULT now(),
   started_at      timestamptz,
   finished_at     timestamptz,
-  UNIQUE (deployment_id, target_kind, target_id, stage, component_version)
+  UNIQUE (deployment_id, target_kind, target_id, stage, component_version),
+  CHECK (attempts >= 0 AND max_attempts >= 1 AND attempts <= max_attempts),
+  CHECK (status <> 'failed' OR attempts < max_attempts),
+  CHECK (
+    (status = 'failed' AND defer_reason = 'retry_backoff') OR
+    (status = 'pending' AND (defer_reason IS NULL OR defer_reason IN ('scheduled','budget'))) OR
+    (status NOT IN ('pending','failed') AND defer_reason IS NULL)
+  ),
+  CHECK (
+    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
+    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
+  )
 );
 COMMENT ON TABLE processing_state IS
-  'Per-(target,stage,version) idempotency + status ledger (D12). No-op iff a succeeded row exists for the same (deployment,target_kind,target_id,stage,component_version). The DLQ is the rows with status=dead_letter; bounded retries then DLQ — failures never disappear.';
+  'Per-(target,stage,version) idempotency and work-truth ledger (D12/D67). Route is deployment+stage+lane; not_before/defer_reason govern scheduling, retry backoff, and no-attempt budget parking. The DLQ is status=dead_letter rows; delivery-provider metadata is never authoritative.';
 CREATE INDEX ix_procstate_dlq      ON processing_state (deployment_id, stage) WHERE status = 'dead_letter';
-CREATE INDEX ix_procstate_runnable ON processing_state (deployment_id, status, stage) WHERE status IN ('pending','failed');
+CREATE INDEX ix_procstate_due      ON processing_state (deployment_id, stage, lane, not_before, enqueued_at, processing_id) WHERE status IN ('pending','failed');
 CREATE INDEX ix_procstate_target   ON processing_state (target_kind, target_id);
+
+-- A self-host worker has one configured route. Use `lane = $3` for steady/backfill and the
+-- equivalent `lane IS NULL` form for an unlaned K/P route; both use ix_procstate_due.
+-- The claim transaction locks the selected row and runs the budget pre-flight before finalizing a
+-- transition. Exhaustion leaves it pending with defer_reason='budget' and not_before at the window
+-- roll. Otherwise the transaction clears defer_reason, changes status to running, and increments
+-- attempts exactly once immediately before the handler begins.
+SELECT processing_id
+FROM processing_state
+WHERE deployment_id = $1
+  AND stage = $2
+  AND lane = $3
+  AND status IN ('pending','failed')
+  AND not_before <= now()
+  AND attempts < max_attempts
+ORDER BY not_before, enqueued_at, processing_id
+LIMIT $4
+FOR UPDATE SKIP LOCKED;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- cost_ledger — per-invocation cost/latency metering for enforced per-layer budgets (§8 overall).
@@ -332,6 +370,7 @@ CREATE TABLE cost_ledger (
   cost_id         uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
   stage           pipeline_stage NOT NULL,     -- which layer/stage incurred the spend
+  lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67)
   target_kind     processing_target,           -- optional: what was being processed
   target_id       uuid,                        -- LOGICAL FK → target
   component_version text,                       -- LOGICAL FK → pipeline_component_versions(version)
@@ -343,11 +382,15 @@ CREATE TABLE cost_ledger (
   cost_usd        numeric(12,6),               -- billed cost in USD
   latency_ms      integer,                     -- wall-clock of the call
   occurred_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (deployment_id, target_kind, target_id, stage, component_version, attempt)  -- one billed row per logical call+attempt (no double-count on retry)
+  UNIQUE (deployment_id, target_kind, target_id, stage, component_version, attempt), -- one billed row per logical call+attempt (no double-count on retry)
+  CHECK (
+    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
+    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
+  )
 );
 COMMENT ON TABLE cost_ledger IS
-  'Append-only spend/latency per LLM/embedding call, for per-layer dashboards + enforced budgets (overall §8). Idempotent per (target,stage,version,attempt) so a retried-but-already-billed call cannot double-count; budget enforcement reads the deduplicated total.';
-CREATE INDEX ix_cost_layer_time ON cost_ledger (deployment_id, stage, occurred_at);
+  'Append-only spend/latency per LLM/embedding call, attributed to the processing_state lane for D67 per-(deployment,stage,lane,window) budgets. Idempotent per (target,stage,version,attempt), so a retried-but-already-billed call cannot double-count.';
+CREATE INDEX ix_cost_budget_window ON cost_ledger (deployment_id, stage, lane, occurred_at);
 ```
 
 ---
@@ -2079,7 +2122,9 @@ CREATE INDEX ix_kae_doc      ON knowledge_artifact_evidence (doc_id)      WHERE 
 -- batches (routing is mechanical, no longer "decide which" by an LLM at processing time) and
 -- set only on targeted triggers (authored_review, tombstone, manual). not_before is the plain
 -- debounce delay — the hot-file rationale is gone (D45: the root index is just the last DAG
--- target, compiled once per cycle).
+-- target, compiled once per cycle). This is domain-trigger aggregation, not D61 task delivery:
+-- once the driver materializes a K job, its unlaned processing_state row and that row's
+-- not_before are authoritative under D67.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE knowledge_refresh_queue (
   refresh_id      uuid PRIMARY KEY,
@@ -2096,7 +2141,7 @@ CREATE TABLE knowledge_refresh_queue (
   FOREIGN KEY (deployment_id, scope_id)    REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE knowledge_refresh_queue IS
-  'Debounced trigger queue for the K compile driver (D12/D45). Evidence batches are routed to pages mechanically (rule keys + citation reverse lookup); authored_review rows surface D46 flags to the page''s author (human or agent); not_before is the debounce delay (no hot-file machinery).';
+  'Debounced domain-trigger queue for the K compile driver (D12/D45), not D61 delivery state. Evidence batches route mechanically; authored_review surfaces D46 flags; this not_before coalesces triggers, while a materialized K job is delivered only from its unlaned processing_state row (D67).';
 CREATE INDEX ix_krefresh_runnable ON knowledge_refresh_queue (deployment_id, status, not_before) WHERE status = 'pending';
 ```
 
@@ -2341,7 +2386,7 @@ Labs."*
 | D8 relation fact-label embeddings in Lance | `relations.fact_label*` + `*_embedding_ref` (no PG vectors) |
 | D9 search/rerank; evidence-count + graph-distance | `relations.evidence_count`; `entity_graph_metrics.pagerank/degree` |
 | D11 communities external → write back to PG | `communities`, `entity_graph_metrics` (+ GC) |
-| D12 idempotency, retries, DLQ, debounced K triggers | `processing_state`, `cost_ledger`, `knowledge_refresh_queue` |
+| D12 idempotency, retries, DLQ, debounced K triggers | `processing_state` identity/status/`attempts`/`max_attempts`; `cost_ledger`; `knowledge_refresh_queue` (retry ownership refined by D67) |
 | D15/D18 ontology core+extensions, domain/range | `entity_types`, `predicates`, `predicate_signatures` (normalizer-enforced), `extension_packs` |
 | D16 one graph, scope views | `scopes`, `scope_interests` |
 | D17 T0–T4 cascade, block-loose/decide-tight | `aliases` composite GIN indexes; `resolution_decisions.method` (CHECK excludes T1/T2); `resolver_versions` |
@@ -2373,6 +2418,7 @@ Labs."*
 | D57 block substrate + blockizer; sections on the grid | `document_representations.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
 | D65 media: immutable representations + occurrence provenance | `document_representations` (immutable conversion outputs; route + component graph + output hashes; representation-addressed artifact paths) + `document_versions.current_representation_id` (swap-on-completion); `representation_id` on `document_sections`/`chunks` (the basis coordinate); `chunk_claims.derivation_kind`/`evidence_mode`/`source_locators` (occurrence-grain disclosure + locators, media_design §4–§6) |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
+| D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; `ix_procstate_due`; `cost_ledger.lane`; `ix_cost_budget_window`; `payload` explicitly non-authoritative |
 
 ---
 
