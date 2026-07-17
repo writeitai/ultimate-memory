@@ -6,7 +6,7 @@
       "sourceUrl": "git@github.com:writeitai/eval-banana.git",
       "sourceType": "git",
       "skillPath": "skills/eval-banana/SKILL.md",
-      "computedHash": "c898ec6685ad613f89ae92cb294802558ba5cf150fa508f1095ca0acbcda7805"
+      "computedHash": "b40740ad27c51aa067f13e94616b19b05e6cfde717958cc8b2b79ea1f3f7c818"
     },
     "skill-creator": {
       "source": "anthropics/skills",

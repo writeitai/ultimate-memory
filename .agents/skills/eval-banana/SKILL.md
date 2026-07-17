@@ -75,13 +75,17 @@ The script is invoked as `python <script> <context.json>`. Read `sys.argv[1]` to
   "description": "output.json exists and contains a 'result' key.",
   "project_root": "/abs/path/to/project",
   "source_path": "/abs/path/to/project/eval_checks/my_check.yaml",
-  "output_dir": "/abs/path/.../.eval-banana/results/<run_id>/checks/output_has_result_key"
+  "output_dir": "/abs/path/.../.eval-banana/results/<run_id>/checks/output_has_result_key-<sha256-of-exact-id>"
 }
 ```
 
 Key points:
 - `project_root` is absolute — use it to locate any file in the project.
 - The subprocess runs with `cwd = project_root`, so relative paths in the script also resolve from there.
+- `output_dir` is the durable directory for evidence produced by this check.
+  Its final component is the same safe stem used for result, prompt, stdout,
+  and stderr artifacts: a readable label of at most 40 characters plus the
+  full SHA-256 of the exact check ID. Never reconstruct it from `check_id`.
 
 ### Deterministic failure mapping
 
@@ -165,10 +169,17 @@ Each run writes to `.eval-banana/results/<run_id>/`:
 ├── report.json                # Machine-readable, full EvalReport
 ├── report.md                  # Human-readable summary
 └── checks/
-    ├── <check_id>.json        # Per-check CheckResult
-    ├── <check_id>.stdout.txt  # Captured stdout (only if non-empty)
-    └── <check_id>.stderr.txt  # Captured stderr (only if non-empty)
+    ├── <safe_check_id_stem>/            # Deterministic-check evidence directory
+    ├── <safe_check_id_stem>.json        # Per-check CheckResult
+    ├── <safe_check_id_stem>.prompt.txt  # Exact harness-judge input
+    ├── <safe_check_id_stem>.stdout.txt  # Captured stdout (only if non-empty)
+    └── <safe_check_id_stem>.stderr.txt  # Captured stderr (only if non-empty)
 ```
+
+`<safe_check_id_stem>` is a bounded readable label plus the full SHA-256 of the
+exact check ID. All artifacts for one check share it, while IDs that differ only
+by case or normalization remain distinct. The evidence directory is created for
+deterministic checks; the prompt file is created for harness-judge checks.
 
 The console output shows:
 - Run ID
