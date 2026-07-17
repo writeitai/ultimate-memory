@@ -1524,8 +1524,8 @@ CREATE TABLE relation_evidence (
   PRIMARY KEY (relation_id, claim_id)          -- evidence-once, DB-enforced (partition key relation_id is included); re-link via ON CONFLICT DO NOTHING is a no-op
 ) PARTITION BY HASH (relation_id);
 COMMENT ON TABLE relation_evidence IS
-  'Many-to-many evidence links (D2). Corpus redundancy collapses here into relations.evidence_count. Partitioned by HASH(relation_id) so relation hydration prunes to one partition and PRIMARY KEY (relation_id, claim_id) enforces evidence-once in-DB (refines D23 for this table — §17). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
--- Static hash children at migration (e.g. 64) — required, or inserts fail (F5); mirrors observation_evidence:
+  'Many-to-many evidence links (D2). Corpus redundancy collapses here into relations.evidence_count. Partitioned by HASH(relation_id) so relation hydration prunes to one partition and PRIMARY KEY (relation_id, claim_id) enforces evidence-once in-DB (D23; §17 item 1 resolved). claim_id reverse lookup scans all partitions (cold path). Logical FKs (D23).';
+-- 64 static hash children created by the migration — required, or inserts fail (F5); mirrors observation_evidence:
 DO $$ BEGIN
   FOR i IN 0..63 LOOP
     EXECUTE format('CREATE TABLE relation_evidence_p%s PARTITION OF relation_evidence '
@@ -1666,7 +1666,7 @@ CREATE TABLE observation_evidence (
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (observation_id, claim_id)       -- evidence-once, DB-enforced; re-link via ON CONFLICT DO NOTHING is a no-op
 ) PARTITION BY HASH (observation_id);
--- Static hash children at migration (e.g. 64), same as relation_evidence (§9):
+-- 64 static hash children created by the migration, same as relation_evidence (§9):
 DO $$ BEGIN
   FOR i IN 0..63 LOOP
     EXECUTE format('CREATE TABLE observation_evidence_p%s PARTITION OF observation_evidence '
