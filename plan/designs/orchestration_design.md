@@ -5,8 +5,9 @@ How the workers *run*: the operational plane that connects the per-worker design
 `../analysis/workers.md`; per-worker *semantics* live in the layer designs. This document binds
 what none of them owns: queue topology, the steady-state/backfill lane split, budget-enforcement
 semantics, dead-letter operations, and the cross-cloud write discipline. Decisions: **D52–D53**
-(execution-class and model-family invariants), building on D12 (idempotent workers, retries,
-DLQ), D7 (replay-not-recall), D16 (deployment isolation), D23 (scale), D25 (ungated volume).
+(execution-class and model-family invariants) and **D67** (normalized queue-state ownership),
+building on D12 (idempotent workers, retries, DLQ), D7 (replay-not-recall), D16 (deployment
+isolation), D23 (scale), D25 (ungated volume).
 Numbers here are starting points to measure, not committed constants (CLAUDE.md).
 
 > **Reading this cold.** Plane E is a per-document chain of workers (E0
@@ -14,16 +15,20 @@ Numbers here are starting points to measure, not committed constants (CLAUDE.md)
 > resolve/normalize/adjudicate/label), each a Cloud Run job fired by a Cloud Tasks queue when
 > the previous stage completes; planes K and P are debounced/scheduled aggregate workers.
 > `processing_state` in Postgres is the idempotency + status + dead-letter ledger (one row per
-> target/stage/version — schema §2); `cost_ledger` meters every model call. A **lane** is a
-> parallel queue set for the same stages with its own rate limits and budgets.
+> target/stage/version — schema §2) and, under D67, the authority for route, due time, retry, and
+> parking state; `cost_ledger` meters every model call with lane attribution. A **lane** is a
+> parallel plane-E queue set for the same stages with its own rate limits and budgets. Scheduled
+> K/P jobs are explicitly unlaned.
 
 ## 1. No workflow engine — the chain is the orchestrator (scope boundary)
 
 There is deliberately **no Airflow / Temporal / Step Functions layer**. The orchestrator is the
 composition of three things that already exist:
 
-1. **Cloud Tasks queues** — delivery, retry, rate limiting (imposed constraint);
-2. **`processing_state`** — state, idempotency, dead letters (D12);
+1. **Cloud Tasks queues** — at-least-once delivery, transport redelivery, rate limiting
+   (imposed constraint);
+2. **`processing_state`** — state, idempotency, application retries, scheduling, and dead
+   letters (D12/D67);
 3. **the chain rule** — a completing worker enqueues the next stage for its target.
 
 A workflow engine would duplicate all three, add a second stateful system to operate, and put
@@ -33,14 +38,21 @@ steps**: there is no distributed transaction to manage, only the next enqueue. T
 boundary, not a deferral: a future need (e.g. deadline-bound human-in-the-loop steps spanning
 stages) must be argued against this section, not assumed.
 
+Here "retry" in item 1 means retrying a transport delivery. It may produce duplicate pushes but
+cannot start another application attempt unless the Postgres row is due and claimable. Handler
+attempt count, backoff, and terminal dead-lettering belong only to `processing_state` (D67).
+
 ## 2. Queue topology
 
-- **One queue per (deployment, stage, lane).** Per-deployment isolation is a hard rule (D16 —
+- **One logical route per `(deployment, stage, lane)`.** Per-deployment isolation is a hard rule (D16 —
   separate instances never share infrastructure paths). Per-*stage* queues exist so backlogs
   do not couple: a slow OCR batch (convert) must not starve extraction; E3's Postgres-heavy
   adjudication is rate-limited independently of E2's LLM-throughput limits. Queue count is
   configuration, not architecture — stages × lanes × deployments is tens of queues, well
-  inside platform limits.
+  inside platform limits. For lane-managed plane-E rows, `lane` is `steady` or `backfill`.
+  K/P debounce or schedule jobs set `lane IS NULL`; their route is the single unlaned
+  `(deployment, stage, NULL)` route, not a third lane. Physical queue names are derived adapter
+  configuration and are not work identity.
 - **Enqueue granularity mirrors `processing_state` targets**: document-grain through E0;
   chunk-grain from E1 fan-out (chunking is the fan-out point); E3 adjudication consumes
   **batches per (document, entity)** — the observation-design batching rule (one block fetch,
@@ -52,7 +64,19 @@ stages) must be argued against this section, not assumed.
   (D4) — the two knobs are deliberately different mechanisms.
 - **K and P workers keep their own trigger models** (debounce window; schedule — D12) and do
   not use lanes; lanes are a plane-E concept. Their jobs still record `processing_state` rows
-  (`build_snapshot`, `compile_knowledge`, …) like everything else.
+  (`build_snapshot`, `compile_knowledge`, …) like everything else, with `lane IS NULL` and
+  normalized `not_before` when their debounce/schedule is in the future. A domain trigger ledger
+  may also carry a debounce timestamp—for example `knowledge_refresh_queue.not_before` coalesces
+  evidence-change signals—but that row is not task delivery state. When it materializes a K/P job,
+  the unlaned `processing_state` row is the only authority consulted by the D61 queue port.
+
+The route is not the idempotency key. `processing_state` remains unique on
+`(deployment, target_kind, target_id, stage, component_version)`, so a backfill seeder cannot
+duplicate work already discovered by steady ingestion. First insertion establishes the route. A
+duplicate steady enqueue may promote a pending/failed backfill row, preserving the live freshness
+guarantee; a backfill enqueue never demotes steady work. An explicit operator replay may move a
+dead-letter row between lanes. Each change affects future delivery rather than rewriting
+historical costs.
 
 ## 3. Two lanes: steady-state and backfill
 
@@ -82,11 +106,12 @@ document" — requirements). Rules:
 - **Declaration**: budgets are per `(deployment, stage, lane, window)` — e.g. "extract_claims
   / steady / $N per day" — in deployment config.
 - **Enforcement is a deterministic pre-flight check in the worker**: read the deduplicated
-  `cost_ledger` window total (cached, refreshed on the order of minutes — enforcement is a
-  dam, not a scalpel; minutes of lag are priced in). If the budget is exhausted, the worker
-  **parks**: re-enqueue its own task with a `not_before` past the window roll and exit
-  *without* consuming a retry (`processing_state.attempts` untouched, status stays
-  `pending`).
+  `cost_ledger` total for the row's authoritative lane and window (cached, refreshed on the
+  order of minutes — enforcement is a dam, not a scalpel; minutes of lag are priced in). If the
+  budget is exhausted, the worker
+  **parks** by setting `status='pending'`, `defer_reason='budget'`, and `not_before` to the
+  window roll, then re-announces the row and exits *without* starting the handler
+  (`processing_state.attempts` and `last_error` are untouched).
 - **Parking is not failure.** Nothing dead-letters because of budget; no work is lost or
   skipped; the chain resumes exactly where it stopped when the window rolls or the budget is
   raised. Parking between stages is safe **by construction** — stages are independent
@@ -95,6 +120,11 @@ document" — requirements). Rules:
   spent the money): the operator must be able to tell "the corpus got bigger" from "a prompt
   regression made the frontier rung fire 10× more often" in the alert itself, not by
   archaeology.
+
+`cost_ledger.lane` is copied from `processing_state.lane` when a billed call begins. The budget
+lookup is therefore a range sum on `(deployment_id, stage, lane, occurred_at)`; K/P calls can be
+metered on their unlaned route with `lane IS NULL`, but they do not silently join either plane-E
+lane. A delivery envelope or Cloud Tasks header cannot choose the attribution.
 
 ## 5. The cross-cloud write path (design-review F9, made binding)
 
@@ -120,15 +150,24 @@ infrastructure). The operational surface over it is thin and deterministic:
 
 - **Inspect** — SQL views by (stage, error class, component version, age); the preserved
   enqueue `payload` makes every dead letter self-describing and manually replayable.
-- **Replay** — reset the row to `pending`, re-enqueue its payload. Unconditionally safe: the
-  idempotency key is unchanged, so a partially-succeeded earlier attempt no-ops. Bulk replay
-  is the same operation scoped by version or error class, routed through the backfill lane
-  when large.
+- **Replay** — reset the row to `pending`, clear its retry defer reason, choose `not_before`, raise
+  `max_attempts` above the current `attempts` by the approved replay allowance, and re-announce
+  its `processing_id`. Attempts never reset, so cost-ledger deduplication remains stable.
+  Unconditionally safe: the idempotency key is unchanged, so a partially-succeeded earlier attempt
+  no-ops. Bulk replay is the same operation scoped by version or error class; an explicit operator
+  transition may reroute it through the backfill lane when large. `payload` remains handler input
+  for inspection, never the source of route, schedule, or retry state.
 - **Poison detection** — the same target dead-lettering across ≥2 component versions is
   flagged for a human: that is a content pathology (a document that breaks the converter), not
   a transient, and no amount of retrying fixes it.
 - **DLQ depth per stage is a first-class alert metric.** "Failures never disappear"
   (requirements) is only true if something is watching the place they go.
+
+A handler execution increments `attempts` exactly once when it begins. On retryable failure,
+`attempts < max_attempts` produces `status='failed'`, `defer_reason='retry_backoff'`, and a
+backoff-derived `not_before`; at the total-attempt limit the row becomes `dead_letter`.
+Non-retryable errors may dead-letter earlier. Delivery retries that never claim the row consume no
+application attempt, and budget parking can never take either failure transition.
 
 ## 7. Observability — queries over existing state, not new state
 
@@ -156,7 +195,8 @@ second bookkeeping system:
 
 ## References
 
-Inventory: `../analysis/workers.md`. Decisions: D4, D6, D7, D12, D16, D23, D25, **D52–D53**
+Inventory: `../analysis/workers.md`. Decisions: D4, D6, D7, D12, D16, D23, D25,
+**D52–D53 and D67**
 (`decisions.md`). Review findings: `../analysis/design_review_2026_07.md` (F8, F9).
 Requirements: operational properties + imposed constraints (`../requirements/requirements_v3.md`).
 Worker semantics live in their layer designs: `e0_files_design.md`,

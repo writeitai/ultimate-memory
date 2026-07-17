@@ -11,7 +11,8 @@ await the owner-provided stack conventions (roadmap §3).
 > **Reading this cold (CLAUDE.md Rule 1).** The system is a per-deployment memory pipeline:
 > workers process documents in stages (E0 convert → E1 chunk → E2 extract → E3 adjudicate …),
 > each stage recorded in the Postgres table `processing_state` (D12: one row per
-> target/stage/version — pending/running/succeeded/failed/dead-letter). **D61 ports** are
+> target/stage/version — pending/running/succeeded/failed/dead-letter, with normalized route,
+> due-time, retry, and parking state under D67). **D61 ports** are
 > narrow interfaces over the deployment substrate (object store, task queue, mounts, K git
 > remote, model providers, telemetry, auth perimeter), each with a **self-host** adapter and a
 > **GCP reference** adapter. Jargon used below: **at-least-once delivery** = a task may be
@@ -64,47 +65,84 @@ consumers are harnesses (requirements §Retrieval); operators install `[server]`
 
 > **Work is Postgres rows; the queue port only delivers wake-ups.** `processing_state` (D12)
 > is the sole authority for what must run, is running, succeeded, failed, or dead-lettered.
-> The task queue never *owns* work — it *announces* it. Consequently there is no push-vs-pull
-> split in application code: both adapters implement "announce this row."
+> Under D67 it also owns the logical route (`deployment_id`, `stage`, nullable `lane`), earliest
+> delivery time (`not_before`), defer reason, and application-attempt limit. The task queue never
+> *owns* work — it *announces* an existing row. Consequently there is no push-vs-pull split in
+> application code: both adapters implement "announce this `processing_id`."
+
+For plane-E work, `lane` is `steady` or `backfill`; K/P jobs have `lane IS NULL` because their
+debounce/schedule trigger models are not lanes. The logical queue identity is
+`(deployment_id, stage, lane)`. Physical queue names are adapter configuration derived from that
+tuple, never persisted work state. `lane` is deliberately absent from the D12 idempotency key:
+the same target/stage/version discovered by a live ingest and a backfill is one unit of work, not
+two competing rows. `not_before` is the only earliest-delivery term; `run_after` is not a second
+field or API alias. Neither route nor due time may be hidden in `payload`.
 
 **Application code is written once, as handlers.** Each stage registers
 `handle_<stage>(task) → result`. A completing handler writes its results + its
-`processing_state` transition + **enqueues the successor stage** (the chain rule,
-orchestration §1) through the port. Handlers are idempotent (D12; both adapters are
-at-least-once) and never know which shell invoked them.
+`processing_state` transition + the successor's `processing_state` row (the chain rule,
+orchestration §1), then asks the port to announce that committed row. Handlers are idempotent
+(D12; both adapters are at-least-once) and never know which shell invoked them. On delivery the
+dispatcher re-reads and atomically claims the row; delivery-envelope fields and provider headers
+are hints, never inputs to a state transition.
 
 **The two shells (~200 lines each, in `adapters/`):**
 
-- **Self-host shell — `LISTEN/NOTIFY` + `SKIP LOCKED` (not naive polling).** Enqueue =
-  `INSERT` the task row **in the same transaction** as the caller's state writes (crash
-  between "state written" and "successor enqueued" is *impossible by construction* — the
-  decisive correctness argument for Postgres here) + `NOTIFY queue_wake`. Worker processes
-  sleep on `LISTEN`; a notify wakes them in milliseconds; the woken worker claims with
-  `SELECT … FOR UPDATE SKIP LOCKED LIMIT n` (atomic multi-worker claiming, no coordinator).
-  A **slow fallback poll (~30 s)** exists only as a safety net: missed notifications,
-  `run_after` schedules coming due, crash recovery. Retry counters/backoff are row columns;
-  per-queue rate limits are a token bucket consulted in the claim query. Scaling =
-  `docker compose up --scale worker=N`.
-- **GCP reference shell — Cloud Tasks push.** Enqueue = create a Cloud Task; delivery = an
-  HTTP push to a thin Cloud Run handler-dispatch server; retries/backoff/rate limits are
-  queue configuration; attempt counts arrive in headers. Cloud Run autoscales on push.
+- **Self-host shell — `LISTEN/NOTIFY` + `SKIP LOCKED` (not naive polling).** Announcement =
+  `INSERT` the task row **in the same transaction** as the caller's state writes plus
+  `NOTIFY queue_wake` (crash between "state written" and "wake-up recorded" is impossible by
+  construction — the decisive correctness argument for Postgres here). Worker processes sleep
+  on `LISTEN`; a notify wakes them in milliseconds; the woken worker claims only rows on its
+  configured `(deployment, stage, lane)` route whose `not_before <= now()`, using
+  `SELECT … FOR UPDATE SKIP LOCKED LIMIT n` and the schema §2 due-work index. A **slow fallback
+  poll (~30 s)** exists only as a safety net for missed notifications, scheduled work becoming
+  due, and crash recovery. Application attempts/backoff remain row state; per-route rate limits
+  are a token bucket consulted around the claim. Scaling = `docker compose up --scale worker=N`.
+- **GCP reference shell — Cloud Tasks push.** Announcement = create a Cloud Task; delivery = an
+  HTTP push to a thin Cloud Run handler-dispatch server. The task carries `processing_id` plus a
+  snapshot of route and `not_before`; Cloud Tasks scheduling and per-route rate limits reduce
+  needless pushes, but the dispatcher still re-reads Postgres. Provider delivery attempts and
+  headers are diagnostic only. An application failure updates `attempts`, `status`, and
+  `not_before` in Postgres before the row is re-announced; an early or stale duplicate performs
+  no work. Cloud Run autoscales on push.
 
 **The janitor closes both shells' gaps with one mechanism.** A scheduled sweep re-announces
-any `pending` row older than a threshold whose delivery evidently got lost. On GCP this
-repairs the non-transactional enqueue window (state committed, Cloud Task creation crashed);
-on self-host it backstops lost notifications. Same code, port-agnostic, because truth was in
-the row all along.
+due `pending` or `failed` rows whose delivery evidently got lost. On GCP this repairs the
+non-transactional announcement window (state committed, Cloud Task creation crashed); on
+self-host it backstops lost notifications. Future-scheduled and budget-parked rows become eligible
+only at `not_before`. The same code is port-agnostic because truth was in the row all along.
 
 **The port contract** (what both shells must satisfy; the orchestration design's queues,
-lanes, and budgets sit on top, adapter-agnostic): `enqueue(stage, target, queue/lane,
-run_after?)`; at-least-once handler invocation; bounded retries with backoff → DLQ hand-off
-(dead-letter state is `processing_state`, both shells); per-queue rate limits; scheduled
-delivery (`run_after`). A third, **test-tier** adapter — in-process/synchronous — exists for
-unit tests and local hacking; it is test infrastructure, not a maintained deployment adapter
-(D61's two-adapter discipline governs what we *maintain*, not what the port permits — a
-community Redis/arq adapter is possible against the same contract; considered and not chosen
-for maintained self-host: it adds a second stateful service to every deployment and gives up
-transactional enqueue, for throughput this LLM-bound pipeline never needs).
+lanes, and budgets sit on top, adapter-agnostic) has one operation:
+`announce(processing_id: UUID, route_snapshot: QueueRoute,
+not_before_snapshot: UTC datetime)`, where `QueueRoute` is the typed snapshot
+`{deployment_id: UUID, stage: pipeline_stage, lane: processing_lane | None}`. The snapshots let an
+adapter pick the physical queue and delivery time; only `processing_id` identifies work, and the
+receiver must validate the snapshots against Postgres. An early, stale, or mismatched delivery is
+acknowledged without entering the handler; the current row is announced on its authoritative route
+when due. The contract provides at-least-once delivery, per-route rate limits, and scheduled
+announcement. **Application** retry/backoff, attempt limits,
+budget parking, and the DLQ are `processing_state` transitions under D67; provider retry metadata
+cannot override them. A third, **test-tier** adapter — in-process/synchronous — exists for unit
+tests and local hacking; it is test infrastructure, not a maintained deployment adapter (D61's
+two-adapter discipline governs what we *maintain*, not what the port permits — a community
+Redis/arq adapter is possible against the same contract; considered and not chosen for maintained
+self-host: it adds a second stateful service to every deployment and gives up transactional
+enqueue, for throughput this LLM-bound pipeline never needs).
+
+### Cross-source queue-state contract (D67)
+
+This is the implementation map; each row has one canonical owner and a delivery-only projection:
+
+| Concern | Canonical decision / orchestration rule | Normalized Postgres home | Port/adapter view |
+|---|---|---|---|
+| Work identity | D12: one target/stage/component version | `processing_state` unique key, excluding lane | `processing_id` identifies the row |
+| Route | orchestration §2: deployment + stage + steady/backfill; K/P unlaned | `deployment_id`, `stage`, nullable `lane` | route snapshot chooses a physical queue; receiver validates it |
+| Earliest delivery | D67: `not_before` is the only term | `processing_state.not_before` + typed `defer_reason` | schedule snapshot is a latency hint; early delivery no-ops |
+| Retry / DLQ | orchestration §6: handler starts count; limit or non-retryable failure dead-letters | `status`, `attempts`, `max_attempts`, `last_error`; DLQ = `status='dead_letter'` | provider attempts/headers are diagnostic and cannot change state |
+| Budget parking | orchestration §4: pending until window roll, no attempt consumed | `status='pending'`, `defer_reason='budget'`, future `not_before` | re-announce for that time; never a failure delivery |
+| Cost attribution | orchestration §4: sum by deployment/stage/lane/window | `cost_ledger.lane` + budget-window index | no adapter-owned accounting |
+| Due claim | D67: only due pending/failed work is runnable | `ix_procstate_due` + schema §2 `SKIP LOCKED` query | self-host polls/claims; GCP dispatch claims its named row |
 
 ## 4. Code architecture — hexagonal, with the arrows enforced in CI
 
@@ -182,12 +220,13 @@ ports and published extension points, keeping it portable off GCP too.
 | Decision | Effect |
 |---|---|
 | D60 (OSS boundary) | *implements*: the complete-single-deployment deliverable becomes concrete artifacts; export/import keeps self-hosting a first-class exit |
-| D61 (ports) | *refines the queue row*: queue = delivery-only over `processing_state` truth; self-host adapter confirmed as the Postgres shell; test-tier adapter named |
-| D12 (idempotency, DLQ) | *load-bearing*: at-least-once + idempotent handlers is the uniform execution contract; DLQ stays Postgres rows on both shells |
+| D61 (ports) | *refines the queue row*: queue = delivery-only announcements over `processing_state` truth; self-host adapter confirmed as the Postgres shell; test-tier adapter named |
+| D12 (idempotency, DLQ) | *load-bearing*: at-least-once + idempotent handlers is the uniform execution contract; handler starts count attempts; DLQ stays Postgres rows on both shells |
+| D67 (normalized queue state) | *owns the reconciliation*: nullable lane, `not_before`, defer reason, attempt/DLQ transitions, lane-attributed cost, and due-work claim index have one Postgres home |
 | D50/D51 (trust, surfaces) | *unchanged*: API-key perimeter in the library; ingest is a client capability but writes through E0 |
 | D54–D56 (lifecycle) | *extended to clients*: the lineage-aware ingest contract lets push-feeders participate in versioning |
 | D52/D53 (execution classes, model split) | *housed*: the `llm/` layer is where class-2 calls and family assignments live |
-| orchestration design | *unchanged semantics*: queues/lanes/budgets defined against the port contract; both shells satisfy it |
+| orchestration design | *shared semantics*: queue routes, lanes, budgets, retry, and DLQ transitions are defined against the same D67 state and both shells satisfy it |
 
 ## 8. Spikes / open slots
 
