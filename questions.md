@@ -82,8 +82,17 @@ Keep this current: when something here is decided, move it to a decision and pru
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
-      compose profiles, release/upgrade/export policy. Still gating here: the **rename** and the
-      **CLA** (above), and the stack-convention slots (roadmap §3).
+      compose profiles, release/upgrade/export policy. Still gating here: the mechanical
+      **rename** and the **CLA** (above).
+    - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
+      `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —
+      [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) merged `uv`/Hatchling,
+      Ruff, the single-package `src` layout and naming, and GitHub Actions CI;
+      [PR #41](https://github.com/writeitai/ultimate-memory/pull/41) merged the typed
+      pydantic-settings/secret convention and direct-environment-access lint guard. The
+      roadmap now links each choice to the exact repository evidence. This resolution does
+      not perform the release rename, supply attorney clearance, or create the bounded CLA;
+      those release/governance gates remain open above.
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 
