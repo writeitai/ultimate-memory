@@ -21,8 +21,14 @@ uv tool install --force --reinstall --no-sources --no-config "eval-banana==0.3.5
 uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.0"
 uv tool install --force --reinstall --no-sources --no-config \
   --with "eval-banana==0.3.5" --with "team-harness==0.5.0" \
-  "loopy-loop==0.7.1"
+  "loopy-loop==0.7.2"
 ```
+
+The Python tool and the `loopy-loop` Agent Skill are installed separately.
+Before launch or resume, refresh the shared skill from the v0.7.2 release and
+verify that it byte-matches `skills/loopy-loop/SKILL.md` at that tag. Do not run
+with an older skill that still teaches flat child requests, schema-v1 terminal
+control, or top-level-only stop behavior.
 
 `codex`, `claude`, and `agy` must already be authenticated. Every loopy
 workflow coordinator uses `gpt-5.6-sol`. Direct delegates use the configured
