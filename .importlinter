@@ -1,0 +1,64 @@
+[importlinter]
+root_package = ultimate_memory
+
+[importlinter:contract:model-is-independent]
+name = Model imports no other ultimate_memory layer
+type = forbidden
+source_modules =
+    ultimate_memory.model
+forbidden_modules =
+    ultimate_memory.core
+    ultimate_memory.spine
+    ultimate_memory.ports
+    ultimate_memory.adapters
+    ultimate_memory.llm
+    ultimate_memory.workers
+    ultimate_memory.surfaces
+    ultimate_memory.eval
+    ultimate_memory.profiles
+
+[importlinter:contract:core-only-depends-on-model]
+name = Core depends only on model
+type = forbidden
+source_modules =
+    ultimate_memory.core
+forbidden_modules =
+    ultimate_memory.spine
+    ultimate_memory.ports
+    ultimate_memory.adapters
+    ultimate_memory.llm
+    ultimate_memory.workers
+    ultimate_memory.surfaces
+    ultimate_memory.eval
+    ultimate_memory.profiles
+
+[importlinter:contract:workers-do-not-import-adapters]
+name = Workers do not import adapters
+type = forbidden
+source_modules =
+    ultimate_memory.workers
+forbidden_modules =
+    ultimate_memory.adapters
+
+[importlinter:contract:surfaces-do-not-import-adapters]
+name = Surfaces do not import adapters
+type = forbidden
+source_modules =
+    ultimate_memory.surfaces
+forbidden_modules =
+    ultimate_memory.adapters
+
+[importlinter:contract:profiles-own-adapter-composition]
+name = Only profiles compose adapters
+type = forbidden
+source_modules =
+    ultimate_memory.model
+    ultimate_memory.core
+    ultimate_memory.spine
+    ultimate_memory.ports
+    ultimate_memory.llm
+    ultimate_memory.workers
+    ultimate_memory.surfaces
+    ultimate_memory.eval
+forbidden_modules =
+    ultimate_memory.adapters

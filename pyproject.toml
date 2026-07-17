@@ -43,6 +43,7 @@ Issues = "https://github.com/writeitai/ultimate-memory/issues"
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.13",
     "pyright>=1.1",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",

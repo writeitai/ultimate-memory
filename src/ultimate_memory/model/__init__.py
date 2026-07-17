@@ -1,0 +1,1 @@
+"""Typed domain model package."""
