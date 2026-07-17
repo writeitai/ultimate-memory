@@ -1793,6 +1793,25 @@ compose in Phase 0; PyPI packaging in Phase 5; release engineering + export/impo
 Phase 7). The remaining stack-convention slots (package manager, lint, CI provider, secrets)
 still gate WP-0.1. `questions.md` §11a's packaging item closes; the rename + CLA gates stay
 open there.
+
+> **Superseding note (2026-07-17) — `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` /
+> WP-0.1.** The final historical sentence above no longer describes the repository: the
+> formerly open package-manager, lint/format, layout/naming, CI-provider, and secrets/config
+> slots now have merged implementations or binding enforcement. [PR #39](https://github.com/writeitai/ultimate-memory/pull/39)
+> (merge [`eccc693`](https://github.com/writeitai/ultimate-memory/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+> established `uv` with a committed [`uv.lock`](uv.lock), Hatchling in
+> [`pyproject.toml`](pyproject.toml), the single-package [`src/ultimate_memory/`](src/ultimate_memory/)
+> layout and test naming, Ruff/Pyright/pytest/coverage, and GitHub Actions
+> [CI](.github/workflows/ci.yml). [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
+> (merge [`ec5ce3a`](https://github.com/writeitai/ultimate-memory/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+> established the typed pydantic-settings/`SecretStr`/`SecretBytes` convention and Ruff's ban
+> on direct environment access. That evidence supersedes only D62's obsolete WP-0.1 gate
+> claim: it closes the roadmap stack-conventions gate and records WP-0.1 done. It does **not**
+> claim that D61 ports, the two delivery shells, the intended hexagonal package directories,
+> or import-linter contracts are implemented; those remain the planned
+> [WP-0.4](plan/plans/phase-0-foundations.md). The mechanical release rename, attorney
+> clearance, and bounded CLA also remain open in [`questions.md` §1 item 11a](questions.md#1-open-decisions-undecided--answers-shape-the-design).
+
 ## D63. The embedding model is port configuration; default `qwen3-embedding-8b` via OpenRouter — the E1 branch resolves to conventional + prefix
 
 **Decision.** The embedding model is **per-deployment provider-port configuration** (D61), never

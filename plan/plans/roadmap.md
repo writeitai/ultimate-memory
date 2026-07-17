@@ -63,10 +63,33 @@ needs to restate it:
   (`model/core/spine/ports/adapters/llm/workers/surfaces/eval/profiles`), dependency arrows
   **enforced by import-linter in CI** (core is pure; SQL only in `spine/`; vendor SDKs only in
   `adapters/`); explicit constructor-injection profiles, no DI framework.
-- **Engineering conventions — TO BE PROVIDED by the project owner** *(explicit slots; do not
-  improvise these in a WP — ask):* package/dependency manager; lint/format tooling; repository
-  layout (mono-package vs workspace); service/module naming conventions; CI provider config;
-  secrets handling. Until provided, Phase 0's scaffolding WP is `blocked(stack-conventions)`.
+- **WP-0.1 scaffold conventions — resolved from merged evidence (2026-07-17):** these are
+  repository-wide choices, not owner-input placeholders. [PR #39](https://github.com/writeitai/ultimate-memory/pull/39)
+  (merge [`eccc693`](https://github.com/writeitai/ultimate-memory/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+  established the scaffold and [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
+  (merge [`ec5ce3a`](https://github.com/writeitai/ultimate-memory/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+  established the configuration/secrets convention:
+  - **Package, dependency, and build management:** `uv` owns environment/dependency resolution
+    and the committed lock ([`uv.lock`](../../uv.lock)); Hatchling is the build backend and
+    package builder ([`pyproject.toml`](../../pyproject.toml)).
+  - **Lint, format, typing, and tests:** Ruff supplies lint and formatting, Pyright supplies
+    type checking, and pytest + pytest-cov supply tests and coverage. Their binding settings
+    and locked development dependencies live in [`pyproject.toml`](../../pyproject.toml).
+  - **Repository layout and names:** one Python distribution uses the `src` layout. The
+    pre-release distribution is `ultimate-memory`, its import root is the lower-snake-case
+    `ultimate_memory` package ([`src/ultimate_memory/`](../../src/ultimate_memory/)), and tests
+    use `test_*.py` under [`src/tests/`](../../src/tests/). This records scaffold naming only:
+    D62's hexagonal package directories and import boundaries remain the separate, planned
+    WP-0.4 deliverable, and the release-gate rename remains open.
+  - **CI provider:** GitHub Actions runs the locked environment on Python 3.12 and 3.13, with
+    Ruff lint/format, Pyright, pytest/coverage, and the combined coverage report defined in
+    [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
+  - **Configuration and secrets:** runtime configuration enters only through typed
+    `pydantic-settings` `BaseSettings` models; secrets use Pydantic `SecretStr`/`SecretBytes`;
+    direct `os.environ`/`os.getenv` access is banned by Ruff `TID251`. The complete convention
+    is in [`requirements_v3.md` §Code](../requirements/requirements_v3.md#code), with the
+    direct-access enforcement in [`pyproject.toml`](../../pyproject.toml). No runtime settings
+    object is claimed by this reconciliation; it records the merged convention and lint guard.
 
 ## 4. The phase spine
 
@@ -93,7 +116,7 @@ as usual):
 
 | Gate | Blocks | What must be decided |
 |---|---|---|
-| stack conventions (§3 slots — narrowed by D62: layout + arrows now bound) | Phase 0 WP-0.1 | owner-provided: package manager, lint/format, CI provider, secrets handling |
+| stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/ultimate-memory/pull/41); §3 maps every former slot to its exact repository evidence. |
 | rename + CLA (`questions.md` §11a) | Phase 7 WP-7.7 (release), first outside PR | distinctive name + attorney clearance; CLA before external contributions |
 | **#3 embedding model + dimension** | **Phase 1 entry** | decides whether the E1 prefix stage exists (e1 §5 branch); hardest-to-change choice in the system |
 | #4 LLM per stage | Phase 1 (extractor pick), Phase 2 (adjudicators), Phase 6 (K writers) | concrete model picks per seat (respecting D53 family split) |

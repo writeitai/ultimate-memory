@@ -3,14 +3,20 @@
 **Goal:** everything later phases stand on: a migratable spine, the pipeline substrate, and —
 before anything tunable exists — the evaluation harness. Nothing user-visible ships here.
 
-**Entry gates:** stack conventions (roadmap §3 slots — owner-provided).
+**Entry gate (closed 2026-07-17):** stack conventions. The choices and exact repository
+evidence are recorded in [roadmap §3](roadmap.md#3-technology-stack-binding-for-all-phases):
+[PR #39](https://github.com/writeitai/ultimate-memory/pull/39) merged the package scaffold,
+tooling, layout/naming, and GitHub Actions CI; [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
+merged the typed configuration/secrets convention and direct-environment-access lint guard.
+This closes only the entry gate and WP-0.1; Phase 0 remains incomplete until every exit
+criterion below is evidenced.
 **Exit criteria:** migrations apply/rollback cleanly on a fresh Postgres; a no-op worker runs
 end-to-end through Cloud Tasks with `processing_state` + `cost_ledger` rows; the eval harness
 runs an empty suite in CI; the blockizer golden corpus scaffold exists with ≥1 seeded doc.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-0.1 | Repo scaffolding per stack conventions (typing, lint, CI, layout) | roadmap §3; requirements §Code | gate: stack conventions | the repository skeleton | pyright + pytest green in CI | blocked(stack-conventions) |
+| WP-0.1 | Repo scaffolding per stack conventions (typing, lint, CI, layout) | roadmap §3; requirements §Code | gate: stack conventions | the repository skeleton | pyright + pytest green in CI | done |
 | WP-0.2 | Alembic migrations for the full schema | postgres_schema_design (all §; §0 conventions) | WP-0.1 | migration chain | fresh-DB apply + downgrade; §16 decision→table map spot-check | planned |
 | WP-0.3 | Tenancy + pipeline substrate: `deployments`, `pipeline_component_versions`, `processing_state`, `cost_ledger`, DLQ semantics; the **handler registration model** (stage handlers, chain rule) | schema §2; orchestration §1–2; D12, D52; packaging §3 | WP-0.2 | worker base library (idempotency, retries, versions, cost metering) | a demo no-op worker: enqueue → run → state row → retry → dead-letter | planned |
 | WP-0.4 | **The D61 port interfaces** (`ports/` Protocols: object store, task queue, mounts, git remote, model provider, telemetry, auth) + import-linter contracts in CI | packaging §3–4; D61, D62 | WP-0.1 | `ports/` + CI architecture checks | illegal import fails CI (proven by a deliberate violation) | planned |
