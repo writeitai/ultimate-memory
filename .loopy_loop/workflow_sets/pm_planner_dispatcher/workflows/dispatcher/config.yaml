@@ -4,5 +4,5 @@ run_every: 1
 must_follow: planner
 not_before_iteration: 1
 description: |
-  Create one child-session request for the selected work package or import
-  terminal child-session evidence back into PM state.
+  Publish one child-session request for the planner-selected milestone outcome
+  or surface terminal child evidence for planner review.

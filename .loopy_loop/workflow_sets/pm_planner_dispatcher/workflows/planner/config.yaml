@@ -5,5 +5,5 @@ must_follow: null
 not_before_iteration: 0
 run_on_start: true
 description: |
-  Maintain PM state over the build roadmap, select the next work package, and
-  review terminal child-session evidence.
+  Own the high-level program plan, review child outcomes, select the next
+  milestone outcome, maintain the handoff, and decide completion.
