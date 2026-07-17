@@ -31,6 +31,24 @@ Two conventions when running:
   score is expected — the set is the finish line, not a progress bar. Filter by `tags` to run
   the subset matching a delivered phase.
 
+### Placement in the loopy double loop
+
+The versioned files here are the source inventory; a running loopy session does not point its
+terminal receipt directly at this mutable directory. These checks are conjunctive and frequently
+span multiple work packages, so broad tag filtering is useful for human exploration but is not a
+safe way to close an ordinary loopy child. Ordinary children use outcome-focused session checks
+and no curated files by default. The PM dispatcher may select a curated check by exact id only
+when every condition in that whole check is now in scope and observable; it includes each selected
+YAML and SHA-256 in the typed child assignment, and loopy freezes those bytes with the child
+inputs. The child eval reviewer copies the frozen definitions unchanged as regular files under
+that child's `eval_checks/curated/` directory and adds only non-overlapping session checks. Eval
+runner then executes that one combined session tree into one canonical report and receipt.
+
+A FINAL-CLOSEOUT child receives the complete current inventory, and the PM parent independently
+snapshots the complete inventory again once final integration is ready. Both final snapshots
+verify set equality with this directory rather than trusting the currently documented count, so
+adding a future check cannot be silently missed.
+
 ## Conventions in the checks
 
 - Every check is `type: harness_judge`, one YAML file per check, self-contained (the judge sees
@@ -58,7 +76,7 @@ Two conventions when running:
   the repo's own claims-vs-facts epistemology applied to its documentation: the log is
   testimony; the designs are the adjudicated current belief.)
 
-## Inventory (82 checks)
+## Inventory (83 checks)
 
 Counts by area; the sources column names the **primary** binding decisions (not every
 cross-reference).
@@ -74,7 +92,7 @@ cross-reference).
 | Projections (`p_*`, `p1_*`, `p2_*`, `p3_*`, `embedding_*`) | 8 | D6–D11, D40, D44, D55, D61, D63 |
 | Retrieval (`ret_*`) | 11 | D9, D41, D43, D48–D51 |
 | Ops/cross-cutting (`ops_*`, `source_of_truth_*`, `scope_views_*`) | 9 | D1, D7, D12, D16, D33, D46, D52–D56, D62 |
-| Code & boundary (`code_*`, `boundary_*`, `delivery_*`) | 9 | D60–D62, D66, requirements §Code |
+| Code & boundary (`code_*`, `boundary_*`, `delivery_*`) | 10 | D60–D62, D66, requirements §Code |
 | Media (`media_*`) | 5 | D65, D32, D38, D49, D51, D54, D63 |
 
 Not every decision needs its own check: withdrawn decisions (D26–D30), naming/plane decisions

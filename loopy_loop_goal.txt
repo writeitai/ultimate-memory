@@ -5,10 +5,15 @@ plan/plans/roadmap.md — every phase (0 through 8) to done.
 
 ## How to work (double loop)
 
-- This goal drives the PM parent session (planner + dispatcher). The parent
-  manages the roadmap and never implements: the planner selects one work package
-  at a time, the dispatcher starts a child session for it, and the planner
-  reviews the child's evidence before accepting.
+- This goal drives the PM parent session with four accountable roles: planner,
+  dispatcher, eval reviewer, and eval runner. The parent manages the roadmap
+  and never implements: planner selects and accepts one work package at a time;
+  dispatcher publishes its typed child assignment; the parent eval roles alone
+  evaluate and close the broader program goal.
+- Every role reads its frozen per-attempt Assignment first and uses the absolute
+  state/output paths it supplies. Parent and child goals are different scopes;
+  directly spawned harness agents are dynamic, attempt-local delegates and do
+  not own loop-layer acceptance, eval verdicts, or control.
 - plan/plans/roadmap.md is the sequencing authority. The phase files
   (plan/plans/phase-0-*.md … phase-8-*.md) define each phase's entry gates, work
   packages (WP-N.x) with Reads/Depends/Deliverable/Acceptance columns, and exit
@@ -25,10 +30,10 @@ plan/plans/roadmap.md — every phase (0 through 8) to done.
   (Goal, Reads resolved to real paths, Depends, Deliverable, Acceptance) plus
   the repo's delivery and eval rules.
 - Design conflicts follow the roadmap's rule: if a WP appears to require
-  deviating from a binding design, that is a design change — the child stops
-  with the exact conflict for PM review and the authoritative document is
-  amended first (via a normal PR). Nobody implements around a design and merely
-  records a note.
+  deviating from a binding design, that is a design change. A precise,
+  source-linked conflict report is an explicit alternative child deliverable;
+  the child completes that scoped investigation without implementing around
+  the design, and PM reroutes a normal design-amendment PR before code work.
 - WP status columns (planned | in-progress | done | blocked(<gate>)) are
   flipped by the owning child, committed together with the work; the planner
   verifies the flip during review.
@@ -37,27 +42,47 @@ plan/plans/roadmap.md — every phase (0 through 8) to done.
   - a PLAN-RECONCILIATION child when phase statuses or the gate register
     contradict repo evidence or recorded decisions (it reconciles the plan
     with evidence via a normal PR, following the plan-edit rules);
+  - a DECISION-RESOLUTION child when a technical/product gate can be settled
+    autonomously through repository evidence, official research, measurement,
+    or a reversible spike (it lands the authoritative design/decision/plan
+    amendment rather than hiding the choice in implementation);
   - a PHASE-CLOSEOUT child when a phase's last WP is accepted (it verifies
     every exit criterion, records the evidence at the top of the phase file
-    in its PR, and runs the phase-relevant curated eval subset);
-  - a FINAL-CLOSEOUT child before goal_met (it runs the complete curated
-    eval suite and fixes or precisely reports any gap).
+    in its PR, and runs scoped session checks plus only exact whole curated
+    checks whose complete invariants are now observable);
+  - a FINAL-CLOSEOUT child before goal_met (it snapshots the complete current
+    curated eval inventory as regular session checks, runs it in one canonical
+    eval, and fixes or precisely reports any gap).
+- Child success never closes the parent. Planner first publishes an acceptance
+  and, after integrated final evidence exists, readiness. The parent eval
+  reviewer then snapshots the complete current curated inventory alongside a
+  parent-program outcome check; only the parent eval runner may publish a
+  passing receipt and identity-bound `goal_met` control.
 - All implementation lands via branch → PR → checks → merge. CI (ruff, pyright,
   pytest, coverage) must be green before merge. PRs reference the WP id.
 
 ## Eval focus
 
-- The curated repo check set in plan/implementation_evals/eval_checks/ (82
-  design-conformance harness_judge checks) is the FINISH LINE, not a per-WP
-  progress bar: its own README says a check whose subsystem is not yet built
-  scores 0 by design. Children therefore run only the curated subset relevant
-  to their WP (selected by `--tag` with the area/decision tags named in the
-  child goal) plus session-scoped checks that verify the WP's specific
-  behavior. The complete 82-check suite is the final-closeout gate.
+- The curated repo check set in plan/implementation_evals/eval_checks/ (83
+  design-conformance `harness_judge` checks at launch) is the FINISH LINE, not
+  a per-WP progress bar: its own README says a check whose subsystem is not yet
+  built scores 0 by design. Ordinary WPs therefore use session-specific checks
+  and no curated files by default. Dispatcher may explicitly select a curated
+  check by exact id only when every conjunctive condition in that whole check
+  is in scope and expected to be observable after the child; broad tag OR
+  matching is forbidden because one check can span later subsystems. Eval
+  reviewer copies any explicitly frozen files unchanged beside non-overlapping
+  session checks, and eval runner executes the one combined session tree in one
+  canonical report. The complete current inventory is the final-closeout and
+  parent program gate; set equality matters more than a hard-coded count.
 - Session-scoped checks must verify behavior, never merely that files exist,
   and must not duplicate curated checks.
-- A child reports goal_met only when its tagged curated subset (when the goal
-  names one) and its session checks all pass.
+- For the implementation outcome, a child reports goal_met only when every
+  frozen curated check selected for its goal and every session-specific check
+  pass in one evidence-bound run. For the explicit design-conflict alternative,
+  outer must first accept the source-linked conflict report; a dedicated
+  session check then verifies it while the frozen implementation inventory is
+  recorded as inapplicable/not executed for PM rerouting.
 
 ## Completion criteria
 
@@ -67,23 +92,25 @@ The goal is met only when all of the following are true:
   and carries recorded exit-criteria evidence, with links from the PM session's
   project_state/finished.md.
 - Phase 8's benchmark exit criteria pass and the results are recorded.
-- A final-closeout run of the complete curated eval suite (all 82 checks)
-  passes.
-- CI is green on main and all implementation work was merged through PRs (no
-  orphaned implementation branches).
+- A final-closeout run and the final parent-program run both cover and pass the
+  complete current curated inventory.
+- CI is green on main and all repository changes created by this loopy program
+  were merged through PRs. Program work is orphaned only when its commits are
+  absent from both a merged PR and updated main; historical or still-visible
+  remote branch names created outside this program are out of scope.
 - The PM session's project_state/finished.md contains enough evidence per phase
   for a reviewer to verify completion without re-deriving it.
 
 ## Notes
 
-- The repo already contains real scaffold evidence (package skeleton, tooling
-  config, CI with coverage, the pydantic-settings config convention), but the
-  phase-0 file currently shows WP-0.1 blocked on the stack-conventions entry
-  gate and no WP done. Do not treat either side as truth by itself: the first
-  order of business is a plan-reconciliation child that audits the evidence,
-  closes or re-scopes the gate and statuses accordingly (with the resolution
-  recorded where the gate register and decisions expect it), and lands it as a
-  normal PR. Only then can implementation WPs be selected.
+- The repo already contains real scaffold evidence (package skeleton, uv +
+  Hatch/src mono-package conventions, Ruff, Pyright, pytest, GitHub Actions,
+  coverage, and the pydantic-settings secret/config convention), but the
+  phase-0 file still shows WP-0.1 blocked on `stack-conventions`. The first item
+  is an autonomous plan-reconciliation child: audit this merged evidence,
+  close or re-scope the gate/statuses where the plan and decisions expect it,
+  and land the reconciliation through a normal PR. Do not ask the owner to
+  repeat choices already evidenced by the repository.
 - The gate register has no explicit open/closed column. Treat a gate as open
   unless resolution evidence exists (root decisions.md, questions.md, or an
   annotation in the register itself); reconciliation children record closures
@@ -95,3 +122,7 @@ The goal is met only when all of the following are true:
   evidence, not the end of the run: review its recorded blocker, then rescope,
   re-dispatch with a better goal, or record the exact blocker and move to
   unblocked work.
+- Owner-only authority, unavailable credentials, legal clearance, or
+  billable/destructive actions are never guessed. Continue every independent
+  item first; only a genuinely terminal remainder may use loopy-loop's D5
+  `unresolvable_error` escape hatch after all autonomous routes are exhausted.

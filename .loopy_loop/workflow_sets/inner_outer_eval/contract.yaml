@@ -1,0 +1,40 @@
+schema_version: 1
+session_protocol_version: 2
+layer_kind: delivery
+roles:
+  outer:
+    responsibility: Accept or return implementation work and publish readiness for this work-package layer's evaluation.
+  inner:
+    responsibility: Dynamically plan, delegate, implement, and verify one focused unit of work for this layer.
+  eval_reviewer:
+    responsibility: Snapshot the applicable curated checks and author missing outcome-focused checks for this session goal.
+  eval_runner:
+    responsibility: Run the session checks, publish the eval receipt, and own goal-met control for this layer.
+state:
+  - path: project_state/current_state.md
+    accountable_roles: [outer, inner, eval_reviewer, eval_runner]
+  - path: project_state/memory.md
+    accountable_roles: [outer]
+  - path: project_state/what_we_have.md
+    accountable_roles: [outer]
+  - path: project_state/what_we_should_do/
+    accountable_roles: [outer]
+  - path: project_state/decisions/
+    accountable_roles: [outer]
+  - path: project_state/finished.md
+    accountable_roles: [outer]
+  - path: delivery_receipts/
+    accountable_roles: [inner]
+  - path: eval_readiness/
+    accountable_roles: [outer]
+  - path: eval_checks/
+    accountable_roles: [eval_reviewer]
+  - path: eval_receipts/
+    accountable_roles: [eval_runner]
+eval:
+  author_role: eval_reviewer
+  runner_role: eval_runner
+  goal_control_role: eval_runner
+task_acceptance_role: outer
+terminal_blocker_reporting_roles: [outer, inner, eval_reviewer, eval_runner]
+child_interface: none

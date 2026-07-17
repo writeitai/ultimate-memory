@@ -1,0 +1,8 @@
+enabled: true
+priority: 90
+run_every: 1
+must_follow: eval_reviewer
+not_before_iteration: 1
+emits_goal_check: true
+description: |
+  Run the parent-program checks and publish evidence-bound eval and goal control.

@@ -1,123 +1,146 @@
-# loopy-loop runbook — operating the implementation loop
+# loopy-loop runbook — operating the UGM implementation program
 
-The repo is driven by [loopy-loop](https://github.com/writeitai/loopy-loop)'s
-**double loop**: a PM parent session (`pm_planner_dispatcher` — planner +
-dispatcher) decomposes the roadmap into work packages; each WP runs as its own
-child session (`inner_outer_eval`) that implements, evaluates, and delivers via
-PR. Configuration lives in `loopy_loop_config.yaml`, the PM goal in
-`loopy_loop_goal.txt`, the workflow prompts under `.loopy_loop/workflow_sets/`.
-This runbook is the operator's side of the contract: how to start, watch,
-resume, and stop the run.
+UGM runs loopy-loop's recoverable **double loop**. A parent program session
+uses `pm_planner_dispatcher`: planner selects and accepts roadmap items,
+dispatcher publishes typed child assignments, and parent eval roles verify the
+complete integrated goal. Each item runs as an `inner_outer_eval` child whose
+outer/inner roles deliver the scoped work and whose eval roles close only that
+child goal. One loopy worker advances the deepest active layer; team-harness may
+spawn dynamic attempt-local delegates inside it.
 
-## Install (pin!)
+Configuration is `loopy_loop_config.yaml`, the parent goal is
+`loopy_loop_goal.txt`, and versioned role contracts/prompts live below
+`.loopy_loop/workflow_sets/`.
+
+## Required released tools
+
+Install the exact supported registry releases, not editable checkouts:
 
 ```bash
-uv tool install "loopy-loop==0.5.0"
+uv tool install --force --reinstall --no-sources --no-config "eval-banana==0.3.5"
+uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.0"
+uv tool install --force --reinstall --no-sources --no-config \
+  --with "eval-banana==0.3.5" --with "team-harness==0.5.0" \
+  "loopy-loop==0.7.1"
 ```
 
-loopy-loop 0.5.0 or newer is required (session-goal rendering, child-session
-recovery, `*.json` child-request scanning, failure caps, events/usage ledger),
-with team-harness 0.3.1 or newer underneath (the antigravity model pin —
-older versions silently ignore it; a fresh `uv tool install` resolves it,
-an existing install may need `uv tool upgrade loopy-loop`).
-The `eval-banana` CLI installs with it and is made visible to spawned agents
-automatically. The worker delegates to agent CLIs — this run needs `codex`, `claude`, and
-`agy` (Antigravity) authenticated: codex is the harness coordinator and
-primary implementer, claude and antigravity serve the in-team review/research
-roles (`team_harness_agents`), and claude additionally judges the eval checks
-(`.eval-banana/config.toml`, D53 producer/checker separation).
+`codex`, `claude`, and `agy` must already be authenticated. Every loopy
+workflow coordinator uses `gpt-5.6-sol`. Direct delegates use the configured
+agent defaults. Eval runners hermetically pin Claude Opus 4.8 as the judge, so
+the producer and checker model families differ (D53).
 
 ## Preflight
 
-From the repo root:
+From the repository root:
 
 ```bash
-loopy status                                    # expect: no state, or a terminal previous session
-eval-banana validate --cwd . --check-dir plan/implementation_evals/eval_checks
-gh api repos/{owner}/{repo}/branches/main/protection --jq '.required_status_checks.contexts'
+loopy status
+eval-banana validate --no-project-config --cwd . \
+  --check-dir plan/implementation_evals/eval_checks --harness-agent claude
+gh api "repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/branches/main/protection" \
+  --jq '.required_status_checks.contexts'
 ```
 
-The last command shows the required CI contexts; the loop's merge policy relies
-on green checks, so verify branch protection still matches expectations (strict
-required checks, no required human review) before an unattended run.
+For a new program, `loopy status` should report no state or a terminal archived
+session. A running session requires `--resume`; never start a second fresh
+coordinator over it. Confirm strict required CI and no ordinary human-review
+gate before unattended execution.
 
-## Start
+## Fresh start
 
-Two processes, separate terminals, both from the repo root:
+Use two terminals in the repo root:
 
 ```bash
 # terminal 1
 loopy coordinator --host 127.0.0.1 --port 8080
 
-# terminal 2 — exactly ONE worker
+# terminal 2 — exactly one worker
 loopy worker --coordinator http://127.0.0.1:8080
 ```
 
-There is exactly one worker per coordinator: a second worker is refused (HTTP
-409, exit code 3) while the first is verifiably alive. The provider is `codex`,
-so no API key export is needed for the loop itself (the OpenRouter variables in
-the config apply only if the provider is switched to `openai_compat`).
+A second live worker is refused. The first fresh item is autonomous
+PLAN-RECONCILIATION: it reconciles the recorded stack-conventions gate with the
+tooling and configuration already merged in the repository.
 
-## Monitor
+## Observe the run
 
 ```bash
-loopy status            # the whole session stack: PM parent + live child, usage totals
-loopy status --watch    # re-render every 2s
-loopy events --follow   # the deepest active session's event stream
+loopy status --watch
+loopy events --follow
+loopy traces list
+loopy traces inspect MANIFEST_OR_ID
 ```
 
-Durable artifacts live under `.loopy_loop/sessions/<session_id>/` (gitignored):
-the PM session's `project_state/` (work items, finished ledger), `children/`
-(each child session's full state), and per-iteration `iterations/` records.
-The plan itself (WP statuses, phase evidence) is repo state and changes only
-through the children's merged PRs.
+Compact durable state is under `.loopy_loop/sessions/<root>/`: scoped goals,
+assignments, project state, child requests/outcomes, parent acceptance, eval and
+git/delivery receipts, control, and recovery state. Detailed prompts, harness
+records, spawned-agent assignments/streams, raw eval reports, and verbose git
+evidence live separately under `.loopy_loop/traces/`. Raw eval output includes
+the exact `checks/<safe-check-id-stem>.prompt.txt` sent to every invoked judge;
+the paired result/stdout/stderr files use that same collision-safe stem.
+Session state and traces are both gitignored. State is still required for
+continuity, while trace retention is independent and traces may contain
+private raw data.
 
-## Stop — read this before you need it
+## Add steering without rewriting history
+
+```bash
+loopy update "concise new instruction"
+loopy update --session SESSION_ID "instruction for this exact layer"
+```
+
+Without `--session`, an update routes to the deepest active layer. Updates are
+append-only in `inputs/user_updates.jsonl`; do not edit or truncate the legacy
+`updates_from_user.md` file.
+
+## Stop semantics
 
 ```bash
 loopy stop
 ```
 
-`loopy stop` flags the **top-level PM session only**. A running child session
-does not see the flag: it keeps iterating until it reaches a terminal state,
-and only then does the resumed parent honor the stop. If you must stop a child
-immediately, stop the worker process instead (Ctrl-C / kill); the coordinator
-will recover the interrupted iteration on the next worker registration (see
-Crash recovery). Expect a child to take long: its ceiling is the shared
-`max_turns` from the config.
+The stop request is tree-wide. It prevents another descendant from being
+dispatched and is honored at the next safe assignment boundary; current model
+or harness work is not killed mid-write. Stop is an operator action, distinct
+from workflow-owned `goal_met` or last-resort `unresolvable_error` control.
 
-## Resume / crash recovery
+If the problem is a library/runtime defect and the frozen goal and workflow
+contracts remain correct, **do not use `loopy stop`**. Terminate worker and
+coordinator processes, fix/release/install the owning library, then resume the
+same durable session. If the frozen goal/config/contract itself is wrong, stop
+the tree and start a fresh session after fixing the versioned setup; active v2
+identity and snapshots must not be patched in place.
 
-- **Coordinator died (or machine rebooted):** restart with
-  `loopy coordinator --resume`. It walks the durable parent→child session stack
-  to the deepest live session — a running child continues where it was.
-  Starting without `--resume` against a still-`running` state fails on purpose.
-- **Worker died mid-iteration:** just start a new `loopy worker`. Registration
-  performs recovery: a verifiably-alive previous worker is protected (409); a
-  dead one's completed-but-unreported result is recovered from disk; otherwise
-  its orphaned agent processes are drained (default policy, bounded by
-  `recovery_drain_timeout_s`) before the iteration is re-dispatched. `/register`
-  may legitimately block for minutes during a drain.
-- **Both:** coordinator first (`--resume`), then the worker.
+## Crash or maintenance recovery
 
-## When the loop stops by itself
+Restart the coordinator first, then one worker:
 
-Check `loopy status` for the stop reason:
+```bash
+loopy coordinator --resume --host 127.0.0.1 --port 8080
+loopy worker --coordinator http://127.0.0.1:8080
+```
 
-- `goal_met` — the planner concluded the roadmap's completion criteria hold
-  (including the final-closeout full eval suite). Verify via the PM session's
-  `project_state/finished.md`.
-- `unresolvable_error` — last-resort autonomous stop; the exact blocker is in
-  the session's `control.json` reason and `current_state.md`.
-- `workflow_failure_cap` / `max_turns` — a circuit breaker fired (consecutive
-  harness failures of one workflow, or the turn ceiling). For a child this is
-  planner-reviewable evidence; for the parent, inspect
-  `loopy events` / `state.json` history for the failing workflow.
+Resume walks the parent-to-child pointers to the deepest live session. Worker
+registration recovers completed-but-unreported output when possible; otherwise
+it drains orphaned agent processes before redispatch. Registration may take
+minutes during a bounded drain. A verifiably live previous worker remains
+protected from duplicate registration.
 
-## Escalation
+## Diagnose autonomous stops
 
-If the run needs human input mid-flight, write it into the ACTIVE session's
-`updates_from_user.md` (the PM parent's for roadmap-level steering; a child's
-for WP-level steering — find the live session id via `loopy status`). The
-planner/outer workflows read that inbox every iteration and reflect it into
-durable state before clearing it.
+- `goal_met`: the current layer's eval runner published a same-session passing
+  receipt, goal-check projection, and identity-bound control. Parent completion
+  additionally requires all phases, final closeout, complete current curated
+  inventory, delivery evidence, and green main CI.
+- `unresolvable_error`: read `control.json`, `current_state.md`, attempted
+  routes, and evidence refs. It is the rare loopy-loop D5 autonomy escape hatch.
+- `workflow_failure_cap` or `max_turns`: inspect `loopy events`, the failing
+  attempt trace, and session history. A stopped child is evidence for planner
+  re-scope/reroute; a parent cap requires runtime or workflow diagnosis.
+- Protocol/control rejection: inspect `control_rejected/` and
+  `protocol_failures/`; repair the role output rather than bypassing validation.
+
+When a loopy-loop, team-harness, or eval-banana defect causes the program to go
+sideways, preserve state and traces, stop the processes, repair and release the
+owning package, install the new exact version, and resume. Stop and create a
+fresh session only when the frozen program contract itself must change.

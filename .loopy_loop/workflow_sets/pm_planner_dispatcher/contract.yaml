@@ -1,0 +1,42 @@
+schema_version: 1
+session_protocol_version: 2
+layer_kind: program
+roles:
+  planner:
+    responsibility: Maintain the roadmap backlog, review child outcomes, publish parent acceptance, and declare parent-eval readiness.
+  dispatcher:
+    responsibility: Publish one typed child assignment for the selected work item and track factual child lifecycle evidence.
+  eval_reviewer:
+    responsibility: Author outcome-focused harness-judge checks for the parent program goal.
+  eval_runner:
+    responsibility: Run the parent-layer checks, publish the eval receipt, and own goal-met control for the program layer.
+state:
+  - path: project_state/current_state.md
+    accountable_roles: [planner, dispatcher, eval_reviewer, eval_runner]
+  - path: project_state/work_items.md
+    accountable_roles: [planner, dispatcher]
+  - path: project_state/dispatch_inputs/
+    accountable_roles: [dispatcher]
+  - path: project_state/child_sessions.md
+    accountable_roles: [planner, dispatcher]
+  - path: project_state/decisions/
+    accountable_roles: [planner]
+  - path: project_state/finished.md
+    accountable_roles: [planner]
+  - path: child_requests/pending/
+    accountable_roles: [dispatcher]
+  - path: parent_acceptance/
+    accountable_roles: [planner]
+  - path: eval_readiness/
+    accountable_roles: [planner]
+  - path: eval_checks/
+    accountable_roles: [eval_reviewer]
+  - path: eval_receipts/
+    accountable_roles: [eval_runner]
+eval:
+  author_role: eval_reviewer
+  runner_role: eval_runner
+  goal_control_role: eval_runner
+task_acceptance_role: planner
+terminal_blocker_reporting_roles: [planner, dispatcher, eval_reviewer, eval_runner]
+child_interface: recursive

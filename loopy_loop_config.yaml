@@ -3,6 +3,18 @@ goal_file: loopy_loop_goal.txt
 # the roadmap into work packages; each WP runs as a child session on the
 # inner_outer_eval set.
 workflow_set: pm_planner_dispatcher
+completion_criteria:
+  - Every phase file from phase 0 through phase 8 shows all work packages done and records verifiable exit-criteria evidence linked from the parent finished ledger.
+  - Phase 8 benchmark exit criteria pass and their results are recorded.
+  - A final-closeout child and the parent program eval each pass a snapshot equal to the complete current curated inventory under plan/implementation_evals/eval_checks/.
+  - Required CI is green on main, and every repository change created by this loopy program is represented by a merged PR and updated main; historical branches outside the program are out of scope.
+  - The parent project_state/finished.md links enough phase, eval, git, PR, CI, and merge evidence to verify completion without re-deriving it.
+stop_criteria:
+  - Stop as goal_met only through the parent eval runner's passing same-session evidence-bound receipt and identity-bound control v2.
+  - >-
+    Stop as unresolvable_error only under loopy-loop's D5 autonomy policy: a
+    genuinely terminal blocker remains after autonomous re-scoping, retry,
+    rerouting, and all permitted alternatives are exhausted.
 # Applies to the PM parent AND to every child session (children read this same
 # config). High ceiling as a runaway backstop, not a target; the loop stops on
 # goal_met.
@@ -30,7 +42,7 @@ team_harness_agent_models:
   antigravity: "Gemini 3.5 Flash (High)"
 team_harness_agent_reasoning_efforts:
   codex: "xhigh"
-  claude: "high"
+  claude: "xhigh"
 # Optional coordinator retry controls. Omit to use team-harness defaults.
 # team_harness_max_retries: 8
 # team_harness_retry_base_delay_s: 2.0
@@ -55,12 +67,31 @@ team_harness_api_key_env: "OPENROUTER_API_KEY"
 # PR policy, review flow) lives in the workflow prompts themselves.
 team_harness_system_prompt_extension: |
   This repository's rules (binding for every workflow):
+  - Read the per-attempt Assignment envelope first. Its layer identity, scoped
+    goal, role, ownership, and absolute paths are authoritative. Never infer a
+    session path from cwd or substitute a parent/root goal for this layer's goal.
+  - Engine state and session topology are coordinator-owned. Write only the
+    semantic state, evidence, requests, receipts, and control artifacts assigned
+    to the current role; use the assignment's absolute output paths.
+  - Directly spawned agents are temporary delegates inside the current harness
+    attempt. Choose them dynamically for the situation, give each a focused
+    task and absolute assignment/output paths, and record meaningful
+    `delegated_role`, `delegated_task_id`, `expected_outputs`, and
+    `state_responsibility` metadata. Integrate their evidence; delegates do not
+    own loop-layer acceptance, eval verdicts, or control.
+  - Preserve unrelated pre-existing worktree changes. Commit only files owned
+    by the selected work item unless that item explicitly incorporates them.
+    After a merged repository change, normalize the shared checkout to updated
+    `main` with a fast-forward-only pull and record branch/HEAD evidence; never
+    discard unrelated changes to force that transition.
   - plan/plans/roadmap.md is the sequencing authority. Work is executed as the
     phase files' work packages (WP-N.x); a WP is executed after reading the
     documents in its Reads column plus plan/analysis/concepts.md §0. Designs
     are binding. If a WP appears to require deviating from a design, that is a
-    DESIGN CHANGE: stop and raise it so the authoritative document is amended
-    first — do not implement around it and merely record a note.
+    DESIGN CHANGE: stop implementation and produce the source-linked conflict
+    report required by the child goal so PM can reroute an authoritative
+    amendment first. This is repairable program work, not a terminal blocker;
+    never implement around it and merely record a note.
   - WP status columns in the phase files
     (planned | in-progress | done | blocked(<gate>)) are maintained ONLY by
     the implementation session that owns the dispatched WP, committed together
@@ -97,3 +128,7 @@ team_harness_system_prompt_extension: |
   - Any edit to plan/ documents follows CLAUDE.md Rule 1 (self-contained,
     explain-don't-name) and Rule 2 (full scope, no phasing language in
     designs).
+  - A terminal blocker is the loopy-loop D5 autonomy policy's last resort. Only after autonomous repair,
+    re-scoping, retry, and alternate routes are exhausted may the accountable
+    role atomically publish identity-bound control v2 with the exact
+    session/workflow/attempt producer, attempted routes, evidence, and reason.
