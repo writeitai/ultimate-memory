@@ -33,5 +33,7 @@ and the required [CI architecture gate](../../.github/workflows/ci.yml) in
 [PR #63](https://github.com/writeitai/ultimate-memory/pull/63). A deliberate `core → adapters`
 edge broke both applicable contracts on Python 3.12 and 3.13 in
 [CI run 29610259852](https://github.com/writeitai/ultimate-memory/actions/runs/29610259852);
-the repaired PR head provides the paired green receipt. WP-0.4 remains `in-progress`: its
-seven D61 Protocols are intentionally deferred to the subsequent leaf.
+the repaired head kept all five contracts and every existing check green in
+[CI run 29610342445](https://github.com/writeitai/ultimate-memory/actions/runs/29610342445).
+WP-0.4 remains `in-progress`: its seven D61 Protocols are intentionally deferred to the
+subsequent leaf.
