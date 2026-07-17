@@ -18,9 +18,9 @@ Install the exact supported registry releases, not editable checkouts:
 
 ```bash
 uv tool install --force --reinstall --no-sources --no-config "eval-banana==0.3.6"
-uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.2"
+uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.3"
 uv tool install --force --reinstall --no-sources --no-config \
-  --with "eval-banana==0.3.6" --with "team-harness==0.5.2" \
+  --with "eval-banana==0.3.6" --with "team-harness==0.5.3" \
   "loopy-loop==0.7.2"
 ```
 
