@@ -9,13 +9,27 @@
 | src/ultimate\_memory/core/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/eval/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/llm/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py    |       16 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/auth.py            |       10 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/git.py             |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/model\_provider.py |       22 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/mounts.py          |        9 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/object\_store.py   |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/queue.py           |       44 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/telemetry.py       |       10 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/\_\_init\_\_.py    |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/auth.py            |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/git.py             |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/model\_provider.py |       12 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/mounts.py          |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/object\_store.py   |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/queue.py           |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/telemetry.py       |        7 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/profiles/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/surfaces/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/\_\_init\_\_.py  |        0 |        0 |        0 |        0 |    100.0% |           |
-| **TOTAL**                                     |    **6** |    **2** |    **0** |    **0** | **66.7%** |           |
+| **TOTAL**                                     |  **193** |    **2** |    **4** |    **0** | **99.0%** |           |
 
 
 ## Setup coverage badge
