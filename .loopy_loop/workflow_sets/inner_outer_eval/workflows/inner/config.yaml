@@ -4,5 +4,5 @@ run_every: 1
 must_follow: outer
 not_before_iteration: 1
 description: |
-  Implement the first available leaf task from the session plan, run relevant
-  checks, and mark the leaf task as waiting for outer-loop review.
+  Implement the one leaf explicitly selected by outer, run relevant checks,
+  and return evidence for outer review.

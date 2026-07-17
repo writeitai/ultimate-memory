@@ -8,4 +8,5 @@ run_after_successes:
   workflow_id: inner
   every: 3
 description: |
-  Create or refresh high-level eval-banana checks for the active session.
+  Optionally create or refresh outcome-focused checks for outer to use as
+  advisory evidence.

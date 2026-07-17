@@ -33,21 +33,21 @@ Two conventions when running:
 
 ### Placement in the loopy double loop
 
-The versioned files here are the source inventory; a running loopy session does not point its
-terminal receipt directly at this mutable directory. These checks are conjunctive and frequently
-span multiple work packages, so broad tag filtering is useful for human exploration but is not a
-safe way to close an ordinary loopy child. Ordinary children use outcome-focused session checks
-and no curated files by default. The PM dispatcher may select a curated check by exact id only
-when every condition in that whole check is now in scope and observable; it includes each selected
-YAML and SHA-256 in the typed child assignment, and loopy freezes those bytes with the child
-inputs. The child eval reviewer copies the frozen definitions unchanged as regular files under
-that child's `eval_checks/curated/` directory and adds only non-overlapping session checks. Eval
-runner then executes that one combined session tree into one canonical report and receipt.
+The versioned files here are the source inventory. They are conjunctive and frequently span
+multiple work packages, so the whole directory is intentionally unsuitable as a mandatory
+per-child gate. An ordinary delivery child may create or run outcome-focused session checks when
+that would improve confidence; its outer orchestrator decides how to weigh those observations.
+It may inspect an exact curated check that is relevant to current work, but neither the PM
+dispatcher nor the engine mechanically assigns curated checks to children or makes a passing eval
+the authority for completion.
 
-A FINAL-CLOSEOUT child receives the complete current inventory, and the PM parent independently
-snapshots the complete inventory again once final integration is ready. Both final snapshots
-verify set equality with this directory rather than trusting the currently documented count, so
-adding a future check cannot be silently missed.
+Near final program closeout, the parent planner snapshots the complete current inventory, records
+the file set and hashes, and runs it against the integrated current `main`. The planner keeps the
+canonical report and judge provenance, uses different enabled harness families for independent
+review when useful, and fixes, reconciles, or explicitly weighs every material finding. The
+evaluation is strong prepared evidence for the planner's final decision; it does not replace that
+decision. Snapshot set equality is checked against this directory rather than trusting the
+currently documented count, so adding a future check cannot be silently missed.
 
 ## Conventions in the checks
 
