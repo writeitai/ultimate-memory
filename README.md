@@ -2,10 +2,20 @@
 
 [Full report](https://htmlpreview.github.io/?https://github.com/writeitai/ultimate-memory/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
-| Name                                 |    Stmts |     Miss |   Branch |   BrPart |     Cover |   Missing |
-|------------------------------------- | -------: | -------: | -------: | -------: | --------: | --------: |
-| src/ultimate\_memory/\_\_init\_\_.py |        6 |        2 |        0 |        0 |     66.7% |     12-13 |
-| **TOTAL**                            |    **6** |    **2** |    **0** |    **0** | **66.7%** |           |
+| Name                                          |    Stmts |     Miss |   Branch |   BrPart |     Cover |   Missing |
+|---------------------------------------------- | -------: | -------: | -------: | -------: | --------: | --------: |
+| src/ultimate\_memory/\_\_init\_\_.py          |        6 |        2 |        0 |        0 |     66.7% |     12-13 |
+| src/ultimate\_memory/adapters/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/core/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/llm/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/profiles/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/surfaces/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/workers/\_\_init\_\_.py  |        0 |        0 |        0 |        0 |    100.0% |           |
+| **TOTAL**                                     |    **6** |    **2** |    **0** |    **0** | **66.7%** |           |
 
 
 ## Setup coverage badge
