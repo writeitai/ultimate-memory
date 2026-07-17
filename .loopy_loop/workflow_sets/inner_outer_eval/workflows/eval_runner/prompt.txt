@@ -37,6 +37,26 @@ assembly; it is distinct from the command's per-check
 `nohup`, or replace its lifecycle with PID polling. Wait for the foreground
 tool result and the canonical report.
 
+The raw JSON report may be large because each check can retain provider
+transcripts in `stdout` and `details.raw_response`. Keep assignment and handoff
+prompts path-only: do not copy the whole report into coordinator context or
+project state, and do not page through all transcript fields merely to recover
+the verdict. First use a separate bounded `bash` call, with a named
+`timeout_seconds`, to run a compact `jq` projection covering `schema_version`,
+`run_id`, `project_root`, `output_dir`, threshold/verdict/count fields and, for
+every check, `check_id`, `status`, `score`, `exit_code`, `reason`,
+`error_detail`, `check_definition_sha256`, plus `details.agent_type`,
+`details.model`, `details.reasoning_effort`, and `details.timeout_seconds`. If
+the inventory does not fit one bounded result, project the top-level fields
+once and cover `.checks` in deterministic slices such as `[0:20]`, `[20:40]`,
+shrinking a slice whenever the visible shell truncation marker appears. Cover
+all `N` checks without gaps or duplicates. Then inspect only specific
+supporting evidence with targeted `jq` projections or bounded `read_file`
+pages using named `offset_chars` / `limit_chars`. Hash the untouched canonical
+report directly at its absolute path. This is transport discipline, not a
+programmatic verdict: you still choose what evidence to inspect and own every
+semantic decision.
+
 Do not run curated and session checks separately: loopy validates one combined
 session inventory against one canonical `eval/report.json`. Require at least one
 check. Verify the report's absolute project root/output directory, every check
