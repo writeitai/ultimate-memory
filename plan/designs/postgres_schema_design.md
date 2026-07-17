@@ -63,35 +63,36 @@ These rules apply to every table unless a module overrides them with a stated re
   The relation pair (valid + transaction) = "bi-temporal". A relation answers "true in the world at
   T?" and "believed by us at T?"; a claim answers "asserted when / ingested when / asserted to hold
   over what world-interval?" — all three immutable.
-- **Tenancy (`deployment_id`) and cross-deployment isolation.** The system runs as **N independent
-  deployments**, one per problem domain (personal assistant, agency, a manufacturer's migration, a
-  legal engine); entity spaces are **never shared across deployments** (`registries_design.md` §1,
-  D16). Every deployment-scoped table carries `deployment_id`. Two physical realizations satisfy
-  the same logical schema: **(a)** one database with `deployment_id` on every row (optionally with
-  Row-Level Security), or **(b)** schema-/database-per-deployment (the column is then constant
-  within a schema). This document is written for the stricter case (a). **The
-  "never co-resolve across deployments" invariant is enforced structurally, not by prose:** every
-  deployment-scoped parent table carries a `UNIQUE (deployment_id, <pk>)` key, and every
-  deployment-scoped foreign key is **composite** — `FOREIGN KEY (deployment_id, x_id) REFERENCES
-  parent (deployment_id, x_id)` — so a row in deployment A *cannot* reference a row in deployment B
-  even though UUIDs are globally unique. (This is the single biggest change from a naive
-  single-column-UUID FK design and is applied throughout.) **The one documented exception is a
+- **Tenancy (`deployment_id`) and cross-deployment isolation (D68).** The system runs as **N
+  independent deployments**, one per problem domain (personal assistant, agency, a manufacturer's
+  migration, a legal engine), and each deployment has its own Postgres instance or isolated schema.
+  There is no shared operational database that routes rows for several deployments; entity spaces
+  are **never shared across deployments** (`registries_design.md` §1, D16, D50). Every
+  deployment-scoped table still carries `deployment_id`, which is constant inside that
+  database/schema. The column is retained as a stable deployment identity and structural defense in
+  depth, not as a cross-deployment routing key. Every deployment-scoped parent table therefore
+  carries a `UNIQUE (deployment_id, <pk>)` key, and every deployment-scoped foreign key is
+  **composite** — `FOREIGN KEY (deployment_id, x_id) REFERENCES parent (deployment_id, x_id)` — so
+  an accidental mismatched identifier remains unrepresentable even though UUIDs are globally
+  unique. **The one documented exception is a
   *self-referential* FK** — a row pointing at another row of the *same* table (a section's parent
   section; a merge or adjudication supersession chain: `merge_events.reversed_by`,
   `relation_adjudications.superseded_by`). Both rows are by construction in the same deployment (same
   document, same registry), so these remain single-column for brevity; they cannot cross deployments
   because the worker only ever links rows it created within one deployment.
-- **Foreign keys at scale (D23).** The large append-only E-plane tables (`mentions`,
-  `resolution_decisions`, `relation_evidence`, `claims`, `claim_extraction_decisions`, `chunks`)
-  are **RANGE-partitioned by month** and use **logical foreign keys** — referential integrity
-  enforced by the idempotent workers and verified by a periodic **auditor query**, **not** by a
-  DB-level `FOREIGN KEY`. Reasons: (1) Postgres requires a FK to a partitioned table to reference a
-  unique constraint that *includes the partition key*, which would force the partition month into
-  every child and join; (2) D23's "btree-only, cap write-amplification" mandate on these hot
-  tables. **All non-partitioned tables use real composite FK constraints** with the `ON DELETE`
-  behavior stated per column. A logical-only FK is tagged `-- LOGICAL FK → table(col)`. The auditor
-  checks for orphans **and** for duplicate logical-unique tuples that a partitioned table cannot
-  enforce in-DB (notably `(relation_id, claim_id)` in `relation_evidence`, §9).
+- **Foreign keys at scale (D23).** Nine large append-only E-plane tables are partitioned and use
+  **logical foreign keys** — referential integrity is enforced by idempotent workers and verified
+  by a periodic **auditor query**, not by a DB-level `FOREIGN KEY`. Seven use monthly RANGE
+  partitions (`mentions`, `resolution_decisions`, `chunks`, `chunk_claims`, `claims`,
+  `claim_extraction_decisions`, `testimony_currency_events`); two use static HASH partitions
+  (`relation_evidence`, `observation_evidence`). Reasons: (1) Postgres requires a FK to a
+  partitioned table to reference a unique constraint that includes the partition key, which would
+  force that key into every child and join; (2) D23's "btree-only, cap write-amplification" mandate
+  on these hot tables. **All non-partitioned tables use real composite FK constraints** with the
+  `ON DELETE` behavior stated per column. A logical-only FK is tagged
+  `-- LOGICAL FK → table(col)`. The auditor checks for orphans and any worker-owned logical
+  uniqueness not enforced by a primary key; both evidence joins enforce evidence-once directly
+  through their partition-compatible primary keys (§§9, 9.A).
 - **Versioning (D1, D12).** Every non-deterministic output records the version of the component
   that produced it (`*_version` columns), resolving to a row in `pipeline_component_versions` (§2)
   that pins model + prompt hash + params. This is what makes "rebuild = replay stored state, never
@@ -116,7 +117,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid fallback; diges
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- T1 fuzzy blocking: trigram GIN on names (D17)
 CREATE EXTENSION IF NOT EXISTS fuzzystrmatch; -- T2 phonetic: daitch_mokotoff() (D17, NOT soundex)
 CREATE EXTENSION IF NOT EXISTS unaccent;      -- accent-fold names before trigram/phonetic (registries §5)
-CREATE EXTENSION IF NOT EXISTS btree_gin;     -- composite GIN (deployment_id + trigram/phonetic) on blocking tables
 CREATE EXTENSION IF NOT EXISTS btree_gist;    -- composite GiST: relations bi-temporal EXCLUDE constraint (§9)
 CREATE EXTENSION IF NOT EXISTS pg_partman;    -- monthly RANGE partition automation (D23, §12)
 ```
@@ -253,7 +253,8 @@ LLM/embedding spend per stage and lane (`overall_design.md` §8).
 
 ```sql
 -- ─────────────────────────────────────────────────────────────────────────
--- deployments — the tenancy root. One row per independent instance (D16/registries §1).
+-- deployments — the tenancy root. One identity row for the independent deployment served by
+-- this Postgres instance/schema (D16/D68/registries §1).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE deployments (
   deployment_id   uuid PRIMARY KEY,            -- stable instance identity; appears in every scoped FK
@@ -270,7 +271,7 @@ CREATE TABLE deployments (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE deployments IS
-  'Independent system instances (D16). Entity spaces, registries, graphs and buckets are never shared across rows here; deployment_id scopes every other table and participates in every scoped FK.';
+  'Identity root for the independent deployment served by this Postgres instance/schema (D16/D68). Entity spaces, registries, graphs and buckets are never shared across deployments; deployment_id is constant here and participates in every scoped FK as defense in depth.';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- pipeline_component_versions — what every *_version string means (D1/D12).
@@ -613,9 +614,9 @@ COMMENT ON TABLE entities IS
   'Canonical entity registry (D17/D21). entity_id never reused; merges are redirects via merged_into (un-mergeable), not rewrites. type is the cross-mention vote; mention_count+graph_degree cache the blast-radius inputs for review gating (registries §6/§8).';
 CREATE INDEX ix_entities_type     ON entities (deployment_id, type);
 CREATE INDEX ix_entities_redirect ON entities (merged_into) WHERE merged_into IS NOT NULL;
--- entities is searchable by name but the PRIMARY blocking index lives on aliases (below). This
--- composite GIN (deployment_id leading, via btree_gin) keeps name search tenant-scoped:
-CREATE INDEX ix_entities_name_trgm ON entities USING gin (deployment_id, normalized_name gin_trgm_ops);
+-- entities is searchable by name but the PRIMARY blocking index lives on aliases (below). D68
+-- gives each deployment its own instance/schema, so the blocking GIN contains only the match key:
+CREATE INDEX ix_entities_name_trgm ON entities USING gin (normalized_name gin_trgm_ops);
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- aliases — surface forms per entity, the BLOCKING TARGET (D23). Includes the LLM-emitted
@@ -638,13 +639,11 @@ CREATE TABLE aliases (
 );
 COMMENT ON TABLE aliases IS
   'Surface forms per entity and the blocking target for resolution (D17/D23). T0 exact-matches the llm_canonical lemma; T1 trigram-blocks and T2 phonetic-blocks on normalized_lemma. Not partitioned so its GIN indexes are usable.';
--- The two blocking indexes (D17/D23). Composite (deployment_id leading, via btree_gin) so a
--- per-deployment blocking query — `WHERE deployment_id=$d AND normalized_lemma % $1` (trigram) or
--- `WHERE deployment_id=$d AND daitch_mokotoff(normalized_lemma) && daitch_mokotoff($1)` (phonetic)
--- — is satisfied inside the index, never scanning other deployments' aliases (tenancy + selectivity,
--- §0). [Refines the single-column form in D23/registries §9 for the single-DB realization — see §17.]
-CREATE INDEX ix_aliases_lemma_trgm  ON aliases USING gin (deployment_id, normalized_lemma gin_trgm_ops);
-CREATE INDEX ix_aliases_lemma_dm    ON aliases USING gin (deployment_id, daitch_mokotoff(normalized_lemma));
+-- The two alias blocking indexes (D17/D23). D68 gives each deployment its own instance/schema, so
+-- deployment_id is constant and the GIN keys contain only the values used for trigram/phonetic
+-- matching. The btree exact-match index below keeps deployment_id as structural defense in depth.
+CREATE INDEX ix_aliases_lemma_trgm  ON aliases USING gin (normalized_lemma gin_trgm_ops);
+CREATE INDEX ix_aliases_lemma_dm    ON aliases USING gin (daitch_mokotoff(normalized_lemma));
 CREATE INDEX ix_aliases_lemma_exact ON aliases (deployment_id, normalized_lemma);  -- T0 exact match
 CREATE INDEX ix_aliases_entity      ON aliases (entity_id);
 
@@ -1509,9 +1508,9 @@ CREATE INDEX ix_relations_live       ON relations (deployment_id, subject_entity
 -- partition key = relation_id: relation hydration prunes to ONE partition, AND a real
 -- PRIMARY KEY (relation_id, claim_id) enforces "a claim evidences a relation at most once" in-DB
 -- (so relations.evidence_count cannot be inflated by a retry — a re-link is an ON CONFLICT no-op).
--- This deliberately refines D23 (which named relation_evidence for monthly partitioning) for this
--- one table — see §17. Hash partitions are STATIC (created at migration, e.g. 64), so no pg_partman
--- rolling-window is needed. The claim_id reverse lookup ("which relations does this claim evidence")
+-- This is D23's evidence-join policy. Hash partitions are STATIC (64 migration-created children;
+-- a measured starting point), so no pg_partman rolling-window is needed. The claim_id reverse lookup
+-- ("which relations does this claim evidence")
 -- scans all partitions but is the cold path. FKs remain logical (D23 btree-only/write-amplification).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE relation_evidence (
@@ -2217,29 +2216,32 @@ COMMENT ON TABLE retrieval_recipes IS
 
 ## 12. Partitioning & partition pruning (D23)
 
-Eight append-only E-plane tables are partitioned for scale (D23; `testimony_currency_events` and
-`chunk_claims` joined the list — Codex review F11/F4). Most are **RANGE-partitioned by
-month** (`pg_partman`) on their transaction-time column; **`relation_evidence` is HASH-partitioned by
-`relation_id`** (rationale below). Monthly RANGE caps btree size, makes "drop the oldest month from
-the *hot* set" a partition detach, and aligns with projection archival (p2 §8). **This is binding**
-(the schema is partitioned as stated); a load-test (registries §11 spike 4, sized against *ungated*
-volume per D25) may change the *cadence* or the hash *partition count* — any such change is a
-documented revision to D23 and to this section, not an open "maybe".
+Exactly **nine** append-only E-plane tables are partitioned for scale. Seven use monthly RANGE
+children managed by `pg_partman`; two evidence joins use 64 static HASH children created by the
+schema migration. Monthly RANGE caps btree size, makes detaching an old hot month a partition
+operation, and aligns with projection archival (p2 §8). HASH partitioning puts every evidence row
+for one fact in one child and makes the evidence-once primary key enforceable. This estate is
+binding. A load test (registries §11 spike 4, sized against ungated volume per D25) may justify a
+documented revision to the monthly cadence or the measured HASH starting count of 64.
 
-| Table | Partition key | FK policy |
-|---|---|---|
-| `mentions` | `created_at` (monthly RANGE) | logical (D23-named) |
-| `resolution_decisions` | `decided_at` (monthly RANGE) | logical (D23-named) |
-| `relation_evidence` | **`HASH(relation_id)`** | logical (refines D23 — §17) |
-| `claims` | `ingested_at` (monthly RANGE) | logical |
-| `claim_extraction_decisions` | `decided_at` (monthly RANGE) | logical |
-| `chunks` | `created_at` (monthly RANGE) | logical |
+| Parent | Strategy and key | Primary key | Child management | FK policy |
+|---|---|---|---|---|
+| `mentions` | monthly RANGE (`created_at`) | (`mention_id`, `created_at`) | `pg_partman` | logical |
+| `resolution_decisions` | monthly RANGE (`decided_at`) | (`decision_id`, `decided_at`) | `pg_partman` | logical |
+| `chunks` | monthly RANGE (`created_at`) | (`chunk_id`, `created_at`) | `pg_partman` | logical |
+| `chunk_claims` | monthly RANGE (`created_at`) | (`chunk_id`, `claim_id`, `created_at`) | `pg_partman` | logical |
+| `claims` | monthly RANGE (`ingested_at`) | (`claim_id`, `ingested_at`) | `pg_partman` | logical |
+| `claim_extraction_decisions` | monthly RANGE (`decided_at`) | (`decision_id`, `decided_at`) | `pg_partman` | logical |
+| `testimony_currency_events` | monthly RANGE (`occurred_at`) | (`event_id`, `occurred_at`) | `pg_partman` | logical |
+| `relation_evidence` | HASH (`relation_id`) | (`relation_id`, `claim_id`) | 64 static migration-created children | logical |
+| `observation_evidence` | HASH (`observation_id`) | (`observation_id`, `claim_id`) | 64 static migration-created children | logical |
 
-D23 explicitly names the first three (sized at 10⁸); the other three are partitioned on the same
-principle (large, append-only, queried by id/parent not fuzzy-scanned). **`entities` and `aliases`
-are deliberately NOT partitioned** (≤10⁷, the blocking targets whose GIN trigram/phonetic indexes
-must span the whole set, D23). `relations` and `relation_adjudications` are not partitioned (distinct
-facts + their adjudications are far smaller than the assertion-grain tables).
+`pg_partman` creates and maintains only the seven monthly RANGE families. It does not manage either
+HASH family; migrations create all remainders `0..63` before inserts can reach those parents.
+`entities` and `aliases` are deliberately **not** partitioned (≤10⁷, the blocking targets whose
+single-column GIN trigram/phonetic indexes span the deployment, D23/D68). `relations`,
+`observations`, and their adjudication tables are not partitioned: distinct facts and their
+decision transcripts are far smaller than assertion-grain evidence.
 
 **Partition pruning on ID lookups.** Most hot queries select by id/parent (`doc_id → claims`,
 `mention_id → resolution_decisions`, `relation_id → relation_evidence`), which do *not* mention the
@@ -2247,23 +2249,24 @@ partition key, so a naive query scans every monthly partition's local index. The
 by the data-access layer: **UUIDv7 ids embed their creation timestamp**, and a child row's creation
 time is closely correlated with its parent's ingest time, so the application derives a time bound
 from the id (or from the parent's `ingested_at`) and adds it as a predicate (e.g.
-`AND ingested_at BETWEEN $lo AND $hi`), pruning to 1–2 partitions. This works for every
-ingest-time-correlated table (`claims`, `mentions`, `chunks`, `claim_extraction_decisions`, and —
-for the first-resolution pass — `resolution_decisions`).
+`AND ingested_at BETWEEN $lo AND $hi`), pruning to 1–2 partitions. This works for the
+ingest-time-correlated RANGE families (`claims`, `mentions`, `chunks`, `chunk_claims`,
+`claim_extraction_decisions`, `testimony_currency_events`, and — for the first-resolution pass —
+`resolution_decisions`).
 
 **`relation_evidence` is the exception, and is the reason it is hash-partitioned:** evidence for a
 popular fact accrues over the fact's whole life, so an id-derived time bound would *not* prune a
 `relation_id → evidence` lookup. Partitioning by `HASH(relation_id)` instead prunes relation
 hydration to one partition *and* makes the real `PRIMARY KEY (relation_id, claim_id)` evidence-once
 guarantee enforceable in-DB (a partitioned PK must include the partition key, which `relation_id` now
-is). This refines D23 (which named it for monthly partitioning) for this one table — §17 records the
-recommended D23 update. The `claim_id` reverse lookup still fans across hash partitions, but it is the
-cold path.
+is). This is the D23 contract. The `claim_id` reverse lookup still fans across hash partitions, but
+it is the cold path. `observation_evidence` applies the same policy to `observation_id`.
 
 **Partition-key consequences in the DDL:** a partitioned table's PRIMARY KEY/UNIQUE must include the
-partition key, so the five RANGE tables use composite PKs `(id, <time>)` and `relation_evidence` uses
-`(relation_id, claim_id)`. The application treats the UUIDv7 alone as identity (globally unique by
-construction); the composite is the Postgres mechanical requirement.
+partition key, so all seven RANGE parents include their time key and the two HASH parents include
+their fact identifier. The application treats each UUIDv7 alone as row identity (globally unique by
+construction); the wider RANGE keys are the Postgres mechanical requirement. The evidence joins'
+pair keys are also the intended evidence-once identity.
 
 ---
 
@@ -2335,9 +2338,10 @@ of §13.1 and scrub the free-text fields in place). The worker performs this as 
 pass, distinct from normal delete, and records it in `processing_state` (`stage`-scoped) for audit
 of the erasure itself.
 
-The logical-FK **auditor** (run periodically) catches any orphan or duplicate-`(relation_id,
-claim_id)` the worker missed, and ignores rows belonging to documents with `deleted_at` set (a
-delete in flight).
+The logical-FK **auditor** (run periodically) catches orphans and worker-owned logical-uniqueness
+violations, and ignores rows belonging to documents with `deleted_at` set (a delete in flight).
+The evidence joins' pair primary keys enforce evidence-once directly, so the auditor does not
+duplicate that check.
 
 ---
 
@@ -2421,12 +2425,12 @@ Labs."*
 | D12 idempotency, retries, DLQ, debounced K triggers | `processing_state` identity/status/`attempts`/`max_attempts`; `cost_ledger`; `knowledge_refresh_queue` (retry ownership refined by D67) |
 | D15/D18 ontology core+extensions, domain/range | `entity_types`, `predicates`, `predicate_signatures` (normalizer-enforced), `extension_packs` |
 | D16 one graph, scope views | `scopes`, `scope_interests` |
-| D17 T0–T4 cascade, block-loose/decide-tight | `aliases` composite GIN indexes; `resolution_decisions.method` (CHECK excludes T1/T2); `resolver_versions` |
+| D17 T0–T4 cascade, block-loose/decide-tight | single-column blocking GIN indexes on `entities.normalized_name` and `aliases.normalized_lemma` (D68); `resolution_decisions.method` (CHECK excludes T1/T2); `resolver_versions` |
 | D19 coref in-call | `mentions.canonical_name_form` (no coref model/table) |
 | D20 no external authority | non-goal §15 |
 | D21 clustering, reversibility, generic-id guard | `merge_events` (+ `trigger_lemmas`), `resolution_exclusions`, `generic_identifier_guard`, `superseded_by` |
 | D22 golden set + eval | `golden_pairs` (+ `expected_blocking_tier`), `golden_claim_labels`, `eval_runs`, `canary_cases` |
-| D23 partition the big tables; btree-only; GIN on aliases | §12; `aliases` composite GIN trigram + Daitch-Mokotoff |
+| D23 partition the big tables; btree-only; GIN on registry targets | §12's nine parents (7 monthly RANGE via `pg_partman`, 2 static HASH-64); single-column `ix_entities_name_trgm`, `ix_aliases_lemma_trgm`, `ix_aliases_lemma_dm` |
 | D24 cluster review queue | `review_queue` (band boundaries in `resolver_versions.tier_config`) |
 | D25 no value gate | non-goal §15 |
 | D31/D32 Claimify staged extraction + grounding | `claims` (`source_span`, `added_context`, grounding flags + gate CHECK), `grounding_audits` |
@@ -2451,6 +2455,7 @@ Labs."*
 | D65 media: immutable representations + occurrence provenance | `document_representations` (immutable conversion outputs; route + component graph + output hashes; representation-addressed artifact paths) + `document_versions.current_representation_id` (swap-on-completion); `representation_id` on `document_sections`/`chunks` (the basis coordinate); `chunk_claims.derivation_kind`/`evidence_mode`/`source_locators` (occurrence-grain disclosure + locators, media_design §4–§6) |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
 | D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; transactional `tr_processing_state_initial_wake`; `ix_procstate_due`; `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + per-call UNIQUE; `ix_cost_budget_window` / `ix_cost_provider_call`; `payload` explicitly non-authoritative |
+| D68 schema-/database-per-deployment | §0 tenancy contract; one deployment identity row; composite scoped keys retained as defense in depth; single-column `ix_entities_name_trgm`, `ix_aliases_lemma_trgm`, `ix_aliases_lemma_dm`; no `btree_gin` |
 
 ---
 
@@ -2458,25 +2463,22 @@ Labs."*
 
 Per CLAUDE.md, numbers are starting points. Items that may move the schema or a decision:
 
-1. **`relation_evidence` partitioning — D23 amendment applied; update the decision text.** All
-   three reviewers flagged that monthly time-partitioning defeats the `relation_id → evidence`
-   lookup (time-uncorrelated, §12) *and* prevents a DB-level evidence-once guarantee. The schema
-   therefore partitions `relation_evidence` by **`HASH(relation_id)`** with `PRIMARY KEY
-   (relation_id, claim_id)` — relation hydration prunes to one partition and evidence-once is
-   DB-enforced (no worker-invariant/auditor needed for *this* duplicate class). D23 names monthly
-   partitioning for this table; **D23 should be updated** to record the hash-by-`relation_id`
-   choice. Confirm the partition count (start 64) on a corpus-slice load-test.
-2. **GIN blocking index shape — reconcile with D23/registries §9.** The schema makes the `aliases`
-   blocking GIN indexes **composite (deployment_id-leading, via `btree_gin`)** to deliver the §0
-   tenancy invariant and selectivity in the single-DB realization. D23/registries §9 currently
-   describe single-column GIN on `normalized_lemma`. Update those texts to match, or, if
-   schema-per-deployment (realization b) is mandated, drop the `btree_gin` extension and revert to
-   single-column GIN. Decide on the realization.
+1. ~~**`relation_evidence` partitioning — amend D23.**~~ **RESOLVED (D23).** D23 now records
+   `HASH(relation_id)`, PRIMARY KEY (`relation_id`, `claim_id`), and 64 static migration-created
+   children. Relation hydration prunes to one partition and evidence-once is DB-enforced. The
+   partition count remains a measured starting point in the registries §11 corpus-slice load test.
+2. ~~**GIN blocking index shape — reconcile tenancy and D23.**~~ **RESOLVED (D68, D23,
+   `registries_design.md` §§1 and 9).** Each deployment has its own Postgres instance/schema;
+   `deployment_id` is constant and remains structural defense in depth. The three blocking GIN
+   indexes are single-column, and `btree_gin` is not required. The rejected shared-database
+   alternative and its deployment-leading composite indexes are recorded in D68 rather than left
+   as an implementer choice.
 3. **Embedding dimension** (questions Q3): pins `pipeline_component_versions.embedding_dim` and the
    re-embedding batch path — the hardest thing to change later.
-4. **Logical-FK auditor cost**: the periodic orphan + duplicate-`(relation_id, claim_id)` check over
-   the partitioned tables — confirm it stays cheap enough to run often; else reconsider selective
-   real FKs (or spike #1's hash-partition, which removes the duplicate check).
+4. **Logical-FK auditor cost**: confirm the periodic orphan and worker-owned logical-uniqueness
+   checks over partitioned tables stay cheap enough to run often; else reconsider selective real
+   FKs. The evidence joins' pair duplicates are not part of this spike because their primary keys
+   enforce evidence-once in the database.
 5. **K-provenance granularity**: whether `knowledge_artifact_evidence` at claim grain is affordable,
    or should coarsen to relation/community grain for the largest K1 summaries.
 6. **Un-merge ↔ supersession ripple** (registries §11 spike 3): verify replaying

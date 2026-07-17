@@ -512,17 +512,34 @@ claim-verifiability golden set (D25 — junk-control moved to in-call Selection,
 
 ## D23. Registry scale & schema
 
-**Decision.** RANGE-partition the three ~10⁸ append-only tables (`mentions`,
-`resolution_decisions`, `relation_evidence`) by ingest month (`pg_partman`); **btree-only** on
-those hot tables (cap write-amplification). Do **not** partition `entities`/`aliases` (the blocking
-targets, ≤10⁷). GIN `gin_trgm_ops` + GIN `daitch_mokotoff(name)` on `aliases.normalized_name`;
-btree composite `(subject_entity_id, predicate[, object])` on `relations`. Supersession + tiers
-T0–T2 run in Postgres; embedding tier T3 in Lance (D8); HNSW never in OLTP. Load-test a
-representative corpus slice before locking partition/index choices. **Row counts are contingent on
-the value gate (D25) — size against *gated* volume.**
+**Decision.** The partition estate has exactly nine parents. Seven large append-only tables use
+monthly RANGE partitions managed by `pg_partman`: `mentions(created_at)`,
+`resolution_decisions(decided_at)`, `chunks(created_at)`, `chunk_claims(created_at)`,
+`claims(ingested_at)`, `claim_extraction_decisions(decided_at)`, and
+`testimony_currency_events(occurred_at)`. Two evidence joins use static HASH partitions:
+`relation_evidence` by `relation_id` with PRIMARY KEY (`relation_id`, `claim_id`), and
+`observation_evidence` by `observation_id` with PRIMARY KEY (`observation_id`, `claim_id`). Each
+HASH parent has 64 migration-created children; 64 is a measured starting point, not a committed
+constant. The hot partitioned tables remain btree-only to cap write amplification.
 
-**Context.** Only the 10⁸ tables are huge and they're never fuzzy-scanned (queried by id/doc_id).
-(R9.)
+Do **not** partition `entities`/`aliases` (the blocking targets, ≤10⁷). Under D68's
+schema-/database-per-deployment contract, the blocking GIN indexes are single-column:
+`ix_entities_name_trgm` on `entities USING gin (normalized_name gin_trgm_ops)`,
+`ix_aliases_lemma_trgm` on `aliases USING gin (normalized_lemma gin_trgm_ops)`, and
+`ix_aliases_lemma_dm` on `aliases USING gin (daitch_mokotoff(normalized_lemma))`. The alias key is
+`normalized_lemma`, not `normalized_name`. Keep the btree composite
+`(subject_entity_id, predicate[, object])` on `relations`. Supersession + tiers T0–T2 run in
+Postgres; embedding tier T3 in Lance (D8); HNSW never in OLTP. Load-test a representative corpus
+slice before revising partition cadence, HASH child count, or index choices. Size row counts and
+the load test against full, ungated extraction volume (D25).
+
+**Context.** Monthly partitioning fits append-only rows whose transaction time correlates with
+their access path. It does not fit `relation_evidence`: evidence for one relation accumulates over
+that relation's lifetime, so month cannot prune the hot `relation_id → evidence` lookup and cannot
+support the evidence-once primary key. HASH partitioning makes that lookup prune to one child and
+lets Postgres enforce the pair uniqueness directly. The static observation-evidence family uses
+the same access pattern. The large evidence tables are never fuzzy-scanned; fuzzy blocking stays
+on the unpartitioned registry targets. (R9; `postgres_schema_design.md` §§9, 9.A, 12.)
 
 ## D24. Review tooling — build a thin Postgres-backed cluster-review queue
 
@@ -2127,3 +2144,37 @@ constraints, claim query, and indexes, and §16 maps this decision to both table
 only in retry vocabulary (`attempts` is total handler starts; default three means two retries),
 and D61/D62 are refined only by making delivery snapshots explicitly non-authoritative. No queue
 Protocol, migration, adapter, or runtime implementation is created by this decision.
+
+---
+
+## D68. Each deployment has its own Postgres instance or schema
+
+**Decision.** The physical tenancy realization is **schema-/database-per-deployment**. Each
+deployed memory system operates in its own Postgres instance or isolated schema; one operational
+database does not route rows for several deployments. The `deployment_id` column remains on every
+deployment-scoped table and is constant within that database/schema. It is a stable identity and a
+structural defense-in-depth key for composite uniqueness and foreign keys, not a cross-deployment
+routing key.
+
+**Context.** This makes the physical contract explicit and reconciles sources that already agree
+on it. `registries_design.md` §1 says separate deployments have separate Postgres
+instances/schemas, registries, and graphs. D16 says scope sharing occurs only within one deployment
+and that separate deployments are fully independent instances. D50 makes a deployment one trust
+domain and requires a separate deployment for a different trust boundary. The Postgres projection
+contract (§10.A) already states that one graph snapshot is one deployment because Postgres is
+separate per deployment, and the resolved tenancy entry in `questions.md` records the same answer.
+
+The rejected alternative was one shared operational database with `deployment_id` as the leading
+column in every blocking GIN index. Composite foreign keys can prevent accidental cross-deployment
+references in that topology, but it conflicts with the independent-instance trust boundary and
+adds a constant leading key to blocking indexes under the selected topology. Multi-deployment fleet
+management belongs to the D60 cloud control plane; it is not a second tenancy model inside the
+single-deployment library.
+
+**Consequences.** `postgres_schema_design.md` §0 carries this as the sole operational contract.
+The `deployments` table identifies the deployment served by its database/schema. Composite
+deployment-scoped keys remain as defense in depth. The three blocking GIN indexes are
+single-column (`ix_entities_name_trgm`, `ix_aliases_lemma_trgm`,
+`ix_aliases_lemma_dm`), and `btree_gin` is not a required extension; `btree_gist` remains required
+for the relations exclusion constraint. D23 records the exact index expressions and the reconciled
+partition estate.

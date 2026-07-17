@@ -32,8 +32,9 @@ manufacturing company, and a knowledge engine for a law-related product. Rules:
 
 - **Entity spaces are never shared across deployments.** D16's "one graph, one entity space"
   applies *within* a deployment; separate deployments are separate Postgres
-  instances/schemas, separate registries, separate graphs (a client project's data and a
-  personal assistant's data must never co-resolve).
+  instances/schemas, separate registries, separate graphs (D68). A client project's data and a
+  personal assistant's data must never co-resolve, and no shared operational database routes
+  rows for both.
 - **Each deployment = the universal core (D18) + chosen extension packs (§4) + its own K2
   scopes.** The core is identical everywhere; packs and scopes are per-deployment choices.
 - The multi-scope case *within* one deployment (e.g. the agency: multiple products as K2
@@ -397,12 +398,23 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
 
 ## 9. Scale & schema (D23)
 
-- RANGE-partition `mentions` / `resolution_decisions` / `relation_evidence` (~10⁸ rows) by
-  ingest month (`pg_partman`); **btree-only** on these hot tables (cap write-amplification).
-  They are never fuzzy-scanned (queried by id/doc_id).
+- The partition estate has exactly nine parents (schema §12). Seven append-only tables use
+  monthly RANGE children managed by `pg_partman`: `mentions(created_at)`,
+  `resolution_decisions(decided_at)`, `chunks(created_at)`, `chunk_claims(created_at)`,
+  `claims(ingested_at)`, `claim_extraction_decisions(decided_at)`, and
+  `testimony_currency_events(occurred_at)`. Two evidence joins use 64 static,
+  migration-created HASH children: `relation_evidence` by `relation_id`, with PRIMARY KEY
+  (`relation_id`, `claim_id`), and `observation_evidence` by `observation_id`, with PRIMARY KEY
+  (`observation_id`, `claim_id`). The HASH count of 64 is a measured starting point. These hot
+  tables are btree-only to cap write amplification and are never fuzzy-scanned.
 - Do **not** partition `entities`/`aliases` (≤10⁷, the blocking targets). GIN `gin_trgm_ops` +
-  GIN `daitch_mokotoff(name)` on `aliases.normalized_lemma`; btree composite
-  `(subject_entity_id, predicate[, object])` on `relations`.
+  GIN `daitch_mokotoff` blocking stays single-column because each deployment has its own
+  Postgres instance/schema (D68): `ix_entities_name_trgm` on
+  `entities USING gin (normalized_name gin_trgm_ops)`, `ix_aliases_lemma_trgm` on
+  `aliases USING gin (normalized_lemma gin_trgm_ops)`, and `ix_aliases_lemma_dm` on
+  `aliases USING gin (daitch_mokotoff(normalized_lemma))`. The alias key is
+  `normalized_lemma`. Keep the btree composite `(subject_entity_id, predicate[, object])` on
+  `relations`; `btree_gin` is not required.
 - T0–T2 in Postgres; T3 embedding in Lance (D8); HNSW never in OLTP.
 - **Row counts are sized against full extraction** (there is no value gate — D25); size the
   load-test against *ungated* volume.
@@ -430,8 +442,9 @@ appends a reversible, provenance-stamped record to `resolution_decisions`/`merge
    under a merged identity are correctly re-adjudicated on un-merge (this is where silent
    supersession failure lives; coordinate with E2 Selection's change-of-state never-drop safeguard,
    D25/D35).
-4. **Scale load-test** real mentions-per-doc, GIN index sizes, streaming throughput on a corpus
-   slice (sized against full extraction — there is no value gate, D25).
+4. **Scale load-test** real mentions-per-doc, GIN index sizes, monthly RANGE cadence, static HASH
+   child count (64 is the starting point), and streaming throughput on a corpus slice (sized
+   against full extraction — there is no value gate, D25).
 5. **Predicate-promotion workflow + split cost** (G5).
 
 ## References
