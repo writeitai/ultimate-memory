@@ -17,12 +17,16 @@ Configuration is `loopy_loop_config.yaml`, the parent goal is
 Install the exact supported registry releases, not editable checkouts:
 
 ```bash
-uv tool install --force --reinstall --no-sources --no-config "eval-banana==0.3.5"
-uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.0"
+uv tool install --force --reinstall --no-sources --no-config "eval-banana==0.3.6"
+uv tool install --force --reinstall --no-sources --no-config "team-harness==0.5.2"
 uv tool install --force --reinstall --no-sources --no-config \
-  --with "eval-banana==0.3.5" --with "team-harness==0.5.0" \
+  --with "eval-banana==0.3.6" --with "team-harness==0.5.2" \
   "loopy-loop==0.7.2"
 ```
+
+The third command is mandatory even when the first two tools are current:
+`loopy-loop` has its own isolated Python environment and otherwise continues
+using the dependency versions embedded in that environment.
 
 The Python tool and the `loopy-loop` Agent Skill are installed separately.
 Before launch or resume, refresh the shared skill from the v0.7.2 release and
