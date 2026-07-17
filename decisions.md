@@ -1759,7 +1759,9 @@ discipline. `packaging_distribution_design.md` §3.
 **Refined by D67 (queue state and vocabulary).** The port announces an existing
 `processing_state` row by `processing_id`; route and `not_before` in a delivery envelope are
 snapshots only. Postgres owns nullable lane, due time, defer reason, handler-attempt limit, and the
-DLQ. Cloud Tasks delivery attempts and self-host wake-ups cannot consume an application attempt.
+DLQ. The self-host initial wake is a schema-owned transactional `AFTER INSERT` notification, not a
+port-side insert; explicit port announcements only wake existing rows. Cloud Tasks delivery
+attempts and self-host wake-ups cannot consume an application attempt.
 
 ---
 
@@ -1809,7 +1811,8 @@ open there.
 **Refined by D67 (task execution only).** Both shells announce a `processing_id`; any route or
 schedule values carried by the delivery provider are non-authoritative snapshots. The handler
 re-reads Postgres, where lane, `not_before`, defer reason, application attempts, budget parking,
-and dead-letter state have one normalized home.
+and dead-letter state have one normalized home. The self-host schema trigger couples initial row
+creation and `NOTIFY` in one transaction; the delivery port never creates the row.
 
 > **Superseding note (2026-07-17) — `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` /
 > WP-0.1.** The final historical sentence above no longer describes the repository: the
@@ -2057,6 +2060,13 @@ steady enqueue may promote a pending/failed backfill row so live work keeps its 
 guarantee, while a backfill enqueue can never demote steady work. An explicit operator replay may
 also reroute a dead letter. Historical cost rows keep the lane on which each billed call ran.
 
+Promotion changes only backfill-specific waiting. A `budget`-parked row becomes steady/pending,
+clears that defer reason, sets `not_before=now()`, and immediately faces the steady budget check;
+if the steady budget is also exhausted it parks against that window. A caller-requested
+`scheduled` wait and a failed row's `retry_backoff` are preserved exactly, including
+`not_before`, attempts, and error, so promotion cannot bypass an intended schedule or a failure
+backoff. The promoted row is then announced on its new route.
+
 `not_before` is the one canonical name for the earliest instant at which work may be claimed;
 `run_after` is retired as a synonym. `defer_reason` makes the reason queryable:
 `scheduled` is caller-requested future delivery, `retry_backoff` is a failed application attempt
@@ -2076,8 +2086,16 @@ Attempts are monotonic across manual replay so cost-ledger deduplication remains
 a dead letter sets it back to `pending` and raises `max_attempts` above the current `attempts` by
 the operator-approved allowance; it does not reset `attempts` to zero.
 
-`cost_ledger.lane` records the authoritative lane copied from the claimed `processing_state` row
-when a billed call begins. Budget enforcement sums by
+Every `cost_ledger` row names its owning `processing_id`, the handler `attempt`, a
+`provider_call_id`, and a deterministic `call_key` that identifies one logical call attribution
+within that attempt (for example D31's `selection` and `decontextualize` calls). The
+processing/attempt/call-key tuple is unique, so an acknowledged-late retry cannot double-bill while
+one handler attempt may still make multiple calls. A batched provider call shares one
+`provider_call_id` across the participating processing rows and allocates tokens/cost pro rata as
+D31 requires; those slices must sum to the provider total and may not cross lanes. Nullable
+diagnostic target fields are not part of deduplication. `cost_ledger.lane` records the
+authoritative lane copied from the claimed `processing_state` row when the call begins. Budget
+enforcement sums by
 `(deployment_id, stage, lane, occurred_at-window)`; unlaned K/P costs use `lane IS NULL` rather
 than inventing a third operational lane. A matching btree begins with
 `(deployment_id, stage, lane, occurred_at)`. The self-host runnable index begins with
@@ -2085,12 +2103,15 @@ than inventing a third operational lane. A matching btree begins with
 with `FOR UPDATE SKIP LOCKED` without inspecting `payload`.
 
 The task-queue port and its adapters are **delivery-only**. They may announce a delivery envelope
-containing `processing_id` plus a snapshot of route and `not_before`, but the receiving worker
-must re-read and atomically claim the Postgres row. A stale duplicate, an early delivery, a
-mismatched route snapshot, or a Cloud Tasks attempt header cannot override the row and cannot
-increment `attempts`. Cloud Tasks scheduling and self-host `NOTIFY` are latency optimizations;
-the shared janitor re-announces rows whose authoritative state says they are due. Correctness-
-critical route, schedule, retry, budget, and DLQ state is never hidden in `payload`.
+for an already committed `processing_id` plus a snapshot of route and `not_before`, but never
+insert the work row. The receiving worker must re-read and atomically claim Postgres. A stale
+duplicate, an early delivery, a mismatched route snapshot, or a Cloud Tasks attempt header cannot
+override the row or increment `attempts`. Self-host initial enqueue has no state/announcement
+crash window because a Postgres `AFTER INSERT` trigger emits the `NOTIFY` transactionally; the
+self-host adapter's explicit `announce` operation emits only a wake-up for an existing row
+(retry, replay, janitor). Cloud Tasks creation remains post-commit and is repaired by the shared
+janitor. Correctness-critical route, schedule, retry, budget, and DLQ state is never hidden in
+`payload`.
 
 **Context.** D61/D62 made adapters delivery-only, packaging required queue/lane plus scheduled
 delivery, and orchestration required per-lane budgets with no-retry parking. The schema had none

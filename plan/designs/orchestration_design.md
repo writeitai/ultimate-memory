@@ -78,6 +78,14 @@ guarantee; a backfill enqueue never demotes steady work. An explicit operator re
 dead-letter row between lanes. Each change affects future delivery rather than rewriting
 historical costs.
 
+Promotion has a closed transition table. For `defer_reason='budget'`, change the lane to steady,
+keep `status='pending'`, clear the backfill defer reason, set `not_before=now()`, and run the steady
+budget pre-flight when claimed (which may park it against the steady window). For
+`defer_reason='scheduled'`, change only the lane and preserve the caller's `not_before`. For a
+failed row with `defer_reason='retry_backoff'`, change only the lane and preserve status, due time,
+attempts, and failure. Immediate pending work keeps its existing due/past `not_before`. Every
+promotion is announced on the steady route after commit.
+
 ## 3. Two lanes: steady-state and backfill
 
 Backfill (initial corpus load; version-bump reprocessing) and live ingestion run the **same
@@ -121,10 +129,16 @@ document" — requirements). Rules:
   regression made the frontier rung fire 10× more often" in the alert itself, not by
   archaeology.
 
-`cost_ledger.lane` is copied from `processing_state.lane` when a billed call begins. The budget
-lookup is therefore a range sum on `(deployment_id, stage, lane, occurred_at)`; K/P calls can be
-metered on their unlaned route with `lane IS NULL`, but they do not silently join either plane-E
-lane. A delivery envelope or Cloud Tasks header cannot choose the attribution.
+Each logical model/provider call writes an attribution row identified by
+`(processing_id, attempt, call_key)`. The handler assigns a deterministic stage-local call key—D31
+uses separate `selection` and `decontextualize` keys—so multi-call attempts are fully counted and
+an acknowledged-late retry of one call is an idempotent insert. A batched call shares one
+`provider_call_id` across its per-processing rows and allocates tokens/cost pro rata; a batch may
+not cross lanes, and its slices sum to the provider total. `cost_ledger.lane` is copied from
+`processing_state.lane` when that call begins. The budget lookup is therefore a range sum on
+`(deployment_id, stage, lane, occurred_at)`; K/P calls can be metered on their unlaned route with
+`lane IS NULL`, but they do not silently join either plane-E lane. A delivery envelope or Cloud
+Tasks header cannot choose the attribution.
 
 ## 5. The cross-cloud write path (design-review F9, made binding)
 
