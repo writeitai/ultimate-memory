@@ -45,7 +45,7 @@ off; never expose a partially written YAML file to a later runner attempt.
 
 Every check is LLM-as-judge by design. Author only `harness_judge` checks—never
 deterministic checks—and keep them outcome-focused unless the scoped contract
-requires a concrete observable shape. Complete eval-banana 0.3.5 shape:
+requires a concrete observable shape. Complete eval-banana 0.3.6 shape:
 
 ```yaml
 schema_version: 1

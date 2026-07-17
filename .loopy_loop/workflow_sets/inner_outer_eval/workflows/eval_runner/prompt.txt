@@ -11,9 +11,12 @@ Assignment's absolute `repo_root`, `goal_contract`, `eval_checks`,
 paths plus the exact goal-check output path rendered separately by loopy.
 Never evaluate the PM/root goal in place of this child's scoped target.
 
-Do not edit checks to make current work pass. Missing, malformed, weak, or
-incomplete check inventories yield a precise false verdict for reviewer/inner
-repair. Delegation may inspect evidence, but you own command execution,
+Do not edit checks to make current work pass. Weak or incomplete coverage that
+can be evaluated into a complete valid report yields a precise false verdict
+for reviewer/inner repair. Missing or malformed checks that prevent validation
+or report creation are instead a visible evaluation-attempt failure for the
+reviewer to repair; without a report they produce no receipt or goal-check
+projection. Delegation may inspect evidence, but you own command execution,
 normalization, receipt integrity, and the verdict.
 
 Run exactly one combined eval from the absolute repo root. Raw output belongs
@@ -24,6 +27,15 @@ eval-banana validate --no-project-config --cwd <repo_root> --check-dir <eval_che
 eval-banana run --no-project-config --flat-output --cwd <repo_root> --check-dir <eval_checks> --output-dir <raw_eval_output> --pass-threshold 1.0 --harness-agent claude --harness-model claude-opus-4-8 --harness-reasoning-effort xhigh --harness-timeout-seconds 10800
 loopy capture-git-receipt --repo-root <repo_root> --attempt-id <attempt_id> --output <git_receipts>/git-after-<attempt_id>.json
 ```
+
+After validation, count the complete combined inventory as `N`. Invoke the
+`eval-banana run` line as one synchronous foreground `bash` tool call with the
+named tool argument `timeout_seconds=N * 10800 + 600` (calculate and pass the
+integer value). This outer deadline covers every sequential check plus report
+assembly; it is distinct from the command's per-check
+`--harness-timeout-seconds 10800`. Do not delegate the run, background it, use
+`nohup`, or replace its lifecycle with PID polling. Wait for the foreground
+tool result and the canonical report.
 
 Do not run curated and session checks separately: loopy validates one combined
 session inventory against one canonical `eval/report.json`. Require at least one
@@ -37,9 +49,9 @@ YAML file SHA-256 and must never be recomputed manually. Bind the compact
 git-after receipt's
 actual `head` and `dirty_tree_digest`.
 
-For every run, atomically publish a compact `<eval_id>.json` receipt and a
-canonical report sibling under the absolute `eval_receipts` path. The receipt
-must contain:
+For every completed run with a valid report, atomically publish a compact
+`<eval_id>.json` receipt and a canonical report sibling under the absolute
+`eval_receipts` path. The receipt must contain:
 
 - `schema_version: 1` and a safe unique `eval_id`;
 - `subject`: Assignment root/session ids, exact goal hash, observed git commit,
@@ -92,9 +104,17 @@ Use these exact keys and nesting:
 ```
 
 A verdict is true only when validation succeeds, the one combined run succeeds,
-and every declared check passes. Missing tools/checks, schema or runner errors,
-hash/inventory mismatch, or any failed check produces false with a specific
-reason.
+and every declared check passes. A complete valid `eval/report.json` containing
+failed checks, recorded runner/check errors, or evidence that required check
+coverage is incomplete supports a false receipt with a specific reason. Every
+receipt path, hash, and inventory entry must bind to that actual report. A
+cancelled, crashed, or timed-out shell call, a pre-run validation failure, or
+any run that does not produce a complete valid report is instead an
+infrastructure attempt failure: publish no receipt, goal-check projection, or
+control, and report the missing completion artifact precisely. A report whose
+hashes or inventory cannot be bound consistently is also an attempt failure,
+not a semantic verdict. Never fabricate report bytes, hashes, check results, or
+protocol outputs.
 
 After the receipt is durable, atomically write this projection to the exact
 goal-check output path. Its reason must exactly equal the receipt verdict:

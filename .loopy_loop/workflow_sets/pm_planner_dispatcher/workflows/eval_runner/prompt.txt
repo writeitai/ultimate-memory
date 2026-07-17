@@ -10,9 +10,13 @@ hash, and goal contract. Use the Assignment's absolute `repo_root`,
 `eval_checks`, `eval_receipts`, `control`, `raw_eval_output`, `git_receipts`,
 and `trace_root` paths plus the separately rendered exact goal-check path.
 
-Do not edit checks to make work pass. Missing or weak checks yield a false
-verdict for reviewer repair. Delegation may inspect evidence, but you own the
-one combined run, receipt integrity, and parent-layer decision.
+Do not edit checks to make work pass. Weak or incomplete coverage that can be
+evaluated into a complete valid report yields a false verdict for reviewer
+repair. Missing or malformed checks that prevent validation or report creation
+are instead a visible evaluation-attempt failure for the reviewer to repair;
+without a report they produce no receipt or goal-check projection. Delegation
+may inspect evidence, but you own the one combined run, receipt integrity, and
+parent-layer decision.
 
 Run hermetically from the absolute repository path:
 
@@ -21,6 +25,15 @@ eval-banana validate --no-project-config --cwd <repo_root> --check-dir <eval_che
 eval-banana run --no-project-config --flat-output --cwd <repo_root> --check-dir <eval_checks> --output-dir <raw_eval_output> --pass-threshold 1.0 --harness-agent claude --harness-model claude-opus-4-8 --harness-reasoning-effort xhigh --harness-timeout-seconds 10800
 loopy capture-git-receipt --repo-root <repo_root> --attempt-id <attempt_id> --output <git_receipts>/git-after-<attempt_id>.json
 ```
+
+After validation, count the complete combined inventory as `N`. Invoke the
+`eval-banana run` line as one synchronous foreground `bash` tool call with the
+named tool argument `timeout_seconds=N * 10800 + 600` (calculate and pass the
+integer value). This outer deadline covers every sequential check plus report
+assembly; it is distinct from the command's per-check
+`--harness-timeout-seconds 10800`. Do not delegate the run, background it, use
+`nohup`, or replace its lifecycle with PID polling. Wait for the foreground
+tool result and the canonical report.
 
 There must be at least one parent-program check. At final readiness, require
 the combined tree and raw report to include the complete current curated
@@ -81,8 +94,17 @@ Use these exact keys and nesting:
 
 The verdict is true only if validation and execution succeed, every declared
 check passes, the parent outcome is integrated, and—at final readiness—the
-full current curated inventory is present. Missing tools/checks/evidence,
-inventory mismatch, runner errors, or any failed check yield false.
+full current curated inventory is present. A complete valid `eval/report.json`
+containing failed checks, recorded runner/check errors, or evidence that
+required parent/curated coverage is incomplete supports a false receipt with a
+specific reason. Every receipt path, hash, and inventory entry must bind to
+that actual report. A cancelled, crashed, or timed-out shell call, a pre-run
+validation failure, or any run that does not produce a complete valid report
+is instead an infrastructure attempt failure: publish no receipt, goal-check
+projection, or control, and report the missing completion artifact precisely.
+A report whose hashes or inventory cannot be bound consistently is also an
+attempt failure, not a semantic verdict. Never fabricate report bytes, hashes,
+check results, or protocol outputs.
 
 After the receipt is durable, atomically write the exact goal-check projection;
 its reason must exactly match the receipt verdict:
