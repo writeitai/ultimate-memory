@@ -29,5 +29,9 @@ runs an empty suite in CI; the blockizer golden corpus scaffold exists with ≥1
 
 **WP-0.4 progress (2026-07-17; `P0-L01-D62-ARCH-GATE`):** the first slice adds
 the ten behavior-empty D62 package homes, the locked [import-linter configuration](../../.importlinter),
-and the required [CI architecture gate](../../.github/workflows/ci.yml). WP-0.4 remains
-`in-progress`: its seven D61 Protocols are intentionally deferred to the subsequent leaf.
+and the required [CI architecture gate](../../.github/workflows/ci.yml) in
+[PR #63](https://github.com/writeitai/ultimate-memory/pull/63). A deliberate `core → adapters`
+edge broke both applicable contracts on Python 3.12 and 3.13 in
+[CI run 29610259852](https://github.com/writeitai/ultimate-memory/actions/runs/29610259852);
+the repaired PR head provides the paired green receipt. WP-0.4 remains `in-progress`: its
+seven D61 Protocols are intentionally deferred to the subsequent leaf.
