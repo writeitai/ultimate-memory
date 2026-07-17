@@ -49,9 +49,16 @@ Passed as `sys.argv[1]`. Always this exact shape:
   "description": "string",
   "project_root": "/abs/path",
   "source_path": "/abs/path/to/check.yaml",
-  "output_dir": "/abs/path/to/per-check-output-dir"
+  "output_dir": "/abs/path/to/checks/<safe_check_id_stem>"
 }
 ```
+
+`output_dir` is an absolute, durable directory where the deterministic script
+may write evidence. `<safe_check_id_stem>` is a readable label of at most 40
+characters followed by the full SHA-256 of the exact check ID. Use the supplied
+path directly rather than deriving a directory from `check_id`; the same stem
+binds the check's evidence, result, prompt, stdout, and stderr artifacts while
+keeping case-only, normalized-label, and long IDs distinct.
 
 ### Result mapping
 
@@ -61,7 +68,10 @@ Passed as `sys.argv[1]`. Always this exact shape:
 | Exit non-zero (includes `AssertionError`, uncaught exceptions, `sys.exit(1)`) | `failed` | 0 |
 | `FileNotFoundError` on script itself, `OSError` | `error` | 0 |
 
-`stdout` and `stderr` are captured on the `CheckResult` and written to `<output_dir>/checks/<check_id>.stdout.txt` / `.stderr.txt` (only if non-empty).
+`stdout` and `stderr` are captured on the `CheckResult` and written to
+`<run_output_dir>/checks/<safe_check_id_stem>.stdout.txt` and `.stderr.txt`
+(only if non-empty). The per-check result is
+`<safe_check_id_stem>.json`.
 
 ## `harness_judge` check
 
@@ -80,6 +90,10 @@ The runner builds a prompt with:
 3. The `instructions` as the evaluation criterion
 
 The harness agent can read project files on its own — tell it which files to check in the `instructions` field.
+
+The exact prompt is retained as
+`<run_output_dir>/checks/<safe_check_id_stem>.prompt.txt`. It shares its stem
+with the check result and any captured stdout or stderr.
 
 ### Required LLM response format
 
