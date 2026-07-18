@@ -100,11 +100,17 @@ from ultimate_memory.model.relations import NormalizationResponse
 from ultimate_memory.model.relations import ObservationCandidate
 from ultimate_memory.model.relations import RelationCandidate
 from ultimate_memory.model.relations import ResolvedEntity
+from ultimate_memory.model.resolution import AdjudicationVerdict
+from ultimate_memory.model.resolution import P1EntityRow
+from ultimate_memory.model.resolution import ResolutionCandidate
+from ultimate_memory.model.resolution import ResolverConfig
+from ultimate_memory.model.resolution import TypeThresholds
 from ultimate_memory.model.telemetry import TelemetryAttribute
 from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
     "AddedContext",
+    "AdjudicationVerdict",
     "AuthenticatedContext",
     "Block",
     "BlockType",
@@ -169,6 +175,7 @@ __all__ = (
     "ObservationForEmbedding",
     "P1ChunkRow",
     "P1ClaimRow",
+    "P1EntityRow",
     "P1FactRow",
     "PackedChunk",
     "PerimeterCredential",
@@ -185,7 +192,9 @@ __all__ = (
     "RelationCandidate",
     "RepresentationNotFoundError",
     "RepresentationRecord",
+    "ResolutionCandidate",
     "ResolvedEntity",
+    "ResolverConfig",
     "RunResultOutcome",
     "SectionSpan",
     "SelectionCandidate",
@@ -198,6 +207,7 @@ __all__ = (
     "SyntheticRootRecord",
     "TelemetryAttribute",
     "TelemetryEvent",
+    "TypeThresholds",
     "UTCDateTime",
     "UnknownStageHandlerError",
     "UnroutableMimeError",

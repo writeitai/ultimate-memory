@@ -18,10 +18,13 @@ class FakeModelProvider:
         *,
         generate_payload: dict[str, object] | None = None,
         generate_payloads: dict[str, dict[str, object]] | None = None,
+        generate_router: object | None = None,
     ) -> None:
-        """Bind canned payloads: one default, or one per response-type name."""
+        """Bind canned payloads: one default, one per response-type name, or a
+        router callable (prompt, type_name) -> payload for per-call behavior."""
         self._generate_payload = generate_payload
         self._generate_payloads = generate_payloads or {}
+        self._generate_router = generate_router
         self.embedded_texts: list[str] = []
         self.generated_prompts: list[str] = []
 
@@ -30,6 +33,10 @@ class FakeModelProvider:
     ) -> ResponseT:
         """Return the canned payload validated as the caller's declared type."""
         self.generated_prompts.append(request.prompt)
+        if callable(self._generate_router):
+            return response_type.model_validate(
+                self._generate_router(request.prompt, response_type.__name__)
+            )
         payload = self._generate_payloads.get(
             response_type.__name__, self._generate_payload
         )
