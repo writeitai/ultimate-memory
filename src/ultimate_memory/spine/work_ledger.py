@@ -176,6 +176,17 @@ class WorkLedger:
                     "work can be budget-parked"
                 )
 
+    def wake(self, *, processing_id: UUID) -> None:
+        """Announce an existing committed row on the self-host wake channel.
+
+        The initial wake after enqueue is the schema-owned insert trigger; this
+        primitive re-announces for retry, replay, and janitor paths. It never
+        creates or mutates work state (the port contract), and SQL stays in the
+        spine — adapters call this, never NOTIFY directly.
+        """
+        with self._engine.begin() as connection:
+            connection.execute(_WAKE, {"processing_id": str(processing_id)})
+
     def record_call(self, *, call: RecordCall) -> bool:
         """Attribute one billed call to the running attempt; idempotent per call key.
 
@@ -446,5 +457,11 @@ _INSERT_COST = text(
         :tokens_in, :tokens_out, :cost_usd, :latency_ms
     )
     ON CONFLICT (deployment_id, processing_id, attempt, call_key) DO NOTHING
+    """
+)
+
+_WAKE = text(
+    """
+    SELECT pg_notify('queue_wake', :processing_id)
     """
 )

@@ -107,6 +107,15 @@ class RecordCall(BaseModel):
     latency_ms: int | None = None
 
 
+class RunResultOutcome(StrEnum):
+    """How one worker pass ended for the row it claimed (or that none was due)."""
+
+    NO_WORK = "no_work"
+    SUCCEEDED = "succeeded"
+    RETRY_SCHEDULED = "retry_scheduled"
+    DEAD_LETTERED = "dead_lettered"
+
+
 class WorkLedgerError(Exception):
     """Base error for work-ledger operations."""
 

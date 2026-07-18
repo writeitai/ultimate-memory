@@ -31,6 +31,7 @@ from ultimate_memory.model.processing import NonRetryableHandlerError
 from ultimate_memory.model.processing import ProcessingStatus
 from ultimate_memory.model.processing import ProcessingTarget
 from ultimate_memory.model.processing import RecordCall
+from ultimate_memory.model.processing import RunResultOutcome
 from ultimate_memory.model.processing import UnknownStageHandlerError
 from ultimate_memory.model.processing import WorkLedgerError
 from ultimate_memory.model.processing import WorkNotFoundError
@@ -74,6 +75,7 @@ __all__ = (
     "PublishedMounts",
     "QueueRoute",
     "RecordCall",
+    "RunResultOutcome",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
     "StructuredResponseModel",
