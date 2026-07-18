@@ -229,6 +229,22 @@ def test_budget_parking_consumes_no_attempt_and_keeps_no_error(
     )  # parked work is not due
 
 
+def test_running_work_can_never_be_budget_parked(ledger: WorkLedger) -> None:
+    """Parking a running attempt would allow a second concurrent claim — refused."""
+    ledger.enqueue(work=_work())
+    claimed = ledger.claim_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert claimed is not None
+    with pytest.raises(WorkNotRunningError):
+        ledger.park_for_budget(
+            processing_id=claimed.processing_id,
+            resume_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+
 class _ChainingNoOpHandler:
     """The demo no-op handler: succeeds and chains the next stage for its target."""
 

@@ -158,19 +158,22 @@ class WorkLedger:
             return False
 
     def park_for_budget(self, *, processing_id: UUID, resume_at: datetime) -> None:
-        """Park healthy work until its budget window rolls (D67: never a failure).
+        """Park healthy pending work until its budget window rolls (D67).
 
-        Parking sets status pending with defer_reason budget and a future
-        not_before; it consumes no attempt and touches no error state, so it can
-        never cause dead-lettering.
+        Parking happens at claim-time pre-flight, before an attempt starts: it
+        applies only to pending rows (a running attempt is never parked — that
+        would allow a second concurrent claim), sets defer_reason budget with a
+        future not_before, consumes no attempt, and touches no error state, so
+        it can never cause dead-lettering.
         """
         with self._engine.begin() as connection:
             updated = connection.execute(
                 _PARK_BUDGET, {"processing_id": processing_id, "resume_at": resume_at}
             ).rowcount
             if updated == 0:
-                raise WorkNotFoundError(
-                    f"processing row {processing_id} does not exist"
+                raise WorkNotRunningError(
+                    f"processing row {processing_id} is not pending; only queued "
+                    "work can be budget-parked"
                 )
 
     def record_call(self, *, call: RecordCall) -> bool:
@@ -416,8 +419,8 @@ _FAIL_DEAD_LETTER = text(
 _PARK_BUDGET = text(
     """
     UPDATE processing_state
-    SET status = 'pending', defer_reason = 'budget', not_before = :resume_at
-    WHERE processing_id = :processing_id
+    SET defer_reason = 'budget', not_before = :resume_at
+    WHERE processing_id = :processing_id AND status = 'pending'
     """
 )
 
