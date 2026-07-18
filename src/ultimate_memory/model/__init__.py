@@ -11,11 +11,23 @@ from ultimate_memory.model.component_version import ComponentVersionRecord
 from ultimate_memory.model.component_version import PipelineComponent
 from ultimate_memory.model.component_version import RegisterComponentVersionInput
 from ultimate_memory.model.component_version import RegisterComponentVersionResult
+from ultimate_memory.model.conversion import ConversionError
+from ultimate_memory.model.conversion import ConversionResult
+from ultimate_memory.model.conversion import UnroutableMimeError
 from ultimate_memory.model.deployment import CoreManifestConflictError
 from ultimate_memory.model.deployment import DeploymentBootstrapConflictError
 from ultimate_memory.model.deployment import DeploymentBootstrapInput
 from ultimate_memory.model.deployment import DeploymentBootstrapResult
 from ultimate_memory.model.deployment import DeploymentConflictError
+from ultimate_memory.model.documents import ConvertSource
+from ultimate_memory.model.documents import DocumentUpload
+from ultimate_memory.model.documents import DocumentVersionNotFoundError
+from ultimate_memory.model.documents import IngestedVersion
+from ultimate_memory.model.documents import RepresentationNotFoundError
+from ultimate_memory.model.documents import RepresentationRecord
+from ultimate_memory.model.documents import StructureSource
+from ultimate_memory.model.documents import SyntheticRootRecord
+from ultimate_memory.model.documents import UploadRecord
 from ultimate_memory.model.evaluation import CanaryCase
 from ultimate_memory.model.evaluation import CaseFailure
 from ultimate_memory.model.evaluation import EvalSuite
@@ -26,7 +38,9 @@ from ultimate_memory.model.model_provider import EmbeddingResponse
 from ultimate_memory.model.model_provider import ModelRequest
 from ultimate_memory.model.model_provider import StructuredResponseModel
 from ultimate_memory.model.mounts import PublishedMounts
+from ultimate_memory.model.object_store import ObjectAlreadyExistsError
 from ultimate_memory.model.object_store import ObjectKey
+from ultimate_memory.model.object_store import ObjectKeyEscapesRootError
 from ultimate_memory.model.processing import ClaimedWork
 from ultimate_memory.model.processing import DeferReason
 from ultimate_memory.model.processing import EnqueueOutcome
@@ -60,23 +74,31 @@ __all__ = (
     "ComponentVersionError",
     "ComponentVersionNotFoundError",
     "ComponentVersionRecord",
+    "ConversionError",
+    "ConversionResult",
+    "ConvertSource",
     "CoreManifestConflictError",
     "DeferReason",
     "DeploymentBootstrapConflictError",
     "DeploymentBootstrapInput",
     "DeploymentBootstrapResult",
     "DeploymentConflictError",
+    "DocumentUpload",
+    "DocumentVersionNotFoundError",
     "EmbeddingRequest",
     "EmbeddingResponse",
     "EnqueueOutcome",
     "EnqueueWork",
     "EvalSuite",
     "HandlerAlreadyRegisteredError",
+    "IngestedVersion",
     "KRevision",
     "LaneRouteError",
     "ModelRequest",
     "NonRetryableHandlerError",
+    "ObjectAlreadyExistsError",
     "ObjectKey",
+    "ObjectKeyEscapesRootError",
     "PerimeterCredential",
     "PipelineComponent",
     "PipelineStage",
@@ -88,13 +110,19 @@ __all__ = (
     "RecordCall",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
+    "RepresentationNotFoundError",
+    "RepresentationRecord",
     "RunResultOutcome",
+    "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
+    "SyntheticRootRecord",
     "TelemetryAttribute",
     "TelemetryEvent",
     "UTCDateTime",
     "UnknownStageHandlerError",
+    "UnroutableMimeError",
+    "UploadRecord",
     "WorkLedgerError",
     "WorkNotFoundError",
     "WorkNotRunningError",
