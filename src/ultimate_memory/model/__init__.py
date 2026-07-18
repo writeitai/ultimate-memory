@@ -4,6 +4,15 @@ from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
 from ultimate_memory.model.blocks import Block
 from ultimate_memory.model.blocks import BlockType
+from ultimate_memory.model.chunks import ChunkForEmbedding
+from ultimate_memory.model.chunks import ChunkRecord
+from ultimate_memory.model.chunks import ChunkSource
+from ultimate_memory.model.chunks import ChunkSourceNotFoundError
+from ultimate_memory.model.chunks import ContextPrefix
+from ultimate_memory.model.chunks import EmbeddingUpdate
+from ultimate_memory.model.chunks import P1ChunkRow
+from ultimate_memory.model.chunks import PackedChunk
+from ultimate_memory.model.chunks import SectionSpan
 from ultimate_memory.model.component_version import ComponentVersionConflictError
 from ultimate_memory.model.component_version import ComponentVersionError
 from ultimate_memory.model.component_version import ComponentVersionNotFoundError
@@ -69,11 +78,16 @@ __all__ = (
     "BlockType",
     "CanaryCase",
     "CaseFailure",
+    "ChunkForEmbedding",
+    "ChunkRecord",
+    "ChunkSource",
+    "ChunkSourceNotFoundError",
     "ClaimedWork",
     "ComponentVersionConflictError",
     "ComponentVersionError",
     "ComponentVersionNotFoundError",
     "ComponentVersionRecord",
+    "ContextPrefix",
     "ConversionError",
     "ConversionResult",
     "ConvertSource",
@@ -87,6 +101,7 @@ __all__ = (
     "DocumentVersionNotFoundError",
     "EmbeddingRequest",
     "EmbeddingResponse",
+    "EmbeddingUpdate",
     "EnqueueOutcome",
     "EnqueueWork",
     "EvalSuite",
@@ -99,6 +114,8 @@ __all__ = (
     "ObjectAlreadyExistsError",
     "ObjectKey",
     "ObjectKeyEscapesRootError",
+    "P1ChunkRow",
+    "PackedChunk",
     "PerimeterCredential",
     "PipelineComponent",
     "PipelineStage",
@@ -113,6 +130,7 @@ __all__ = (
     "RepresentationNotFoundError",
     "RepresentationRecord",
     "RunResultOutcome",
+    "SectionSpan",
     "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
