@@ -142,8 +142,10 @@ Keep this current: when something here is decided, move it to a decision and pru
     throughput + pushdown** at 10⁷–10⁸ rows — gates ATTACH-direct vs. the committed Parquet baseline,
     esp. the `MENTIONED_IN` aggregation + merge-survivor recursion; (c) **merge-redirect recursion**
     cycle guard + the pre-snapshot validation gate; (d) **inline multi-hop as-of path-filter performance**
-    (projected-graph `MATCH` is unavailable — §4); (e) **snapshot retention window N** for retracted
-    edges; (f) NULL-`TIMESTAMP` semantics through the Parquet round-trip.
+    (projected-graph `MATCH` is unavailable — §4); (e) **invalidated-edge retention** — measure
+    snapshot size, rebuild duration, and transaction-time demand to decide whether evidence justifies
+    replacing D69's unbounded/default endpoint-bounded projection with a finite hot-snapshot horizon
+    and explicit fallback contract; (f) NULL-`TIMESTAMP` semantics through the Parquet round-trip.
 
 ## 4. Known risks (in decided approaches)
 

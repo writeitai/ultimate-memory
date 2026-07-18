@@ -11,7 +11,7 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 `registries_design.md` (D15–D24), `e0_files_design.md` (D36–D40),
 `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md` (D6–D11),
 `concepts.md` (the claims/relations/evidence/bi-temporality explainer) and `decisions.md`
-(D1–D67). Where a table or column exists *because of* a decision, the decision is cited inline.
+(D1–D69). Where a table or column exists *because of* a decision, the decision is cited inline.
 
 > **Reading this as a stranger (CLAUDE.md Rule 1).** You do not need to have been in the design
 > conversation. Each module opens with what it stores and *why it has the shape it has*; each
@@ -34,11 +34,14 @@ It is the binding companion to `overall_design.md` (§3 core data model, §9 lis
 
 These rules apply to every table unless a module overrides them with a stated reason.
 
-- **Migrations & DDL ordering.** The schema is owned by **Alembic** (requirements_v3 §Code). The
-  DDL in this document is the source; the migration emits each inline `--` column description as a
+- **Migrations & DDL ordering.** Structural schema shape is owned by **Alembic**
+  (requirements_v3 §Code). The DDL in this document is the source; the migration emits each inline
+  `--` column description as a
   `COMMENT ON COLUMN` and each `COMMENT ON TABLE` shown here. **All `CREATE TYPE` enum statements
   (§1) are created first, before any table** — they are presented in §1 (immediately below) for
-  exactly this reason. Extensions (below) are created before that.
+  exactly this reason. Extensions (below) are created before that. Alembic creates no D68
+  deployment identity row and no deployment-scoped registry data: after `upgrade head`, D69's
+  library-owned typed bootstrap operation creates or verifies those rows (§2).
 - **Identifiers.** All surrogate primary keys are **`uuid`**, generated as **UUIDv7**
   (time-ordered) by the application/worker, *not* the database — Cloud Run workers write
   concurrently and a central sequence would be a hotspot, while UUIDv7's leading timestamp gives
@@ -273,6 +276,10 @@ CREATE TABLE deployments (
 COMMENT ON TABLE deployments IS
   'Identity root for the independent deployment served by this Postgres instance/schema (D16/D68). Entity spaces, registries, graphs and buckets are never shared across deployments; deployment_id is constant here and participates in every scoped FK as defense in depth.';
 
+-- DATA BOUNDARY (D69): Alembic creates this table but inserts no deployment row. After schema
+-- head, the library-owned bootstrap described below creates or verifies the one real row from
+-- typed profile inputs before any deployment-scoped registry FK row is inserted.
+
 -- ─────────────────────────────────────────────────────────────────────────
 -- pipeline_component_versions — what every *_version string means (D1/D12).
 -- Pin model+prompt+params so replay-on-rebuild (D7) is auditable and re-process batches can be
@@ -425,6 +432,62 @@ CREATE INDEX ix_cost_budget_window ON cost_ledger (deployment_id, stage, lane, o
 CREATE INDEX ix_cost_provider_call ON cost_ledger (deployment_id, provider_call_id);
 ```
 
+### Post-head deployment bootstrap (D69)
+
+The cold-start order is exact:
+
+```text
+fresh database -> Alembic upgrade head -> bootstrap_deployment(typed profile inputs)
+               -> one deployments row -> 8 core roots -> 16 predicates -> 116 signatures -> commit
+```
+
+`bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult` is a library
+operation owned by WP-0.3. It runs only after structural head exists and uses one database
+transaction. The deployment row is the FK precondition for every registry row; all eight type rows
+are the FK precondition for the concrete signatures; all sixteen predicate rows are their other FK
+precondition. A failure at any step rolls back the deployment and every core row inserted by that
+attempt.
+
+`DeploymentBootstrapInput` maps profile-provided values to columns without hidden inputs:
+
+| Typed input field | `deployments` column | Rule |
+|---|---|---|
+| `deployment_id` | `deployment_id` | Required D68 stable identity and bootstrap idempotency key |
+| `slug` | `slug` | Required, compared exactly on retry |
+| `name` | `name` | Required, compared exactly on retry |
+| `description` | `description` | Optional; `NULL` is a complete value and is compared exactly |
+| `default_language` | `default_language` | Required typed profile value; no environment-only fallback |
+| `raw_bucket` | `raw_bucket` | Required profile-owned URI/value |
+| `artifacts_bucket` | `artifacts_bucket` | Required profile-owned URI/value |
+| `corpusfs_bucket` | `corpusfs_bucket` | Required profile-owned URI/value |
+| `knowledge_repo_uri` | `knowledge_repo_uri` | Optional; `NULL` is a complete value and is compared exactly |
+
+`status`, `created_at`, and `updated_at` are omitted so the documented database defaults own them.
+No magic UUID, empty bucket sentinel, nullable tenancy, global template row, trigger, migration
+argument, or environment-only input participates.
+
+`DeploymentBootstrapResult` is also fixed: it returns `deployment_id`, `deployment_created`
+(whether this transaction inserted the deployment row), `entity_type_count = 8`,
+`predicate_count = 16`, and `signature_count = 116`. Counts describe the verified complete core
+after the operation, so a successful identical retry returns the same counts with
+`deployment_created = false`; it never fabricates a success over partial state.
+
+The operation uses compare-or-insert behavior, never a value-overwriting upsert:
+
+| Row kind | Idempotency key | Identical retry | Conflict |
+|---|---|---|---|
+| deployment | `deployment_id` | Verify every mapped profile column; return existing row | Any mapped value differs, or `slug` belongs to another ID: typed deployment conflict |
+| entity type | `(deployment_id, type)` | Verify every manifest field | Missing/extra core key or any field differs: typed manifest conflict |
+| predicate | `(deployment_id, predicate)` | Verify every definition field; verify `usage_count >= 0` and preserve it | Missing/extra core key, invalid counter, or any definition field differs: typed manifest conflict |
+| signature | `(deployment_id, predicate, subject_type, object_type)` | Verify the complete 116-row set | Missing/extra/different signature: typed manifest conflict |
+
+On an empty deployment the operation inserts in the displayed order. On retry it verifies the
+complete deployment/core state and performs no mutation. Detection of an extra row is limited to an
+extra row claiming `tier='core'` for this deployment; extension rows and pack activation are separate
+and do not conflict with the universal manifest. The exact entity-type, predicate, and signature
+values are normative in `registries_design.md` §4. `usage_count = 0` is the exact insert value, but
+the counter is runtime-maintained thereafter; retry never resets it.
+
 ---
 
 ## 3. Ontology & predicate registry (D5, D15, D18)
@@ -569,9 +632,11 @@ COMMENT ON TABLE scope_interests IS
   'Per-scope interest list (D16): the predicate/type footprint that defines the scope''s PROJECT_GRAPH_CYPHER view and what its K2 compilation selects. A query/compile-time selection over fully-extracted facts — never a promotion trigger (D28 withdrawn).';
 ```
 
-The **seed core** (D18, extended by D64) — 8 entity types and 16 predicates with signatures — is
-data inserted by a migration, not schema. Its authoritative list is in `registries_design.md` §4; the seeding
-migration cites that section rather than duplicating it here (avoids drift).
+The **universal core** (D18/D64/D69) — 8 entity-type roots, 16 predicates, and 116 concrete
+signatures — is deployment-scoped data created or verified by the post-head
+`bootstrap_deployment(...)` operation in §2, not by Alembic. Its one normative inline manifest is
+`registries_design.md` §4; schema and bootstrap implementations consume that manifest without
+duplicating or interpreting shorthand.
 
 ---
 
@@ -1849,9 +1914,10 @@ LEFT JOIN document_versions dv
 WHERE  d.deleted_at IS NULL;   -- lineages project; a lineage mid-ingest (no current version yet) projects with NULL date (F2)
 
 -- Edges: endpoints are the FIRST TWO columns (FROM, TO), survivor-redirected and guarded so both
--- endpoints exist as emitted nodes (else COPY-REL throws). Keep RETRACTED edges within retention for
--- transaction-time as-of (NOT `invalidated_at IS NULL`); a closed valid-time fact is unaffected. Parallel
--- edges with distinct relation_id are PRESERVED (no blind DISTINCT — same-(s,p,o) collapse is E3's job, D43).
+-- endpoints exist as emitted nodes (else COPY-REL throws). Keep EVERY invalidated edge by default for
+-- transaction-time as-of (D69): there is no invalidation-age filter and a closed valid-time fact is
+-- unaffected. Endpoint joins are the retention boundary. Parallel edges with distinct relation_id are
+-- PRESERVED (no blind DISTINCT — same-(s,p,o) collapse is E3's job, D43).
 CREATE VIEW v_graph_relates AS
 SELECT s1.survivor AS "from", s2.survivor AS "to",
        r.relation_id, r.predicate, r.fact_label AS fact,
@@ -1863,9 +1929,7 @@ FROM   relations r
 JOIN   v_graph_survivor s1 ON s1.entity_id = r.subject_entity_id
 JOIN   v_graph_survivor s2 ON s2.entity_id = r.object_entity_id
 JOIN   entities e1 ON e1.entity_id = s1.survivor AND e1.status = 'active'   -- endpoint emitted as a node
-JOIN   entities e2 ON e2.entity_id = s2.survivor AND e2.status = 'active'
-WHERE  r.invalidated_at IS NULL
-   OR  r.invalidated_at > now() - interval '<retention>';   -- N to measure (p2 §8)
+JOIN   entities e2 ON e2.entity_id = s2.survivor AND e2.status = 'active';
 -- relations.status (GENERATED) is DROPPED — liveness is derived in Cypher (invalidated_at IS NULL), D6.
 
 CREATE VIEW v_graph_mentioned_in AS                          -- aggregate: no (entity,doc) base table
@@ -2456,6 +2520,7 @@ Labs."*
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
 | D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; transactional `tr_processing_state_initial_wake`; `ix_procstate_due`; `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + per-call UNIQUE; `ix_cost_budget_window` / `ix_cost_provider_call`; `payload` explicitly non-authoritative |
 | D68 schema-/database-per-deployment | §0 tenancy contract; one deployment identity row; composite scoped keys retained as defense in depth; single-column `ix_entities_name_trgm`, `ix_aliases_lemma_trgm`, `ix_aliases_lemma_dm`; no `btree_gin` |
+| D69 unbounded graph-edge retention + post-head deployment bootstrap | §10.A `v_graph_relates` (endpoint-bounded, no invalidation-age filter); §2 typed input map, sequence, transaction/idempotency/conflict contract; §3 bootstrap-owned universal core cross-link |
 
 ---
 
@@ -2499,10 +2564,15 @@ Per CLAUDE.md, numbers are starting points. Items that may move the schema or a 
    needed (vs. Lance-only filtering) — load-test write-amplification against D23 first. (d) If
    recurrence / un-datable anchor-events prove load-bearing, the expressivity child table (btree-only,
    D23-restamped) is the documented upgrade — a named alternative, not a deferral.
+10. **Invalidated relation retention in P2 (D69).** The executable default is unbounded by age:
+    `v_graph_relates` retains every relation whose survivor-redirected endpoints are emitted active
+    nodes. Measure snapshot size, rebuild duration, and transaction-time query demand at target scale.
+    Only a subsequent binding P2 design revision may introduce a finite hot-snapshot horizon and its
+    truthful fallback contract; this spike supplies evidence, not a hidden Phase-0 value.
 
 ## References
 
 Designs: `overall_design.md` (§3 data model, §9 index), `registries_design.md` (D15–D24),
 `e0_files_design.md` (D36–D40), `e2_e3_claims_relations_design.md` (D31–D35), `p2_graph_design.md`
 (D6–D11), `k_layers_design.md` (D45–D47). Explainer: `concepts.md`. Decisions: `decisions.md`
-(D1–D47). Requirements: `requirements/requirements_v3.md`. Open items: `questions.md`.
+(D1–D69). Requirements: `requirements/requirements_v3.md`. Open items: `questions.md`.

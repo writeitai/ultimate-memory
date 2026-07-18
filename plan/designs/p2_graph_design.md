@@ -413,7 +413,7 @@ them.
 | Snapshot corruption / bad rebuild | Validation gate before `latest` pointer moves; readers never see it; previous snapshot stays serving |
 | Writer crash mid-cycle | Snapshot upload is atomic (write-then-pointer-swap); next cycle just reruns — rebuilds are idempotent by construction |
 | PG↔graph drift | Impossible beyond one cycle (rebuild) — no reconciliation jobs needed |
-| Graph size growth | Invalidated edges older than N months can be excluded from the *hot* snapshot (PG keeps everything; deep time-travel falls back to PG or an archive snapshot) |
+| Graph size growth | The D69 default is unbounded by invalidation age: retain every relation whose survivor-redirected endpoints remain emitted active nodes. Measure snapshot size/rebuild time and transaction-time demand; a finite hot-snapshot horizon requires a later binding P2 design revision with an explicit fallback contract, not a hidden Phase-0 value. |
 | Predicate explosion | Registry governance (§3); rebuild makes vocabulary cleanups retroactive for free |
 
 ## 9. Open questions

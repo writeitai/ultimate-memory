@@ -134,12 +134,13 @@ temporal question cannot be composed this way, that is a design finding, not a r
 
 Two honest limits on `believed_at`, stated rather than discovered (S43, S61):
 
-- **Per-channel transaction-time horizons.** Postgres holds full belief history; the *hot* P2
-  snapshot keeps retracted edges only within a retention window (p2_graph §8), and P1 carries
-  live-filtered copies. The envelope therefore exposes each channel's **`believed_at`
-  horizon**; a query whose `believed_at` predates a channel's horizon gets, from that channel,
-  a typed `boundary` naming the fallback (PG relation traversal; an archived P2 snapshot —
-  old snapshots *are* the graph as-of their timestamp, p2_graph §5).
+- **Per-channel transaction-time horizons.** Postgres holds full belief history. Under D69 the
+  *hot* P2 relation view is unbounded by invalidation age: it keeps every relation whose
+  survivor-redirected endpoints remain emitted active nodes, so P2 reports a `null` (unbounded)
+  retention-age horizon. Endpoint retirement/forgetting remains a structural projection boundary,
+  not an age horizon. P1 carries live-filtered copies and may have a real channel horizon. The
+  envelope exposes each channel's **`believed_at` horizon**; whenever one is finite, a query before
+  it gets a typed `boundary` naming the fallback rather than a silent truncation.
 - **Identity is resolved in the current regime by default.** `resolve`/`hydrate` follow
   today's aliases and merge redirects even under a past `believed_at`; reconstructing the
   *identity boundary* as it stood at T (pre-merge, pre-un-merge) is the explicit
