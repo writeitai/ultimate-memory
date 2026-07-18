@@ -89,9 +89,9 @@ CREATE REL TABLE IS_DOCUMENT(FROM Entity TO Document);  // bridge: a Document-ty
 > "Acme's headcount is 600") has no entity object, so it cannot be a REL (a LadybugDB endpoint must be a
 > node, never a literal); it lives in Postgres + Lance only. Two correctness rules govern the projection
 > (§10.A / D44): **merge-redirect** endpoints to surviving entities (a merge is a redirect, not a rewrite,
-> so a naive `status='active'` join silently drops merged-endpoint edges), and **keep recently-retracted
-> edges** (`invalidated_at` set, within retention) for transaction-time as-of — dropping only edges whose
-> endpoint was retired/forgotten (§13).
+> so a naive `status='active'` join silently drops merged-endpoint edges), and **keep every retracted
+> edge** (`invalidated_at` set, with no invalidation-age filter, D69) for transaction-time as-of — dropping
+> only edges whose survivor-redirected endpoint was retired/forgotten (§13).
 
 ### Relations vs. claims — distinct concepts, distinct records
 
@@ -223,8 +223,8 @@ processes** on the same database files. Don't fight this — design around it.
 Instead of incremental event application, the P2 worker **rebuilds the whole graph from
 Postgres on every cycle**. The projection inputs are the Postgres **`v_graph_*` views** (D44,
 `postgres_schema_design.md` §10.A) — they encapsulate the casts (timestamptz→UTC, enum→text), the
-**merge-redirect** of endpoints to surviving entities, the **keep-retracted** retention filter, and the
-`MENTIONED_IN` aggregation, so the worker is dumb:
+**merge-redirect** of endpoints to surviving entities, the **keep-retracted** rule (endpoint joins are
+the retention boundary), and the `MENTIONED_IN` aggregation, so the worker is dumb:
 
 1. Read the projection views. Two transports consume the *same* views:
    - **Parquet hop (committed baseline, D7):** `COPY (SELECT * FROM v_graph_<t>) TO '<t>.parquet'`, then
