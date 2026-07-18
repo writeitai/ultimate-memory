@@ -52,6 +52,7 @@ class ResolverConfig(BaseModel):
     resolver_version: _NonEmpty
     trigram_floor: Annotated[float, Field(ge=0.0, le=1.0)] = 0.3
     blocking_limit: Annotated[int, Field(ge=1)] = 10
+    t4_max_candidates: Annotated[int, Field(ge=1)] = 3
     default_thresholds: TypeThresholds = TypeThresholds()
     thresholds_by_type: dict[str, TypeThresholds] = {}
 

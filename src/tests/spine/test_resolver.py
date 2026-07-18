@@ -172,6 +172,8 @@ def test_cascade_mints_then_t0_then_t4_with_verdicts(
         )
     assert [d["method"] for d in decisions] == ["T0", "T0", "T4_small"]
     assert [d["is_new_entity"] for d in decisions] == [True, False, False]
+    # the mint verdict on an EMPTY registry records T0 (nothing blocked):
+    assert decisions[0]["features"]["novelty"] is True
     assert decisions[2]["features"]["blocking_tier"] in ("T1", "T2")
     assert all(d["resolver_version"] == RESOLVER_VERSION for d in decisions)
 
@@ -196,6 +198,22 @@ def test_t4_no_match_mints_a_distinct_entity(
     )
     assert jana.created
     assert jana.entity_id != jan.entity_id
+    # the mint verdict records the REJECTING tier, not a fake T0 (Codex
+    # review): Jana blocked onto Jan and T4 said no — the audit keeps that.
+    with database_engine.connect() as connection:
+        mint = (
+            connection.execute(
+                text(
+                    "SELECT method, confidence, features FROM resolution_decisions"
+                    " WHERE is_new_entity ORDER BY decided_at DESC LIMIT 1"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert mint["method"] == "T4_small"
+    assert mint["features"]["novelty"] is True
+    del jan
 
 
 def test_low_confidence_small_verdict_escalates_to_frontier(
@@ -237,10 +255,13 @@ def test_resolution_suite_records_curves_and_blocks_on_regression(
     recorded on resolver_versions, run in eval_runs; a broken judge fails."""
     provider = FakeModelProvider(generate_router=_first_token_router)
     resolver = _resolver(engine=database_engine, root=tmp_path, provider=provider)
+    # the judge's own config registers itself (immutable per version):
     seed_resolver_version(
         engine=database_engine,
         deployment_id=_DEPLOYMENT_ID,
-        config=ResolverConfig(resolver_version=RESOLVER_VERSION),
+        config=ResolverConfig(
+            resolver_version=RESOLVER_VERSION, default_thresholds=_ALWAYS_ESCALATE
+        ),
     )
     seed_synthetic_golden_pairs(engine=database_engine, deployment_id=_DEPLOYMENT_ID)
     report = run_resolution_suite(
@@ -288,3 +309,57 @@ def test_resolution_suite_records_curves_and_blocks_on_regression(
         component_version=RESOLVER_VERSION,
     )
     assert not regression["passed"]
+
+
+def test_resolver_version_definitions_are_immutable(
+    database_engine: Engine, tmp_path: Path
+) -> None:
+    """Codex review / D22: the same version string cannot be re-registered
+    with different thresholds — a decision's version always names the
+    definition that was actually in force."""
+    from ultimate_memory.spine.resolver import ResolverVersionConflictError
+
+    seed_resolver_version(
+        engine=database_engine,
+        deployment_id=_DEPLOYMENT_ID,
+        config=ResolverConfig(resolver_version="resolver-immutable-test"),
+    )
+    seed_resolver_version(  # identical definition: a no-op
+        engine=database_engine,
+        deployment_id=_DEPLOYMENT_ID,
+        config=ResolverConfig(resolver_version="resolver-immutable-test"),
+    )
+    with pytest.raises(ResolverVersionConflictError):
+        seed_resolver_version(
+            engine=database_engine,
+            deployment_id=_DEPLOYMENT_ID,
+            config=ResolverConfig(
+                resolver_version="resolver-immutable-test",
+                default_thresholds=TypeThresholds(t3_accept=0.95),
+            ),
+        )
+
+
+def test_missing_profile_vector_escalates_to_t4(
+    database_engine: Engine, tmp_path: Path
+) -> None:
+    """Codex review: a blocked candidate with no stored profile vector is
+    AMBIGUITY — it reaches T4 and matches, never a confident non-match."""
+    provider = FakeModelProvider(generate_router=_first_token_router)
+    resolver = _resolver(engine=database_engine, root=tmp_path, provider=provider)
+    minted = resolver.resolve(
+        deployment_id=_DEPLOYMENT_ID,
+        reference=EntityRef(name="Beta Systems", type="Organization"),
+        claim=_claim(),
+    )
+    # a resolver over an EMPTY Lance root: profile vectors are absent
+    blind = _resolver(
+        engine=database_engine, root=tmp_path / "blind", provider=provider
+    )
+    drifted = blind.resolve(
+        deployment_id=_DEPLOYMENT_ID,
+        reference=EntityRef(name="Beta Sistems", type="Organization"),
+        claim=_claim(),
+    )
+    assert not drifted.created
+    assert drifted.entity_id == minted.entity_id

@@ -164,8 +164,15 @@ def run_resolution_suite(
         }
         for entity_type, counts in by_type.items()
     }
+    # an UNDEFINED metric (no positive pairs, or no predicted positives) is
+    # an unmeasured stratum and BLOCKS the suite — 0/0 never counts as
+    # perfect, so thresholds cannot be approved for a type the golden set
+    # does not actually measure (Codex review):
     passed = bool(curves) and all(
-        curve["precision"] >= PRECISION_FLOOR and curve["recall"] >= RECALL_FLOOR
+        curve["precision"] is not None
+        and curve["recall"] is not None
+        and curve["precision"] >= PRECISION_FLOOR
+        and curve["recall"] >= RECALL_FLOOR
         for curve in curves.values()
     )
     with engine.begin() as connection:
@@ -193,9 +200,9 @@ def run_resolution_suite(
     return {"curves": curves, "passed": passed}
 
 
-def _ratio(numerator: int, denominator: int) -> float:
-    """A safe ratio: an unmeasured stratum counts as perfect-by-absence 1.0."""
-    return numerator / denominator if denominator else 1.0
+def _ratio(numerator: int, denominator: int) -> float | None:
+    """A ratio that is honestly None when its denominator is unmeasured."""
+    return numerator / denominator if denominator else None
 
 
 _UPSERT_PAIR = text(

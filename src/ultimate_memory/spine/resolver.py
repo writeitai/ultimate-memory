@@ -32,6 +32,11 @@ from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.p1_index import EntityIndexPort
 from ultimate_memory.spine.entity_registry import normalized_lemma
 
+
+class ResolverVersionConflictError(Exception):
+    """A resolver version re-registered with a different definition (D22)."""
+
+
 RESOLVER_VERSION: Final = "resolver-2026.07a"
 """The cascade generation whose thresholds stamp every decision (D17/D22)."""
 
@@ -72,6 +77,8 @@ class CascadeResolver:
         self._embedding_model = embedding_model
         self._small_model = small_model
         self._frontier_model = frontier_model
+        self._registered = False
+        self._last_rejection: tuple[str, float, dict[str, object]] | None = None
 
     def resolve(
         self, *, deployment_id: UUID, reference: EntityRef, claim: ClaimForNormalization
@@ -80,8 +87,12 @@ class CascadeResolver:
 
         Stops at the first confident decision. The mention and the
         append-only verdict (tier, scores, config version) are written in the
-        same transaction as any mint.
+        same transaction as any mint. Cross-SURFACE duplicate mints (two
+        distinct variants racing on an empty registry) are deliberately not
+        serialized here — that is the clustering/merge machinery's job
+        (registries §6, WP-2.2); the lemma lock prevents the same-lemma race.
         """
+        self._ensure_registered(deployment_id=deployment_id)
         lemma = normalized_lemma(surface=reference.name)
         with self._engine.begin() as connection:
             connection.execute(_LOCK_LEMMA, {"key": f"{deployment_id}:lemma:{lemma}"})
@@ -138,6 +149,20 @@ class CascadeResolver:
                 lemma=lemma,
                 considered=candidates,
             )
+
+    def _ensure_registered(self, *, deployment_id: UUID) -> None:
+        """Verify the in-force config IS the registered resolver version.
+
+        Registers on first use; a version whose stored definition differs
+        from this config is a hard error — thresholds are immutable per
+        version (D22): change the numbers, mint a new version string.
+        """
+        if self._registered:
+            return
+        seed_resolver_version(
+            engine=self._engine, deployment_id=deployment_id, config=self._config
+        )
+        self._registered = True
 
     def judge_pair(
         self,
@@ -242,31 +267,50 @@ class CascadeResolver:
         scored = self._t3_scores(
             deployment_id=deployment_id, reference=reference, candidates=candidates
         )
-        best = max(scored, key=lambda item: item[1])
-        candidate, score = best
-        if score >= thresholds.t3_accept:
-            return (
-                candidate,
-                "T3",
-                score,
-                {"blocking_tier": candidate.blocking_tier, "embedding_score": score},
-            )
-        if score <= thresholds.t3_reject:
-            return None  # confidently not this candidate set — mint
-        verdict, seat, model = self._t4(
-            reference=reference, claim=claim, candidate=candidate
+        ordered = sorted(
+            scored,
+            key=lambda item: item[1] if item[1] is not None else 0.0,
+            reverse=True,
         )
-        if verdict.match:
-            return (
-                candidate,
+        adjudicated = 0
+        for candidate, score in ordered:
+            if score is not None and score >= thresholds.t3_accept:
+                return (
+                    candidate,
+                    "T3",
+                    score,
+                    {
+                        "blocking_tier": candidate.blocking_tier,
+                        "embedding_score": score,
+                    },
+                )
+            if score is not None and score <= thresholds.t3_reject:
+                self._last_rejection = ("T3", score, {"embedding_score": score})
+                continue  # confidently not THIS candidate; others get a look
+            # ambiguous band — or no stored profile vector, which must
+            # ESCALATE, never count as a confident non-match (Codex review):
+            if adjudicated >= self._config.t4_max_candidates:
+                break
+            adjudicated += 1
+            verdict, seat, model = self._t4(
+                reference=reference, claim=claim, candidate=candidate
+            )
+            if verdict.match:
+                return (
+                    candidate,
+                    seat,
+                    verdict.confidence,
+                    {
+                        "blocking_tier": candidate.blocking_tier,
+                        "embedding_score": score,
+                        "model": model,
+                        "rationale": verdict.rationale,
+                    },
+                )
+            self._last_rejection = (
                 seat,
                 verdict.confidence,
-                {
-                    "blocking_tier": candidate.blocking_tier,
-                    "embedding_score": score,
-                    "model": model,
-                    "rationale": verdict.rationale,
-                },
+                {"model": model, "rationale": verdict.rationale},
             )
         return None
 
@@ -276,15 +320,24 @@ class CascadeResolver:
         deployment_id: UUID,
         reference: EntityRef,
         candidates: tuple[ResolutionCandidate, ...],
-    ) -> tuple[tuple[ResolutionCandidate, float], ...]:
-        """Cosine similarity of the mention against candidate profiles (Lance)."""
+    ) -> tuple[tuple[ResolutionCandidate, float | None], ...]:
+        """Cosine similarity against candidate profiles; None = no profile.
+
+        A missing/stale profile vector is AMBIGUITY (route to T4), never a
+        confident non-match (Codex review).
+        """
         query_vector = self._embed(surface=reference.name)
         by_id = self._entity_index.entity_vectors(
             deployment_id=str(deployment_id),
             entity_ids=tuple(str(candidate.entity_id) for candidate in candidates),
         )
         return tuple(
-            (candidate, _cosine(query_vector, by_id.get(str(candidate.entity_id))))
+            (
+                candidate,
+                None
+                if by_id.get(str(candidate.entity_id)) is None
+                else _cosine(query_vector, by_id[str(candidate.entity_id)]),
+            )
             for candidate in candidates
         )
 
@@ -328,6 +381,12 @@ class CascadeResolver:
     ) -> ResolvedEntity:
         """Create the canonical entity + alias and index its T3 profile."""
         entity_id = uuid4()
+        # the mint verdict records the tier that DECIDED novelty: T0 when
+        # nothing blocked, else the rejecting tier's method and confidence
+        # (Codex review — the audit trail keeps the actual path):
+        rejection = self._last_rejection if considered else None
+        self._last_rejection = None
+        method, confidence, extra = rejection or ("T0", 1.0, {})
         connection.execute(
             _INSERT_ENTITY,
             {
@@ -370,12 +429,13 @@ class CascadeResolver:
             lemma=lemma,
             entity_id=entity_id,
             entity_type=reference.type,
-            method="T0",
-            confidence=1.0,
+            method=method,
+            confidence=confidence,
             features={
                 "lemma": lemma,
                 "novelty": True,
                 "considered": [str(c.entity_id) for c in considered],
+                **extra,
             },
             created=True,
         )
@@ -440,33 +500,74 @@ class CascadeResolver:
 def seed_resolver_version(
     *, engine: Engine, deployment_id: UUID, config: ResolverConfig
 ) -> None:
-    """Register the cascade configuration (idempotent; D17/D22 versioning).
+    """Register the cascade configuration once (immutable per version, D22).
 
-    Thresholds here are STARTING POINTS: no threshold ships as final without
-    a per-type P/R curve from the golden set (`measure_resolution`).
+    Re-seeding an identical definition is a no-op; a DIFFERENT definition
+    under the same version string is a hard error — change the numbers, mint
+    a new version. Thresholds are starting points until curves exist.
     """
+    definition = _config_definition(config=config)
+    stored = _stored_config(
+        engine=engine,
+        deployment_id=deployment_id,
+        resolver_version=config.resolver_version,
+    )
+    if stored is not None:
+        if stored != definition:
+            raise ResolverVersionConflictError(
+                f"resolver version {config.resolver_version!r} already registered "
+                "with a different definition; mint a new version string"
+            )
+        return
     with engine.begin() as connection:
         connection.execute(
             _SEED_RESOLVER_VERSION,
             {
                 "deployment_id": deployment_id,
                 "resolver_version": config.resolver_version,
-                "tier_config": {
-                    "order": ["T0", "T1", "T2", "T3", "T4_small", "T4_frontier"],
-                    "trigram_floor": config.trigram_floor,
-                    "blocking_limit": config.blocking_limit,
-                },
-                "thresholds_by_type": {
-                    "default": config.default_thresholds.model_dump(),
-                    **{
-                        entity_type: thresholds.model_dump()
-                        for entity_type, thresholds in (
-                            config.thresholds_by_type.items()
-                        )
-                    },
-                },
+                **definition,
             },
         )
+
+
+def _stored_config(
+    *, engine: Engine, deployment_id: UUID, resolver_version: str
+) -> dict[str, object] | None:
+    """The registered definition for a version, or None if unregistered."""
+    with engine.connect() as connection:
+        row = (
+            connection.execute(
+                _SELECT_RESOLVER_VERSION,
+                {"deployment_id": deployment_id, "resolver_version": resolver_version},
+            )
+            .mappings()
+            .one_or_none()
+        )
+    if row is None:
+        return None
+    return {
+        "tier_config": row["tier_config"],
+        "thresholds_by_type": row["thresholds_by_type"],
+    }
+
+
+def _config_definition(*, config: ResolverConfig) -> dict[str, object]:
+    """The comparable stored form of one in-memory config."""
+    return {
+        "tier_config": {
+            "order": ["T0", "T1", "T2", "T3", "T4_small", "T4_frontier"],
+            "trigram_floor": config.trigram_floor,
+            "blocking_limit": config.blocking_limit,
+            "t4_max_candidates": config.t4_max_candidates,
+        },
+        "thresholds_by_type": {
+            "default": config.default_thresholds.model_dump(),
+            **{
+                entity_type: thresholds.model_dump()
+                for entity_type, thresholds in config.thresholds_by_type.items()
+            },
+        },
+    }
 
 
 def _cosine(a: tuple[float, ...], b: tuple[float, ...] | None) -> float:
@@ -590,10 +691,16 @@ _SEED_RESOLVER_VERSION = text(
     ) VALUES (
         :deployment_id, :resolver_version, :tier_config, :thresholds_by_type
     )
-    ON CONFLICT (deployment_id, resolver_version) DO UPDATE
-        SET tier_config = EXCLUDED.tier_config,
-            thresholds_by_type = EXCLUDED.thresholds_by_type
+    ON CONFLICT (deployment_id, resolver_version) DO NOTHING
     """
 ).bindparams(
     bindparam("tier_config", type_=JSON), bindparam("thresholds_by_type", type_=JSON)
+)
+
+_SELECT_RESOLVER_VERSION = text(
+    """
+    SELECT tier_config, thresholds_by_type FROM resolver_versions
+    WHERE deployment_id = :deployment_id
+      AND resolver_version = :resolver_version
+    """
 )
