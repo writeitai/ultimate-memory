@@ -473,3 +473,51 @@ def test_hydrate_discloses_invalidation_instead_of_hiding_history(rig: _ApiRig) 
         "/lookup/relations", params={"subject_entity_id": alice["entity_id"]}
     ).json()
     assert current["facts"] == []
+
+
+def test_wp17_skeleton_eval_suite_runs_green_and_blocks_on_breakage(
+    rig: _ApiRig,
+) -> None:
+    """WP-1.7 acceptance: the S-subset + grain contract wired into the D22
+    harness as retrieval-suite canaries — green over the corpus, and a broken
+    corpus fails the suite (the CI-blocking signal)."""
+    from ultimate_memory.eval import EvalHarness
+    from ultimate_memory.eval import make_skeleton_evaluator
+    from ultimate_memory.eval import seed_skeleton_canaries
+    from ultimate_memory.model import EvalSuite
+    from ultimate_memory.workers import P1Settings as _P1Settings
+
+    seed_skeleton_canaries(engine=rig.engine, deployment_id=_DEPLOYMENT_ID)
+    seed_skeleton_canaries(  # idempotent: re-seeding never duplicates
+        engine=rig.engine, deployment_id=_DEPLOYMENT_ID
+    )
+    query_engine = QueryEngine(
+        engine=rig.engine,
+        search_index=rig.lance,
+        model_provider=rig.provider,
+        embedding_model=_P1Settings().embedding_model,
+    )
+    harness = EvalHarness(engine=rig.engine)
+    harness.register_evaluator(
+        suite=EvalSuite.RETRIEVAL,
+        evaluator=make_skeleton_evaluator(
+            query_engine=query_engine, deployment_id=_DEPLOYMENT_ID
+        ),
+    )
+    report = harness.run_suite(
+        deployment_id=_DEPLOYMENT_ID,
+        suite=EvalSuite.RETRIEVAL,
+        component_version="skeleton-2026.07",
+    )
+    assert report.total_cases == 5
+    assert report.passed, [failure.description for failure in report.failures]
+
+    # break the corpus (invalidate the relation): the suite must fail:
+    with rig.engine.begin() as connection:
+        connection.execute(text("UPDATE relations SET invalidated_at = now()"))
+    broken = harness.run_suite(
+        deployment_id=_DEPLOYMENT_ID,
+        suite=EvalSuite.RETRIEVAL,
+        component_version="skeleton-2026.07",
+    )
+    assert not broken.passed
