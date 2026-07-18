@@ -52,6 +52,16 @@ from ultimate_memory.model.documents import RepresentationRecord
 from ultimate_memory.model.documents import StructureSource
 from ultimate_memory.model.documents import SyntheticRootRecord
 from ultimate_memory.model.documents import UploadRecord
+from ultimate_memory.model.envelope import EntityCandidate
+from ultimate_memory.model.envelope import Envelope
+from ultimate_memory.model.envelope import EvidenceResult
+from ultimate_memory.model.envelope import FactResult
+from ultimate_memory.model.envelope import Freshness
+from ultimate_memory.model.envelope import Grain
+from ultimate_memory.model.envelope import Negative
+from ultimate_memory.model.envelope import NegativeKind
+from ultimate_memory.model.envelope import SourceRecord
+from ultimate_memory.model.envelope import Validity
 from ultimate_memory.model.evaluation import CanaryCase
 from ultimate_memory.model.evaluation import CaseFailure
 from ultimate_memory.model.evaluation import EvalSuite
@@ -133,15 +143,23 @@ __all__ = (
     "EmbeddingUpdate",
     "EnqueueOutcome",
     "EnqueueWork",
+    "EntityCandidate",
     "EntityRef",
+    "Envelope",
     "EvalSuite",
+    "EvidenceResult",
     "FactForLabeling",
     "FactLabelResponse",
+    "FactResult",
+    "Freshness",
+    "Grain",
     "HandlerAlreadyRegisteredError",
     "IngestedVersion",
     "KRevision",
     "LaneRouteError",
     "ModelRequest",
+    "Negative",
+    "NegativeKind",
     "NonRetryableHandlerError",
     "NormalizationResponse",
     "ObjectAlreadyExistsError",
@@ -173,6 +191,7 @@ __all__ = (
     "SelectionCandidate",
     "SelectionResponse",
     "SelectionVerdict",
+    "SourceRecord",
     "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
@@ -183,6 +202,7 @@ __all__ = (
     "UnknownStageHandlerError",
     "UnroutableMimeError",
     "UploadRecord",
+    "Validity",
     "WorkLedgerError",
     "WorkNotFoundError",
     "WorkNotRunningError",
