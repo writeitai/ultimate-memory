@@ -28,6 +28,10 @@ from ultimate_memory.model.claims import ObservationForEmbedding
 from ultimate_memory.model.claims import SelectionCandidate
 from ultimate_memory.model.claims import SelectionResponse
 from ultimate_memory.model.claims import SelectionVerdict
+from ultimate_memory.model.clustering import ClusterConfig
+from ultimate_memory.model.clustering import MergeProposal
+from ultimate_memory.model.clustering import NeighborhoodReport
+from ultimate_memory.model.clustering import UnmergeError
 from ultimate_memory.model.component_version import ComponentVersionConflictError
 from ultimate_memory.model.component_version import ComponentVersionError
 from ultimate_memory.model.component_version import ComponentVersionNotFoundError
@@ -126,6 +130,7 @@ __all__ = (
     "ClaimRecord",
     "ClaimedWork",
     "ClaimifyResponse",
+    "ClusterConfig",
     "ComponentVersionConflictError",
     "ComponentVersionError",
     "ComponentVersionNotFoundError",
@@ -163,9 +168,11 @@ __all__ = (
     "IngestedVersion",
     "KRevision",
     "LaneRouteError",
+    "MergeProposal",
     "ModelRequest",
     "Negative",
     "NegativeKind",
+    "NeighborhoodReport",
     "NonRetryableHandlerError",
     "NormalizationResponse",
     "ObjectAlreadyExistsError",
@@ -210,6 +217,7 @@ __all__ = (
     "TypeThresholds",
     "UTCDateTime",
     "UnknownStageHandlerError",
+    "UnmergeError",
     "UnroutableMimeError",
     "UploadRecord",
     "Validity",
