@@ -24,7 +24,7 @@
 | src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        3 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/eval/harness.py                                                             |       41 |        1 |        4 |        1 |     95.6% |        69 |
 | src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       81 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       87 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/auth.py                                                               |       10 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/blocks.py                                                             |       16 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/chunks.py                                                             |       41 |        0 |        0 |        0 |    100.0% |           |
@@ -40,6 +40,7 @@
 | src/ultimate\_memory/model/object\_store.py                                                      |        8 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/processing.py                                                         |       58 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/queue.py                                                              |       44 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/relations.py                                                          |       20 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/telemetry.py                                                          |       10 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/ports/\_\_init\_\_.py                                                       |        8 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/ports/auth.py                                                               |        7 |        0 |        0 |        0 |    100.0% |           |
@@ -51,13 +52,15 @@
 | src/ultimate\_memory/ports/queue.py                                                              |        8 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/ports/telemetry.py                                                          |        7 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/profiles/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/spine/\_\_init\_\_.py                                                       |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/\_\_init\_\_.py                                                       |       11 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/catalog\_contract.py                                                  |      136 |       19 |       60 |       20 |     80.1% |381, 400, 428, 441, 481, 494, 509, 531, 546, 557, 567, 577, 631-\>643, 665, 667, 669, 671, 673, 675, 724 |
 | src/ultimate\_memory/spine/chunk\_catalog.py                                                     |       44 |        2 |       10 |        2 |     92.6% |   38, 100 |
-| src/ultimate\_memory/spine/claim\_catalog.py                                                     |       28 |        1 |        6 |        1 |     94.1% |        49 |
+| src/ultimate\_memory/spine/claim\_catalog.py                                                     |       36 |        2 |        8 |        2 |     90.9% |    50, 66 |
 | src/ultimate\_memory/spine/component\_versions.py                                                |       56 |        3 |       12 |        3 |     91.2% |102, 119, 187 |
 | src/ultimate\_memory/spine/deployment\_bootstrap.py                                              |       88 |        0 |       16 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/document\_catalog.py                                                  |       80 |        2 |        8 |        2 |     95.5% |  111, 179 |
+| src/ultimate\_memory/spine/entity\_registry.py                                                   |       45 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/fact\_catalog.py                                                      |       59 |        0 |        6 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/migrations/\_\_init\_\_.py                                            |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/migrations/\_helpers.py                                               |      123 |        9 |       72 |        5 |     91.8% |104-109, 130-132, 139-\>143, 145-\>147, 152 |
 | src/ultimate\_memory/spine/migrations/env.py                                                     |       29 |        5 |        6 |        3 |     77.1% |13-\>16, 24, 29-37, 56 |
@@ -71,12 +74,13 @@
 | src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/work\_ledger.py                                                       |      110 |        4 |       26 |        5 |     93.4% |111, 137, 141, 211, 311-\>315 |
 | src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |       20 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |       23 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/base.py                                                             |       63 |        1 |        8 |        1 |     97.2% |        73 |
 | src/ultimate\_memory/workers/e0.py                                                               |      101 |        4 |        6 |        1 |     95.3% |145-149, 299 |
 | src/ultimate\_memory/workers/e1.py                                                               |      103 |        1 |        8 |        1 |     98.2% |       335 |
-| src/ultimate\_memory/workers/e2.py                                                               |      133 |        6 |       44 |        7 |     92.7% |112, 295, 308, 334-335, 346-\>344, 371-\>373, 449 |
-| **TOTAL**                                                                                        | **2286** |   **85** |  **362** |   **58** | **94.4%** |           |
+| src/ultimate\_memory/workers/e2.py                                                               |      136 |        6 |       44 |        7 |     92.8% |115, 314, 327, 353-354, 365-\>363, 390-\>392, 468 |
+| src/ultimate\_memory/workers/e3.py                                                               |       87 |        4 |       24 |        4 |     92.8% |99, 222, 225, 250 |
+| **TOTAL**                                                                                        | **2520** |   **90** |  **396** |   **63** | **94.6%** |           |
 
 
 ## Setup coverage badge
