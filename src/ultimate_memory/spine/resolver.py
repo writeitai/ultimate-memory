@@ -485,6 +485,10 @@ class CascadeResolver:
                 "resolver_version": self._config.resolver_version,
             },
         )
+        connection.execute(  # keep the blast-radius input warm (registries §6)
+            _BUMP_MENTION_COUNT,
+            {"deployment_id": deployment_id, "entity_id": entity_id},
+        )
         return ResolvedEntity(
             entity_id=entity_id, created=created, entity_type=entity_type
         )
@@ -702,5 +706,12 @@ _SELECT_RESOLVER_VERSION = text(
     SELECT tier_config, thresholds_by_type FROM resolver_versions
     WHERE deployment_id = :deployment_id
       AND resolver_version = :resolver_version
+    """
+)
+
+_BUMP_MENTION_COUNT = text(
+    """
+    UPDATE entities SET mention_count = mention_count + 1, updated_at = now()
+    WHERE deployment_id = :deployment_id AND entity_id = :entity_id
     """
 )

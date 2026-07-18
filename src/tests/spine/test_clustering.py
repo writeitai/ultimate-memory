@@ -25,11 +25,15 @@ from ultimate_memory.spine.settings import load_database_settings
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("c0000000-0000-0000-0000-000000000001")
 
+# R. Klein is close enough to BOTH Kleins to bad-attach when only one is
+# present (distance to Rachel ~0.327, to Robert ~0.26, cut 0.35) but closer
+# to Robert — the exact greedy-attachment hazard registries §6 describes.
 _VECTORS: dict[str, tuple[float, ...]] = {
     "Robert Klein": (1.0, 0.0),
-    "R. Klein": (0.995, 0.1),  # cosine distance ~0.005 to Robert
-    "Rachel Klein": (0.0, 1.0),  # far from both
+    "R. Klein": (0.74, 0.673),
+    "Rachel Klein": (0.0, 1.0),
 }
+_CUT = 0.35
 
 
 class _ScriptedEntityIndex:
@@ -191,10 +195,19 @@ def test_grouping_is_independent_of_arrival_order(
                 {"d": _DEPLOYMENT_ID},
             )
         index = _ScriptedEntityIndex()
-        clusterer = _clusterer(engine=database_engine, index=index)
-        for name in order:
+        clusterer = _clusterer(engine=database_engine, index=index, distance_cut=_CUT)
+        for step, name in enumerate(order):
             _arrive(engine=database_engine, index=index, name=name)
             clusterer.recluster_neighborhood(deployment_id=_DEPLOYMENT_ID, surface=name)
+            if order[0] == "Rachel Klein" and step == 1:
+                # the greedy hazard is REAL in this order: with Robert absent,
+                # R. Klein attaches to Rachel — the joint re-decision must
+                # move it when Robert arrives (the whole point of nDR):
+                with database_engine.connect() as connection:
+                    merged_now = connection.execute(
+                        text("SELECT count(*) FROM entities WHERE status='merged'")
+                    ).scalar_one()
+                assert merged_now == 1
         partitions.append(_partition(engine=database_engine))
 
     assert partitions[0] == partitions[1]
@@ -208,13 +221,43 @@ def test_merge_is_reversible_by_snapshot_replay(
     """Un-merge (D21): the redirect is removed, the reversal event is
     appended and linked, and a second reversal is refused."""
     index = _ScriptedEntityIndex()
-    clusterer = _clusterer(engine=database_engine, index=index)
+    clusterer = _clusterer(engine=database_engine, index=index, distance_cut=_CUT)
     robert = _arrive(engine=database_engine, index=index, name="Robert Klein")
     variant = _arrive(engine=database_engine, index=index, name="R. Klein")
+    # a live mention decision on the variant BEFORE the merge (replay proof):
+    mention = uuid4()
+    first_decision = uuid4()
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO resolution_decisions (decision_id, deployment_id,"
+                " mention_id, entity_id, method, confidence, resolver_version)"
+                " VALUES (:i, :d, :m, :e, 'T0', 1.0, 'test')"
+            ),
+            {"i": first_decision, "d": _DEPLOYMENT_ID, "m": mention, "e": variant},
+        )
     report = clusterer.recluster_neighborhood(
         deployment_id=_DEPLOYMENT_ID, surface="R. Klein"
     )
     (merge_id,) = report.merged
+    # post-merge, a newer decision re-points the mention at the survivor:
+    supersessor = uuid4()
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO resolution_decisions (decision_id, deployment_id,"
+                " mention_id, entity_id, method, confidence, resolver_version)"
+                " VALUES (:i, :d, :m, :e, 'T0', 1.0, 'test')"
+            ),
+            {"i": supersessor, "d": _DEPLOYMENT_ID, "m": mention, "e": robert},
+        )
+        connection.execute(
+            text(
+                "UPDATE resolution_decisions SET superseded_by = :s"
+                " WHERE decision_id = :i"
+            ),
+            {"s": supersessor, "i": first_decision},
+        )
 
     with database_engine.connect() as connection:
         absorbed = connection.execute(
@@ -244,7 +287,19 @@ def test_merge_is_reversible_by_snapshot_replay(
         )
     assert statuses == 2  # both Kleins active again
     assert original["reversed_by"] == reversal
-    assert "mentions_by_entity" in original["pre_merge_membership_snapshot"]
+    # snapshot REPLAY (Codex review): the mention's live decision points at
+    # the restored entity again, the survivor-era decision superseded:
+    with database_engine.connect() as connection:
+        live_entity = connection.execute(
+            text(
+                "SELECT entity_id FROM resolution_decisions"
+                " WHERE mention_id = :m AND superseded_by IS NULL"
+            ),
+            {"m": mention},
+        ).scalar_one()
+    restored = {robert, variant} - {live_entity}
+    assert live_entity in (robert, variant)
+    assert len(restored) == 1
 
     with pytest.raises(UnmergeError):
         clusterer.unmerge(deployment_id=_DEPLOYMENT_ID, merge_id=merge_id)
@@ -256,19 +311,19 @@ def test_high_blast_radius_routes_to_review_never_auto(
     """The blast-radius rule (D24): above the cap the merge queues for human
     review ranked by expected impact — hubs never auto-merge."""
     index = _ScriptedEntityIndex()
-    clusterer = _clusterer(engine=database_engine, index=index, blast_radius_cap=1)
+    clusterer = _clusterer(
+        engine=database_engine, index=index, blast_radius_cap=1, distance_cut=_CUT
+    )
     robert = _arrive(engine=database_engine, index=index, name="Robert Klein")
     _arrive(engine=database_engine, index=index, name="R. Klein")
-    with database_engine.begin() as connection:  # give Robert real mention mass
-        for _ in range(3):
-            connection.execute(
-                text(
-                    "INSERT INTO resolution_decisions (decision_id, deployment_id,"
-                    " mention_id, entity_id, method, confidence, resolver_version)"
-                    " VALUES (:i, :d, :m, :e, 'T0', 1.0, 'test')"
-                ),
-                {"i": uuid4(), "d": _DEPLOYMENT_ID, "m": uuid4(), "e": robert},
-            )
+    with database_engine.begin() as connection:  # a hub by the CACHES
+        connection.execute(
+            text(
+                "UPDATE entities SET mention_count = 2, graph_degree = 3"
+                " WHERE entity_id = :e"
+            ),
+            {"e": robert},
+        )
     report = clusterer.recluster_neighborhood(
         deployment_id=_DEPLOYMENT_ID, surface="R. Klein"
     )
@@ -299,12 +354,16 @@ def test_black_hole_guard_tightens_the_cut(
 ) -> None:
     """A blob over the cap raises the matching bar instead of swallowing."""
     index = _ScriptedEntityIndex()
-    clusterer = _clusterer(engine=database_engine, index=index, blob_cap=2)
+    clusterer = _clusterer(
+        engine=database_engine, index=index, blob_cap=2, distance_cut=_CUT
+    )
     for name in ("Robert Klein", "R. Klein", "Rachel Klein"):
         _arrive(engine=database_engine, index=index, name=name)
     report = clusterer.recluster_neighborhood(
         deployment_id=_DEPLOYMENT_ID, surface="R. Klein"
     )
     assert report.black_hole_tightened
-    # Robert + R. Klein are still close enough under the tightened cut:
-    assert len(report.merged) == 1
+    # the tightened cut (0.175) is now ABOVE none of the pair distances
+    # (~0.26 and ~0.33): the runaway blob merges nothing — the bar was
+    # raised instead of swallowing the monster.
+    assert report.merged == ()
