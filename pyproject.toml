@@ -33,7 +33,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "alembic>=1.16",
+    "psycopg[binary]>=3.2",
     "pydantic>=2.11",
+    "pydantic-settings>=2.10",
 ]
 
 [project.urls]
