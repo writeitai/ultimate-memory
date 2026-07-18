@@ -62,7 +62,7 @@ _SELECTION_PAYLOAD: dict[str, object] = {
         },
         {
             "source_span": "The team considers it a runaway success.",
-            "verdict": "keep",  # attributed stance: a keep (D59)
+            "verdict": "keep_flagged",  # attributed stance kept, low confidence
         },
         {
             "source_span": "You should try it yourself.",
@@ -97,6 +97,11 @@ _CLAIMIFY_PAYLOAD: dict[str, object] = {
         {
             "claim_text": "Atlas was cancelled.",
             "source_span": "Atlas was cancelled in March",  # not in the chunk
+            "entailment_self_verdict": True,
+        },
+        {
+            "claim_text": "You should try Project Atlas.",
+            "source_span": "You should try it yourself.",  # Selection DROPPED this
             "entailment_self_verdict": True,
         },
     ]
@@ -284,13 +289,24 @@ def test_claims_land_grounded_with_drops_ledgered_and_stance_kept(rig: _E2Rig) -
     stance = claims[1]
     assert stance["is_attributed"]
 
-    # drops and edits are ledgered (D33) — advice drop + the stance's edit:
+    # drops, flags, and edits are ledgered (D33); Selection is enforced — the
+    # fused call's attempt to resurrect the dropped advice span never landed:
     by_kind = {decision["decision_type"]: decision for decision in decisions}
-    assert set(by_kind) == {"decontext_edit", "selection_drop"}
+    assert set(by_kind) == {
+        "decontext_edit",
+        "selection_drop",
+        "selection_keep_flagged",
+    }
     drop = by_kind["selection_drop"]
     assert drop["source_span"] == "You should try it yourself."
     assert drop["reason"] == "advice"
     assert by_kind["decontext_edit"]["claim_id"] is not None
+    # the kept_flagged claim pairs with a ledger row naming it (schema §8):
+    with rig.engine.connect() as connection:
+        flagged_claim = connection.execute(
+            text("SELECT claim_id FROM claims WHERE kept_flagged")
+        ).scalar_one()
+    assert by_kind["selection_keep_flagged"]["claim_id"] == flagged_claim
 
     assert links == len(claims)
 
@@ -336,3 +352,80 @@ def test_rerunning_extraction_replays_without_model_calls(rig: _E2Rig) -> None:
     with rig.engine.connect() as connection:
         count = connection.execute(text("SELECT count(*) FROM claims")).scalar_one()
     assert count == 2
+
+
+def test_empty_extraction_is_terminal_and_replays_without_calls(
+    rig: _E2Rig, tmp_path: Path
+) -> None:
+    """Codex review: a chunk whose Selection finds nothing is DONE — the
+    no_info marker makes the replay check hold without re-calling the model."""
+    rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="smalltalk.md",
+            mime="text/markdown",
+            content=b"Nothing verifiable here, just musing aloud.\n",
+        ),
+    )
+    for stage in (
+        PipelineStage.CONVERT,
+        PipelineStage.STRUCTURE,
+        PipelineStage.CHUNK,
+        PipelineStage.EMBED_CHUNK,
+    ):
+        rig.worker.run_one(
+            deployment_id=_DEPLOYMENT_ID, stage=stage, lane=ProcessingLane.STEADY
+        )
+
+    empty_provider = FakeModelProvider(
+        generate_payloads={"SelectionResponse": {"candidates": []}}
+    )
+    with rig.engine.connect() as connection:
+        representation, version = connection.execute(
+            text("SELECT current_representation_id, version_id FROM document_versions")
+        ).one()
+
+    from ultimate_memory.model import ClaimedWork
+    from ultimate_memory.model import ProcessingTarget
+    from ultimate_memory.spine import ChunkCatalog as _ChunkCatalog
+    from ultimate_memory.workers import E2_EXTRACTOR_VERSION
+
+    handler = ExtractClaimsHandler(
+        catalog=rig.claim_catalog,
+        chunk_catalog=_ChunkCatalog(engine=rig.engine),
+        artifact_store=LocalFSObjectStore(root=tmp_path / "artifacts"),
+        model_provider=empty_provider,
+        settings=E2Settings(),
+        chunker_version=chunker_version(params=_PARAMS),
+    )
+    work = ClaimedWork(
+        processing_id=version,
+        deployment_id=_DEPLOYMENT_ID,
+        target_kind=ProcessingTarget.DOCUMENT,
+        target_id=version,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        component_version=E2_EXTRACTOR_VERSION,
+        content_hash="sha256:empty",
+        lane=ProcessingLane.STEADY,
+        attempt=1,
+        payload={"version_id": str(version), "representation_id": str(representation)},
+    )
+    handler.handle(work=work)
+    calls_after_first = len(empty_provider.generated_prompts)
+    assert calls_after_first == 1  # one Selection call, no fused call
+
+    with rig.engine.connect() as connection:
+        marker = (
+            connection.execute(
+                text(
+                    "SELECT decision_type, reason FROM claim_extraction_decisions"
+                    " WHERE reason = 'no_info'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert marker["decision_type"] == "selection_drop"
+
+    handler.handle(work=work.model_copy(update={"attempt": 2}))
+    assert len(empty_provider.generated_prompts) == calls_after_first

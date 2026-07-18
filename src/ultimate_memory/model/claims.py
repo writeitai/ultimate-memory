@@ -58,7 +58,6 @@ class CandidateClaim(BaseModel):
     added_context: tuple[AddedContext, ...] = ()
     entailment_self_verdict: bool
     is_attributed: bool = False
-    kept_flagged: bool = False
 
 
 class ClaimifyResponse(BaseModel):

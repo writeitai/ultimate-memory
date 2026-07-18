@@ -28,6 +28,7 @@ from ultimate_memory.model import DecisionType
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import ObjectKey
+from ultimate_memory.model import SelectionCandidate
 from ultimate_memory.model import SelectionResponse
 from ultimate_memory.model import SelectionVerdict
 from ultimate_memory.ports.model_provider import ModelProviderPort
@@ -152,6 +153,9 @@ class ExtractClaimsHandler:
         )
         claims: list[ClaimRecord] = []
         if keeps:
+            kept_ranges = _kept_ranges(
+                keeps=keeps, chunk=chunk, document_md=document_md
+            )
             flagged_spans = {
                 candidate.source_span
                 for candidate in keeps
@@ -176,6 +180,7 @@ class ExtractClaimsHandler:
                     index=index,
                     document_md=document_md,
                     flagged_spans=flagged_spans,
+                    kept_ranges=kept_ranges,
                 )
                 if record is None:
                     _logger.warning(
@@ -187,6 +192,11 @@ class ExtractClaimsHandler:
                 claims.append(record)
                 if record.added_context:
                     decisions.append(_edit_decision(source=source, record=record))
+        decisions = _link_flagged_decisions(decisions=decisions, claims=claims)
+        if not claims and not decisions:
+            # terminal marker (D7): an extraction that found nothing claim-worthy
+            # is DONE — without it, replay would re-call the model.
+            decisions = [_empty_extraction_marker(source=source, chunk=chunk)]
         self._catalog.record_extraction(
             claims=tuple(claims), decisions=tuple(decisions)
         )
@@ -201,19 +211,30 @@ def _grounded_claim(
     index: int,
     document_md: str,
     flagged_spans: set[str],
+    kept_ranges: tuple[tuple[int, int], ...],
 ) -> ClaimRecord | None:
     """Apply the deterministic grounding gate (D32 layers 1-2).
 
     Layer 1 (anchor): the source span must be a real in-bounds slice of the
-    target chunk. Layer 2 (window membership): every added substring must
-    verbatim-exist in the bundle element it was attributed to. A failed check
-    returns None — the candidate never becomes a claims row.
+    target chunk, and must overlap a span Selection kept — the fused call can
+    never resurrect a dropped proposition. Layer 2 (window membership): every
+    added substring must verbatim-exist in the bundle element it was
+    attributed to. A failed check returns None — the candidate never becomes
+    a claims row. Semantic invention behind a real span is layer-3/4
+    territory: the in-call self-verdict is stored advisory, and the sampled
+    independent audit owns the honest measurement.
     """
     anchor_at = document_md.find(
         candidate.source_span, chunk.char_start, chunk.char_end
     )
     if anchor_at < 0:
         return None
+    anchor_end = anchor_at + len(candidate.source_span)
+    if not any(
+        anchor_at < kept_end and kept_start < anchor_end
+        for kept_start, kept_end in kept_ranges
+    ):
+        return None  # Selection is enforced, not advisory
     for added in candidate.added_context:
         element = _bundle_element(
             kind=added.source_kind,
@@ -237,7 +258,7 @@ def _grounded_claim(
         added_context=candidate.added_context,
         is_attributed=candidate.is_attributed,
         entailment_self_verdict=candidate.entailment_self_verdict,
-        kept_flagged=candidate.kept_flagged or candidate.source_span in flagged_spans,
+        kept_flagged=candidate.source_span in flagged_spans,
         extractor_version=E2_EXTRACTOR_VERSION,
     )
 
@@ -255,8 +276,8 @@ def _bundle_text(
         f"DOCUMENT HEADER: {_header_text(source=source)}\n"
         f"SECTION: path {chunk.section_path}, role {chunk.section_role}\n"
         f"CONTEXT PREFIX: {chunk.context_prefix or '(none)'}\n"
-        f"PREVIOUS CHUNK:\n{_neighbour_text(chunks=chunks, index=index - 1, document_md=document_md)}\n"
-        f"NEXT CHUNK:\n{_neighbour_text(chunks=chunks, index=index + 1, document_md=document_md)}\n"
+        f"PREVIOUS CHUNK:\n{_neighbour_text(chunks=chunks, index=index - 1, document_md=document_md, section_path=chunk.section_path)}\n"
+        f"NEXT CHUNK:\n{_neighbour_text(chunks=chunks, index=index + 1, document_md=document_md, section_path=chunk.section_path)}\n"
         f"TARGET CHUNK:\n{document_md[chunk.char_start : chunk.char_end]}"
     )
 
@@ -276,7 +297,12 @@ def _bundle_element(
         return chunks[index].context_prefix
     if kind == "neighbour":
         return "\n".join(
-            _neighbour_text(chunks=chunks, index=neighbour, document_md=document_md)
+            _neighbour_text(
+                chunks=chunks,
+                index=neighbour,
+                document_md=document_md,
+                section_path=chunks[index].section_path,
+            )
             for neighbour in (index - 1, index + 1)
         )
     return None
@@ -293,13 +319,78 @@ def _header_text(*, source: ChunkSource) -> str:
 
 
 def _neighbour_text(
-    *, chunks: tuple[ChunkForEmbedding, ...], index: int, document_md: str
+    *,
+    chunks: tuple[ChunkForEmbedding, ...],
+    index: int,
+    document_md: str,
+    section_path: str,
 ) -> str:
-    """A neighbour chunk's verbatim text, or a placeholder outside the run."""
-    if 0 <= index < len(chunks):
+    """A same-section neighbour's verbatim text, or a placeholder.
+
+    The D31 bundle rule is same-scope only: an ordinal-adjacent chunk from a
+    different section is not a neighbour and can never ground an addition.
+    """
+    if 0 <= index < len(chunks) and chunks[index].section_path == section_path:
         neighbour = chunks[index]
         return document_md[neighbour.char_start : neighbour.char_end]
     return "(none)"
+
+
+def _kept_ranges(
+    *, keeps: tuple[SelectionCandidate, ...], chunk: ChunkForEmbedding, document_md: str
+) -> tuple[tuple[int, int], ...]:
+    """Absolute char ranges of the kept Selection spans inside the chunk."""
+    ranges: list[tuple[int, int]] = []
+    for keep in keeps:
+        found = document_md.find(keep.source_span, chunk.char_start, chunk.char_end)
+        if found >= 0:
+            ranges.append((found, found + len(keep.source_span)))
+    return tuple(ranges)
+
+
+def _link_flagged_decisions(
+    *, decisions: list[DecisionRecord], claims: list[ClaimRecord]
+) -> list[DecisionRecord]:
+    """Pair each keep-flagged ledger row with its grounded claim (schema §8).
+
+    The invariant: a kept_flagged claim is the pair (claims row) + (a
+    selection_keep_flagged decision naming it). A flag whose span grounded no
+    claim keeps claim_id NULL — the flag stands, nothing to pair.
+    """
+    linked: list[DecisionRecord] = []
+    for decision in decisions:
+        if decision.decision_type is DecisionType.SELECTION_KEEP_FLAGGED:
+            match = next(
+                (
+                    claim
+                    for claim in claims
+                    if claim.kept_flagged and claim.source_span == decision.source_span
+                ),
+                None,
+            )
+            if match is not None:
+                decision = decision.model_copy(update={"claim_id": match.claim_id})
+        linked.append(decision)
+    return linked
+
+
+def _empty_extraction_marker(
+    *, source: ChunkSource, chunk: ChunkForEmbedding
+) -> DecisionRecord:
+    """The terminal no_info row for a chunk whose extraction found nothing."""
+    return DecisionRecord(
+        decision_id=uuid4(),
+        deployment_id=source.deployment_id,
+        doc_id=source.doc_id,
+        chunk_id=chunk.chunk_id,
+        claim_id=None,
+        decision_type=DecisionType.SELECTION_DROP,
+        source_span=None,
+        reason="no_info",
+        edit_detail=None,
+        protected_class=None,
+        extractor_version=E2_EXTRACTOR_VERSION,
+    )
 
 
 def _selection_decisions(
