@@ -596,16 +596,24 @@ def verify_schema_absent(connection: Connection) -> None:
         ),
         names=EXPECTED_ENUMS,
     )
-    partman_count = int(
+    partman_config_exists = bool(
         connection.execute(
-            statement=text(
-                "SELECT count(*) FROM public.part_config WHERE parent_table = ANY(:parents)"
-            ),
-            parameters={
-                "parents": [f"public.{parent}" for parent in EXPECTED_RANGE_PARENTS]
-            },
+            statement=text("SELECT to_regclass('public.part_config') IS NOT NULL")
         ).scalar_one()
     )
+    partman_count = 0
+    if partman_config_exists:
+        partman_count = int(
+            connection.execute(
+                statement=text(
+                    "SELECT count(*) FROM public.part_config "
+                    "WHERE parent_table = ANY(:parents)"
+                ),
+                parameters={
+                    "parents": [f"public.{parent}" for parent in EXPECTED_RANGE_PARENTS]
+                },
+            ).scalar_one()
+        )
     template_count = int(
         connection.execute(
             statement=text(
