@@ -10,10 +10,10 @@
 | src/ultimate\_memory/adapters/selfhost/mounts.py                                                 |       12 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/adapters/selfhost/object\_store.py                                          |       23 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/adapters/selfhost/queue.py                                                  |       65 |        1 |       10 |        2 |     96.0% |111-\>118, 135 |
-| src/ultimate\_memory/adapters/testing/\_\_init\_\_.py                                            |        3 |        3 |        0 |        0 |      0.0% |       3-6 |
-| src/ultimate\_memory/adapters/testing/queue.py                                                   |       12 |       12 |        0 |        0 |      0.0% |      3-37 |
+| src/ultimate\_memory/adapters/testing/\_\_init\_\_.py                                            |        3 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/adapters/testing/queue.py                                                   |       12 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/core/\_\_init\_\_.py                                                        |        9 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/core/blockizer.py                                                           |       70 |        2 |       24 |        2 |     95.7% |  162, 175 |
+| src/ultimate\_memory/core/blockizer.py                                                           |       70 |        2 |       24 |        2 |     95.7% |  165, 178 |
 | src/ultimate\_memory/core/core\_manifest.py                                                      |       40 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        3 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/eval/harness.py                                                             |       41 |        1 |        4 |        1 |     95.6% |        69 |
@@ -55,11 +55,11 @@
 | src/ultimate\_memory/spine/migrations/versions/p0\_02\_0005\_projection\_knowledge\_retrieval.py |       13 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/migrations/versions/p0\_02\_0006\_partitions\_views.py                |       18 |        0 |        4 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/spine/work\_ledger.py                                                       |      107 |        4 |       24 |        4 |     93.9% |111, 133, 137, 207 |
+| src/ultimate\_memory/spine/work\_ledger.py                                                       |      109 |        4 |       26 |        5 |     93.3% |111, 137, 141, 211, 305-\>309 |
 | src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |        6 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/workers/base.py                                                             |       58 |        5 |        6 |        2 |     89.1% |71, 80, 111-121 |
-| **TOTAL**                                                                                        | **1393** |   **66** |  **252** |   **42** | **93.3%** |           |
+| src/ultimate\_memory/workers/base.py                                                             |       63 |        4 |        8 |        1 |     93.0% |73, 125-135 |
+| **TOTAL**                                                                                        | **1400** |   **50** |  **256** |   **42** | **94.3%** |           |
 
 
 ## Setup coverage badge
