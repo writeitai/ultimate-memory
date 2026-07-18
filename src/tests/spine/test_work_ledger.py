@@ -24,6 +24,8 @@ from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import RecordCall
+from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.model import UnknownStageHandlerError
 from ultimate_memory.model import WorkNotRunningError
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import WorkLedger
@@ -326,3 +328,81 @@ def test_demo_no_op_worker_chain_retry_and_dead_letter(
     assert dead["attempts"] == 3  # initial + two retries (D12/D67)
     assert "RuntimeError: deliberate failure" in dead["last_error"]
     assert "Traceback" in dead["last_error"]  # full traceback, never trimmed (value 6)
+
+
+def test_promotion_clears_backfill_budget_parking(
+    database_engine: Engine, ledger: WorkLedger
+) -> None:
+    """Codex review 1: a promoted row escapes the backfill budget window."""
+    target_id = uuid4()
+    enqueued = ledger.enqueue(
+        work=_work(lane=ProcessingLane.BACKFILL, target_id=target_id)
+    )
+    ledger.park_for_budget(
+        processing_id=enqueued.processing_id,
+        resume_at=datetime.now(tz=UTC) + timedelta(days=1),
+    )
+    promoted = ledger.enqueue(
+        work=_work(lane=ProcessingLane.STEADY, target_id=target_id)
+    )
+    assert promoted.promoted_to_steady
+
+    claimed = ledger.claim_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert claimed is not None and claimed.processing_id == enqueued.processing_id
+
+
+def test_unregistered_stage_never_strands_a_claimed_row(
+    database_engine: Engine, ledger: WorkLedger
+) -> None:
+    """Codex review 3: handler resolution precedes the claim — no attempt consumed."""
+    enqueued = ledger.enqueue(work=_work())
+    worker = Worker(ledger=ledger, registry=HandlerRegistry())
+    with pytest.raises(UnknownStageHandlerError):
+        worker.run_one(
+            deployment_id=_DEPLOYMENT_ID,
+            stage=PipelineStage.EXTRACT_CLAIMS,
+            lane=ProcessingLane.STEADY,
+        )
+    with database_engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT status, attempts FROM processing_state"
+                    " WHERE processing_id = :processing_id"
+                ),
+                {"processing_id": enqueued.processing_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["status"] == "pending"
+    assert row["attempts"] == 0
+
+
+def test_scheduled_retry_is_announced_through_the_queue_port(
+    ledger: WorkLedger,
+) -> None:
+    """Codex review 4: retry paths call the port with the scheduled time."""
+    from ultimate_memory.adapters.testing import RecordingTaskQueue
+
+    recorder = RecordingTaskQueue()
+    registry = HandlerRegistry()
+    registry.register(
+        stage=PipelineStage.EXTRACT_CLAIMS, handler=_AlwaysFailingHandler()
+    )
+    worker = Worker(ledger=ledger, registry=registry, queue=recorder)
+    enqueued = ledger.enqueue(work=_work())
+
+    result = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert result.outcome is RunResultOutcome.RETRY_SCHEDULED
+    (announcement,) = recorder.announcements
+    assert announcement.processing_id == enqueued.processing_id
+    assert announcement.route_snapshot.stage is PipelineStage.EXTRACT_CLAIMS
