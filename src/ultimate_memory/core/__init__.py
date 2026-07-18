@@ -21,6 +21,10 @@ from ultimate_memory.core.core_manifest import CoreManifest
 from ultimate_memory.core.core_manifest import EntityTypeDefinition
 from ultimate_memory.core.core_manifest import PredicateDefinition
 from ultimate_memory.core.core_manifest import PredicateSignatureDefinition
+from ultimate_memory.core.extension_packs import ExtensionPack
+from ultimate_memory.core.extension_packs import PackEntityType
+from ultimate_memory.core.extension_packs import PackPredicate
+from ultimate_memory.core.extension_packs import WORK_PACK
 
 __all__ = (
     "BLOCKIZER_VERSION",
@@ -33,6 +37,10 @@ __all__ = (
     "is_anchor",
     "pack_blocks",
     "CORE_MANIFEST",
+    "ExtensionPack",
+    "PackEntityType",
+    "PackPredicate",
+    "WORK_PACK",
     "ConversionRouter",
     "Converter",
     "CoreManifest",

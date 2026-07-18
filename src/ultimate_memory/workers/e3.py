@@ -29,6 +29,7 @@ from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.fact_catalog import OTHER_PREDICATE_GRAMMAR
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
@@ -36,14 +37,19 @@ from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 
 _logger = logging.getLogger(__name__)
 
+_OTHER_PREDICATE: Final = OTHER_PREDICATE_GRAMMAR
+"""The escape-value routing check (the spine re-validates authoritatively)."""
+
 E3_NORMALIZER_VERSION: Final = "e3-normalize-2026.07"
 """The normalize sub-worker's component version (D12 idempotency member)."""
 
 _NORMALIZE_PROMPT: Final = """You are the normalizer of a memory system. Turn
 the CLAIM into zero or more of:
 - relations: (subject, predicate, object) between TWO named entities, using
-  ONLY the governed predicates listed below (map synonyms onto them; if none
-  fits, emit nothing — never invent a predicate);
+  ONLY the governed predicates listed below (map synonyms onto them). If a
+  clearly relational fact fits NO governed predicate, you may emit
+  `other:<short_snake_case>` (e.g. other:sponsors) — never invent a bare
+  predicate name;
 - observations: a value/property/statement about ONE entity, as a standalone
   statement ("Acme's headcount is 600"). An ATTRIBUTED stance claim ("X said /
   believes / opposes Y") becomes a stance observation anchored on X — never a
@@ -51,7 +57,8 @@ the CLAIM into zero or more of:
 Entity names must be canonical nominative forms; entity types must come from
 the registry types below. Time is never a relation object.
 
-GOVERNED PREDICATES: {predicates}
+GOVERNED PREDICATES:
+{predicates}
 REGISTRY TYPES: {types}
 
 CLAIM (attributed={is_attributed}): {claim_text}"""
@@ -106,6 +113,7 @@ class NormalizeRelationsHandler:
             return HandlerOutcome()
         deployment_id = work.deployment_id
         predicates = self._facts.active_predicates(deployment_id=deployment_id)
+        prompt_lines = self._facts.predicate_prompt_lines(deployment_id=deployment_id)
         signatures = self._facts.predicate_signatures(deployment_id=deployment_id)
         type_parents = self._facts.entity_type_parents(deployment_id=deployment_id)
         for claim in claims:
@@ -115,6 +123,7 @@ class NormalizeRelationsHandler:
                 deployment_id=deployment_id,
                 claim=claim,
                 predicates=predicates,
+                prompt_lines=prompt_lines,
                 signatures=signatures,
                 type_parents=type_parents,
             )
@@ -149,6 +158,7 @@ class NormalizeRelationsHandler:
         deployment_id: UUID,
         claim: ClaimForNormalization,
         predicates: dict[str, str | None],
+        prompt_lines: str,
         signatures: dict[str, tuple[tuple[str, str], ...]],
         type_parents: dict[str, str | None],
     ) -> None:
@@ -157,7 +167,7 @@ class NormalizeRelationsHandler:
             request=ModelRequest(
                 model=self._settings.normalize_model,
                 prompt=_NORMALIZE_PROMPT.format(
-                    predicates=", ".join(sorted(predicates)),
+                    predicates=prompt_lines,
                     types=", ".join(sorted(type_parents)),
                     is_attributed=claim.is_attributed,
                     claim_text=claim.claim_text,
@@ -166,6 +176,13 @@ class NormalizeRelationsHandler:
             response_type=NormalizationResponse,
         )
         for relation in response.relations:
+            if _OTHER_PREDICATE.fullmatch(relation.predicate):
+                # the D5 escape funnel: register tier=other, unconstrained
+                # by signatures, ranked by usage for periodic promotion
+                self._facts.ensure_other_predicate(
+                    deployment_id=deployment_id, predicate=relation.predicate
+                )
+                predicates = {**predicates, relation.predicate: "related_to"}
             if relation.predicate not in predicates:
                 _logger.warning(
                     "unknown predicate %r dropped for claim %s (re-derivable)",

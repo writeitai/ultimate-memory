@@ -8,6 +8,8 @@ versions, and within-document repetition never inflate it (D54).
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+import re
+from typing import Final
 from uuid import UUID
 from uuid import uuid4
 
@@ -18,6 +20,10 @@ from sqlalchemy.engine import Engine
 
 from ultimate_memory.model import FactForLabeling
 from ultimate_memory.model import ObservationForEmbedding
+from ultimate_memory.model import OtherPredicateGrammarError
+
+OTHER_PREDICATE_GRAMMAR: Final = re.compile(r"other:[a-z][a-z0-9_]{1,40}")
+"""The D5 escape-value grammar: short snake_case behind the other: prefix."""
 
 
 class FactCatalog:
@@ -69,6 +75,10 @@ class FactCatalog:
                         "relation_id": relation_id,
                         "normalizer_version": normalizer_version,
                     },
+                )
+                connection.execute(  # the D5 promotion funnel's ranking input
+                    _BUMP_PREDICATE_USAGE,
+                    {"deployment_id": deployment_id, "predicate": predicate},
                 )
             connection.execute(
                 _INSERT_RELATION_EVIDENCE,
@@ -235,6 +245,51 @@ class FactCatalog:
                 _STAMP_OBSERVATION_EMBEDDING,
                 {"observation_id": observation_id, "label_version": label_version},
             )
+
+    def ensure_other_predicate(self, *, deployment_id: UUID, predicate: str) -> None:
+        """Register one `other:<freetext>` escape value (tier=other, D5/D18).
+
+        The grammar is enforced HERE, at the spine authority (Codex review) —
+        callers' routing regexes are conveniences, not the gate. The FK holds
+        (the row exists before any relation uses it); the permissive core
+        parent `related_to` anchors it; usage_count ranks it for the periodic
+        promotion review (registries §7).
+        """
+        if not OTHER_PREDICATE_GRAMMAR.fullmatch(predicate):
+            raise OtherPredicateGrammarError(
+                f"{predicate!r} is not a valid other:<short_snake_case> value"
+            )
+        with self._engine.begin() as connection:
+            connection.execute(
+                _INSERT_OTHER_PREDICATE,
+                {"deployment_id": deployment_id, "predicate": predicate},
+            )
+
+    def promotion_candidates(
+        self, *, deployment_id: UUID, limit: int = 20
+    ) -> tuple[tuple[str, int], ...]:
+        """The D5 funnel surface: tier=other predicates ranked by usage."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_PROMOTION_CANDIDATES,
+                {"deployment_id": deployment_id, "limit": limit},
+            ).all()
+        return tuple((predicate, usage) for predicate, usage in rows)
+
+    def predicate_prompt_lines(self, *, deployment_id: UUID) -> str:
+        """The governed vocabulary rendered for prompts (registries §4):
+        one line per active non-other predicate with meaning and synonyms."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_PREDICATE_PROMPT, {"deployment_id": deployment_id}
+            ).all()
+        lines = []
+        for predicate, description, synonyms in rows:
+            line = f"- {predicate}: {description}"
+            if synonyms:
+                line += f" (synonyms: {', '.join(synonyms)})"
+            lines.append(line)
+        return "\n".join(lines)
 
     def active_predicates(self, *, deployment_id: UUID) -> dict[str, str | None]:
         """The governed vocabulary: active predicate → its parent (D5/D18)."""
@@ -451,5 +506,44 @@ _STAMP_OBSERVATION_EMBEDDING = text(
         obs_label_embedding_ref = observation_id::text,
         updated_at = now()
     WHERE observation_id = :observation_id
+    """
+)
+
+_BUMP_PREDICATE_USAGE = text(
+    """
+    UPDATE predicates SET usage_count = usage_count + 1
+    WHERE deployment_id = :deployment_id AND predicate = :predicate
+    """
+)
+
+_INSERT_OTHER_PREDICATE = text(
+    """
+    INSERT INTO predicates (
+        deployment_id, predicate, parent_predicate, description, tier
+    ) VALUES (
+        :deployment_id, :predicate, 'related_to',
+        'normalizer-emitted other: escape value (D5 funnel; promote on demand)',
+        'other'
+    )
+    ON CONFLICT (deployment_id, predicate) DO NOTHING
+    """
+)
+
+_SELECT_PROMOTION_CANDIDATES = text(
+    """
+    SELECT predicate, usage_count FROM predicates
+    WHERE deployment_id = :deployment_id AND tier = 'other'
+      AND status = 'active'
+    ORDER BY usage_count DESC, predicate
+    LIMIT :limit
+    """
+)
+
+_SELECT_PREDICATE_PROMPT = text(
+    """
+    SELECT predicate, description, synonyms FROM predicates
+    WHERE deployment_id = :deployment_id AND status = 'active'
+      AND tier <> 'other'
+    ORDER BY predicate
     """
 )
