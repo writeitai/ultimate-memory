@@ -118,8 +118,8 @@ as usual):
 |---|---|---|
 | stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/ultimate-memory/pull/41); §3 maps every former slot to its exact repository evidence. |
 | rename + CLA (`questions.md` §11a) | Phase 7 WP-7.7 (release), first outside PR | distinctive name + attorney clearance; CLA before external contributions |
-| **#3 embedding model + dimension** | **Phase 1 entry** | decides whether the E1 prefix stage exists (e1 §5 branch); hardest-to-change choice in the system |
-| #4 LLM per stage | Phase 1 (extractor pick), Phase 2 (adjudicators), Phase 6 (K writers) | concrete model picks per seat (respecting D53 family split) |
+| #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
+| #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted | Phase 3 (full structure route) | cost/privacy/rebuild trade |
 | #5 K3 "whose beliefs" | Phase 6 belief-tier WP only | configures the D47 tier |
 | #24 hard-delete end-to-end | Phase 7 | the cross-store forget design (P1/P2/P3 snapshots, backups) |

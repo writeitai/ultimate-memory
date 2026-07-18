@@ -27,8 +27,10 @@ Keep this current: when something here is decided, move it to a decision and pru
    conventional + prefix). What remains is a *measurement*, not a decision: the
    Matryoshka-truncated stored dimension vs recall on the D22 golden set — which is what
    still gates final P1 index parameters.
-4. **LLM per stage** — concrete picks for extraction (E2 Claimify), supersession/resolution
-   adjudication (the cheap→frontier residue), and the K-plane compilers.
+4. ~~**LLM per stage**~~ **RESOLVED for the extractor seat (D70)** — defaults are model-provider
+   port configuration: extraction (and the cascades' small rung) defaults to `gpt-5.6-luna`,
+   the frontier rung to `gpt-5.6-sol`; checker seats cross-family per D53. The phase-2/6
+   seats inherit the principle and are gated by their phases' golden-set measurements.
 
 **Knowledge plane (K)**
 5. **K3 belief content** — the *mechanism* is now decided (D47: the belief tier — compiled pages

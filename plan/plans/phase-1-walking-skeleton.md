@@ -4,8 +4,8 @@
 facts → P1 → a queryable answer with a correct envelope. Proves spine integration, the grain
 discipline, and propose/dispose before any layer gets deep.
 
-**Entry gates:** **#3 embedding model decided** (decides whether the E1 prefix stage exists —
-e1 §5); #4 extractor model pick.
+**Entry gates (both closed):** #3 embedding model → **D63** (conventional + prefix binds,
+e1 §5); #4 extractor model → **D70** (`gpt-5.6-luna` port default).
 **Exit criteria:** a toy corpus (≈10 mixed docs) ingests; scenario classes **S1, S2, S5, S39**
 pass; the grain CI invariants hold (fact vs evidence labeling; claims never answer
 current-fact); propose/dispose verified (a hand-invalidated fact never surfaces as current).
