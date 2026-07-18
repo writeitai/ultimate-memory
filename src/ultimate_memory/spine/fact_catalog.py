@@ -6,6 +6,8 @@ LINEAGES with current-testimony support — re-extraction generations, document
 versions, and within-document repetition never inflate it (D54).
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import UUID
 from uuid import uuid4
 
@@ -13,6 +15,9 @@ from sqlalchemy import bindparam
 from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+from ultimate_memory.model import FactForLabeling
+from ultimate_memory.model import ObservationForEmbedding
 
 
 class FactCatalog:
@@ -143,6 +148,93 @@ class FactCatalog:
             )
             connection.execute(_RECOUNT_OBSERVATION, {"observation_id": observation_id})
         return observation_id
+
+    @contextmanager
+    def label_lock(self, *, deployment_id: UUID) -> Iterator[None]:
+        """Serialize concurrent label sweeps for one deployment.
+
+        A session-scoped advisory lock on a dedicated connection, held for
+        the whole label+embed pass (which spans several transactions) — two
+        document jobs can never interleave labels and vectors on one fact.
+        """
+        with self._engine.connect() as connection:
+            connection.execute(
+                _ACQUIRE_LABEL_LOCK, {"key": f"{deployment_id}:label-facts"}
+            )
+            connection.commit()
+            try:
+                yield
+            finally:
+                connection.execute(
+                    _RELEASE_LABEL_LOCK, {"key": f"{deployment_id}:label-facts"}
+                )
+                connection.commit()
+
+    def relations_for_labeling(
+        self, *, deployment_id: UUID, doc_id: UUID, label_version: str
+    ) -> tuple[FactForLabeling, ...]:
+        """The document's relations still lacking this label generation.
+
+        Scoped by evidence doc_id so a document job's work is proportional to
+        the document, not the deployment.
+        """
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_RELATIONS_FOR_LABELING,
+                    {
+                        "deployment_id": deployment_id,
+                        "doc_id": doc_id,
+                        "label_version": label_version,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(FactForLabeling.model_validate(dict(row)) for row in rows)
+
+    def record_fact_label(
+        self, *, relation_id: UUID, label: str, label_version: str
+    ) -> None:
+        """Stamp one relation's readable label, ref, and generation (D8)."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                _STAMP_FACT_LABEL,
+                {
+                    "relation_id": relation_id,
+                    "label": label,
+                    "label_version": label_version,
+                },
+            )
+
+    def observations_for_embedding(
+        self, *, deployment_id: UUID, doc_id: UUID, label_version: str
+    ) -> tuple[ObservationForEmbedding, ...]:
+        """The document's observations still lacking this label generation."""
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_OBSERVATIONS_FOR_EMBEDDING,
+                    {
+                        "deployment_id": deployment_id,
+                        "doc_id": doc_id,
+                        "label_version": label_version,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(ObservationForEmbedding.model_validate(dict(row)) for row in rows)
+
+    def record_observation_embedding(
+        self, *, observation_id: UUID, label_version: str
+    ) -> None:
+        """Stamp one observation's label ref and generation (D8)."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                _STAMP_OBSERVATION_EMBEDDING,
+                {"observation_id": observation_id, "label_version": label_version},
+            )
 
     def active_predicates(self, *, deployment_id: UUID) -> dict[str, str | None]:
         """The governed vocabulary: active predicate → its parent (D5/D18)."""
@@ -303,5 +395,61 @@ _SELECT_TYPE_PARENTS = text(
     """
     SELECT type, parent_type FROM entity_types
     WHERE deployment_id = :deployment_id
+    """
+)
+
+_SELECT_RELATIONS_FOR_LABELING = text(
+    """
+    SELECT r.relation_id, subject.canonical_name AS subject_name, r.predicate,
+           object.canonical_name AS object_name, r.status::text AS status
+    FROM relations r
+    JOIN entities subject ON subject.entity_id = r.subject_entity_id
+    JOIN entities object ON object.entity_id = r.object_entity_id
+    WHERE r.deployment_id = :deployment_id
+      AND (r.fact_label_version IS NULL OR r.fact_label_version <> :label_version)
+      AND EXISTS (
+          SELECT 1 FROM relation_evidence e
+          WHERE e.relation_id = r.relation_id AND e.doc_id = :doc_id
+      )
+    ORDER BY r.created_at, r.relation_id
+    """
+)
+
+_ACQUIRE_LABEL_LOCK = text("SELECT pg_advisory_lock(hashtextextended(:key, 0))")
+_RELEASE_LABEL_LOCK = text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))")
+
+_STAMP_FACT_LABEL = text(
+    """
+    UPDATE relations
+    SET fact_label = :label,
+        fact_label_version = :label_version,
+        fact_label_embedding_ref = relation_id::text,
+        updated_at = now()
+    WHERE relation_id = :relation_id
+    """
+)
+
+_SELECT_OBSERVATIONS_FOR_EMBEDDING = text(
+    """
+    SELECT observation_id, obs_label, status::text AS status
+    FROM observations
+    WHERE observations.deployment_id = :deployment_id
+      AND (obs_label_version IS NULL OR obs_label_version <> :label_version)
+      AND EXISTS (
+          SELECT 1 FROM observation_evidence e
+          WHERE e.observation_id = observations.observation_id
+            AND e.doc_id = :doc_id
+      )
+    ORDER BY created_at, observation_id
+    """
+)
+
+_STAMP_OBSERVATION_EMBEDDING = text(
+    """
+    UPDATE observations
+    SET obs_label_version = :label_version,
+        obs_label_embedding_ref = observation_id::text,
+        updated_at = now()
+    WHERE observation_id = :observation_id
     """
 )

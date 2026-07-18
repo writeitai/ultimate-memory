@@ -40,9 +40,12 @@ from ultimate_memory.workers import E1Settings
 from ultimate_memory.workers import E2Settings
 from ultimate_memory.workers import E3Settings
 from ultimate_memory.workers import EmbedChunksHandler
+from ultimate_memory.workers import EmbedClaimsHandler
 from ultimate_memory.workers import ExtractClaimsHandler
 from ultimate_memory.workers import HandlerRegistry
+from ultimate_memory.workers import LabelFactsHandler
 from ultimate_memory.workers import NormalizeRelationsHandler
+from ultimate_memory.workers import P1Settings
 from ultimate_memory.workers import StructureHandler
 from ultimate_memory.workers import UploadIngestor
 from ultimate_memory.workers import Worker
@@ -178,6 +181,7 @@ class _E3Rig:
                 "SelectionResponse": _SELECTION_PAYLOAD,
                 "ClaimifyResponse": _CLAIMIFY_PAYLOAD,
                 "NormalizationResponse": _NORMALIZATION_PAYLOAD,
+                "FactLabelResponse": {"label": "Alice Novak works for Acme."},
             }
         )
         document_catalog = DocumentCatalog(engine=engine)
@@ -248,6 +252,27 @@ class _E3Rig:
         registry.register(
             stage=PipelineStage.NORMALIZE_RELATIONS, handler=self.normalize_handler
         )
+        self.lance = LanceChunkIndex(root=root / "lance")
+        registry.register(
+            stage=PipelineStage.EMBED_CLAIM,
+            handler=EmbedClaimsHandler(
+                claim_catalog=claim_catalog,
+                chunk_catalog=chunk_catalog,
+                model_provider=self.provider,
+                claim_index=self.lance,
+                settings=P1Settings(),
+                chunker_version=chunker_version(params=_PARAMS),
+            ),
+        )
+        self.label_handler = LabelFactsHandler(
+            facts=FactCatalog(engine=engine),
+            model_provider=self.provider,
+            fact_index=self.lance,
+            settings=P1Settings(),
+        )
+        registry.register(
+            stage=PipelineStage.LABEL_RELATION, handler=self.label_handler
+        )
         self.worker = Worker(ledger=ledger, registry=registry)
 
     def run_chain(self) -> None:
@@ -259,6 +284,8 @@ class _E3Rig:
             PipelineStage.EMBED_CHUNK,
             PipelineStage.EXTRACT_CLAIMS,
             PipelineStage.NORMALIZE_RELATIONS,
+            PipelineStage.EMBED_CLAIM,
+            PipelineStage.LABEL_RELATION,
         ):
             outcome = self.worker.run_one(
                 deployment_id=_DEPLOYMENT_ID, stage=stage, lane=ProcessingLane.STEADY
@@ -496,3 +523,71 @@ def test_t0_never_resolves_to_a_merged_entity(rig: _E3Rig) -> None:
     )
     assert resolved.created
     assert resolved.entity_id != merged
+
+
+def test_p1_channels_carry_claims_and_labeled_facts(rig: _E3Rig) -> None:
+    """WP-1.5 acceptance: the claims channel (with the current-testimony
+    default-filter scalar) and the labeled facts channel land in Lance, and
+    the PG rows carry their refs and generations (D8)."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="staffing.md",
+            mime="text/markdown",
+            content=_SOURCE.encode("utf-8"),
+        ),
+    )
+    rig.run_chain()
+
+    assert rig.lance.table_count(table="claims") == 2
+    assert rig.lance.table_count(table="facts") == 2  # relation + observation
+
+    with rig.engine.connect() as connection:
+        stamped = connection.execute(
+            text(
+                "SELECT count(*) FROM claims WHERE embedding_ref IS NOT NULL"
+                " AND embedding_version = 'qwen/qwen3-embedding-8b'"
+            )
+        ).scalar_one()
+        relation = (
+            connection.execute(
+                text(
+                    "SELECT fact_label, fact_label_version,"
+                    " fact_label_embedding_ref FROM relations"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        observation_version = connection.execute(
+            text("SELECT obs_label_version FROM observations")
+        ).scalar_one()
+    assert stamped == 2
+    assert relation["fact_label"] == "Alice Novak works for Acme."
+    assert relation["fact_label_version"] is not None
+    assert relation["fact_label_embedding_ref"] is not None
+    assert observation_version is not None
+
+    # replay: a second label pass finds nothing unlabeled — zero new calls:
+    calls = len(rig.provider.generated_prompts)
+    from uuid import uuid4 as _uuid4
+
+    from ultimate_memory.model import ClaimedWork
+    from ultimate_memory.model import ProcessingTarget
+    from ultimate_memory.workers import FACT_LABEL_VERSION
+
+    rig.label_handler.handle(
+        work=ClaimedWork(
+            processing_id=_uuid4(),
+            deployment_id=_DEPLOYMENT_ID,
+            target_kind=ProcessingTarget.DOCUMENT,
+            target_id=_uuid4(),
+            stage=PipelineStage.LABEL_RELATION,
+            component_version=FACT_LABEL_VERSION,
+            content_hash="sha256:replay",
+            lane=ProcessingLane.STEADY,
+            attempt=2,
+            payload={"doc_id": str(ingested.doc_id)},
+        )
+    )
+    assert len(rig.provider.generated_prompts) == calls

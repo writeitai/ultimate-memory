@@ -113,3 +113,46 @@ class DecisionRecord(BaseModel):
     edit_detail: dict[str, object] | None
     protected_class: str | None
     extractor_version: _NonEmpty
+
+
+class ClaimForEmbedding(BaseModel):
+    """One claim row as the claim-embed stage loads it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    claim_id: UUID
+    doc_id: UUID
+    chunk_id: UUID
+    claim_text: _NonEmpty
+    is_current_testimony: bool
+    is_attributed: bool
+
+
+class FactForLabeling(BaseModel):
+    """One relation as the label stage loads it (names resolved for the label)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    relation_id: UUID
+    subject_name: _NonEmpty
+    predicate: _NonEmpty
+    object_name: _NonEmpty
+    status: _NonEmpty
+
+
+class ObservationForEmbedding(BaseModel):
+    """One observation as the label stage loads it (obs_label is the text)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    observation_id: UUID
+    obs_label: _NonEmpty
+    status: _NonEmpty
+
+
+class FactLabelResponse(BaseModel):
+    """The fact-labeler call's structured output: one readable sentence."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    label: _NonEmpty

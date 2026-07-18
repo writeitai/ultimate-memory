@@ -19,15 +19,19 @@ from pydantic_settings import SettingsConfigDict
 
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import ClaimForNormalization
+from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import NormalizationResponse
+from ultimate_memory.model import PipelineStage
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
 from ultimate_memory.workers.base import HandlerOutcome
+from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
+from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 
 _logger = logging.getLogger(__name__)
 
@@ -111,7 +115,30 @@ class NormalizeRelationsHandler:
                 signatures=signatures,
                 type_parents=type_parents,
             )
-        return HandlerOutcome()
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.EMBED_CLAIM,
+                    component_version=P1_EMBED_CLAIMS_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload=dict(work.payload or {}),
+                ),
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.LABEL_RELATION,
+                    component_version=FACT_LABEL_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={**(work.payload or {}), "doc_id": str(source.doc_id)},
+                ),
+            )
+        )
 
     def _normalize_claim(
         self,
