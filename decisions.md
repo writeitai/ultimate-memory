@@ -2271,3 +2271,30 @@ form of the 116-signature manifest, in both `registries_design.md` §4 and the p
 bootstrap and at import — the same 116 rows, one representation, no hand-maintained expansion
 to drift from its source. Point 3's "normative inline manifest" is refined accordingly; nothing
 else in D69 changes.
+
+---
+
+## D70. Per-stage model defaults are port configuration; the extraction default is `gpt-5.6-luna`
+
+**Decision.** Per-stage LLM choices are per-deployment **model-provider port configuration**
+(D61), never architecture — every stage's calls resolve through
+`pipeline_component_versions` (model + prompt hash), so changing a model is a version bump
+with version-scoped reprocessing (D7/D12), not a redesign. The **shipped extraction default
+(E2 Claimify, both calls) is `gpt-5.6-luna`** (OpenRouter `openai/gpt-5.6-luna`; $1/$6 per 1M
+at decision time — re-verify at contract time): the cheap end of the current smart tier,
+strongly multilingual (the registries §5 inflected-language path), native structured output
+for registry-constrained extraction, and prompt-cache pricing that lands exactly on E2's
+shared per-document bundle. The same default serves the adjudication cascades' **small
+rung**; the **frontier rung** defaults to `gpt-5.6-sol`. Checker seats stay cross-family per
+D53 (grounding and eval judges default to a non-OpenAI family). K producer seats stay as
+fixed by requirements (Codex/OpenCode) and are not this decision's subject.
+
+**Context.** Phase 1's entry gate #4 needed the extractor pick. "Cheap yet smart, and
+interchangeable — not set in stone" is the owner's requirement; the port + versioning
+machinery is what makes interchangeable true, and the golden set (D22) measures the default
+before any number locks.
+
+**Consequences.** Phase 1's entry gates are both closed (#3 → D63, #4 → this decision for the
+extractor seat; the phase-2/6 seats inherit the same principle and are gated by their own
+phases' measurements). Gate register and questions #4 updated; a deployment overrides any
+seat in its profile.
