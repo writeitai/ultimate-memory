@@ -21,8 +21,9 @@
 | src/ultimate\_memory/core/chunker.py                                                             |       63 |        0 |       12 |        0 |    100.0% |           |
 | src/ultimate\_memory/core/conversion.py                                                          |       36 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/core/core\_manifest.py                                                      |       40 |        0 |        2 |        0 |    100.0% |           |
-| src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        3 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/eval/harness.py                                                             |       41 |        1 |        4 |        1 |     95.6% |        69 |
+| src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/harness.py                                                             |       41 |        0 |        4 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/skeleton.py                                                            |       73 |        7 |       26 |        7 |     85.9% |96, 105, 124, 147, 181, 184, 215 |
 | src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/\_\_init\_\_.py                                                       |      103 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/auth.py                                                               |       10 |        0 |        0 |        0 |    100.0% |           |
@@ -84,7 +85,7 @@
 | src/ultimate\_memory/workers/e2.py                                                               |      136 |        6 |       44 |        7 |     92.8% |115, 314, 327, 353-354, 365-\>363, 390-\>392, 468 |
 | src/ultimate\_memory/workers/e3.py                                                               |       91 |        4 |       24 |        4 |     93.0% |103, 249, 252, 277 |
 | src/ultimate\_memory/workers/p1.py                                                               |       75 |        2 |       12 |        2 |     95.4% |   88, 222 |
-| **TOTAL**                                                                                        | **2876** |  **104** |  **432** |   **77** | **94.4%** |           |
+| **TOTAL**                                                                                        | **2952** |  **110** |  **458** |   **83** | **94.2%** |           |
 
 
 ## Setup coverage badge
