@@ -408,8 +408,9 @@ tiers *escalate* near-misses, never auto-reject. Feeds O6 (every threshold needs
 
 ## D18. Ontology seed core — 8 types + 14 predicates, schema.org-anchored, domain/range not OWL
 
-**Decision.** Seed core: 8 entity types (`Person, Organization, Place, Document⊂CreativeWork,
-Event, Concept, Project, Product`) + 14 predicates with `subject_type`/`object_type` columns
+**Decision.** Seed core: 8 entity types (`Person`, `Organization`, `Place`, `Document` (a root
+anchored to schema.org `CreativeWork`), `Event`, `Concept`, `Project`, `Product`) + 14 predicates with
+`subject_type`/`object_type` columns
 (`works_for, member_of, affiliated_with, located_in, part_of, authored, created, about,
 knows_about, knows, participated_in, works_on, founded, related_to`). `related_to` is the
 predicate-side core parent for extend-never-fork (D15). Time is bi-temporal edge metadata, never a
@@ -433,6 +434,10 @@ a relation object/predicate or a Date-node, so it is fully compatible — D18 is
 **Refined by D64.** The seed core is now 8 types + **16** predicates: `uses`
 (Person | Organization → Product) and `reports_to` (Person → Person) promoted from the
 registries §4 watchlist — the first watchlist graduations. Everything else here is unchanged.
+
+**Refined by D69.** The eight roots, all required/behavior-bearing row values, and all concrete
+signatures are fixed by the inline registry manifest. `Document.parent_type = NULL` and its
+`schema_org_ref` is `https://schema.org/CreativeWork`; `CreativeWork` is not a registry row.
 
 ## D19. Coref is satisfied inside the E2 extraction call (no dedicated model)
 
@@ -1053,10 +1058,12 @@ graph-irrelevant columns) — which belong in the **views**, the single auditabl
   *wrong*): (1) **merge-redirect** — `entities.merged_into` is a redirect, not a rewrite, and relations
   are not re-pointed in PG, so endpoints must be recursively resolved to their surviving entity (cycle-safe;
   a pre-snapshot validation gate aborts on cycles/dangling endpoints) or every edge touching a merged
-  entity is silently dropped; (2) **keep retracted edges** within a retention window for *transaction-time*
-  as-of (not `invalidated_at IS NULL`), while **aligning node/edge retention** — an edge whose endpoint was
-  retired/forgotten (§13) is dropped (its endpoint can't be a node). Parallel edges (distinct `relation_id`)
-  are preserved, never blind-`DISTINCT`-collapsed (same-(s,p,o) collapse is E3's job, D43).
+  entity is silently dropped; (2) **keep every retracted edge by default** for *transaction-time* as-of
+  (not `invalidated_at IS NULL` and not an age filter), while **aligning node/edge retention** — an edge
+  whose survivor-redirected endpoint was retired/forgotten (§13) is dropped because that endpoint cannot
+  be an emitted node. Parallel edges (distinct `relation_id`) are preserved, never blind-`DISTINCT`-
+  collapsed (same-(s,p,o) collapse is E3's job, D43). A finite hot-snapshot horizon requires a measured
+  P2 design revision; it is not a Phase-0 literal, setting, migration input, or hidden default (D69).
 - **`observations` and claims never project** (D43/D18): a value is not a node, and a LadybugDB REL
   endpoint must be a node table — the engine rule and the design rule are the same constraint.
 - **As-of (refines D10).** LadybugDB has no native temporal semantics, **and you cannot `MATCH`-traverse a
@@ -1222,9 +1229,11 @@ carries `group_id` + returned/total + a continuation — one-sided answers are a
 violation**, not a ranking choice); **per-source freshness stamps** (PG live; P1 write lag; P2
 snapshot timestamp; K `compiled_at` + staleness + open-flag count — the K block is the
 reader-facing flag surface `k_layers_design.md` §11 spike 9 called for, and P3's `_index.md`
-mirrors it for the browse path) **including each channel's `believed_at` horizon** (the hot P2
-snapshot retains retracted edges only within a window — out-of-horizon transaction-time
-queries get a typed `boundary` naming the fallback: PG traversal or an archived snapshot);
+mirrors it for the browse path) **including each channel's `believed_at` horizon** (`null` means
+that the channel is not age-bounded). Under D69 the hot P2 relation view has no retention-age
+horizon: it keeps all invalidated relations whose survivor-redirected endpoints remain emitted
+active nodes. A channel with a real age boundary still returns a typed `boundary` naming its
+fallback rather than silently truncating history;
 **explicit truncation markers** with continuations (no silent caps — hub answers are ranked
 pages, never a quiet top-k, never a timeout); the applied temporal parameters echoed in
 composition-ready form (`valid_at` / `believed_at` + the **identity regime** — resolution
@@ -2172,9 +2181,75 @@ management belongs to the D60 cloud control plane; it is not a second tenancy mo
 single-deployment library.
 
 **Consequences.** `postgres_schema_design.md` §0 carries this as the sole operational contract.
-The `deployments` table identifies the deployment served by its database/schema. Composite
+The `deployments` table identifies the deployment served by its database/schema; after structural
+Alembic head exists, D69's library-owned `bootstrap_deployment(...)` creates or verifies that one
+row from typed profile inputs before it creates any deployment-scoped core registry row. Composite
 deployment-scoped keys remain as defense in depth. The three blocking GIN indexes are
 single-column (`ix_entities_name_trgm`, `ix_aliases_lemma_trgm`,
 `ix_aliases_lemma_dm`), and `btree_gin` is not a required extension; `btree_gist` remains required
 for the relations exclusion constraint. D23 records the exact index expressions and the reconciled
 partition estate.
+
+---
+
+## D69. Unbounded graph-edge retention and post-head deployment bootstrap
+
+**Decision.** This refinement closes three executable-contract gaps found while preparing the
+WP-0.2 migration (`postgres_schema_design.md` former §10.A retention predicate and former §3 seed
+ownership; `registries_design.md` former §4 `Document⊂CreativeWork` shorthand):
+
+1. **The P2 relation projection is unbounded by age by default.** `v_graph_relates` emits every
+   relation, whether live or invalidated, when both recursively survivor-redirected endpoints exist
+   as emitted active entity nodes. Endpoint joins are the retention boundary. There is no
+   invalidation-age `WHERE` clause, retention literal, setting, Alembic argument, or hidden input.
+   A finite hot-snapshot horizon may replace this default only through a measured P2 design
+   revision; the P2 spike measures whether one is needed rather than supplying a Phase-0 value.
+2. **Alembic owns schema shape, not deployment data.** `upgrade head` creates structural objects
+   only. The library operation
+   `bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult` runs after head in
+   one database transaction. It validates typed profile inputs; creates or verifies the single D68
+   `deployments` row; creates or verifies the eight core entity-type roots; creates or verifies the
+   sixteen core predicates; creates or verifies every concrete predicate signature; then commits.
+   Any failure rolls back the whole operation. Its typed input/result and implementation belong to
+   WP-0.3's library-owned tenancy/pipeline substrate, not to Alembic or a cloud control plane.
+3. **The exact core is registry data, not shorthand.** `registries_design.md` §4 is the normative
+   inline manifest. It fixes every required and behavior-bearing entity-type/predicate field and all
+   116 concrete signatures. All eight entity types are roots. In particular,
+   `Document.parent_type = NULL` and
+   `Document.schema_org_ref = 'https://schema.org/CreativeWork'`; `CreativeWork` is the external
+   schema.org anchor, not a ninth registry row. Extension-pack definitions and per-deployment pack
+   activation remain separate from this universal core.
+
+**Bootstrap identity, idempotency, and conflicts.** The idempotency key is the D68
+`deployment_id`. Profile input maps directly to the documented deployment columns; database
+defaults own status and timestamps. Each registry key is compared against the complete normative
+manifest value: `(deployment_id, type)`, `(deployment_id, predicate)`, and
+`(deployment_id, predicate, subject_type, object_type)`. The sole mutable-field rule is explicit:
+`predicates.usage_count` is inserted as zero, but a retry verifies it is non-negative and preserves
+its runtime-maintained value. A retry with the same complete definition succeeds without duplicates
+or mutation. A conflicting deployment identity/profile value, core-row definition, extra/missing
+core key, or signature set raises a typed bootstrap conflict and leaves no partial writes.
+
+**Context.** The former view contained executable SQL
+`interval '<retention>'`, but no binding source supplied a value. The former seed sentence assigned
+deployment-scoped rows to a migration even though a fresh structural migration has none of D68's
+truthful deployment UUID/slug/name/bucket inputs. The core list also used the same `⊂` glyph for
+Document's external schema.org anchor and for extension rows' real intra-registry parent FKs. Two
+independent PostgreSQL 16.14 reproductions confirmed the interval, NOT NULL, and FK failures. The
+eight-root Document representation was separately proven executable.
+
+**Rejected alternatives.** A magic or sentinel deployment, empty/placeholder buckets, nullable or
+global core rows, a global seed template, a seed trigger, deployment data in migration history,
+Alembic `-x` or environment side channels, and a newly invented Phase-0 retention setting/default
+are rejected. They weaken D23/D68 constraints, hide correctness inputs, make migrations vary by
+deployment data, or merely move the unresolved choice. A finite retention horizon remains a named
+measured design alternative, not an unimplemented promise.
+
+**Consequences.** D44/D49, schema §§0/2/3/10.A/16/17, registries §§1/4, P2 §8, retrieval §3,
+questions 20a(e), and the Phase-0 WP-0.2/WP-0.3 boundary carry this contract. WP-0.2 remains
+responsible for the complete structural migration and its PostgreSQL lifecycle proof. WP-0.3 owns
+the typed bootstrap runtime and its transaction/idempotency/conflict tests. D15/D18/D23/D60/D64/D68,
+the extension-pack model, indexes, and partition estate are otherwise unchanged.
+This is a design/plan reconciliation only: it changes no shipped user-visible behavior or
+configuration, so D66 requires no website or `/docs/project-status` edit and no aspirational public
+documentation is added.

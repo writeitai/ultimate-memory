@@ -35,8 +35,10 @@ manufacturing company, and a knowledge engine for a law-related product. Rules:
   instances/schemas, separate registries, separate graphs (D68). A client project's data and a
   personal assistant's data must never co-resolve, and no shared operational database routes
   rows for both.
-- **Each deployment = the universal core (D18) + chosen extension packs (§4) + its own K2
-  scopes.** The core is identical everywhere; packs and scopes are per-deployment choices.
+- **Each deployment = the universal core (D18/D64/D69) + chosen extension packs (§4) + its own K2
+  scopes.** After Alembic creates structural head, the library-owned typed deployment bootstrap
+  creates or verifies the D68 deployment row and §4's exact universal manifest in one transaction.
+  The core is identical everywhere; packs and scopes are separate per-deployment choices.
 - The multi-scope case *within* one deployment (e.g. the agency: multiple products as K2
   scopes over one shared entity space) is exactly D16's "scopes multiply, truth doesn't".
 - **Language is a per-deployment property**: a deployment with Czech (or other
@@ -131,35 +133,448 @@ One canonical cascade. Stop at the first confident match. **Registry-self-contai
 
 ## 4. Ontology — universal core + anchored extensions (D15, D18)
 
-- **Seed core (D18, extended by D64):** 8 entity types — `Person, Organization, Place,
-  Document⊂CreativeWork, Event, Concept, Project, Product` — and the 16 core predicates below.
-  `related_to` is the predicate-side core parent (the extend-never-fork anchor + permissive
-  escape). Time is bi-temporal edge metadata, never a predicate/Date-node.
+### Normative universal-core bootstrap manifest (D18, D64, D69)
 
-**Core predicates (the authoritative starting set — domain/range is the enforced signature):**
+This block is the one authoritative, machine-transcribable core manifest. It is data for every
+deployment, not migration data and not an extension-pack definition. After structural Alembic head
+exists, bootstrap_deployment supplies the same DeploymentBootstrapInput.deployment_id to every row.
+The database supplies created_at. No omitted field is an implementation choice.
 
-| # | Predicate | Domain → Range | Notes |
-|---|---|---|---|
-| 1 | `works_for` | Person → Organization | employment — change-prone (supersession) |
-| 2 | `member_of` | Person → Organization | membership (boards, teams, clubs) |
-| 3 | `affiliated_with` | Person \| Organization → Organization | looser tie — advisor, partner, alumnus |
-| 4 | `founded` | Person \| Organization → Organization | origin — near-atemporal |
-| 5 | `located_in` | Organization \| Place \| Event → Place | spatial — change-prone for orgs |
-| 6 | `part_of` | X → X (same-kind) | mereology — org units, place containment, sub-projects |
-| 7 | `authored` | Person \| Organization → Document | authorship — atemporal once true |
-| 8 | `created` | Person \| Organization → Product \| Concept | creation beyond documents |
-| 9 | `about` | Document \| Event → any | aboutness — what a thing concerns |
-| 10 | `knows_about` | Person → Concept | expertise — people-profiling workhorse |
-| 11 | `knows` | Person → Person | social graph |
-| 12 | `participated_in` | Person \| Organization → Event \| Project | involvement |
-| 13 | `works_on` | Person \| Organization → Project \| Product | active engagement — change-prone |
-| 14 | `uses` | Person \| Organization → Product | adoption/consumption of a product/system/tool — change-prone; distinct from `works_on` (building ≠ using) — promoted from the watchlist, D64 |
-| 15 | `reports_to` | Person → Person | organizational reporting line — change-prone (supersession) — promoted from the watchlist, D64 |
-| 16 | `related_to` | any → any | permissive core parent (escape + extend-never-fork anchor) |
+All eight entity types are roots: parent_type is null for every row. Document is aligned to the
+external schema.org CreativeWork class through schema_org_ref; CreativeWork is not a ninth
+entity_types row. By contrast, the parent shown for an extension-pack type such as Task under Event
+is a real parent_type FK to an existing registry row.
 
-Multi-signature predicates list each allowed `(subject_type, object_type)` pair (Graphiti
-`edge_type_map` shape); subtypes inherit a parent's signatures (D15). Schema.org property
-mappings (the `schema_org_ref` column) get a spot-check before freezing (D18).
+The display order preserves the D18/D64 vocabulary. The executable insert order is exact:
+entity_types in display order; related_to first among predicates so the parent FK exists; the other
+fifteen predicates in display order; then predicate_signatures in the listed order. The manifest
+contains 8 entity_types rows, 16 predicates rows, and 116 predicate_signatures rows.
+
+The schema.org anchors below were spot-checked against the canonical schema.org types/properties.
+A null predicate anchor means schema.org has no faithful same-direction mapping for the complete
+UGM signature; an inverse or narrower property is not recorded as if it were equivalent.
+For every predicate, usage_count is the exact insert value zero. It is the sole mutable manifest
+column: bootstrap retry accepts any existing non-negative count and does not reset it; every other
+listed definition field is compared exactly.
+
+~~~yaml
+manifest_version: core-v1
+deployment_id_source: DeploymentBootstrapInput.deployment_id
+created_at_source: database_default
+
+entity_types:
+  - type: Person
+    parent_type: null
+    description: "A human individual, living, deceased, or fictional."
+    examples: ["Ada Lovelace", "Grace Hopper"]
+    schema_org_ref: "https://schema.org/Person"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Organization
+    parent_type: null
+    description: "A structured group or legal or social entity that acts collectively."
+    examples: ["Acme Corporation", "Open Source Initiative"]
+    schema_org_ref: "https://schema.org/Organization"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Place
+    parent_type: null
+    description: "A physical, geographic, or named location."
+    examples: ["Prague", "Building 5"]
+    schema_org_ref: "https://schema.org/Place"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Document
+    parent_type: null
+    description: "An informational creative work that may be ingested, cited, authored, or discussed."
+    examples: ["Quarterly report", "Research paper"]
+    schema_org_ref: "https://schema.org/CreativeWork"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Event
+    parent_type: null
+    description: "An occurrence bounded by time, place, or participants."
+    examples: ["Product launch", "Annual conference"]
+    schema_org_ref: "https://schema.org/Event"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Concept
+    parent_type: null
+    description: "An abstract idea, topic, category, method, or field of knowledge."
+    examples: ["Machine learning", "Supply-chain resilience"]
+    schema_org_ref: "https://schema.org/DefinedTerm"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Project
+    parent_type: null
+    description: "A coordinated effort with an intended outcome."
+    examples: ["ERP migration", "Project Atlas"]
+    schema_org_ref: "https://schema.org/Project"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+  - type: Product
+    parent_type: null
+    description: "A good, system, service offering, or tool that people or organizations create or use."
+    examples: ["Beacon CRM", "Industrial sensor"]
+    schema_org_ref: "https://schema.org/Product"
+    tier: core
+    pack_id: null
+    scope_id: null
+    status: active
+
+predicates:
+  - predicate: works_for
+    parent_predicate: related_to
+    description: "Employment or ongoing work relationship from a person to an organization."
+    examples: ["Ada works_for Acme"]
+    synonyms: ["works_at", "employed_by", "employee_of"]
+    schema_org_ref: "https://schema.org/worksFor"
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: member_of
+    parent_predicate: related_to
+    description: "Formal or informal membership of a person in an organization."
+    examples: ["Ada member_of Standards Council"]
+    synonyms: ["belongs_to", "is_member_of"]
+    schema_org_ref: "https://schema.org/memberOf"
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: affiliated_with
+    parent_predicate: related_to
+    description: "A looser advisory, partner, alumni, or institutional affiliation with an organization."
+    examples: ["Ada affiliated_with University Lab", "Acme affiliated_with Trade Alliance"]
+    synonyms: ["associated_with", "connected_with"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: founded
+    parent_predicate: related_to
+    description: "Creation or establishment of an organization by a person or organization."
+    examples: ["Ada founded Beacon Labs", "Acme founded Acme Research"]
+    synonyms: ["established", "started"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: located_in
+    parent_predicate: related_to
+    description: "Physical or operational location of an organization, place, or event within a place."
+    examples: ["Acme located_in Prague", "Keynote located_in Hall A"]
+    synonyms: ["based_in", "situated_in"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: part_of
+    parent_predicate: related_to
+    description: "Same-kind containment or component relationship."
+    examples: ["Division A part_of Acme", "Prague part_of Czechia"]
+    synonyms: ["component_of", "contained_in"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: authored
+    parent_predicate: related_to
+    description: "Authorship of a document by a person or organization."
+    examples: ["Ada authored Quarterly report"]
+    synonyms: ["wrote", "written_by"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: created
+    parent_predicate: related_to
+    description: "Creation of a product or concept by a person or organization, excluding document authorship."
+    examples: ["Ada created Beacon CRM", "Acme created Resilience method"]
+    synonyms: ["made", "developed"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: about
+    parent_predicate: related_to
+    description: "The entity or topic that a document or event concerns."
+    examples: ["Quarterly report about Acme", "Workshop about Machine learning"]
+    synonyms: ["concerns", "regarding"]
+    schema_org_ref: "https://schema.org/about"
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: knows_about
+    parent_predicate: related_to
+    description: "A person's familiarity or expertise concerning a concept."
+    examples: ["Ada knows_about Compiler design"]
+    synonyms: ["expert_in", "familiar_with"]
+    schema_org_ref: "https://schema.org/knowsAbout"
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: knows
+    parent_predicate: related_to
+    description: "A social or professional acquaintance between two people."
+    examples: ["Ada knows Grace"]
+    synonyms: ["acquainted_with"]
+    schema_org_ref: "https://schema.org/knows"
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: participated_in
+    parent_predicate: related_to
+    description: "Participation by a person or organization in an event or project."
+    examples: ["Ada participated_in Annual conference", "Acme participated_in Project Atlas"]
+    synonyms: ["took_part_in", "joined"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: works_on
+    parent_predicate: related_to
+    description: "Active work or contribution by a person or organization on a project or product."
+    examples: ["Ada works_on Project Atlas", "Acme works_on Beacon CRM"]
+    synonyms: ["contributes_to", "develops"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: uses
+    parent_predicate: related_to
+    description: "Adoption or use of a product, system, or tool by a person or organization."
+    examples: ["Ada uses Beacon CRM", "Acme uses Industrial sensor"]
+    synonyms: ["utilizes", "operates_with"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: reports_to
+    parent_predicate: related_to
+    description: "An organizational reporting line from one person to another person."
+    examples: ["Ada reports_to Grace"]
+    synonyms: ["managed_by", "answers_to"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: true
+    exclude_from_graph_distance: false
+    status: active
+  - predicate: related_to
+    parent_predicate: null
+    description: "A permissive relationship used only when no more specific governed predicate fits."
+    examples: ["Project Atlas related_to Beacon CRM"]
+    synonyms: ["connected_to"]
+    schema_org_ref: null
+    tier: core
+    pack_id: null
+    scope_id: null
+    usage_count: 0
+    is_change_prone: false
+    exclude_from_graph_distance: true
+    status: active
+
+predicate_signatures:
+  - {predicate: works_for, subject_type: Person, object_type: Organization}
+  - {predicate: member_of, subject_type: Person, object_type: Organization}
+  - {predicate: affiliated_with, subject_type: Person, object_type: Organization}
+  - {predicate: affiliated_with, subject_type: Organization, object_type: Organization}
+  - {predicate: founded, subject_type: Person, object_type: Organization}
+  - {predicate: founded, subject_type: Organization, object_type: Organization}
+  - {predicate: located_in, subject_type: Organization, object_type: Place}
+  - {predicate: located_in, subject_type: Place, object_type: Place}
+  - {predicate: located_in, subject_type: Event, object_type: Place}
+  - {predicate: part_of, subject_type: Person, object_type: Person}
+  - {predicate: part_of, subject_type: Organization, object_type: Organization}
+  - {predicate: part_of, subject_type: Place, object_type: Place}
+  - {predicate: part_of, subject_type: Document, object_type: Document}
+  - {predicate: part_of, subject_type: Event, object_type: Event}
+  - {predicate: part_of, subject_type: Concept, object_type: Concept}
+  - {predicate: part_of, subject_type: Project, object_type: Project}
+  - {predicate: part_of, subject_type: Product, object_type: Product}
+  - {predicate: authored, subject_type: Person, object_type: Document}
+  - {predicate: authored, subject_type: Organization, object_type: Document}
+  - {predicate: created, subject_type: Person, object_type: Product}
+  - {predicate: created, subject_type: Person, object_type: Concept}
+  - {predicate: created, subject_type: Organization, object_type: Product}
+  - {predicate: created, subject_type: Organization, object_type: Concept}
+  - {predicate: about, subject_type: Document, object_type: Person}
+  - {predicate: about, subject_type: Document, object_type: Organization}
+  - {predicate: about, subject_type: Document, object_type: Place}
+  - {predicate: about, subject_type: Document, object_type: Document}
+  - {predicate: about, subject_type: Document, object_type: Event}
+  - {predicate: about, subject_type: Document, object_type: Concept}
+  - {predicate: about, subject_type: Document, object_type: Project}
+  - {predicate: about, subject_type: Document, object_type: Product}
+  - {predicate: about, subject_type: Event, object_type: Person}
+  - {predicate: about, subject_type: Event, object_type: Organization}
+  - {predicate: about, subject_type: Event, object_type: Place}
+  - {predicate: about, subject_type: Event, object_type: Document}
+  - {predicate: about, subject_type: Event, object_type: Event}
+  - {predicate: about, subject_type: Event, object_type: Concept}
+  - {predicate: about, subject_type: Event, object_type: Project}
+  - {predicate: about, subject_type: Event, object_type: Product}
+  - {predicate: knows_about, subject_type: Person, object_type: Concept}
+  - {predicate: knows, subject_type: Person, object_type: Person}
+  - {predicate: participated_in, subject_type: Person, object_type: Event}
+  - {predicate: participated_in, subject_type: Person, object_type: Project}
+  - {predicate: participated_in, subject_type: Organization, object_type: Event}
+  - {predicate: participated_in, subject_type: Organization, object_type: Project}
+  - {predicate: works_on, subject_type: Person, object_type: Project}
+  - {predicate: works_on, subject_type: Person, object_type: Product}
+  - {predicate: works_on, subject_type: Organization, object_type: Project}
+  - {predicate: works_on, subject_type: Organization, object_type: Product}
+  - {predicate: uses, subject_type: Person, object_type: Product}
+  - {predicate: uses, subject_type: Organization, object_type: Product}
+  - {predicate: reports_to, subject_type: Person, object_type: Person}
+  - {predicate: related_to, subject_type: Person, object_type: Person}
+  - {predicate: related_to, subject_type: Person, object_type: Organization}
+  - {predicate: related_to, subject_type: Person, object_type: Place}
+  - {predicate: related_to, subject_type: Person, object_type: Document}
+  - {predicate: related_to, subject_type: Person, object_type: Event}
+  - {predicate: related_to, subject_type: Person, object_type: Concept}
+  - {predicate: related_to, subject_type: Person, object_type: Project}
+  - {predicate: related_to, subject_type: Person, object_type: Product}
+  - {predicate: related_to, subject_type: Organization, object_type: Person}
+  - {predicate: related_to, subject_type: Organization, object_type: Organization}
+  - {predicate: related_to, subject_type: Organization, object_type: Place}
+  - {predicate: related_to, subject_type: Organization, object_type: Document}
+  - {predicate: related_to, subject_type: Organization, object_type: Event}
+  - {predicate: related_to, subject_type: Organization, object_type: Concept}
+  - {predicate: related_to, subject_type: Organization, object_type: Project}
+  - {predicate: related_to, subject_type: Organization, object_type: Product}
+  - {predicate: related_to, subject_type: Place, object_type: Person}
+  - {predicate: related_to, subject_type: Place, object_type: Organization}
+  - {predicate: related_to, subject_type: Place, object_type: Place}
+  - {predicate: related_to, subject_type: Place, object_type: Document}
+  - {predicate: related_to, subject_type: Place, object_type: Event}
+  - {predicate: related_to, subject_type: Place, object_type: Concept}
+  - {predicate: related_to, subject_type: Place, object_type: Project}
+  - {predicate: related_to, subject_type: Place, object_type: Product}
+  - {predicate: related_to, subject_type: Document, object_type: Person}
+  - {predicate: related_to, subject_type: Document, object_type: Organization}
+  - {predicate: related_to, subject_type: Document, object_type: Place}
+  - {predicate: related_to, subject_type: Document, object_type: Document}
+  - {predicate: related_to, subject_type: Document, object_type: Event}
+  - {predicate: related_to, subject_type: Document, object_type: Concept}
+  - {predicate: related_to, subject_type: Document, object_type: Project}
+  - {predicate: related_to, subject_type: Document, object_type: Product}
+  - {predicate: related_to, subject_type: Event, object_type: Person}
+  - {predicate: related_to, subject_type: Event, object_type: Organization}
+  - {predicate: related_to, subject_type: Event, object_type: Place}
+  - {predicate: related_to, subject_type: Event, object_type: Document}
+  - {predicate: related_to, subject_type: Event, object_type: Event}
+  - {predicate: related_to, subject_type: Event, object_type: Concept}
+  - {predicate: related_to, subject_type: Event, object_type: Project}
+  - {predicate: related_to, subject_type: Event, object_type: Product}
+  - {predicate: related_to, subject_type: Concept, object_type: Person}
+  - {predicate: related_to, subject_type: Concept, object_type: Organization}
+  - {predicate: related_to, subject_type: Concept, object_type: Place}
+  - {predicate: related_to, subject_type: Concept, object_type: Document}
+  - {predicate: related_to, subject_type: Concept, object_type: Event}
+  - {predicate: related_to, subject_type: Concept, object_type: Concept}
+  - {predicate: related_to, subject_type: Concept, object_type: Project}
+  - {predicate: related_to, subject_type: Concept, object_type: Product}
+  - {predicate: related_to, subject_type: Project, object_type: Person}
+  - {predicate: related_to, subject_type: Project, object_type: Organization}
+  - {predicate: related_to, subject_type: Project, object_type: Place}
+  - {predicate: related_to, subject_type: Project, object_type: Document}
+  - {predicate: related_to, subject_type: Project, object_type: Event}
+  - {predicate: related_to, subject_type: Project, object_type: Concept}
+  - {predicate: related_to, subject_type: Project, object_type: Project}
+  - {predicate: related_to, subject_type: Project, object_type: Product}
+  - {predicate: related_to, subject_type: Product, object_type: Person}
+  - {predicate: related_to, subject_type: Product, object_type: Organization}
+  - {predicate: related_to, subject_type: Product, object_type: Place}
+  - {predicate: related_to, subject_type: Product, object_type: Document}
+  - {predicate: related_to, subject_type: Product, object_type: Event}
+  - {predicate: related_to, subject_type: Product, object_type: Concept}
+  - {predicate: related_to, subject_type: Product, object_type: Project}
+  - {predicate: related_to, subject_type: Product, object_type: Product}
+~~~
+
+The 116 rows are the executable expansion of the old multi-domain, multi-range, same-kind, and
+any-to-any notation. The normalizer's parent-chain walk means an enabled extension subtype inherits
+the signature of its core ancestor; no wildcard row or ninth catch-all type exists in Postgres.
+
+Universal core, extension definition, and activation are distinct operations. The manifest above
+always creates deployment-scoped tier=core rows with pack_id and scope_id null. A system-shipped
+extension pack is defined separately in extension_packs and names tier=extension rows with a real
+core parent and non-null pack_id. Enabling it for one deployment writes
+deployment_extension_packs and then its declared extension registry rows. Pack definition or
+activation never changes, replaces, or counts as part of the 8/16/116 universal core.
 - **Extend, never fork:** every user type/predicate declares a core parent → blocking, graph
   queries, and cross-scope retrieval always fall back to the core level.
 - **Domain/range enforced** exactly as Graphiti's `edge_type_map[(src,tgt)→[rel]]` — the only
