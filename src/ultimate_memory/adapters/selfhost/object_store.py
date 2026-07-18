@@ -2,15 +2,9 @@
 
 from pathlib import Path
 
+from ultimate_memory.model import ObjectAlreadyExistsError
 from ultimate_memory.model import ObjectKey
-
-
-class ObjectKeyEscapesRootError(Exception):
-    """An object key that would resolve outside the store root — refused."""
-
-
-class ObjectAlreadyExistsError(Exception):
-    """A write to an occupied key — objects are immutable, never replaced."""
+from ultimate_memory.model import ObjectKeyEscapesRootError
 
 
 class LocalFSObjectStore:

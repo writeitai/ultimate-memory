@@ -60,7 +60,7 @@ class WorkLedger:
         """
         _require_valid_lane(stage=work.stage, lane=work.lane)
         with self._engine.begin() as connection:
-            return _enqueue_on(connection=connection, work=work)
+            return enqueue_on(connection=connection, work=work)
 
     def claim_one(
         self, *, deployment_id: UUID, stage: PipelineStage, lane: ProcessingLane | None
@@ -112,7 +112,7 @@ class WorkLedger:
                     f"processing row {processing_id} is not running; cannot complete"
                 )
             return tuple(
-                _enqueue_on(connection=connection, work=work) for work in follow_up
+                enqueue_on(connection=connection, work=work) for work in follow_up
             )
 
     def fail(
@@ -249,8 +249,14 @@ def _require_valid_lane(*, stage: PipelineStage, lane: ProcessingLane | None) ->
         )
 
 
-def _enqueue_on(*, connection: Connection, work: EnqueueWork) -> EnqueueOutcome:
-    """Run the idempotent insert (+ steady-promotion rule) on an open transaction."""
+def enqueue_on(*, connection: Connection, work: EnqueueWork) -> EnqueueOutcome:
+    """Run the idempotent insert (+ steady-promotion rule) on an open transaction.
+
+    Public for spine services whose own row writes must commit atomically with
+    the work they chain (e.g. document ingest enqueueing convert): the caller
+    owns the transaction; the initial-wake trigger fires on its commit.
+    """
+    _require_valid_lane(stage=work.stage, lane=work.lane)
     inserted = (
         connection.execute(
             _INSERT_WORK,
