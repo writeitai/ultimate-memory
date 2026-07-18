@@ -14,10 +14,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      UGM_DATABASE_URL: postgresql+psycopg://ugm:ugm_test@localhost:5432/ugm_test
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
+    services:
+      postgres:
+        image: ghcr.io/dbsystel/postgresql-partman@sha256:bf9d2331aaeb3e33a4e6e73b4c024ca618d4d1ea050bbab978125ff63b83385a
+        env:
+          POSTGRES_USER: ugm
+          POSTGRES_PASSWORD: ugm_test
+          POSTGRES_DB: ugm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ugm -d ugm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +60,9 @@ jobs:
 
       - name: Pyright type check
         run: uv run pyright src/ --pythonversion ${{ matrix.python-version }}
+
+      - name: Real PostgreSQL Alembic lifecycle
+        run: uv run pytest src/tests/spine/test_migrations.py -v --tb=short
 
       - name: Tests (with coverage)
         run: uv run pytest src/tests -v --tb=short --cov --cov-report=term

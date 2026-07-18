@@ -1,0 +1,701 @@
+"""Executable PostgreSQL catalog contract for the Phase 0 structural schema."""
+
+from collections.abc import Iterable
+from typing import Final
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from sqlalchemy import Connection
+from sqlalchemy import text
+
+EXPECTED_EXTENSIONS: Final = (
+    "btree_gist",
+    "fuzzystrmatch",
+    "pg_partman",
+    "pg_trgm",
+    "pgcrypto",
+    "unaccent",
+)
+EXPECTED_ENUMS: Final = (
+    "adjudication_method",
+    "adjudication_outcome",
+    "alias_provenance",
+    "claim_temporal_class",
+    "claim_valid_kind",
+    "claim_valid_precision",
+    "community_algorithm",
+    "crossref_kind",
+    "currency_reason",
+    "decision_actor",
+    "deployment_status",
+    "document_origin",
+    "document_status",
+    "entity_status",
+    "eval_suite",
+    "evidence_stance",
+    "extraction_decision_type",
+    "golden_hardness",
+    "golden_label",
+    "grounding_audit_status",
+    "knowledge_artifact_status",
+    "knowledge_evidence_role",
+    "knowledge_layer",
+    "knowledge_page_kind",
+    "knowledge_rule_kind",
+    "knowledge_trigger",
+    "ontology_status",
+    "ontology_tier",
+    "pipeline_component",
+    "pipeline_stage",
+    "plan_action",
+    "plan_decision_status",
+    "plan_trigger",
+    "processing_defer_reason",
+    "processing_lane",
+    "processing_status",
+    "processing_target",
+    "projection_plane",
+    "recipe_answer_intent",
+    "recipe_output_grain",
+    "refresh_status",
+    "relation_status",
+    "resolution_tier",
+    "review_item_kind",
+    "review_status",
+    "review_verdict",
+    "rule_key_kind",
+    "scope_interest_kind",
+    "section_role",
+    "selection_drop_reason",
+    "selection_outcome",
+    "snapshot_status",
+    "subscription_status",
+    "versioning_mode",
+)
+EXPECTED_TABLES: Final = (
+    "aliases",
+    "canary_cases",
+    "chunk_claims",
+    "chunks",
+    "claim_extraction_decisions",
+    "claims",
+    "communities",
+    "connector_sync_cycles",
+    "content_objects",
+    "cost_ledger",
+    "deployment_extension_packs",
+    "deployments",
+    "document_crossrefs",
+    "document_representations",
+    "document_sections",
+    "document_versions",
+    "documents",
+    "entities",
+    "entity_graph_metrics",
+    "entity_types",
+    "eval_runs",
+    "extension_packs",
+    "generic_identifier_guard",
+    "golden_claim_labels",
+    "golden_pairs",
+    "grounding_audits",
+    "knowledge_artifact_evidence",
+    "knowledge_artifacts",
+    "knowledge_compilations",
+    "knowledge_dispatches",
+    "knowledge_page_rules",
+    "knowledge_page_watches",
+    "knowledge_plan_decisions",
+    "knowledge_refresh_queue",
+    "knowledge_rule_keys",
+    "knowledge_subscriptions",
+    "mentions",
+    "merge_events",
+    "observation_adjudications",
+    "observation_evidence",
+    "observations",
+    "pipeline_component_versions",
+    "predicate_signatures",
+    "predicates",
+    "processing_state",
+    "projection_snapshots",
+    "relation_adjudications",
+    "relation_evidence",
+    "relations",
+    "resolution_decisions",
+    "resolution_exclusions",
+    "resolver_versions",
+    "retrieval_recipes",
+    "review_queue",
+    "scope_interests",
+    "scopes",
+    "testimony_currency_events",
+)
+EXPECTED_INDEXES: Final = (
+    "ix_adjud_live",
+    "ix_adjud_relation",
+    "ix_aliases_entity",
+    "ix_aliases_lemma_dm",
+    "ix_aliases_lemma_exact",
+    "ix_aliases_lemma_trgm",
+    "ix_chunkclaims_claim",
+    "ix_chunks_doc",
+    "ix_chunks_reuse",
+    "ix_chunks_section",
+    "ix_chunks_version",
+    "ix_claims_audit",
+    "ix_claims_chunk",
+    "ix_claims_current",
+    "ix_claims_doc",
+    "ix_claims_flagged",
+    "ix_communities_snapshot",
+    "ix_cost_budget_window",
+    "ix_cost_provider_call",
+    "ix_crossrefs_from",
+    "ix_crossrefs_to",
+    "ix_currency_claim",
+    "ix_currency_doc",
+    "ix_cxd_chunk",
+    "ix_cxd_drops",
+    "ix_docreps_version",
+    "ix_documents_entity",
+    "ix_documents_live",
+    "ix_docversions_doc",
+    "ix_docversions_hash",
+    "ix_docversions_status",
+    "ix_egm_entity",
+    "ix_egm_snapshot",
+    "ix_entities_name_trgm",
+    "ix_entities_redirect",
+    "ix_entities_type",
+    "ix_entity_types_parent",
+    "ix_eval_suite_ver",
+    "ix_golden_type",
+    "ix_grounding_claim",
+    "ix_kae_claim",
+    "ix_kae_doc",
+    "ix_kae_relation",
+    "ix_kartifacts_parent",
+    "ix_kartifacts_scope",
+    "ix_kartifacts_stale",
+    "ix_kcompilations_artifact",
+    "ix_kdispatch_pending",
+    "ix_kplan_proposed",
+    "ix_krefresh_runnable",
+    "ix_krule_keys_lookup",
+    "ix_kwatch_watched",
+    "ix_mentions_claim",
+    "ix_mentions_doc",
+    "ix_merge_absorbed",
+    "ix_merge_survivor",
+    "ix_merge_trigger",
+    "ix_obsadjud_live",
+    "ix_obsadjud_observation",
+    "ix_observations_block",
+    "ix_observations_contradiction",
+    "ix_observations_entity",
+    "ix_obsevidence_claim",
+    "ix_predicates_other",
+    "ix_procstate_dlq",
+    "ix_procstate_due",
+    "ix_procstate_target",
+    "ix_relations_block_obj",
+    "ix_relations_block_subj",
+    "ix_relations_contradiction",
+    "ix_relations_live",
+    "ix_relations_predicate",
+    "ix_relevidence_claim",
+    "ix_resdec_entity",
+    "ix_resdec_live",
+    "ix_resdec_mention",
+    "ix_review_pending",
+    "ix_sections_doc",
+    "ix_sections_parent",
+    "ix_sections_role",
+    "ux_kae_link",
+    "ux_kwatch",
+    "ux_snapshot_latest",
+)
+EXPECTED_RANGE_PARENTS: Final = {
+    "chunk_claims": "created_at",
+    "chunks": "created_at",
+    "claim_extraction_decisions": "decided_at",
+    "claims": "ingested_at",
+    "mentions": "created_at",
+    "resolution_decisions": "decided_at",
+    "testimony_currency_events": "occurred_at",
+}
+EXPECTED_HASH_PARENTS: Final = ("observation_evidence", "relation_evidence")
+EXPECTED_VIEWS: Final = (
+    "v_graph_crossref",
+    "v_graph_documents",
+    "v_graph_entities",
+    "v_graph_is_document",
+    "v_graph_mentioned_in",
+    "v_graph_relates",
+    "v_graph_survivor",
+)
+EMPTY_AT_HEAD: Final = (
+    "deployments",
+    "entity_types",
+    "predicate_signatures",
+    "predicates",
+)
+EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 26, "f": 106, "p": 57, "u": 28, "x": 1}
+DECISION_OBJECTS: Final = {
+    "D1": ("pipeline_component_versions",),
+    "D2": ("claims", "relations", "relation_evidence"),
+    "D17": ("aliases", "ix_aliases_lemma_dm", "ix_aliases_lemma_trgm"),
+    "D23": ("claims", "relation_evidence", "observation_evidence"),
+    "D31": ("claims", "grounding_audits"),
+    "D36": ("documents", "document_versions", "document_crossrefs"),
+    "D45": ("knowledge_artifacts", "knowledge_refresh_queue"),
+    "D50": ("retrieval_recipes",),
+    "D54": ("testimony_currency_events", "ix_claims_current"),
+    "D55": ("document_versions", "document_representations"),
+    "D56": ("chunks", "chunk_claims"),
+    "D57": ("document_sections", "document_representations"),
+    "D65": ("documents", "document_versions", "document_representations"),
+    "D67": ("processing_state", "cost_ledger", "ix_procstate_due"),
+    "D68": ("deployments", "ix_entities_name_trgm"),
+    "D69": ("v_graph_relates",),
+}
+
+
+class SchemaContractError(RuntimeError):
+    """Raised with all observed catalog differences from the binding design."""
+
+
+class CatalogInventory(BaseModel):
+    """Stable machine-readable evidence returned by a successful verification."""
+
+    model_config = ConfigDict(frozen=True)
+
+    server_version: str
+    extensions: tuple[str, ...]
+    enums: tuple[str, ...]
+    tables: tuple[str, ...]
+    indexes: tuple[str, ...]
+    range_parents: tuple[str, ...]
+    hash_parents: tuple[str, ...]
+    hash_child_counts: dict[str, int]
+    views: tuple[str, ...]
+    constraint_counts: dict[str, int]
+    commented_tables: int
+    commented_columns: int
+    empty_tables: tuple[str, ...]
+    decisions_covered: tuple[str, ...]
+
+
+def verify_schema(connection: Connection) -> CatalogInventory:
+    """Verify the complete structural contract and return observed evidence."""
+    problems: list[str] = []
+    extensions = _string_values(
+        connection=connection,
+        query="SELECT extname FROM pg_extension WHERE extname <> 'plpgsql' ORDER BY 1",
+    )
+    enums = _string_values(
+        connection=connection,
+        query=(
+            "SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace "
+            "WHERE n.nspname='public' AND t.typtype='e' ORDER BY 1"
+        ),
+    )
+    tables = _named_relations(
+        connection=connection, names=EXPECTED_TABLES, kinds=("r", "p")
+    )
+    indexes = _string_values(
+        connection=connection,
+        query=(
+            "SELECT indexname FROM pg_indexes WHERE schemaname='public' "
+            "AND indexname = ANY(:names) ORDER BY 1"
+        ),
+        names=EXPECTED_INDEXES,
+    )
+    views = _named_relations(connection=connection, names=EXPECTED_VIEWS, kinds=("v",))
+    _compare(
+        label="extensions",
+        actual=extensions,
+        expected=EXPECTED_EXTENSIONS,
+        problems=problems,
+    )
+    _compare(
+        label="enum types", actual=enums, expected=EXPECTED_ENUMS, problems=problems
+    )
+    _compare(
+        label="UGM tables", actual=tables, expected=EXPECTED_TABLES, problems=problems
+    )
+    _compare(
+        label="explicit indexes",
+        actual=indexes,
+        expected=EXPECTED_INDEXES,
+        problems=problems,
+    )
+    _compare(
+        label="projection views",
+        actual=views,
+        expected=EXPECTED_VIEWS,
+        problems=problems,
+    )
+
+    partition_rows = connection.execute(
+        statement=text(
+            "SELECT c.relname, p.partstrat FROM pg_partitioned_table p "
+            "JOIN pg_class c ON c.oid=p.partrelid JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relname = ANY(:names) ORDER BY 1"
+        ),
+        parameters={"names": sorted((*EXPECTED_RANGE_PARENTS, *EXPECTED_HASH_PARENTS))},
+    ).all()
+    partition_strategies = {str(row[0]): str(row[1]) for row in partition_rows}
+    expected_strategies = {
+        **dict.fromkeys(EXPECTED_RANGE_PARENTS, "r"),
+        **dict.fromkeys(EXPECTED_HASH_PARENTS, "h"),
+    }
+    if partition_strategies != expected_strategies:
+        problems.append(
+            f"partition strategies: expected {expected_strategies}, observed {partition_strategies}"
+        )
+
+    partman_rows = connection.execute(
+        statement=text(
+            "SELECT parent_table, control, partition_interval FROM public.part_config "
+            "WHERE parent_table = ANY(:names) ORDER BY 1"
+        ),
+        parameters={"names": [f"public.{name}" for name in EXPECTED_RANGE_PARENTS]},
+    ).all()
+    observed_partman = {
+        str(row[0]).removeprefix("public."): (str(row[1]), str(row[2]))
+        for row in partman_rows
+    }
+    expected_partman = {
+        parent: (control, "1 mon") for parent, control in EXPECTED_RANGE_PARENTS.items()
+    }
+    if observed_partman != expected_partman:
+        problems.append(
+            f"pg_partman parents: expected {expected_partman}, observed {observed_partman}"
+        )
+
+    hash_child_counts: dict[str, int] = {}
+    for parent in EXPECTED_HASH_PARENTS:
+        child_rows = connection.execute(
+            statement=text(
+                "SELECT child.relname, pg_get_expr(child.relpartbound, child.oid) "
+                "FROM pg_inherits i JOIN pg_class parent ON parent.oid=i.inhparent "
+                "JOIN pg_class child ON child.oid=i.inhrelid "
+                "JOIN pg_namespace n ON n.oid=parent.relnamespace "
+                "WHERE n.nspname='public' AND parent.relname=:parent ORDER BY child.relname"
+            ),
+            parameters={"parent": parent},
+        ).all()
+        observed_names = {str(row[0]) for row in child_rows}
+        expected_names = {f"{parent}_p{remainder}" for remainder in range(64)}
+        hash_child_counts[parent] = len(child_rows)
+        if observed_names != expected_names:
+            problems.append(
+                f"{parent} hash children: missing {sorted(expected_names - observed_names)}, "
+                f"unexpected {sorted(observed_names - expected_names)}"
+            )
+        for name, bound in child_rows:
+            remainder = int(str(name).rsplit("p", maxsplit=1)[1])
+            normalized_bound = " ".join(str(bound).lower().split())
+            if f"modulus 64, remainder {remainder}" not in normalized_bound:
+                problems.append(f"{name} has incorrect hash bound {bound}")
+
+    constraint_rows = connection.execute(
+        statement=text(
+            "SELECT con.contype, count(*) FROM pg_constraint con "
+            "JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relname = ANY(:tables) "
+            "GROUP BY con.contype ORDER BY con.contype"
+        ),
+        parameters={"tables": list(EXPECTED_TABLES)},
+    ).all()
+    constraint_counts = {str(row[0]): int(row[1]) for row in constraint_rows}
+    if constraint_counts != EXPECTED_CONSTRAINT_COUNTS:
+        problems.append(
+            f"constraint counts: expected {EXPECTED_CONSTRAINT_COUNTS}, observed {constraint_counts}"
+        )
+    primary_keys = _string_values(
+        connection=connection,
+        query=(
+            "SELECT c.relname FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' "
+            "AND con.contype='p' AND c.relname = ANY(:names) ORDER BY 1"
+        ),
+        names=EXPECTED_TABLES,
+    )
+    _compare(
+        label="table primary keys",
+        actual=primary_keys,
+        expected=EXPECTED_TABLES,
+        problems=problems,
+    )
+
+    constraint_definitions = "\n".join(
+        str(row[0]).lower()
+        for row in connection.execute(
+            statement=text(
+                "SELECT pg_get_constraintdef(con.oid) FROM pg_constraint con "
+                "JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='public' AND c.relname = ANY(:tables)"
+            ),
+            parameters={"tables": list(EXPECTED_TABLES)},
+        )
+    )
+    required_constraint_fragments = (
+        "exclude using gist",
+        "num_nonnulls(claim_id, relation_id, doc_id) = 1",
+        "num_nonnulls(artifact_id, subscription_id) = 1",
+        "anchor_ok and window_membership_ok",
+        "unique (deployment_id, processing_id, attempt, call_key)",
+        "unique (deployment_id, target_kind, target_id, stage, component_version)",
+    )
+    for fragment in required_constraint_fragments:
+        if fragment not in constraint_definitions:
+            problems.append(f"required constraint definition missing: {fragment}")
+
+    commented_tables = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='public' AND c.relname = ANY(:tables) "
+                "AND obj_description(c.oid, 'pg_class') IS NOT NULL"
+            ),
+            parameters={"tables": list(EXPECTED_TABLES)},
+        ).scalar_one()
+    )
+    if commented_tables != len(EXPECTED_TABLES):
+        problems.append(
+            f"table comments: expected {len(EXPECTED_TABLES)}, observed {commented_tables}"
+        )
+    commented_columns = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid "
+                "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' "
+                "AND c.relname = ANY(:tables) AND a.attnum > 0 AND NOT a.attisdropped "
+                "AND col_description(c.oid, a.attnum) IS NOT NULL"
+            ),
+            parameters={"tables": list(EXPECTED_TABLES)},
+        ).scalar_one()
+    )
+    if commented_columns < 300:
+        problems.append(
+            f"column comments: expected at least 300, observed {commented_columns}"
+        )
+
+    function_count = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                "WHERE n.nspname='public' AND p.proname='notify_due_processing_insert'"
+            )
+        ).scalar_one()
+    )
+    trigger_count = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
+                "WHERE c.relname='processing_state' AND t.tgname='tr_processing_state_initial_wake' "
+                "AND NOT t.tgisinternal"
+            )
+        ).scalar_one()
+    )
+    if function_count != 1 or trigger_count != 1:
+        problems.append(
+            f"wake function/trigger: expected 1/1, observed {function_count}/{trigger_count}"
+        )
+
+    relates_definition = str(
+        connection.execute(
+            statement=text(
+                "SELECT pg_get_viewdef('public.v_graph_relates'::regclass, true)"
+            )
+        ).scalar_one()
+    ).lower()
+    if (
+        " where " in " ".join(relates_definition.split())
+        or "invalidated_at >" in relates_definition
+    ):
+        problems.append(
+            "v_graph_relates contains a forbidden invalidation/retention filter"
+        )
+    for required_view_fragment in (
+        "r.invalidated_at",
+        "v_graph_survivor s1",
+        "v_graph_survivor s2",
+        "e1.status = 'active'",
+        "e2.status = 'active'",
+    ):
+        if required_view_fragment not in relates_definition:
+            problems.append(f"v_graph_relates missing {required_view_fragment}")
+
+    empty_tables: list[str] = []
+    for table_name in EMPTY_AT_HEAD:
+        count = int(
+            connection.execute(
+                statement=text(f"SELECT count(*) FROM {table_name}")
+            ).scalar_one()
+        )
+        if count != 0:
+            problems.append(
+                f"{table_name} must be empty at migration head, observed {count}"
+            )
+        else:
+            empty_tables.append(table_name)
+
+    available_objects = {*tables, *indexes, *views}
+    for decision, objects in DECISION_OBJECTS.items():
+        missing = set(objects) - available_objects
+        if missing:
+            problems.append(
+                f"{decision} mapping missing catalog objects {sorted(missing)}"
+            )
+
+    if problems:
+        raise SchemaContractError(
+            "schema contract mismatch:\n- " + "\n- ".join(problems)
+        )
+
+    server_version = str(
+        connection.execute(
+            statement=text("SELECT version()"), parameters={}
+        ).scalar_one()
+    )
+    return CatalogInventory(
+        server_version=server_version,
+        extensions=extensions,
+        enums=enums,
+        tables=tables,
+        indexes=indexes,
+        range_parents=tuple(EXPECTED_RANGE_PARENTS),
+        hash_parents=EXPECTED_HASH_PARENTS,
+        hash_child_counts=hash_child_counts,
+        views=views,
+        constraint_counts=constraint_counts,
+        commented_tables=commented_tables,
+        commented_columns=commented_columns,
+        empty_tables=tuple(empty_tables),
+        decisions_covered=tuple(DECISION_OBJECTS),
+    )
+
+
+def verify_schema_absent(connection: Connection) -> None:
+    """Verify downgrade-to-base removed only the UGM-owned structural objects."""
+    problems: list[str] = []
+    relations = _named_relations(
+        connection=connection,
+        names=(*EXPECTED_TABLES, *EXPECTED_VIEWS),
+        kinds=("r", "p", "v"),
+    )
+    enums = _string_values(
+        connection=connection,
+        query=(
+            "SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace "
+            "WHERE n.nspname='public' AND t.typtype='e' AND t.typname = ANY(:names) ORDER BY 1"
+        ),
+        names=EXPECTED_ENUMS,
+    )
+    partman_config_exists = bool(
+        connection.execute(
+            statement=text("SELECT to_regclass('public.part_config') IS NOT NULL")
+        ).scalar_one()
+    )
+    partman_count = 0
+    if partman_config_exists:
+        partman_count = int(
+            connection.execute(
+                statement=text(
+                    "SELECT count(*) FROM public.part_config "
+                    "WHERE parent_table = ANY(:parents)"
+                ),
+                parameters={
+                    "parents": [f"public.{parent}" for parent in EXPECTED_RANGE_PARENTS]
+                },
+            ).scalar_one()
+        )
+    template_count = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='public' AND c.relname = ANY(:templates)"
+            ),
+            parameters={
+                "templates": [
+                    f"template_public_{parent}" for parent in EXPECTED_RANGE_PARENTS
+                ]
+            },
+        ).scalar_one()
+    )
+    function_count = int(
+        connection.execute(
+            statement=text(
+                "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                "WHERE n.nspname='public' AND p.proname='notify_due_processing_insert'"
+            )
+        ).scalar_one()
+    )
+    if relations:
+        problems.append(f"UGM relations remain: {relations}")
+    if enums:
+        problems.append(f"UGM enum types remain: {enums}")
+    if partman_count:
+        problems.append(f"UGM pg_partman registrations remain: {partman_count}")
+    if template_count:
+        problems.append(f"UGM pg_partman templates remain: {template_count}")
+    if function_count:
+        problems.append(f"UGM wake function remains: {function_count}")
+    if problems:
+        raise SchemaContractError(
+            "downgrade cleanup mismatch:\n- " + "\n- ".join(problems)
+        )
+
+
+def _named_relations(
+    *, connection: Connection, names: Iterable[str], kinds: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Return matching public relation names with the requested relkinds."""
+    return _string_values(
+        connection=connection,
+        query=(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relname = ANY(:names) "
+            "AND c.relkind = ANY(:kinds) ORDER BY 1"
+        ),
+        names=tuple(names),
+        kinds=kinds,
+    )
+
+
+def _string_values(
+    *,
+    connection: Connection,
+    query: str,
+    names: Iterable[str] | None = None,
+    kinds: Iterable[str] | None = None,
+) -> tuple[str, ...]:
+    """Execute a one-column catalog query and return stable strings."""
+    parameters: dict[str, object] = {}
+    if names is not None:
+        parameters["names"] = list(names)
+    if kinds is not None:
+        parameters["kinds"] = list(kinds)
+    return tuple(
+        str(value)
+        for value in connection.execute(
+            statement=text(query), parameters=parameters
+        ).scalars()
+    )
+
+
+def _compare(
+    *, label: str, actual: Iterable[str], expected: Iterable[str], problems: list[str]
+) -> None:
+    """Append an exact set difference to the accumulated contract problems."""
+    actual_set = set(actual)
+    expected_set = set(expected)
+    if actual_set != expected_set:
+        problems.append(
+            f"{label}: missing {sorted(expected_set - actual_set)}, "
+            f"unexpected {sorted(actual_set - expected_set)}"
+        )

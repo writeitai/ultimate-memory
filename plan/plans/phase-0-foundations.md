@@ -17,7 +17,7 @@ runs an empty suite in CI; the blockizer golden corpus scaffold exists with ≥1
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
 | WP-0.1 | Repo scaffolding per stack conventions (typing, lint, CI, layout) | roadmap §3; requirements §Code | gate: stack conventions | the repository skeleton | pyright + pytest green in CI | done |
-| WP-0.2 | Alembic migrations for the full structural schema (schema shape only; no deployment/core data) | postgres_schema_design (all §; §0 conventions and §2 post-head boundary) | WP-0.1 | structural migration chain | fresh-DB apply + downgrade; §16 decision→table map spot-check; head contains no deployment/core rows | planned |
+| WP-0.2 | Alembic migrations for the full structural schema (schema shape only; no deployment/core data) | postgres_schema_design (all §; §0 conventions and §2 post-head boundary) | WP-0.1 | structural migration chain | fresh-DB apply + downgrade; §16 decision→table map spot-check; head contains no deployment/core rows | done |
 | WP-0.3 | Tenancy + pipeline substrate: typed transactional `bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult`, `pipeline_component_versions`, `processing_state`, `cost_ledger`, DLQ semantics; the **handler registration model** (stage handlers, chain rule) | schema §§2–3; registries §4 exact core manifest; orchestration §1–2; D12, D52, D69; packaging §§3–5 | WP-0.2 | library-owned deployment bootstrap + worker base library (idempotency, retries, versions, cost metering) | after schema head, bootstrap maps typed profile inputs to one deployment + exactly 8 roots/16 predicates/116 signatures in one transaction; identical retry is a verified no-op; conflicting retry rolls back with a typed conflict; demo no-op worker: enqueue → run → state row → retry → dead-letter | planned |
 | WP-0.4 | **The D61 port interfaces** (`ports/` Protocols: object store, task queue, mounts, git remote, model provider, telemetry, auth) + import-linter contracts in CI | packaging §3–4; D61, D62 | WP-0.1 | `ports/` + CI architecture checks | illegal import fails CI (proven by a deliberate violation) | done |
 | WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), MinIO/local-FS object store, local mount publisher, `adapters/testing` tier | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs on compose with zero GCP deps; transactional-enqueue crash test | planned |
@@ -26,6 +26,23 @@ runs an empty suite in CI; the blockizer golden corpus scaffold exists with ≥1
 | WP-0.5 | **Eval harness skeleton** (questions #14 — this WP owns it): golden-set storage (`golden_pairs`, `golden_claim_labels`, `canary_cases`, `eval_runs`), suite runner, CI wiring | schema §5; D22; registries §10 | WP-0.2 | harness package + `eval` CI job | empty suites run; a seeded canary fails deliberately and blocks CI | planned |
 | WP-0.6 | Golden-set labeling tooling (LLM-propose / human-adjudicate loop, circularity guard) | D22; registries §11.1 | WP-0.5 | labeling CLI | 20 seed pairs labeled end-to-end | planned |
 | WP-0.7 | Blockizer golden corpus scaffold (expected block-hash regression per `blockizer_version`) | e1 §2 (D57) | WP-0.5 | corpus + CI check | seeded doc's hashes locked; a deliberate parser change trips CI | planned |
+
+**WP-0.2 complete (2026-07-18; `P0-L05-WP02-ALEMBIC-FULL-SCHEMA` revision 2):**
+[PR #71](https://github.com/writeitai/ultimate-memory/pull/71) implementation head
+[`ec5cb279944d`](https://github.com/writeitai/ultimate-memory/commit/ec5cb279944db138e093439136bc3237bfd545fd)
+adds the six-revision structural-only Alembic chain, the executable catalog contract, and the
+pinned PostgreSQL/pg_partman CI service. On PostgreSQL 16.14 with pg_partman 5.2.4, the focused
+lifecycle proved clean base → fresh head, exact catalog shape (six extensions, 54 enums, 57 UGM
+tables, 83 explicit indexes, seven monthly RANGE parents, two HASH parents with 64 children each,
+seven final views, 57 table comments, 438 parent-column comments, and constraint totals
+`c=26/f=106/p=57/u=28/x=1`), zero deployment/core registry rows, downgrade cleanup, clean
+re-upgrade, and a no-op at head. Its meaningful negative proof removed
+`relation_evidence_p63`, observed the contract failure, and restored the final green catalog.
+[CI run 29629128266](https://github.com/writeitai/ultimate-memory/actions/runs/29629128266)
+kept the required Python 3.12, Python 3.13, and coverage jobs green. Per D66, this internal
+schema-shape leaf has no usable public workflow or user-visible behavior, so no public
+documentation surface is changed; public documentation remains deferred to the first usable
+slice. Phase 0 remains incomplete and no WP-0.3+ bootstrap/runtime behavior is included.
 
 **WP-0.4 complete (2026-07-17; `P0-L01-D62-ARCH-GATE` and
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package
