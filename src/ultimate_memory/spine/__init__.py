@@ -8,6 +8,8 @@ from ultimate_memory.spine.deployment_bootstrap import DeploymentBootstrapper
 from ultimate_memory.spine.document_catalog import DocumentCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.entity_registry import T0_RESOLVER_VERSION
+from ultimate_memory.spine.extension_packs import install_pack
+from ultimate_memory.spine.extension_packs import PackAnchorError
 from ultimate_memory.spine.fact_catalog import FactCatalog
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.resolver import RESOLVER_VERSION
@@ -19,6 +21,8 @@ __all__ = (
     "ChunkCatalog",
     "ClaimCatalog",
     "EntityRegistry",
+    "PackAnchorError",
+    "install_pack",
     "CascadeResolver",
     "FactCatalog",
     "RESOLVER_VERSION",
