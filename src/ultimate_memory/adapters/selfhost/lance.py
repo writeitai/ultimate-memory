@@ -1,6 +1,7 @@
 """The embedded-LanceDB P1 chunk index: one table of text + vectors (D8)."""
 
 from pathlib import Path
+from uuid import UUID
 
 import lancedb
 
@@ -75,6 +76,53 @@ class LanceChunkIndex:
                 for row in rows
             ],
         )
+
+    def search_claims(
+        self,
+        *,
+        deployment_id: str,
+        vector: tuple[float, ...],
+        k: int,
+        current_only: bool,
+    ) -> tuple[str, ...]:
+        """Nominate claim ids by vector similarity (D48: nomination, not truth).
+
+        The DEFAULT claims channel filters to current testimony via the
+        stored scalar (retrieval §5); hydration against the spine confirms.
+        """
+        deployment_id = str(UUID(deployment_id))  # refuse filter injection
+        if _CLAIM_TABLE not in self._connection.table_names():
+            return ()
+        query = (
+            self._connection.open_table(_CLAIM_TABLE)
+            .search(list(vector))
+            .where(
+                f"deployment_id = '{deployment_id}'"
+                + (" AND is_current_testimony" if current_only else "")
+            )
+            .limit(k)
+        )
+        return tuple(row["claim_id"] for row in query.to_list())
+
+    def search_facts(
+        self, *, deployment_id: str, vector: tuple[float, ...], k: int, kind: str | None
+    ) -> tuple[str, ...]:
+        """Nominate fact ids (relations/observations) by label similarity."""
+        deployment_id = str(UUID(deployment_id))  # refuse filter injection
+        if kind is not None and kind not in ("relation", "observation"):
+            raise ValueError(f"unknown facts-channel kind {kind!r}")
+        if _FACT_TABLE not in self._connection.table_names():
+            return ()
+        where = f"deployment_id = '{deployment_id}'"
+        if kind is not None:
+            where += f" AND kind = '{kind}'"
+        query = (
+            self._connection.open_table(_FACT_TABLE)
+            .search(list(vector))
+            .where(where)
+            .limit(k)
+        )
+        return tuple(row["fact_id"] for row in query.to_list())
 
     def table_count(self, *, table: str) -> int:
         """Total rows in one P1 table (0 before its first write)."""

@@ -33,3 +33,25 @@ class FactIndexPort(Protocol):
     def upsert_facts(self, *, rows: tuple[P1FactRow, ...]) -> None:
         """Insert or replace rows by fact_id; re-runs are idempotent."""
         ...
+
+
+@runtime_checkable
+class P1SearchPort(Protocol):
+    """Nominate candidates from the P1 indexes (D48: propose, never dispose)."""
+
+    def search_claims(
+        self,
+        *,
+        deployment_id: str,
+        vector: tuple[float, ...],
+        k: int,
+        current_only: bool,
+    ) -> tuple[str, ...]:
+        """Ranked claim-id nominations from the claims channel."""
+        ...
+
+    def search_facts(
+        self, *, deployment_id: str, vector: tuple[float, ...], k: int, kind: str | None
+    ) -> tuple[str, ...]:
+        """Ranked fact-id nominations from the facts channel."""
+        ...
