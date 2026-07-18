@@ -2,6 +2,11 @@
 
 from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
+from ultimate_memory.model.deployment import CoreManifestConflictError
+from ultimate_memory.model.deployment import DeploymentBootstrapConflictError
+from ultimate_memory.model.deployment import DeploymentBootstrapInput
+from ultimate_memory.model.deployment import DeploymentBootstrapResult
+from ultimate_memory.model.deployment import DeploymentConflictError
 from ultimate_memory.model.git import KRevision
 from ultimate_memory.model.model_provider import EmbeddingRequest
 from ultimate_memory.model.model_provider import EmbeddingResponse
@@ -18,6 +23,11 @@ from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
     "AuthenticatedContext",
+    "CoreManifestConflictError",
+    "DeploymentBootstrapConflictError",
+    "DeploymentBootstrapInput",
+    "DeploymentBootstrapResult",
+    "DeploymentConflictError",
     "EmbeddingRequest",
     "EmbeddingResponse",
     "KRevision",
