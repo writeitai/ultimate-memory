@@ -211,7 +211,23 @@ class EmbedChunksHandler:
                 for chunk, prefix in zip(chunks, prefixes, strict=True)
             )
         )
-        return HandlerOutcome()
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.EXTRACT_CLAIMS,
+                    component_version=E2_EXTRACTOR_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={
+                        "version_id": str(source.version_id),
+                        "representation_id": str(source.representation_id),
+                    },
+                ),
+            )
+        )
 
     def _context_prefix(
         self, *, source: ChunkSource, chunk: ChunkForEmbedding, document_md: str

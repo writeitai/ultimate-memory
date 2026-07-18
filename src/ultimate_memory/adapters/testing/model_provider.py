@@ -13,9 +13,15 @@ _EMBEDDING_DIMENSION = 8
 class FakeModelProvider:
     """Deterministic embeddings and canned structured generations for proofs."""
 
-    def __init__(self, *, generate_payload: dict[str, object]) -> None:
-        """Bind the canned payload every generate call validates and returns."""
+    def __init__(
+        self,
+        *,
+        generate_payload: dict[str, object] | None = None,
+        generate_payloads: dict[str, dict[str, object]] | None = None,
+    ) -> None:
+        """Bind canned payloads: one default, or one per response-type name."""
         self._generate_payload = generate_payload
+        self._generate_payloads = generate_payloads or {}
         self.embedded_texts: list[str] = []
         self.generated_prompts: list[str] = []
 
@@ -24,7 +30,12 @@ class FakeModelProvider:
     ) -> ResponseT:
         """Return the canned payload validated as the caller's declared type."""
         self.generated_prompts.append(request.prompt)
-        return response_type.model_validate(self._generate_payload)
+        payload = self._generate_payloads.get(
+            response_type.__name__, self._generate_payload
+        )
+        if payload is None:
+            raise AssertionError(f"no canned payload for {response_type.__name__}")
+        return response_type.model_validate(payload)
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
         """Return one deterministic content-derived vector per input text."""
