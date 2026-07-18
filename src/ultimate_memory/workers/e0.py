@@ -110,16 +110,41 @@ class ConvertHandler:
         self._router = router
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Convert one document version and record its representation."""
+        """Convert one document version and record its representation.
+
+        Replay before regenerate (D65/D7): a representation this toolchain
+        already produced for the version is re-chained as-is — the converter
+        is never re-called on a retried or replayed attempt.
+        """
         source = self._catalog.convert_source(
             version_id=_payload_uuid(work=work, field="version_id")
         )
-        content = self._raw_store.read_bytes(key=ObjectKey(source.raw_uri))
         try:
             converter = self._router.converter_for(mime=source.mime)
+        except UnroutableMimeError as err:
+            # deterministic for this input — retrying cannot help (D12); the
+            # version's own status must not keep claiming in-flight work:
+            self._catalog.mark_version_failed(
+                version_id=source.version_id, error=str(err)
+            )
+            raise NonRetryableHandlerError(str(err)) from err
+        existing = self._catalog.existing_representation(
+            version_id=source.version_id,
+            route=converter.name,
+            converter_version=converter.version,
+            blockizer_version=BLOCKIZER_VERSION,
+        )
+        if existing is not None:
+            return self._structure_follow_up(
+                work=work, version_id=source.version_id, representation_id=existing
+            )
+        content = self._raw_store.read_bytes(key=ObjectKey(source.raw_uri))
+        try:
             result = converter.convert(content=content, mime=source.mime)
-        except (UnroutableMimeError, ConversionError) as err:
-            # deterministic for these bytes — retrying cannot help (D12)
+        except ConversionError as err:
+            self._catalog.mark_version_failed(
+                version_id=source.version_id, error=str(err)
+            )
             raise NonRetryableHandlerError(str(err)) from err
         blocks = blockize(document_md=result.document_md)
 
@@ -184,6 +209,14 @@ class ConvertHandler:
                 manifest_hash=hashlib.sha256(manifest_bytes).hexdigest(),
             )
         )
+        return self._structure_follow_up(
+            work=work, version_id=source.version_id, representation_id=representation_id
+        )
+
+    def _structure_follow_up(
+        self, *, work: ClaimedWork, version_id: UUID, representation_id: UUID
+    ) -> HandlerOutcome:
+        """Chain the structure stage for one (version, representation)."""
         return HandlerOutcome(
             follow_up=(
                 EnqueueWork(
@@ -195,7 +228,7 @@ class ConvertHandler:
                     content_hash=work.content_hash,
                     lane=work.lane,
                     payload={
-                        "version_id": str(source.version_id),
+                        "version_id": str(version_id),
                         "representation_id": str(representation_id),
                     },
                 ),

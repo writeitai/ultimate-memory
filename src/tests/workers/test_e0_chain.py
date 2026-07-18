@@ -23,11 +23,13 @@ from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.core import blockize
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import MarkdownPassthroughConverter
+from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocumentUpload
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
@@ -35,6 +37,7 @@ from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.workers import ConvertHandler
+from ultimate_memory.workers import E0_CONVERT_VERSION
 from ultimate_memory.workers import HandlerRegistry
 from ultimate_memory.workers import StructureHandler
 from ultimate_memory.workers import UploadIngestor
@@ -286,7 +289,133 @@ def test_unroutable_mime_dead_letters_without_retries(rig: _E0Rig) -> None:
     assert "application/x-unknown" in str(work["last_error"])
 
     version = rig.row(
-        sql="SELECT status FROM document_versions WHERE version_id = :version_id",
+        sql="SELECT status, error FROM document_versions WHERE version_id = :version_id",
         params={"version_id": ingested.version_id},
     )
-    assert version["status"] == "converting"
+    assert version["status"] == "failed"
+    assert "application/x-unknown" in str(version["error"])
+
+
+def test_retried_convert_replays_the_stored_representation(rig: _E0Rig) -> None:
+    """Codex review: D65 replay-not-regenerate — a retry never re-converts."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="report.md",
+            mime="text/markdown",
+            content=_MARKDOWN_SOURCE.encode("utf-8"),
+        ),
+    )
+    handler = ConvertHandler(
+        catalog=rig.catalog,
+        raw_store=rig.raw_store,
+        artifact_store=rig.artifact_store,
+        router=ConversionRouter(
+            routes={"text/markdown": MarkdownPassthroughConverter()}
+        ),
+    )
+    work = ClaimedWork(
+        processing_id=ingested.version_id,
+        deployment_id=_DEPLOYMENT_ID,
+        target_kind=ProcessingTarget.DOCUMENT,
+        target_id=ingested.doc_id,
+        stage=PipelineStage.CONVERT,
+        component_version=E0_CONVERT_VERSION,
+        content_hash=ingested.content_hash,
+        lane=ProcessingLane.STEADY,
+        attempt=1,
+        payload={"version_id": str(ingested.version_id)},
+    )
+    first = handler.handle(work=work)
+    replay = handler.handle(work=work)  # the retried attempt
+    assert replay.follow_up[0].payload == first.follow_up[0].payload
+
+    count = rig.row(
+        sql="SELECT count(*) AS representations FROM document_representations",
+        params={},
+    )
+    assert count == {"representations": 1}
+
+
+def test_stale_structure_never_overwrites_the_live_representation(rig: _E0Rig) -> None:
+    """Codex review: the pointer swap is first-writer-wins — sections and the
+    live-reading pointer can never disagree about the coordinate system."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="report.md",
+            mime="text/markdown",
+            content=_MARKDOWN_SOURCE.encode("utf-8"),
+        ),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    assert rig.run(stage=PipelineStage.STRUCTURE) is RunResultOutcome.SUCCEEDED
+    version = rig.row(
+        sql="SELECT current_representation_id FROM document_versions"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    live = version["current_representation_id"]
+
+    from uuid import uuid4
+
+    from ultimate_memory.model import SyntheticRootRecord
+    from ultimate_memory.workers import E0_STRUCTURE_VERSION
+
+    stale_rep = uuid4()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO document_representations (representation_id,"
+                " deployment_id, version_id, route, status)"
+                " VALUES (:rid, :dep, :vid, 'passthrough', 'structuring')"
+            ),
+            {"rid": stale_rep, "dep": _DEPLOYMENT_ID, "vid": ingested.version_id},
+        )
+    rig.catalog.record_synthetic_root(
+        record=SyntheticRootRecord(
+            section_id=uuid4(),
+            deployment_id=_DEPLOYMENT_ID,
+            doc_id=ingested.doc_id,
+            version_id=ingested.version_id,
+            representation_id=stale_rep,
+            block_count=3,
+            markdown_chars=len(_MARKDOWN_SOURCE),
+            title="stale",
+            structurer_version=E0_STRUCTURE_VERSION,
+        )
+    )
+    after = rig.row(
+        sql="SELECT current_representation_id FROM document_versions"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    assert after["current_representation_id"] == live
+    section = rig.row(
+        sql="SELECT representation_id FROM document_sections"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    assert section["representation_id"] == live
+
+
+def test_empty_document_gets_an_empty_root_span(rig: _E0Rig) -> None:
+    """Codex review: zero blocks persist as the empty inclusive range 0..-1."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(filename="empty.md", mime="text/markdown", content=b""),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    assert rig.run(stage=PipelineStage.STRUCTURE) is RunResultOutcome.SUCCEEDED
+    section = rig.row(
+        sql="SELECT block_start, block_end, char_start, char_end, role"
+        " FROM document_sections WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    assert section == {
+        "block_start": 0,
+        "block_end": -1,
+        "char_start": 0,
+        "char_end": 0,
+        "role": "body",
+    }

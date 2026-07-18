@@ -113,6 +113,41 @@ class DocumentCatalog:
             )
         return ConvertSource.model_validate(dict(row))
 
+    def existing_representation(
+        self,
+        *,
+        version_id: UUID,
+        route: str,
+        converter_version: str,
+        blockizer_version: str,
+    ) -> UUID | None:
+        """Find a prior conversion of this version by the same toolchain (D65/D7).
+
+        A retried convert attempt replays the stored representation instead of
+        re-calling the converter and minting a second immutable reading.
+        """
+        with self._engine.connect() as connection:
+            return connection.execute(
+                _SELECT_EXISTING_REPRESENTATION,
+                {
+                    "version_id": version_id,
+                    "route": route,
+                    "converter_version": converter_version,
+                    "blockizer_version": blockizer_version,
+                },
+            ).scalar_one_or_none()
+
+    def mark_version_failed(self, *, version_id: UUID, error: str) -> None:
+        """Record a permanent conversion failure on the version's own status.
+
+        A dead-lettered convert must not leave the document looking in-flight
+        forever; a version that already reached ``ready`` is never demoted.
+        """
+        with self._engine.begin() as connection:
+            connection.execute(
+                _MARK_VERSION_FAILED, {"version_id": version_id, "error": error}
+            )
+
     def record_representation(self, *, record: RepresentationRecord) -> None:
         """Insert one immutable conversion output and advance the version (D65).
 
@@ -152,7 +187,11 @@ class DocumentCatalog:
         Inserts the full-span root section, marks the representation ready,
         swaps the version's live-reading pointer, and moves the lineage's
         current-version pointer — so currency flips only when the chain is
-        whole. Every statement is idempotent for a retried attempt.
+        whole. The walking skeleton's chain ends at structure; when the E1/E2
+        stages land, this flip moves with the chain's end (D54's rule is
+        "after conversion→E1→E2 completes"). Every statement is idempotent for
+        a retried attempt, and the pointer swap never overwrites a different
+        live representation.
         """
         with self._engine.begin() as connection:
             connection.execute(
@@ -163,8 +202,9 @@ class DocumentCatalog:
                     "doc_id": record.doc_id,
                     "version_id": record.version_id,
                     "representation_id": record.representation_id,
-                    # an empty document keeps a zero-width root span (D39):
-                    "block_end": max(record.block_count - 1, 0),
+                    # an empty document yields the empty range 0..-1 on the
+                    # inclusive block grid (D57) and a zero-width char span:
+                    "block_end": record.block_count - 1,
                     "char_end": record.markdown_chars,
                     "title": record.title,
                     "structurer_version": record.structurer_version,
@@ -353,6 +393,29 @@ _MARK_VERSION_READY = text(
     UPDATE document_versions
     SET current_representation_id = :representation_id, status = 'ready'
     WHERE version_id = :version_id
+      AND (current_representation_id IS NULL
+           OR current_representation_id = :representation_id)
+    """
+)
+
+_MARK_VERSION_FAILED = text(
+    """
+    UPDATE document_versions
+    SET status = 'failed', error = :error
+    WHERE version_id = :version_id AND status <> 'ready'
+    """
+)
+
+_SELECT_EXISTING_REPRESENTATION = text(
+    """
+    SELECT representation_id FROM document_representations
+    WHERE version_id = :version_id
+      AND route = :route
+      AND converter_version = :converter_version
+      AND blockizer_version = :blockizer_version
+      AND status IN ('structuring', 'ready')
+    ORDER BY created_at
+    LIMIT 1
     """
 )
 
