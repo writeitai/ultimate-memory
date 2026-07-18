@@ -5,6 +5,7 @@ from typing import runtime_checkable
 
 from ultimate_memory.model import P1ChunkRow
 from ultimate_memory.model import P1ClaimRow
+from ultimate_memory.model import P1EntityRow
 from ultimate_memory.model import P1FactRow
 
 
@@ -54,4 +55,19 @@ class P1SearchPort(Protocol):
         self, *, deployment_id: str, vector: tuple[float, ...], k: int, kind: str | None
     ) -> tuple[str, ...]:
         """Ranked fact-id nominations from the facts channel."""
+        ...
+
+
+@runtime_checkable
+class EntityIndexPort(Protocol):
+    """The T3 profile-embedding home: entity vectors in P1 (D8/D17)."""
+
+    def upsert_entities(self, *, rows: tuple[P1EntityRow, ...]) -> None:
+        """Insert or replace entity profiles by entity_id; idempotent."""
+        ...
+
+    def entity_vectors(
+        self, *, deployment_id: str, entity_ids: tuple[str, ...]
+    ) -> dict[str, tuple[float, ...]]:
+        """Profile vectors for the requested ids (absent ids are omitted)."""
         ...

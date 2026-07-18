@@ -29,13 +29,16 @@ from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocumentUpload
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import ResolverConfig
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.spine import CascadeResolver
 from ultimate_memory.spine import ChunkCatalog
 from ultimate_memory.spine import ClaimCatalog
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import RESOLVER_VERSION
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
@@ -235,6 +238,15 @@ class _ApiRig:
                 claim_catalog=claim_catalog,
                 chunk_catalog=chunk_catalog,
                 registry=EntityRegistry(engine=engine),
+                resolver=CascadeResolver(
+                    engine=engine,
+                    entity_index=self.lance,
+                    model_provider=self.provider,
+                    config=ResolverConfig(resolver_version=RESOLVER_VERSION),
+                    embedding_model="qwen/qwen3-embedding-8b",
+                    small_model="openai/gpt-5.6-luna",
+                    frontier_model="openai/gpt-5.6-sol",
+                ),
                 facts=FactCatalog(engine=engine),
                 model_provider=self.provider,
                 settings=E3Settings(),

@@ -29,6 +29,7 @@ from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
@@ -73,6 +74,7 @@ class NormalizeRelationsHandler:
         claim_catalog: ClaimCatalog,
         chunk_catalog: ChunkCatalog,
         registry: EntityRegistry,
+        resolver: CascadeResolver,
         facts: FactCatalog,
         model_provider: ModelProviderPort,
         settings: E3Settings,
@@ -82,6 +84,7 @@ class NormalizeRelationsHandler:
         self._claim_catalog = claim_catalog
         self._chunk_catalog = chunk_catalog
         self._registry = registry
+        self._resolver = resolver
         self._facts = facts
         self._model_provider = model_provider
         self._settings = settings
@@ -185,10 +188,10 @@ class NormalizeRelationsHandler:
                     claim.claim_id,
                 )
                 continue
-            subject = self._registry.resolve_t0(
+            subject = self._resolver.resolve(
                 deployment_id=deployment_id, reference=relation.subject, claim=claim
             )
-            object_ = self._registry.resolve_t0(
+            object_ = self._resolver.resolve(
                 deployment_id=deployment_id, reference=relation.object, claim=claim
             )
             if not _signature_allows(
@@ -219,7 +222,7 @@ class NormalizeRelationsHandler:
                 normalizer_version=E3_NORMALIZER_VERSION,
             )
         for observation in response.observations:
-            subject = self._registry.resolve_t0(
+            subject = self._resolver.resolve(
                 deployment_id=deployment_id, reference=observation.subject, claim=claim
             )
             self._facts.upsert_observation(

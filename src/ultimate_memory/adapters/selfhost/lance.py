@@ -7,11 +7,13 @@ import lancedb
 
 from ultimate_memory.model import P1ChunkRow
 from ultimate_memory.model import P1ClaimRow
+from ultimate_memory.model import P1EntityRow
 from ultimate_memory.model import P1FactRow
 
 _CHUNK_TABLE = "chunks"
 _CLAIM_TABLE = "claims"
 _FACT_TABLE = "facts"
+_ENTITY_TABLE = "entities"
 
 
 class LanceChunkIndex:
@@ -123,6 +125,40 @@ class LanceChunkIndex:
             .limit(k)
         )
         return tuple(row["fact_id"] for row in query.to_list())
+
+    def upsert_entities(self, *, rows: tuple[P1EntityRow, ...]) -> None:
+        """Insert or replace entity-profile rows by entity_id; idempotent."""
+        self._upsert(
+            table=_ENTITY_TABLE,
+            key="entity_id",
+            payload=[
+                {
+                    "entity_id": str(row.entity_id),
+                    "deployment_id": str(row.deployment_id),
+                    "type": row.type,
+                    "canonical_name": row.canonical_name,
+                    "vector": list(row.vector),
+                }
+                for row in rows
+            ],
+        )
+
+    def entity_vectors(
+        self, *, deployment_id: str, entity_ids: tuple[str, ...]
+    ) -> dict[str, tuple[float, ...]]:
+        """Profile vectors for the requested ids (absent ids are omitted)."""
+        deployment_id = str(UUID(deployment_id))
+        if not entity_ids or _ENTITY_TABLE not in self._connection.table_names():
+            return {}
+        ids = ", ".join(f"'{UUID(item)}'" for item in entity_ids)
+        rows = (
+            self._connection.open_table(_ENTITY_TABLE)
+            .search()
+            .where(f"deployment_id = '{deployment_id}' AND entity_id IN ({ids})")
+            .limit(len(entity_ids))
+            .to_list()
+        )
+        return {row["entity_id"]: tuple(row["vector"]) for row in rows}
 
     def table_count(self, *, table: str) -> int:
         """Total rows in one P1 table (0 before its first write)."""
