@@ -21,8 +21,10 @@ from ultimate_memory.model import HandlerAlreadyRegisteredError
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import QueueRoute
 from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import UnknownStageHandlerError
+from ultimate_memory.ports.queue import TaskQueuePort
 from ultimate_memory.spine.work_ledger import WorkLedger
 
 _logger = logging.getLogger(__name__)
@@ -84,10 +86,21 @@ class HandlerRegistry:
 class Worker:
     """Claims due work on one route and runs its handler behind one error boundary."""
 
-    def __init__(self, *, ledger: WorkLedger, registry: HandlerRegistry) -> None:
-        """Bind the runner to its ledger and its handler registry."""
+    def __init__(
+        self,
+        *,
+        ledger: WorkLedger,
+        registry: HandlerRegistry,
+        queue: TaskQueuePort | None = None,
+    ) -> None:
+        """Bind the runner to its ledger, handler registry, and optional queue port.
+
+        When a queue port is provided, scheduled retries are re-announced
+        through it (packaging §3: retry paths call the port in both profiles).
+        """
         self._ledger = ledger
         self._registry = registry
+        self._queue = queue
 
     def run_one(
         self, *, deployment_id: UUID, stage: PipelineStage, lane: ProcessingLane | None
@@ -99,12 +112,13 @@ class Worker:
         `NonRetryableHandlerError` dead-letters immediately, anything else
         retries with backoff until the attempt limit dead-letters it.
         """
+        handler = self._registry.handler_for(stage=stage)  # before any claim:
+        # an unregistered stage must never strand a claimed row as running.
         claimed = self._ledger.claim_one(
             deployment_id=deployment_id, stage=stage, lane=lane
         )
         if claimed is None:
             return RunResult(processing_id=None, outcome=RunResultOutcome.NO_WORK)
-        handler = self._registry.handler_for(stage=claimed.stage)
         try:
             outcome = handler.handle(work=claimed)
         except NonRetryableHandlerError:
@@ -128,15 +142,23 @@ class Worker:
                 claimed.stage,
                 claimed.processing_id,
             )
-            retry_scheduled = self._ledger.fail(
+            retry_at = self._ledger.fail(
                 processing_id=claimed.processing_id,
                 error=traceback.format_exc(),
                 retryable=True,
             )
+            if retry_at is not None and self._queue is not None:
+                self._queue.announce(
+                    processing_id=claimed.processing_id,
+                    route_snapshot=QueueRoute(
+                        deployment_id=deployment_id, stage=stage, lane=lane
+                    ),
+                    not_before_snapshot=retry_at,
+                )
             return RunResult(
                 processing_id=claimed.processing_id,
                 outcome=RunResultOutcome.RETRY_SCHEDULED
-                if retry_scheduled
+                if retry_at is not None
                 else RunResultOutcome.DEAD_LETTERED,
             )
         self._ledger.complete(

@@ -115,13 +115,17 @@ class WorkLedger:
                 _enqueue_on(connection=connection, work=work) for work in follow_up
             )
 
-    def fail(self, *, processing_id: UUID, error: str, retryable: bool) -> bool:
+    def fail(
+        self, *, processing_id: UUID, error: str, retryable: bool
+    ) -> datetime | None:
         """Record a failed attempt with its full traceback; never bury it (core value 6).
 
         A retryable failure with attempts remaining schedules a retry backoff
         (status failed, defer_reason retry_backoff, not_before in the future) and
-        returns True. A failure at the attempt limit, or a non-retryable one,
-        dead-letters the row and returns False.
+        returns the scheduled time — the caller re-announces it through the
+        queue port (packaging §3: retry paths call the port in both profiles). A
+        failure at the attempt limit, or a non-retryable one, dead-letters the
+        row and returns None.
         """
         with self._engine.begin() as connection:
             row = (
@@ -143,19 +147,19 @@ class WorkLedger:
                     self._settings.retry_backoff_base_s * 2 ** (attempts - 1),
                     self._settings.retry_backoff_max_s,
                 )
-                connection.execute(
+                scheduled = connection.execute(
                     _FAIL_RETRY,
                     {
                         "processing_id": processing_id,
                         "error": error,
                         "backoff_s": backoff_s,
                     },
-                )
-                return True
+                ).scalar_one()
+                return scheduled
             connection.execute(
                 _FAIL_DEAD_LETTER, {"processing_id": processing_id, "error": error}
             )
-            return False
+            return None
 
     def park_for_budget(self, *, processing_id: UUID, resume_at: datetime) -> None:
         """Park healthy pending work until its budget window rolls (D67).
@@ -298,6 +302,10 @@ def _enqueue_on(*, connection: Connection, work: EnqueueWork) -> EnqueueOutcome:
             ).rowcount
             == 1
         )
+        if promoted:
+            # Promotion re-routes live work: wake steady listeners on commit
+            # (a backfill row parked under the backfill budget also became due).
+            connection.execute(_WAKE, {"processing_id": str(existing["processing_id"])})
     return EnqueueOutcome(
         processing_id=existing["processing_id"],
         created=False,
@@ -352,7 +360,11 @@ _SELECT_EXISTING = text(
 _PROMOTE_TO_STEADY = text(
     """
     UPDATE processing_state
-    SET lane = 'steady'
+    SET lane = 'steady',
+        defer_reason = CASE WHEN defer_reason = 'budget' THEN NULL
+                            ELSE defer_reason END,
+        not_before = CASE WHEN defer_reason = 'budget' THEN now()
+                          ELSE not_before END
     WHERE processing_id = :processing_id
       AND lane = 'backfill'
       AND status IN ('pending', 'failed')
@@ -413,6 +425,7 @@ _FAIL_RETRY = text(
         not_before = now() + make_interval(secs => :backoff_s),
         last_error = :error
     WHERE processing_id = :processing_id
+    RETURNING not_before
     """
 )
 

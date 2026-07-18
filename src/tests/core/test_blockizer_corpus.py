@@ -55,3 +55,25 @@ def test_edit_changes_exactly_the_edited_block() -> None:
     assert before[0] == after[0]
     assert before[1] != after[1]
     assert before[2] == after[2]
+
+
+def test_crlf_and_lf_documents_hash_identically() -> None:
+    """Codex review 6: line-ending style never changes identity or leaves residue."""
+    lf = "# Title\n\nBody line one\nline two.\n"
+    crlf = lf.replace("\n", "\r\n")
+    lf_blocks = blockize(document_md=lf)
+    crlf_blocks = blockize(document_md=crlf)
+    assert [b.block_hash for b in lf_blocks] == [b.block_hash for b in crlf_blocks]
+    for block in crlf_blocks:
+        assert not crlf[block.char_start : block.char_end].endswith("\r")
+
+
+def test_nested_list_items_stay_inside_their_parent_block() -> None:
+    """Locked choice (Codex review 5 overruled): top-level items are atomic —
+    emitting nested items separately would create overlapping spans, and chunks
+    require non-overlapping whole-block runs (e1 §4). Content is preserved."""
+    source = "- parent item\n  - nested child\n- sibling\n"
+    blocks = blockize(document_md=source)
+    assert [block.type.value for block in blocks] == ["list_item", "list_item"]
+    parent_raw = source[blocks[0].char_start : blocks[0].char_end]
+    assert "nested child" in parent_raw

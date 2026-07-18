@@ -92,9 +92,12 @@ def _emit(
 ) -> tuple[int, Block | None]:
     """Emit at most one block starting at tokens[index]; return tokens consumed.
 
-    List containers recurse into their items (each list item is one atomic
-    block); other containers and leaves map directly. Unknown structural tokens
-    are skipped one at a time — the golden corpus locks the observable result.
+    List containers recurse into their items; each top-level list item is one
+    atomic block whose span includes any nested sub-list (deliberate: emitting
+    nested items separately would create overlapping spans, and chunks require
+    non-overlapping whole-block runs — e1 §4). Other containers and leaves map
+    directly. Unknown structural tokens are skipped one at a time — the golden
+    corpus locks the observable result.
     """
     token = tokens[index]
     if token.type in _LIST_OPENERS:
@@ -176,7 +179,7 @@ def _block_from_lines(
     start_line, end_line = token.map
     char_start = line_offsets[start_line]
     char_end = line_offsets[end_line]
-    raw = document_md[char_start:char_end].rstrip("\n")
+    raw = document_md[char_start:char_end].rstrip("\r\n")
     return Block(
         ordinal=ordinal,
         type=block_type,
