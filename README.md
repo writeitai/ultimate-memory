@@ -7,7 +7,7 @@
 | src/ultimate\_memory/\_\_init\_\_.py                                                             |        6 |        2 |        0 |        0 |     66.7% |     12-13 |
 | src/ultimate\_memory/adapters/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/core/\_\_init\_\_.py                                                        |        6 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/core/core\_manifest.py                                                      |       27 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/core/core\_manifest.py                                                      |       40 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       28 |        0 |        0 |        0 |    100.0% |           |
@@ -30,7 +30,7 @@
 | src/ultimate\_memory/ports/telemetry.py                                                          |        7 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/profiles/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/\_\_init\_\_.py                                                       |        3 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/spine/catalog\_contract.py                                                  |      132 |       19 |       60 |       20 |     79.7% |355, 374, 402, 415, 455, 468, 483, 505, 520, 531, 541, 551, 605-\>617, 639, 641, 643, 645, 647, 649, 698 |
+| src/ultimate\_memory/spine/catalog\_contract.py                                                  |      136 |       19 |       60 |       20 |     80.1% |381, 400, 428, 441, 481, 494, 509, 531, 546, 557, 567, 577, 631-\>643, 665, 667, 669, 671, 673, 675, 724 |
 | src/ultimate\_memory/spine/component\_versions.py                                                |       56 |        3 |       12 |        3 |     91.2% |102, 119, 187 |
 | src/ultimate\_memory/spine/deployment\_bootstrap.py                                              |       88 |        0 |       16 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/migrations/\_\_init\_\_.py                                            |        0 |        0 |        0 |        0 |    100.0% |           |
@@ -46,7 +46,7 @@
 | src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |        0 |        0 |        0 |        0 |    100.0% |           |
-| **TOTAL**                                                                                        |  **849** |   **38** |  **178** |   **31** | **93.1%** |           |
+| **TOTAL**                                                                                        |  **866** |   **38** |  **180** |   **31** | **93.2%** |           |
 
 
 ## Setup coverage badge
