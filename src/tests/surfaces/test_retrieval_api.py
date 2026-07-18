@@ -401,3 +401,75 @@ def test_search_claims_is_evidence_grain_with_drop_count_honesty(rig: _ApiRig) -
     ).json()
     assert len(second["evidence"]) == 1
     assert second["dropped_by_hydration"] == 1  # the honest denominator
+
+
+def test_expired_valid_window_is_not_a_current_fact(rig: _ApiRig) -> None:
+    """Codex review: current means BOTH clocks — a relation whose valid-time
+    window closed is never served by the current-fact lookup."""
+    alice = rig.client.get("/resolve", params={"name": "Alice Novak"}).json()[
+        "entities"
+    ][0]
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE relations SET valid_from = '2020-01-01+00',"
+                " valid_until = '2021-01-01+00'"
+            )
+        )
+    answer = rig.client.get(
+        "/lookup/relations", params={"subject_entity_id": alice["entity_id"]}
+    ).json()
+    assert answer["facts"] == []
+    assert answer["negative"]["kind"] == "known_empty"
+
+
+def test_resolve_follows_merge_redirects_to_the_survivor(rig: _ApiRig) -> None:
+    """Codex review / S60: an alias on a merged entity resolves to the
+    survivor — current identities, never a dead end."""
+    from uuid import uuid4 as _uuid4
+
+    alice = rig.client.get("/resolve", params={"name": "Alice Novak"}).json()[
+        "entities"
+    ][0]
+    merged = _uuid4()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO entities (entity_id, deployment_id, type,"
+                " canonical_name, normalized_name, status, merged_into)"
+                " VALUES (:e, :d, 'Person', 'A. Novak', 'a. novak', 'merged', :m)"
+            ),
+            {"e": merged, "d": _DEPLOYMENT_ID, "m": alice["entity_id"]},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO aliases (alias_id, deployment_id, entity_id,"
+                " alias_text, normalized_lemma, provenance)"
+                " VALUES (:a, :d, :e, 'A. Novak', 'a. novak', 'llm_canonical')"
+            ),
+            {"a": _uuid4(), "d": _DEPLOYMENT_ID, "e": merged},
+        )
+    resolved = rig.client.get("/resolve", params={"name": "A. Novak"}).json()
+    (candidate,) = resolved["entities"]
+    assert candidate["entity_id"] == alice["entity_id"]  # the survivor
+
+
+def test_hydrate_discloses_invalidation_instead_of_hiding_history(rig: _ApiRig) -> None:
+    """Hydrate-by-ID is the audit hop: an invalidated relation returns with
+    its invalidation disclosed in validity — never refused, never current."""
+    alice = rig.client.get("/resolve", params={"name": "Alice Novak"}).json()[
+        "entities"
+    ][0]
+    relation = rig.client.get(
+        "/lookup/relations", params={"subject_entity_id": alice["entity_id"]}
+    ).json()["facts"][0]
+    with rig.engine.begin() as connection:
+        connection.execute(text("UPDATE relations SET invalidated_at = now()"))
+
+    hydrated = rig.client.get(f"/hydrate/relation/{relation['fact_id']}").json()
+    assert hydrated["facts"][0]["validity"]["invalidated_at"] is not None
+    # and the current-fact lookup no longer serves it:
+    current = rig.client.get(
+        "/lookup/relations", params={"subject_entity_id": alice["entity_id"]}
+    ).json()
+    assert current["facts"] == []

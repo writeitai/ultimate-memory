@@ -1,6 +1,7 @@
 """The embedded-LanceDB P1 chunk index: one table of text + vectors (D8)."""
 
 from pathlib import Path
+from uuid import UUID
 
 import lancedb
 
@@ -89,6 +90,7 @@ class LanceChunkIndex:
         The DEFAULT claims channel filters to current testimony via the
         stored scalar (retrieval §5); hydration against the spine confirms.
         """
+        deployment_id = str(UUID(deployment_id))  # refuse filter injection
         if _CLAIM_TABLE not in self._connection.table_names():
             return ()
         query = (
@@ -106,6 +108,9 @@ class LanceChunkIndex:
         self, *, deployment_id: str, vector: tuple[float, ...], k: int, kind: str | None
     ) -> tuple[str, ...]:
         """Nominate fact ids (relations/observations) by label similarity."""
+        deployment_id = str(UUID(deployment_id))  # refuse filter injection
+        if kind is not None and kind not in ("relation", "observation"):
+            raise ValueError(f"unknown facts-channel kind {kind!r}")
         if _FACT_TABLE not in self._connection.table_names():
             return ()
         where = f"deployment_id = '{deployment_id}'"

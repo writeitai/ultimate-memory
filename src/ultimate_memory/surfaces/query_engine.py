@@ -103,10 +103,11 @@ class QueryEngine:
         predicate: str | None = None,
         object_entity_id: UUID | None = None,
     ) -> Envelope:
-        """Live relations matching the (s, p, o) pattern — fact grain (S1/S3).
+        """CURRENT relations matching the (s, p, o) pattern — fact grain (S1/S3).
 
-        An existing entity with no matching live facts is `known_empty`: the
-        absence is trustworthy within the stated freshness (S39).
+        Current means both clocks: still believed (no invalidation) AND the
+        valid-time window covers now. An existing entity with no matching
+        live facts is `known_empty` (S39).
         """
         with self._engine.connect() as connection:
             rows = (
@@ -224,8 +225,13 @@ class QueryEngine:
     def hydrate_relation(self, *, deployment_id: UUID, relation_id: UUID) -> Envelope:
         """The S5 chain: relation → evidence claims → source documents.
 
-        Composite grain: the fact, its evidence-grain claims (verbatim spans
-        and offsets), and the ID-addressed document handles.
+        Composite grain: the fact, its supporting evidence-grain claims
+        (verbatim spans and offsets against the representation they were cut
+        from), and the ID-addressed document handles. Hydrate-by-ID is the
+        AUDIT deepening hop: an invalidated relation is returned with its
+        invalidation disclosed in `validity` (D48 re-reads and discloses —
+        it does not refuse audit access); current-fact questions route
+        through lookup, which filters both clocks.
         """
         with self._engine.connect() as connection:
             relation = (
@@ -347,14 +353,28 @@ def _fact_result(*, row, kind: str) -> FactResult:  # noqa: ANN001
 
 _RESOLVE_T0 = text(
     """
-    SELECT DISTINCT entities.entity_id, entities.canonical_name, entities.type
-    FROM aliases
-    JOIN entities ON entities.deployment_id = aliases.deployment_id
-                 AND entities.entity_id = aliases.entity_id
-    WHERE aliases.deployment_id = :deployment_id
-      AND aliases.normalized_lemma = :lemma
-      AND entities.status = 'active'
-      AND (CAST(:entity_type AS text) IS NULL OR entities.type = :entity_type)
+    WITH RECURSIVE matched AS (
+        SELECT entities.entity_id, entities.canonical_name, entities.type,
+               entities.status, entities.merged_into
+        FROM aliases
+        JOIN entities ON entities.deployment_id = aliases.deployment_id
+                     AND entities.entity_id = aliases.entity_id
+        WHERE aliases.deployment_id = :deployment_id
+          AND aliases.normalized_lemma = :lemma
+        UNION
+        -- follow merge redirects to the survivor (S60: resolve returns
+        -- CURRENT identities; the redirect chain is walked, never dead-ended)
+        SELECT survivor.entity_id, survivor.canonical_name, survivor.type,
+               survivor.status, survivor.merged_into
+        FROM matched
+        JOIN entities survivor ON survivor.deployment_id = :deployment_id
+                              AND survivor.entity_id = matched.merged_into
+        WHERE matched.status = 'merged'
+    )
+    SELECT DISTINCT entity_id, canonical_name, type
+    FROM matched
+    WHERE status = 'active'
+      AND (CAST(:entity_type AS text) IS NULL OR type = :entity_type)
     """
 )
 
@@ -366,6 +386,8 @@ _LOOKUP_RELATIONS = text(
     FROM relations
     WHERE deployment_id = :deployment_id
       AND invalidated_at IS NULL
+      AND (valid_from IS NULL OR valid_from <= now())
+      AND (valid_until IS NULL OR valid_until > now())
       AND (CAST(:subject_entity_id AS uuid) IS NULL
            OR subject_entity_id = :subject_entity_id)
       AND (CAST(:predicate AS text) IS NULL OR predicate = :predicate)
@@ -383,6 +405,8 @@ _LOOKUP_OBSERVATIONS = text(
     WHERE deployment_id = :deployment_id
       AND subject_entity_id = :entity_id
       AND invalidated_at IS NULL
+      AND (valid_from IS NULL OR valid_from <= now())
+      AND (valid_until IS NULL OR valid_until > now())
     ORDER BY evidence_count DESC, ingested_at
     """
 )
@@ -396,6 +420,8 @@ _CONFIRM_OBSERVATIONS = text(
       AND subject_entity_id = :entity_id
       AND observation_id = ANY(:observation_ids)
       AND invalidated_at IS NULL
+      AND (valid_from IS NULL OR valid_from <= now())
+      AND (valid_until IS NULL OR valid_until > now())
     """
 )
 
@@ -435,10 +461,12 @@ _HYDRATE_SOURCES = text(
     """
     SELECT DISTINCT d.doc_id, d.title, d.source_kind, r.markdown_uri
     FROM relation_evidence e
+    JOIN claims c ON c.claim_id = e.claim_id
+    JOIN chunks ch ON ch.chunk_id = c.chunk_id
     JOIN documents d ON d.doc_id = e.doc_id
-    LEFT JOIN document_versions v ON v.version_id = d.current_version_id
     LEFT JOIN document_representations r
-           ON r.representation_id = v.current_representation_id
+           ON r.representation_id = ch.representation_id
     WHERE e.relation_id = :relation_id
+      AND e.stance = 'supports'
     """
 )
