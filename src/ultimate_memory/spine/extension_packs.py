@@ -20,10 +20,15 @@ class PackAnchorError(Exception):
     """A pack type's parent is not registered — extend-never-fork refused it."""
 
 
+class PackConflictError(Exception):
+    """A pack name collides with an existing, differently-defined registry row."""
+
+
 def install_pack(*, engine: Engine, deployment_id: UUID, pack: ExtensionPack) -> None:
     """Enable one pack for one deployment in a single transaction."""
     with engine.begin() as connection:
         _require_anchors(connection=connection, deployment_id=deployment_id, pack=pack)
+        _refuse_conflicts(connection=connection, deployment_id=deployment_id, pack=pack)
         connection.execute(
             _UPSERT_PACK,
             {
@@ -74,19 +79,25 @@ def install_pack(*, engine: Engine, deployment_id: UUID, pack: ExtensionPack) ->
 def _require_anchors(
     *, connection: Connection, deployment_id: UUID, pack: ExtensionPack
 ) -> None:
-    """Refuse the whole pack if any parent anchor is unregistered (D15)."""
+    """Refuse the whole pack if any anchor is not ALREADY registered (D15).
+
+    Extend-never-fork means every pack type declares a parent that exists in
+    the deployment registry BEFORE the pack installs — a pack-local chain
+    (Child anchored to another type from the same pack) is refused too
+    (Codex review): the DDL's contract is a registered core-side parent.
+    Signatures may reference pack types (they install together).
+    """
     pack_types = {entity_type.type for entity_type in pack.entity_types}
     registered = {
         row[0]
         for row in connection.execute(_SELECT_TYPES, {"deployment_id": deployment_id})
     }
-    known = registered | pack_types
     for entity_type in pack.entity_types:
-        if entity_type.parent_type not in known:
+        if entity_type.parent_type not in registered:
             raise PackAnchorError(
                 f"pack {pack.pack_id!r} type {entity_type.type!r} anchors to "
-                f"unregistered parent {entity_type.parent_type!r} "
-                "(extend-never-fork, D15)"
+                f"{entity_type.parent_type!r}, which is not already registered "
+                "(extend-never-fork, D15: pack-local anchors are refused)"
             )
     signature_types = {
         entity_type
@@ -94,12 +105,48 @@ def _require_anchors(
         for pair in predicate.signatures
         for entity_type in pair
     }
-    unknown = signature_types - known
+    unknown = signature_types - (registered | pack_types)
     if unknown:
         raise PackAnchorError(
             f"pack {pack.pack_id!r} signatures reference unregistered "
             f"types {sorted(unknown)!r}"
         )
+
+
+def _refuse_conflicts(
+    *, connection: Connection, deployment_id: UUID, pack: ExtensionPack
+) -> None:
+    """Unit installation (Codex review): an existing row under a pack name
+    must BE this pack's row (same pack_id and parent) — anything else fails
+    the whole install rather than silently blending registries."""
+    type_rows = {
+        row[0]: (row[1], row[2])
+        for row in connection.execute(
+            _SELECT_TYPE_DEFS, {"deployment_id": deployment_id}
+        )
+    }
+    for entity_type in pack.entity_types:
+        existing = type_rows.get(entity_type.type)
+        if existing is not None and existing != (entity_type.parent_type, pack.pack_id):
+            raise PackConflictError(
+                f"type {entity_type.type!r} already registered with "
+                f"(parent, pack) = {existing!r}; pack {pack.pack_id!r} "
+                "cannot install over it"
+            )
+    predicate_rows = {
+        row[0]: row[1]
+        for row in connection.execute(
+            _SELECT_PREDICATE_DEFS, {"deployment_id": deployment_id}
+        )
+    }
+    for predicate in pack.predicates:
+        existing_pack = predicate_rows.get(predicate.predicate)
+        if existing_pack is not None and existing_pack != pack.pack_id:
+            raise PackConflictError(
+                f"predicate {predicate.predicate!r} already registered by "
+                f"pack {existing_pack!r}; pack {pack.pack_id!r} cannot "
+                "install over it"
+            )
 
 
 _SELECT_TYPES = text(
@@ -155,5 +202,19 @@ _INSERT_SIGNATURE = text(
         :deployment_id, :predicate, :subject_type, :object_type
     )
     ON CONFLICT (deployment_id, predicate, subject_type, object_type) DO NOTHING
+    """
+)
+
+_SELECT_TYPE_DEFS = text(
+    """
+    SELECT type, parent_type, pack_id FROM entity_types
+    WHERE deployment_id = :deployment_id
+    """
+)
+
+_SELECT_PREDICATE_DEFS = text(
+    """
+    SELECT predicate, pack_id FROM predicates
+    WHERE deployment_id = :deployment_id
     """
 )

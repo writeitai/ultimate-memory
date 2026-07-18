@@ -25,6 +25,7 @@ from ultimate_memory.model.claims import DecisionType
 from ultimate_memory.model.claims import FactForLabeling
 from ultimate_memory.model.claims import FactLabelResponse
 from ultimate_memory.model.claims import ObservationForEmbedding
+from ultimate_memory.model.claims import OtherPredicateGrammarError
 from ultimate_memory.model.claims import SelectionCandidate
 from ultimate_memory.model.claims import SelectionResponse
 from ultimate_memory.model.claims import SelectionVerdict
@@ -180,6 +181,7 @@ __all__ = (
     "ObjectKeyEscapesRootError",
     "ObservationCandidate",
     "ObservationForEmbedding",
+    "OtherPredicateGrammarError",
     "P1ChunkRow",
     "P1ClaimRow",
     "P1EntityRow",

@@ -156,3 +156,7 @@ class FactLabelResponse(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     label: _NonEmpty
+
+
+class OtherPredicateGrammarError(Exception):
+    """An other:<freetext> escape value violating the D5 grammar."""

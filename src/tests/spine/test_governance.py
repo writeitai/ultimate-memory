@@ -18,10 +18,12 @@ from ultimate_memory.core import ExtensionPack
 from ultimate_memory.core import PackEntityType
 from ultimate_memory.core import WORK_PACK
 from ultimate_memory.model import DeploymentBootstrapInput
+from ultimate_memory.model import OtherPredicateGrammarError
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import FactCatalog
 from ultimate_memory.spine import install_pack
 from ultimate_memory.spine import PackAnchorError
+from ultimate_memory.spine import PackConflictError
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.workers.e3 import _signature_allows
 
@@ -215,3 +217,69 @@ def test_other_funnel_registers_counts_and_ranks(database_engine: Engine) -> Non
     prompt = facts.predicate_prompt_lines(deployment_id=_DEPLOYMENT_ID)
     assert "other:sponsors" not in prompt
     assert "works_for" in prompt
+
+
+def test_pack_local_anchors_are_refused(database_engine: Engine) -> None:
+    """Codex review: an anchor must be ALREADY registered — a pack-local
+    chain (Child anchored to another type from the same pack) is refused."""
+    chained = ExtensionPack(
+        pack_id="chained",
+        name="Chained",
+        description="a pack whose type anchors to a sibling pack type",
+        entity_types=(
+            PackEntityType(type="Milestone", parent_type="Event", description="fine"),
+            PackEntityType(
+                type="SubMilestone",
+                parent_type="Milestone",  # pack-local: refused
+                description="chained",
+            ),
+        ),
+    )
+    with pytest.raises(PackAnchorError):
+        install_pack(engine=database_engine, deployment_id=_DEPLOYMENT_ID, pack=chained)
+
+
+def test_conflicting_existing_row_fails_the_whole_install(
+    database_engine: Engine,
+) -> None:
+    """Codex review: an existing, differently-defined row under a pack name
+    fails the WHOLE install — registries never silently blend."""
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO entity_types (deployment_id, type, parent_type,"
+                " description, tier)"
+                " VALUES (:d, 'Task', 'Concept', 'a pre-existing Task', 'extension')"
+            ),
+            {"d": _DEPLOYMENT_ID},
+        )
+    with pytest.raises(PackConflictError):
+        install_pack(
+            engine=database_engine, deployment_id=_DEPLOYMENT_ID, pack=WORK_PACK
+        )
+    with database_engine.connect() as connection:
+        enabled = connection.execute(
+            text(
+                "SELECT count(*) FROM deployment_extension_packs"
+                " WHERE deployment_id = :d"
+            ),
+            {"d": _DEPLOYMENT_ID},
+        ).scalar_one()
+        goal = connection.execute(
+            text(
+                "SELECT count(*) FROM entity_types"
+                " WHERE deployment_id = :d AND type = 'Goal'"
+            ),
+            {"d": _DEPLOYMENT_ID},
+        ).scalar_one()
+    assert enabled == 0  # nothing installed, not even the clean rows
+    assert goal == 0
+
+
+def test_other_grammar_is_enforced_at_the_spine(database_engine: Engine) -> None:
+    """Codex review: the grammar gate lives in the spine authority — invalid
+    values are refused regardless of caller."""
+    facts = FactCatalog(engine=database_engine)
+    for bad in ("garbage", "other:Bad-Name", "other:", "other:UPPER"):
+        with pytest.raises(OtherPredicateGrammarError):
+            facts.ensure_other_predicate(deployment_id=_DEPLOYMENT_ID, predicate=bad)

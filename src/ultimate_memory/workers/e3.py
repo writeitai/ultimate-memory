@@ -10,7 +10,6 @@ lineage-distinct evidence counts.
 """
 
 import logging
-import re
 from typing import Final
 from uuid import UUID
 
@@ -30,6 +29,7 @@ from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.fact_catalog import OTHER_PREDICATE_GRAMMAR
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
@@ -37,8 +37,8 @@ from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 
 _logger = logging.getLogger(__name__)
 
-_OTHER_PREDICATE: Final = re.compile(r"other:[a-z][a-z0-9_]{1,40}")
-"""The escape-value grammar (D5): short snake_case behind the other: prefix."""
+_OTHER_PREDICATE: Final = OTHER_PREDICATE_GRAMMAR
+"""The escape-value routing check (the spine re-validates authoritatively)."""
 
 E3_NORMALIZER_VERSION: Final = "e3-normalize-2026.07"
 """The normalize sub-worker's component version (D12 idempotency member)."""

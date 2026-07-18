@@ -8,6 +8,8 @@ versions, and within-document repetition never inflate it (D54).
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+import re
+from typing import Final
 from uuid import UUID
 from uuid import uuid4
 
@@ -18,6 +20,10 @@ from sqlalchemy.engine import Engine
 
 from ultimate_memory.model import FactForLabeling
 from ultimate_memory.model import ObservationForEmbedding
+from ultimate_memory.model import OtherPredicateGrammarError
+
+OTHER_PREDICATE_GRAMMAR: Final = re.compile(r"other:[a-z][a-z0-9_]{1,40}")
+"""The D5 escape-value grammar: short snake_case behind the other: prefix."""
 
 
 class FactCatalog:
@@ -243,10 +249,16 @@ class FactCatalog:
     def ensure_other_predicate(self, *, deployment_id: UUID, predicate: str) -> None:
         """Register one `other:<freetext>` escape value (tier=other, D5/D18).
 
-        The FK holds (the row exists before any relation uses it); the
-        permissive core parent `related_to` anchors it; usage_count ranks it
-        for the periodic promotion review (registries §7).
+        The grammar is enforced HERE, at the spine authority (Codex review) —
+        callers' routing regexes are conveniences, not the gate. The FK holds
+        (the row exists before any relation uses it); the permissive core
+        parent `related_to` anchors it; usage_count ranks it for the periodic
+        promotion review (registries §7).
         """
+        if not OTHER_PREDICATE_GRAMMAR.fullmatch(predicate):
+            raise OtherPredicateGrammarError(
+                f"{predicate!r} is not a valid other:<short_snake_case> value"
+            )
         with self._engine.begin() as connection:
             connection.execute(
                 _INSERT_OTHER_PREDICATE,
