@@ -18,7 +18,7 @@ runs an empty suite in CI; the blockizer golden corpus scaffold exists with ≥1
 |---|---|---|---|---|---|---|
 | WP-0.1 | Repo scaffolding per stack conventions (typing, lint, CI, layout) | roadmap §3; requirements §Code | gate: stack conventions | the repository skeleton | pyright + pytest green in CI | done |
 | WP-0.2 | Alembic migrations for the full structural schema (schema shape only; no deployment/core data) | postgres_schema_design (all §; §0 conventions and §2 post-head boundary) | WP-0.1 | structural migration chain | fresh-DB apply + downgrade; §16 decision→table map spot-check; head contains no deployment/core rows | done |
-| WP-0.3 | Tenancy + pipeline substrate: typed transactional `bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult`, `pipeline_component_versions`, `processing_state`, `cost_ledger`, DLQ semantics; the **handler registration model** (stage handlers, chain rule) | schema §§2–3; registries §4 exact core manifest; orchestration §1–2; D12, D52, D69; packaging §§3–5 | WP-0.2 | library-owned deployment bootstrap + worker base library (idempotency, retries, versions, cost metering) | after schema head, bootstrap maps typed profile inputs to one deployment + exactly 8 roots/16 predicates/116 signatures in one transaction; identical retry is a verified no-op; conflicting retry rolls back with a typed conflict; demo no-op worker: enqueue → run → state row → retry → dead-letter | planned |
+| WP-0.3 | Tenancy + pipeline substrate: typed transactional `bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult`, `pipeline_component_versions`, `processing_state`, `cost_ledger`, DLQ semantics; the **handler registration model** (stage handlers, chain rule) | schema §§2–3; registries §4 exact core manifest; orchestration §1–2; D12, D52, D69; packaging §§3–5 | WP-0.2 | library-owned deployment bootstrap + worker base library (idempotency, retries, versions, cost metering) | after schema head, bootstrap maps typed profile inputs to one deployment + exactly 8 roots/16 predicates/116 signatures in one transaction; identical retry is a verified no-op; conflicting retry rolls back with a typed conflict; demo no-op worker: enqueue → run → state row → retry → dead-letter | in-progress |
 | WP-0.4 | **The D61 port interfaces** (`ports/` Protocols: object store, task queue, mounts, git remote, model provider, telemetry, auth) + import-linter contracts in CI | packaging §3–4; D61, D62 | WP-0.1 | `ports/` + CI architecture checks | illegal import fails CI (proven by a deliberate violation) | done |
 | WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), MinIO/local-FS object store, local mount publisher, `adapters/testing` tier | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs on compose with zero GCP deps; transactional-enqueue crash test | planned |
 | WP-0.4b | **Reference adapters**: Cloud Tasks push shell + dispatch server, GCS store, gcsfuse publisher; **the janitor sweep** (shared, port-agnostic) | packaging §3; orchestration §2–3; D61 | WP-0.4 | `adapters/gcp` + janitor job | same demo chain on the GCP profile; janitor re-announces a killed delivery on BOTH profiles | planned |
@@ -43,6 +43,17 @@ kept the required Python 3.12, Python 3.13, and coverage jobs green. Per D66, th
 schema-shape leaf has no usable public workflow or user-visible behavior, so no public
 documentation surface is changed; public documentation remains deferred to the first usable
 slice. Phase 0 remains incomplete and no WP-0.3+ bootstrap/runtime behavior is included.
+
+**WP-0.3 deployment-bootstrap slice in progress (2026-07-18; `P0-L07-WP03-DEPLOYMENT-BOOTSTRAP`):**
+[PR #72](https://github.com/writeitai/ultimate-memory/pull/72) implementation commit
+[`4e67a17`](https://github.com/writeitai/ultimate-memory/commit/4e67a17f6cf2376bf1bbe84249153c66f40e010d)
+adds the explicit-Engine, one-transaction D69 library bootstrap, exact immutable `core-v1`
+8/16/116 manifest, typed deployment/core conflicts, and PostgreSQL retry/no-mutation/rollback
+proofs. Python 3.12, Python 3.13, and coverage were green on implementation-head
+[CI run 29631003226](https://github.com/writeitai/ultimate-memory/actions/runs/29631003226).
+This bounded slice exposes no CLI, profile, configuration, deployment workflow, or other public
+surface, so D66 requires no website edit. Worker-state/handler behavior remains unimplemented;
+WP-0.3 therefore stays `in-progress` and Phase 0 remains incomplete.
 
 **WP-0.4 complete (2026-07-17; `P0-L01-D62-ARCH-GATE` and
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package
