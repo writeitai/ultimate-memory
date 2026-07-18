@@ -147,8 +147,9 @@ is a real parent_type FK to an existing registry row.
 
 The display order preserves the D18/D64 vocabulary. The executable insert order is exact:
 entity_types in display order; related_to first among predicates so the parent FK exists; the other
-fifteen predicates in display order; then predicate_signatures in the listed order. The manifest
-contains 8 entity_types rows, 16 predicates rows, and 116 predicate_signatures rows.
+fifteen predicates in display order; then the predicate_signatures
+rows in expansion order. The manifest contains 8 entity_types rows, 16 predicates rows, and 116
+derived predicate_signatures rows.
 
 The schema.org anchors below were spot-checked against the canonical schema.org types/properties.
 A null predicate anchor means schema.org has no faithful same-direction mapping for the complete
@@ -447,126 +448,37 @@ predicates:
     status: active
 
 predicate_signatures:
-  - {predicate: works_for, subject_type: Person, object_type: Organization}
-  - {predicate: member_of, subject_type: Person, object_type: Organization}
-  - {predicate: affiliated_with, subject_type: Person, object_type: Organization}
-  - {predicate: affiliated_with, subject_type: Organization, object_type: Organization}
-  - {predicate: founded, subject_type: Person, object_type: Organization}
-  - {predicate: founded, subject_type: Organization, object_type: Organization}
-  - {predicate: located_in, subject_type: Organization, object_type: Place}
-  - {predicate: located_in, subject_type: Place, object_type: Place}
-  - {predicate: located_in, subject_type: Event, object_type: Place}
-  - {predicate: part_of, subject_type: Person, object_type: Person}
-  - {predicate: part_of, subject_type: Organization, object_type: Organization}
-  - {predicate: part_of, subject_type: Place, object_type: Place}
-  - {predicate: part_of, subject_type: Document, object_type: Document}
-  - {predicate: part_of, subject_type: Event, object_type: Event}
-  - {predicate: part_of, subject_type: Concept, object_type: Concept}
-  - {predicate: part_of, subject_type: Project, object_type: Project}
-  - {predicate: part_of, subject_type: Product, object_type: Product}
-  - {predicate: authored, subject_type: Person, object_type: Document}
-  - {predicate: authored, subject_type: Organization, object_type: Document}
-  - {predicate: created, subject_type: Person, object_type: Product}
-  - {predicate: created, subject_type: Person, object_type: Concept}
-  - {predicate: created, subject_type: Organization, object_type: Product}
-  - {predicate: created, subject_type: Organization, object_type: Concept}
-  - {predicate: about, subject_type: Document, object_type: Person}
-  - {predicate: about, subject_type: Document, object_type: Organization}
-  - {predicate: about, subject_type: Document, object_type: Place}
-  - {predicate: about, subject_type: Document, object_type: Document}
-  - {predicate: about, subject_type: Document, object_type: Event}
-  - {predicate: about, subject_type: Document, object_type: Concept}
-  - {predicate: about, subject_type: Document, object_type: Project}
-  - {predicate: about, subject_type: Document, object_type: Product}
-  - {predicate: about, subject_type: Event, object_type: Person}
-  - {predicate: about, subject_type: Event, object_type: Organization}
-  - {predicate: about, subject_type: Event, object_type: Place}
-  - {predicate: about, subject_type: Event, object_type: Document}
-  - {predicate: about, subject_type: Event, object_type: Event}
-  - {predicate: about, subject_type: Event, object_type: Concept}
-  - {predicate: about, subject_type: Event, object_type: Project}
-  - {predicate: about, subject_type: Event, object_type: Product}
-  - {predicate: knows_about, subject_type: Person, object_type: Concept}
-  - {predicate: knows, subject_type: Person, object_type: Person}
-  - {predicate: participated_in, subject_type: Person, object_type: Event}
-  - {predicate: participated_in, subject_type: Person, object_type: Project}
-  - {predicate: participated_in, subject_type: Organization, object_type: Event}
-  - {predicate: participated_in, subject_type: Organization, object_type: Project}
-  - {predicate: works_on, subject_type: Person, object_type: Project}
-  - {predicate: works_on, subject_type: Person, object_type: Product}
-  - {predicate: works_on, subject_type: Organization, object_type: Project}
-  - {predicate: works_on, subject_type: Organization, object_type: Product}
-  - {predicate: uses, subject_type: Person, object_type: Product}
-  - {predicate: uses, subject_type: Organization, object_type: Product}
-  - {predicate: reports_to, subject_type: Person, object_type: Person}
-  - {predicate: related_to, subject_type: Person, object_type: Person}
-  - {predicate: related_to, subject_type: Person, object_type: Organization}
-  - {predicate: related_to, subject_type: Person, object_type: Place}
-  - {predicate: related_to, subject_type: Person, object_type: Document}
-  - {predicate: related_to, subject_type: Person, object_type: Event}
-  - {predicate: related_to, subject_type: Person, object_type: Concept}
-  - {predicate: related_to, subject_type: Person, object_type: Project}
-  - {predicate: related_to, subject_type: Person, object_type: Product}
-  - {predicate: related_to, subject_type: Organization, object_type: Person}
-  - {predicate: related_to, subject_type: Organization, object_type: Organization}
-  - {predicate: related_to, subject_type: Organization, object_type: Place}
-  - {predicate: related_to, subject_type: Organization, object_type: Document}
-  - {predicate: related_to, subject_type: Organization, object_type: Event}
-  - {predicate: related_to, subject_type: Organization, object_type: Concept}
-  - {predicate: related_to, subject_type: Organization, object_type: Project}
-  - {predicate: related_to, subject_type: Organization, object_type: Product}
-  - {predicate: related_to, subject_type: Place, object_type: Person}
-  - {predicate: related_to, subject_type: Place, object_type: Organization}
-  - {predicate: related_to, subject_type: Place, object_type: Place}
-  - {predicate: related_to, subject_type: Place, object_type: Document}
-  - {predicate: related_to, subject_type: Place, object_type: Event}
-  - {predicate: related_to, subject_type: Place, object_type: Concept}
-  - {predicate: related_to, subject_type: Place, object_type: Project}
-  - {predicate: related_to, subject_type: Place, object_type: Product}
-  - {predicate: related_to, subject_type: Document, object_type: Person}
-  - {predicate: related_to, subject_type: Document, object_type: Organization}
-  - {predicate: related_to, subject_type: Document, object_type: Place}
-  - {predicate: related_to, subject_type: Document, object_type: Document}
-  - {predicate: related_to, subject_type: Document, object_type: Event}
-  - {predicate: related_to, subject_type: Document, object_type: Concept}
-  - {predicate: related_to, subject_type: Document, object_type: Project}
-  - {predicate: related_to, subject_type: Document, object_type: Product}
-  - {predicate: related_to, subject_type: Event, object_type: Person}
-  - {predicate: related_to, subject_type: Event, object_type: Organization}
-  - {predicate: related_to, subject_type: Event, object_type: Place}
-  - {predicate: related_to, subject_type: Event, object_type: Document}
-  - {predicate: related_to, subject_type: Event, object_type: Event}
-  - {predicate: related_to, subject_type: Event, object_type: Concept}
-  - {predicate: related_to, subject_type: Event, object_type: Project}
-  - {predicate: related_to, subject_type: Event, object_type: Product}
-  - {predicate: related_to, subject_type: Concept, object_type: Person}
-  - {predicate: related_to, subject_type: Concept, object_type: Organization}
-  - {predicate: related_to, subject_type: Concept, object_type: Place}
-  - {predicate: related_to, subject_type: Concept, object_type: Document}
-  - {predicate: related_to, subject_type: Concept, object_type: Event}
-  - {predicate: related_to, subject_type: Concept, object_type: Concept}
-  - {predicate: related_to, subject_type: Concept, object_type: Project}
-  - {predicate: related_to, subject_type: Concept, object_type: Product}
-  - {predicate: related_to, subject_type: Project, object_type: Person}
-  - {predicate: related_to, subject_type: Project, object_type: Organization}
-  - {predicate: related_to, subject_type: Project, object_type: Place}
-  - {predicate: related_to, subject_type: Project, object_type: Document}
-  - {predicate: related_to, subject_type: Project, object_type: Event}
-  - {predicate: related_to, subject_type: Project, object_type: Concept}
-  - {predicate: related_to, subject_type: Project, object_type: Project}
-  - {predicate: related_to, subject_type: Project, object_type: Product}
-  - {predicate: related_to, subject_type: Product, object_type: Person}
-  - {predicate: related_to, subject_type: Product, object_type: Organization}
-  - {predicate: related_to, subject_type: Product, object_type: Place}
-  - {predicate: related_to, subject_type: Product, object_type: Document}
-  - {predicate: related_to, subject_type: Product, object_type: Event}
-  - {predicate: related_to, subject_type: Product, object_type: Concept}
-  - {predicate: related_to, subject_type: Product, object_type: Project}
-  - {predicate: related_to, subject_type: Product, object_type: Product}
+  # Derived, never hand-listed (D69, refined 2026-07-18): expand the compact
+  # domain/range unions below with the deterministic rule; the expansion yields
+  # exactly 116 concrete {predicate, subject_type, object_type} rows.
+  expansion_rule:
+    product: pair every subject type with every object type, subject-major order
+    same_kind: pair each core type with itself (part_of only)
+    any: all eight core entity types, in display order
+  expanded_row_count: 116
+  domain_ranges:
+    - {predicate: works_for, subject_types: [Person], object_types: [Organization]}
+    - {predicate: member_of, subject_types: [Person], object_types: [Organization]}
+    - {predicate: affiliated_with, subject_types: [Person, Organization], object_types: [Organization]}
+    - {predicate: founded, subject_types: [Person, Organization], object_types: [Organization]}
+    - {predicate: located_in, subject_types: [Organization, Place, Event], object_types: [Place]}
+    - {predicate: part_of, same_kind: true}
+    - {predicate: authored, subject_types: [Person, Organization], object_types: [Document]}
+    - {predicate: created, subject_types: [Person, Organization], object_types: [Product, Concept]}
+    - {predicate: about, subject_types: [Document, Event], object_types: any}
+    - {predicate: knows_about, subject_types: [Person], object_types: [Concept]}
+    - {predicate: knows, subject_types: [Person], object_types: [Person]}
+    - {predicate: participated_in, subject_types: [Person, Organization], object_types: [Event, Project]}
+    - {predicate: works_on, subject_types: [Person, Organization], object_types: [Project, Product]}
+    - {predicate: uses, subject_types: [Person, Organization], object_types: [Product]}
+    - {predicate: reports_to, subject_types: [Person], object_types: [Person]}
+    - {predicate: related_to, subject_types: any, object_types: any}
 ~~~
 
-The 116 rows are the executable expansion of the old multi-domain, multi-range, same-kind, and
-any-to-any notation. The normalizer's parent-chain walk means an enabled extension subtype inherits
+The signature manifest is compact by design: the domain/range unions are the normative source,
+and the deterministic expansion (product / same-kind / any) yields exactly 116 concrete rows —
+derived and count-asserted at bootstrap and in the packaged manifest, never hand-listed. The
+normalizer's parent-chain walk means an enabled extension subtype inherits
 the signature of its core ancestor; no wildcard row or ninth catch-all type exists in Postgres.
 
 Universal core, extension definition, and activation are distinct operations. The manifest above

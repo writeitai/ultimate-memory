@@ -148,7 +148,7 @@ This is the implementation map; each row has one canonical owner and a delivery-
 | Earliest delivery | D67: `not_before` is the only term | `processing_state.not_before` + typed `defer_reason` | schedule snapshot is a latency hint; early delivery no-ops |
 | Retry / DLQ | orchestration §6: handler starts count; limit or non-retryable failure dead-letters | `status`, `attempts`, `max_attempts`, `last_error`; DLQ = `status='dead_letter'` | provider attempts/headers are diagnostic and cannot change state |
 | Budget parking | orchestration §4: pending until window roll, no attempt consumed | `status='pending'`, `defer_reason='budget'`, future `not_before` | re-announce for that time; never a failure delivery |
-| Cost attribution | orchestration §4: one row per processing/attempt/logical call attribution; batch slices share provider call; sum by deployment/stage/lane/window | `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + unique key + budget-window index | no adapter-owned accounting |
+| Cost attribution | orchestration §4: one row per processing/attempt/logical call; a batched call bills the claiming row; sum by deployment/stage/lane/window | `cost_ledger.processing_id/attempt/call_key/lane` + unique key + budget-window index | no adapter-owned accounting |
 | Due claim | D67: only due pending/failed work is runnable | `ix_procstate_due` + schema §2 `SKIP LOCKED` query | self-host polls/claims; GCP dispatch claims its named row |
 
 ## 4. Code architecture — hexagonal, with the arrows enforced in CI

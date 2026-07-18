@@ -289,8 +289,9 @@ decontextualize + decompose + ground call) applies to the batch window exactly a
 chunk — the window is the extraction unit, the calls are still two; and bookkeeping stays
 per-chunk — the batch computes once, then **commits per-chunk `processing_state` rows** (each
 chunk's `extraction_input_hash` marks done/failed independently, so a retry re-runs only the
-incomplete chunks) and allocates `cost_ledger` spend pro-rata by chunk tokens, batch id in the
-call context. Batch size is a spike; batching is an implementation knob, never an identity
+incomplete chunks) and bills the batch's `cost_ledger` rows to the claiming chunk's processing
+row (batch id in the call context; a batch never crosses a document or lane, so document- and
+lane-level accounting stay exact). Batch size is a spike; batching is an implementation knob, never an identity
 change.
 
 ## 7. Reuse mechanics (D56 bound here; amendments A1–A3)

@@ -61,6 +61,133 @@ class CoreManifest:
     predicate_signatures: tuple[PredicateSignatureDefinition, ...]
 
 
+_CORE_TYPE_NAMES: tuple[str, ...] = (
+    "Person",
+    "Organization",
+    "Place",
+    "Document",
+    "Event",
+    "Concept",
+    "Project",
+    "Product",
+)
+"""The eight universal-core roots in display order — also the `any` expansion order."""
+
+
+@dataclass(frozen=True, slots=True)
+class PredicateDomainRange:
+    """Compact domain/range unions for one predicate — the normative signature source.
+
+    Product form pairs every subject type with every object type; the same-kind
+    form (`part_of`) pairs each core type with itself. The concrete signature
+    rows are always derived by `_expand_signatures`, never hand-listed (D69,
+    refined 2026-07-18).
+    """
+
+    predicate: str
+    subject_types: tuple[str, ...]
+    object_types: tuple[str, ...]
+    same_kind: bool = False
+
+
+_ANY: tuple[str, ...] = _CORE_TYPE_NAMES
+
+_PREDICATE_DOMAIN_RANGES: tuple[PredicateDomainRange, ...] = (
+    PredicateDomainRange(
+        predicate="works_for", subject_types=("Person",), object_types=("Organization",)
+    ),
+    PredicateDomainRange(
+        predicate="member_of", subject_types=("Person",), object_types=("Organization",)
+    ),
+    PredicateDomainRange(
+        predicate="affiliated_with",
+        subject_types=("Person", "Organization"),
+        object_types=("Organization",),
+    ),
+    PredicateDomainRange(
+        predicate="founded",
+        subject_types=("Person", "Organization"),
+        object_types=("Organization",),
+    ),
+    PredicateDomainRange(
+        predicate="located_in",
+        subject_types=("Organization", "Place", "Event"),
+        object_types=("Place",),
+    ),
+    PredicateDomainRange(
+        predicate="part_of", subject_types=_ANY, object_types=_ANY, same_kind=True
+    ),
+    PredicateDomainRange(
+        predicate="authored",
+        subject_types=("Person", "Organization"),
+        object_types=("Document",),
+    ),
+    PredicateDomainRange(
+        predicate="created",
+        subject_types=("Person", "Organization"),
+        object_types=("Product", "Concept"),
+    ),
+    PredicateDomainRange(
+        predicate="about", subject_types=("Document", "Event"), object_types=_ANY
+    ),
+    PredicateDomainRange(
+        predicate="knows_about", subject_types=("Person",), object_types=("Concept",)
+    ),
+    PredicateDomainRange(
+        predicate="knows", subject_types=("Person",), object_types=("Person",)
+    ),
+    PredicateDomainRange(
+        predicate="participated_in",
+        subject_types=("Person", "Organization"),
+        object_types=("Event", "Project"),
+    ),
+    PredicateDomainRange(
+        predicate="works_on",
+        subject_types=("Person", "Organization"),
+        object_types=("Project", "Product"),
+    ),
+    PredicateDomainRange(
+        predicate="uses",
+        subject_types=("Person", "Organization"),
+        object_types=("Product",),
+    ),
+    PredicateDomainRange(
+        predicate="reports_to", subject_types=("Person",), object_types=("Person",)
+    ),
+    PredicateDomainRange(predicate="related_to", subject_types=_ANY, object_types=_ANY),
+)
+
+
+def _expand_signatures(
+    *, domain_ranges: tuple[PredicateDomainRange, ...]
+) -> tuple[PredicateSignatureDefinition, ...]:
+    """Expand the compact domain/range unions into concrete signature rows.
+
+    Product rows pair every subject type with every object type in subject-major
+    order; same-kind rows pair each core type with itself in display order. The
+    expansion is deterministic and yields exactly the 116 core-v1 rows, asserted
+    by `_assert_manifest_integrity`.
+    """
+    signatures: list[PredicateSignatureDefinition] = []
+    for domain_range in domain_ranges:
+        pairs = (
+            tuple((name, name) for name in domain_range.subject_types)
+            if domain_range.same_kind
+            else tuple(
+                (subject, obj)
+                for subject in domain_range.subject_types
+                for obj in domain_range.object_types
+            )
+        )
+        signatures.extend(
+            PredicateSignatureDefinition(
+                predicate=domain_range.predicate, subject_type=subject, object_type=obj
+            )
+            for subject, obj in pairs
+        )
+    return tuple(signatures)
+
+
 CORE_MANIFEST = CoreManifest(
     manifest_version="core-v1",
     entity_types=(
@@ -441,129 +568,7 @@ CORE_MANIFEST = CoreManifest(
             status="active",
         ),
     ),
-    predicate_signatures=tuple(
-        PredicateSignatureDefinition(
-            predicate=predicate, subject_type=subject_type, object_type=object_type
-        )
-        for predicate, subject_type, object_type in (
-            ("works_for", "Person", "Organization"),
-            ("member_of", "Person", "Organization"),
-            ("affiliated_with", "Person", "Organization"),
-            ("affiliated_with", "Organization", "Organization"),
-            ("founded", "Person", "Organization"),
-            ("founded", "Organization", "Organization"),
-            ("located_in", "Organization", "Place"),
-            ("located_in", "Place", "Place"),
-            ("located_in", "Event", "Place"),
-            ("part_of", "Person", "Person"),
-            ("part_of", "Organization", "Organization"),
-            ("part_of", "Place", "Place"),
-            ("part_of", "Document", "Document"),
-            ("part_of", "Event", "Event"),
-            ("part_of", "Concept", "Concept"),
-            ("part_of", "Project", "Project"),
-            ("part_of", "Product", "Product"),
-            ("authored", "Person", "Document"),
-            ("authored", "Organization", "Document"),
-            ("created", "Person", "Product"),
-            ("created", "Person", "Concept"),
-            ("created", "Organization", "Product"),
-            ("created", "Organization", "Concept"),
-            ("about", "Document", "Person"),
-            ("about", "Document", "Organization"),
-            ("about", "Document", "Place"),
-            ("about", "Document", "Document"),
-            ("about", "Document", "Event"),
-            ("about", "Document", "Concept"),
-            ("about", "Document", "Project"),
-            ("about", "Document", "Product"),
-            ("about", "Event", "Person"),
-            ("about", "Event", "Organization"),
-            ("about", "Event", "Place"),
-            ("about", "Event", "Document"),
-            ("about", "Event", "Event"),
-            ("about", "Event", "Concept"),
-            ("about", "Event", "Project"),
-            ("about", "Event", "Product"),
-            ("knows_about", "Person", "Concept"),
-            ("knows", "Person", "Person"),
-            ("participated_in", "Person", "Event"),
-            ("participated_in", "Person", "Project"),
-            ("participated_in", "Organization", "Event"),
-            ("participated_in", "Organization", "Project"),
-            ("works_on", "Person", "Project"),
-            ("works_on", "Person", "Product"),
-            ("works_on", "Organization", "Project"),
-            ("works_on", "Organization", "Product"),
-            ("uses", "Person", "Product"),
-            ("uses", "Organization", "Product"),
-            ("reports_to", "Person", "Person"),
-            ("related_to", "Person", "Person"),
-            ("related_to", "Person", "Organization"),
-            ("related_to", "Person", "Place"),
-            ("related_to", "Person", "Document"),
-            ("related_to", "Person", "Event"),
-            ("related_to", "Person", "Concept"),
-            ("related_to", "Person", "Project"),
-            ("related_to", "Person", "Product"),
-            ("related_to", "Organization", "Person"),
-            ("related_to", "Organization", "Organization"),
-            ("related_to", "Organization", "Place"),
-            ("related_to", "Organization", "Document"),
-            ("related_to", "Organization", "Event"),
-            ("related_to", "Organization", "Concept"),
-            ("related_to", "Organization", "Project"),
-            ("related_to", "Organization", "Product"),
-            ("related_to", "Place", "Person"),
-            ("related_to", "Place", "Organization"),
-            ("related_to", "Place", "Place"),
-            ("related_to", "Place", "Document"),
-            ("related_to", "Place", "Event"),
-            ("related_to", "Place", "Concept"),
-            ("related_to", "Place", "Project"),
-            ("related_to", "Place", "Product"),
-            ("related_to", "Document", "Person"),
-            ("related_to", "Document", "Organization"),
-            ("related_to", "Document", "Place"),
-            ("related_to", "Document", "Document"),
-            ("related_to", "Document", "Event"),
-            ("related_to", "Document", "Concept"),
-            ("related_to", "Document", "Project"),
-            ("related_to", "Document", "Product"),
-            ("related_to", "Event", "Person"),
-            ("related_to", "Event", "Organization"),
-            ("related_to", "Event", "Place"),
-            ("related_to", "Event", "Document"),
-            ("related_to", "Event", "Event"),
-            ("related_to", "Event", "Concept"),
-            ("related_to", "Event", "Project"),
-            ("related_to", "Event", "Product"),
-            ("related_to", "Concept", "Person"),
-            ("related_to", "Concept", "Organization"),
-            ("related_to", "Concept", "Place"),
-            ("related_to", "Concept", "Document"),
-            ("related_to", "Concept", "Event"),
-            ("related_to", "Concept", "Concept"),
-            ("related_to", "Concept", "Project"),
-            ("related_to", "Concept", "Product"),
-            ("related_to", "Project", "Person"),
-            ("related_to", "Project", "Organization"),
-            ("related_to", "Project", "Place"),
-            ("related_to", "Project", "Document"),
-            ("related_to", "Project", "Event"),
-            ("related_to", "Project", "Concept"),
-            ("related_to", "Project", "Project"),
-            ("related_to", "Project", "Product"),
-            ("related_to", "Product", "Person"),
-            ("related_to", "Product", "Organization"),
-            ("related_to", "Product", "Place"),
-            ("related_to", "Product", "Document"),
-            ("related_to", "Product", "Event"),
-            ("related_to", "Product", "Concept"),
-            ("related_to", "Product", "Project"),
-            ("related_to", "Product", "Product"),
-        )
-    ),
+    predicate_signatures=_expand_signatures(domain_ranges=_PREDICATE_DOMAIN_RANGES),
 )
 
 

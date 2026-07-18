@@ -322,7 +322,7 @@ CREATE TABLE processing_state (
   stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
   content_hash    text NOT NULL,               -- sha256 carried for diagnostics/replay; = doc raw-bytes hash, or parent-hash+salt for sub-document targets
-  lane            processing_lane,             -- steady | backfill for plane E; NULL for K/P and other unlaned scheduled aggregate jobs (D67)
+  lane            processing_lane,             -- steady | backfill for plane E; NULL for K/P scheduled jobs (D67); stage/lane pairing enforced at the spine enqueue path (catalog UNLANED_STAGES), not by a stage-enumerating CHECK
   status          processing_status NOT NULL DEFAULT 'pending',
   not_before      timestamptz NOT NULL DEFAULT now(), -- canonical earliest claim time; never hidden in payload (D67)
   defer_reason    processing_defer_reason,      -- scheduled | retry_backoff | budget; constrained to the corresponding status below
@@ -341,10 +341,6 @@ CREATE TABLE processing_state (
     (status = 'failed' AND defer_reason = 'retry_backoff') OR
     (status = 'pending' AND (defer_reason IS NULL OR defer_reason IN ('scheduled','budget'))) OR
     (status NOT IN ('pending','failed') AND defer_reason IS NULL)
-  ),
-  CHECK (
-    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
-    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
   )
 );
 COMMENT ON TABLE processing_state IS
@@ -393,9 +389,10 @@ FOR UPDATE SKIP LOCKED;
 -- cost_ledger — per-invocation cost/latency metering for enforced per-layer budgets (§8 overall).
 -- A succeeded-but-ack-lost call must not be re-billed on retry, while D31 and other handlers may
 -- make several calls in one attempt. A ledger row is therefore anchored to one processing row,
--- handler attempt, and deterministic stage-local call_key; provider_call_id groups pro-rata
--- attribution slices when one batched call spans several processing rows. Enforcement reads that
--- deduplicated total. The spine cost-write method accepts processing_id + call_key + measured cost;
+-- handler attempt, and deterministic stage-local call_key. A batched call (a D58 window) is
+-- billed as one row on the claiming processing row — a batch never crosses a document or a lane,
+-- so lane budgets and document-level accounting stay exact without splitting. Enforcement reads
+-- the deduplicated total. The spine cost-write method accepts processing_id + call_key + measured cost;
 -- while the processing row is locked/running it copies stage, lane, and attempts from that row.
 -- Callers and delivery envelopes cannot supply or override those three attribution fields.
 -- ─────────────────────────────────────────────────────────────────────────
@@ -403,9 +400,8 @@ CREATE TABLE cost_ledger (
   cost_id         uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
   processing_id   uuid NOT NULL,               -- owning processing_state row; composite FK below
-  provider_call_id uuid NOT NULL,               -- one actual provider invocation; shared by D31 pro-rata batch slices
   stage           pipeline_stage NOT NULL,     -- which layer/stage incurred the spend
-  lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67)
+  lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67); pairing enforced upstream (spine copies from the validated row)
   target_kind     processing_target,           -- optional: what was being processed
   target_id       uuid,                        -- LOGICAL FK → target
   component_version text,                       -- LOGICAL FK → pipeline_component_versions(version)
@@ -420,16 +416,11 @@ CREATE TABLE cost_ledger (
   occurred_at     timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (deployment_id, processing_id) REFERENCES processing_state (deployment_id, processing_id),
   UNIQUE (deployment_id, processing_id, attempt, call_key), -- multiple calls per attempt; one row per logical call
-  CHECK (attempt >= 1),
-  CHECK (
-    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
-    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
-  )
+  CHECK (attempt >= 1)
 );
 COMMENT ON TABLE cost_ledger IS
-  'Append-only LLM/embedding call attribution for D67 budgets. Idempotent per (processing_id,attempt,call_key), so multi-call handlers are complete and acknowledged-late retries cannot double-count. provider_call_id groups lane-homogeneous pro-rata slices of one batched call (D31); their token/cost shares sum to the provider total. Nullable diagnostic target fields do not weaken deduplication.';
+  'Append-only LLM/embedding call attribution for D67 budgets. Idempotent per (processing_id,attempt,call_key), so multi-call handlers are complete and acknowledged-late retries cannot double-count. A batched call (D58) bills one row on the claiming processing row; batches never cross a document or lane, so lane and document accounting stay exact. Nullable diagnostic target fields do not weaken deduplication.';
 CREATE INDEX ix_cost_budget_window ON cost_ledger (deployment_id, stage, lane, occurred_at);
-CREATE INDEX ix_cost_provider_call ON cost_ledger (deployment_id, provider_call_id);
 ```
 
 ### Post-head deployment bootstrap (D69)
@@ -2518,7 +2509,7 @@ Labs."*
 | D57 block substrate + blockizer; sections on the grid | `document_representations.blocks_uri` + `blockizer_version`; `document_sections.block_start/end`; `pipeline_component = 'blockizer'`; blocks live in `blocks.json` (sidecar), never as rows |
 | D65 media: immutable representations + occurrence provenance | `document_representations` (immutable conversion outputs; route + component graph + output hashes; representation-addressed artifact paths) + `document_versions.current_representation_id` (swap-on-completion); `representation_id` on `document_sections`/`chunks` (the basis coordinate); `chunk_claims.derivation_kind`/`evidence_mode`/`source_locators` (occurrence-grain disclosure + locators, media_design §4–§6) |
 | D58 chunk packing + multi-granularity retrieval | `chunks.block_start/end` + `chunk_content_hash` (= ordered block hashes); role scalar on P1 chunk rows (Lance-side); no-overlap invariant is worker discipline, not DDL |
-| D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; transactional `tr_processing_state_initial_wake`; `ix_procstate_due`; `cost_ledger.processing_id/provider_call_id/attempt/call_key/lane` + per-call UNIQUE; `ix_cost_budget_window` / `ix_cost_provider_call`; `payload` explicitly non-authoritative |
+| D67 normalized queue route, due time, parking, retry/DLQ, and lane costs | `processing_lane` / `processing_defer_reason`; `processing_state.lane/not_before/defer_reason/attempts/max_attempts`; transactional `tr_processing_state_initial_wake`; `ix_procstate_due`; `cost_ledger.processing_id/attempt/call_key/lane` + per-call UNIQUE; `ix_cost_budget_window`; `payload` explicitly non-authoritative |
 | D68 schema-/database-per-deployment | §0 tenancy contract; one deployment identity row; composite scoped keys retained as defense in depth; single-column `ix_entities_name_trgm`, `ix_aliases_lemma_trgm`, `ix_aliases_lemma_dm`; no `btree_gin` |
 | D69 unbounded graph-edge retention + post-head deployment bootstrap | §10.A `v_graph_relates` (endpoint-bounded, no invalidation-age filter); §2 typed input map, sequence, transaction/idempotency/conflict contract; §3 bootstrap-owned universal core cross-link |
 
