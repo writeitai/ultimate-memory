@@ -12,4 +12,10 @@ __all__ = (
     "EntityTypeDefinition",
     "PredicateDefinition",
     "PredicateSignatureDefinition",
+    "BLOCKIZER_VERSION",
+    "block_hash",
+    "blockize",
 )
+from ultimate_memory.core.blockizer import block_hash
+from ultimate_memory.core.blockizer import blockize
+from ultimate_memory.core.blockizer import BLOCKIZER_VERSION

@@ -2,6 +2,8 @@
 
 from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
+from ultimate_memory.model.blocks import Block
+from ultimate_memory.model.blocks import BlockType
 from ultimate_memory.model.component_version import ComponentVersionConflictError
 from ultimate_memory.model.component_version import ComponentVersionError
 from ultimate_memory.model.component_version import ComponentVersionNotFoundError
@@ -14,6 +16,10 @@ from ultimate_memory.model.deployment import DeploymentBootstrapConflictError
 from ultimate_memory.model.deployment import DeploymentBootstrapInput
 from ultimate_memory.model.deployment import DeploymentBootstrapResult
 from ultimate_memory.model.deployment import DeploymentConflictError
+from ultimate_memory.model.evaluation import CanaryCase
+from ultimate_memory.model.evaluation import CaseFailure
+from ultimate_memory.model.evaluation import EvalSuite
+from ultimate_memory.model.evaluation import SuiteReport
 from ultimate_memory.model.git import KRevision
 from ultimate_memory.model.model_provider import EmbeddingRequest
 from ultimate_memory.model.model_provider import EmbeddingResponse
@@ -45,6 +51,10 @@ from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
     "AuthenticatedContext",
+    "Block",
+    "BlockType",
+    "CanaryCase",
+    "CaseFailure",
     "ClaimedWork",
     "ComponentVersionConflictError",
     "ComponentVersionError",
@@ -60,6 +70,7 @@ __all__ = (
     "EmbeddingResponse",
     "EnqueueOutcome",
     "EnqueueWork",
+    "EvalSuite",
     "HandlerAlreadyRegisteredError",
     "KRevision",
     "LaneRouteError",
@@ -75,10 +86,11 @@ __all__ = (
     "PublishedMounts",
     "QueueRoute",
     "RecordCall",
-    "RunResultOutcome",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
+    "RunResultOutcome",
     "StructuredResponseModel",
+    "SuiteReport",
     "TelemetryAttribute",
     "TelemetryEvent",
     "UTCDateTime",

@@ -25,9 +25,9 @@ scaffold exists with ≥1 seeded doc.
 | WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), local-FS object store, local mount publisher, `adapters/testing` tier (MinIO wiring lands with WP-0.4c) | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs against real Postgres with zero GCP deps; transactional-enqueue crash test | done |
 | WP-0.4b | **Reference adapters**: Cloud Tasks push shell + dispatch server, GCS store, gcsfuse publisher; **the janitor sweep** (shared, port-agnostic) | packaging §3; orchestration §2–3; D61 | WP-0.4 | `adapters/gcp` + janitor job | same demo chain on the GCP profile; janitor re-announces a killed delivery on BOTH profiles | planned |
 | WP-0.4c | **Compose self-host profile** (postgres + minio + api + worker; `profiles/selfhost`) — the quickstart skeleton | packaging §5 | WP-0.4a | docker-compose + profile module | `docker compose up` → demo ingest → state rows; CI-run | planned |
-| WP-0.5 | **Eval harness skeleton** (questions #14 — this WP owns it): golden-set storage (`golden_pairs`, `golden_claim_labels`, `canary_cases`, `eval_runs`), suite runner, CI wiring | schema §5; D22; registries §10 | WP-0.2 | harness package + `eval` CI job | empty suites run; a seeded canary fails deliberately and blocks CI | planned |
+| WP-0.5 | **Eval harness skeleton** (questions #14 — this WP owns it): golden-set storage (`golden_pairs`, `golden_claim_labels`, `canary_cases`, `eval_runs`), suite runner, CI wiring | schema §5; D22; registries §10 | WP-0.2 | harness package + `eval` CI job | empty suites run; a seeded canary fails deliberately and blocks CI | done |
 | WP-0.6 | Golden-set labeling tooling (LLM-propose / human-adjudicate loop, circularity guard) | D22; registries §11.1 | WP-0.5 | labeling CLI | 20 seed pairs labeled end-to-end | planned |
-| WP-0.7 | Blockizer golden corpus scaffold (expected block-hash regression per `blockizer_version`) | e1 §2 (D57) | WP-0.5 | corpus + CI check | seeded doc's hashes locked; a deliberate parser change trips CI | planned |
+| WP-0.7 | Blockizer golden corpus scaffold (expected block-hash regression per `blockizer_version`) | e1 §2 (D57) | WP-0.5 | corpus + CI check | seeded doc's hashes locked; a deliberate parser change trips CI | done |
 
 
 **Sequencing amendment (2026-07-18):** WP-0.4b and WP-0.4c are not Phase-0 exit-blocking. The
@@ -98,6 +98,27 @@ the **transactional-enqueue crash test** (a rolled-back insert delivers no wake;
 enqueue delivers exactly its row's wake — the schema trigger's by-construction guarantee),
 announce re-delivery, and the demo chain draining through the loop with zero GCP dependencies.
 MinIO wiring lands with WP-0.4c per the sequencing amendment.
+
+
+**WP-0.5 + WP-0.7 complete (2026-07-18):** the eval-harness skeleton lands in `eval/harness.py`
+(suites over `canary_cases`, runs recorded in `eval_runs`, per-suite evaluator registration;
+a suite with cases but no evaluator **fails** them — absence of measurement is never
+compliance) with real-PostgreSQL proofs: all five empty suites run green; a seeded deliberately
+failing canary yields `passed=false` in report and history (the CI-blocking signal); unevaluated
+cases fail rather than silently pass. The blockizer core lands in `core/blockizer.py` (D57:
+pinned GFM profile via markdown-it-py, fixed normalization order, `BLOCKIZER_VERSION`) with the
+golden corpus at `src/tests/blockizer_corpus/` — one seeded mixed document (headings,
+hard-wrapped paragraph, atomic table, list items, code fence, quote, Czech NFC), its hash
+sequence locked in CI; behavior proofs: reflow never changes identity, an edit changes exactly
+the edited block, offsets slice document.md exactly.
+
+**Phase 0 exit (2026-07-18): all four exit criteria are met** — migrations apply/rollback
+cleanly (WP-0.2); the no-op worker runs end-to-end through the task-queue delivery port with
+`processing_state` + `cost_ledger` rows (WP-0.3 + WP-0.4a, per the sequencing amendment); the
+eval harness runs empty suites in CI (WP-0.5); the blockizer golden corpus exists with a seeded
+doc (WP-0.7). Carried forward, not exit-blocking: WP-0.4b/0.4c (GCP parity + compose,
+Phase-1-parallel) and WP-0.6 (golden-set labeling tooling, needed by Phase 2's measured
+thresholds).
 
 **WP-0.4 complete (2026-07-17; `P0-L01-D62-ARCH-GATE` and
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package

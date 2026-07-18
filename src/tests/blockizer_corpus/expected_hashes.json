@@ -1,0 +1,51 @@
+{
+  "blockizer_version": "blockizer-2026.07:markdown-it-py-4:gfm-tables",
+  "parser": "markdown-it-py==4.2.0",
+  "blocks": [
+    {
+      "ordinal": 0,
+      "type": "heading",
+      "hash": "36592ab0a659ac315318bf79b67d5a5fb9c770ab25734e5e66eef6750dafd7cc"
+    },
+    {
+      "ordinal": 1,
+      "type": "paragraph",
+      "hash": "32df03333f79ce4e3a1f0561c25aacaec3d61c5bae870bd9f85b4e5a516a0bd1"
+    },
+    {
+      "ordinal": 2,
+      "type": "heading",
+      "hash": "be4816ca1d5337ffd07f7de5dfcd6b9cbe972c2d3faef37a1d654702b4fbab6d"
+    },
+    {
+      "ordinal": 3,
+      "type": "table",
+      "hash": "c428b7591815565decc6fa26d0f459e40251c18b465f61dec94441519a6ba49a"
+    },
+    {
+      "ordinal": 4,
+      "type": "list_item",
+      "hash": "26677af070cde174673ed02b3437511fea79bde538aca8d27294cb198ab4ade9"
+    },
+    {
+      "ordinal": 5,
+      "type": "list_item",
+      "hash": "c16fc12c66306c174725b9a5256bd32201d816e3aeda031de8d52b24b3867559"
+    },
+    {
+      "ordinal": 6,
+      "type": "code",
+      "hash": "e6bbc9186ec5a41635c4cd92952c6745b3fc50a0f8982decd4ef92503f21f002"
+    },
+    {
+      "ordinal": 7,
+      "type": "quote",
+      "hash": "4534ff8401c9eea944444ffb61a5978e64fb9d48904e1a9adbf5f4da488ba7b2"
+    },
+    {
+      "ordinal": 8,
+      "type": "paragraph",
+      "hash": "6e288ae6710ced82a2ef1445526134bacb888f244bdeb15c9ebdd923addf3310"
+    }
+  ]
+}
