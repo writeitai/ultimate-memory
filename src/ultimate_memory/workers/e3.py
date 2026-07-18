@@ -164,6 +164,24 @@ class NormalizeRelationsHandler:
             object_ = self._registry.resolve_t0(
                 deployment_id=deployment_id, reference=relation.object, claim=claim
             )
+            if not _signature_allows(
+                predicate=relation.predicate,
+                subject_type=subject.entity_type,
+                object_type=object_.entity_type,
+                signatures=signatures,
+                type_parents=type_parents,
+            ):
+                # the gate binds on the RESOLVED entities' stored types too —
+                # T0 may map an emitted name onto a differently-typed entity
+                # (Codex review); the candidate stays re-derivable.
+                _logger.warning(
+                    "signature-rejected %r on resolved types (%s -> %s), claim %s",
+                    relation.predicate,
+                    subject.entity_type,
+                    object_.entity_type,
+                    claim.claim_id,
+                )
+                continue
             self._facts.upsert_relation(
                 deployment_id=deployment_id,
                 subject_entity_id=subject.entity_id,

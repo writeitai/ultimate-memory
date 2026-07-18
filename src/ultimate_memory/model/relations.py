@@ -66,3 +66,4 @@ class ResolvedEntity(BaseModel):
 
     entity_id: UUID
     created: bool
+    entity_type: _NonEmpty

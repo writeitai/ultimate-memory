@@ -396,3 +396,103 @@ def test_rerunning_normalization_replays_without_model_calls(rig: _E3Rig) -> Non
             text("SELECT count(*) FROM relations")
         ).scalar_one()
     assert relation_count == 1
+
+
+def test_signature_gate_binds_on_resolved_stored_types(rig: _E3Rig) -> None:
+    """Codex review: T0 may map an emitted name onto a differently-typed
+    entity — the D18 gate must re-check the RESOLVED types, not the emitted."""
+    from uuid import uuid4 as _uuid4
+
+    person_acme = _uuid4()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO entities (entity_id, deployment_id, type,"
+                " canonical_name, normalized_name)"
+                " VALUES (:e, :d, 'Person', 'Acme', 'acme')"
+            ),
+            {"e": person_acme, "d": _DEPLOYMENT_ID},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO aliases (alias_id, deployment_id, entity_id,"
+                " alias_text, normalized_lemma, provenance)"
+                " VALUES (:a, :d, :e, 'Acme', 'acme', 'llm_canonical')"
+            ),
+            {"a": _uuid4(), "d": _DEPLOYMENT_ID, "e": person_acme},
+        )
+
+    rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="staffing.md",
+            mime="text/markdown",
+            content=_SOURCE.encode("utf-8"),
+        ),
+    )
+    rig.run_chain()
+
+    with rig.engine.connect() as connection:
+        relations = connection.execute(
+            text("SELECT count(*) FROM relations")
+        ).scalar_one()
+        observation_subject = connection.execute(
+            text("SELECT subject_entity_id FROM observations")
+        ).scalar_one()
+    # works_for(Person -> Person-typed Acme) violates the signature: no
+    # relation lands; the observation still anchors on the resolved entity:
+    assert relations == 0
+    assert observation_subject == person_acme
+
+
+def test_t0_never_resolves_to_a_merged_entity(rig: _E3Rig) -> None:
+    """Codex review: merged entities never become endpoints — T0 filters on
+    active status (redirect-following arrives with the merge machinery)."""
+    from uuid import uuid4 as _uuid4
+
+    from ultimate_memory.model import ClaimForNormalization
+    from ultimate_memory.model import EntityRef
+    from ultimate_memory.spine import EntityRegistry as _Registry
+
+    survivor, merged = _uuid4(), _uuid4()
+    with rig.engine.begin() as connection:
+        for entity_id, name, lemma in ((survivor, "Beta Corp", "beta corp"),):
+            connection.execute(
+                text(
+                    "INSERT INTO entities (entity_id, deployment_id, type,"
+                    " canonical_name, normalized_name)"
+                    " VALUES (:e, :d, 'Organization', :n, :l)"
+                ),
+                {"e": entity_id, "d": _DEPLOYMENT_ID, "n": name, "l": lemma},
+            )
+        connection.execute(
+            text(
+                "INSERT INTO entities (entity_id, deployment_id, type,"
+                " canonical_name, normalized_name, status, merged_into)"
+                " VALUES (:e, :d, 'Organization', 'Gamma Ltd', 'gamma ltd',"
+                " 'merged', :m)"
+            ),
+            {"e": merged, "d": _DEPLOYMENT_ID, "m": survivor},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO aliases (alias_id, deployment_id, entity_id,"
+                " alias_text, normalized_lemma, provenance)"
+                " VALUES (:a, :d, :e, 'Gamma Ltd', 'gamma ltd', 'llm_canonical')"
+            ),
+            {"a": _uuid4(), "d": _DEPLOYMENT_ID, "e": merged},
+        )
+
+    resolved = _Registry(engine=rig.engine).resolve_t0(
+        deployment_id=_DEPLOYMENT_ID,
+        reference=EntityRef(name="Gamma Ltd", type="Organization"),
+        claim=ClaimForNormalization(
+            claim_id=_uuid4(),
+            doc_id=_uuid4(),
+            chunk_id=_uuid4(),
+            claim_text="Gamma Ltd exists.",
+            is_attributed=False,
+        ),
+    )
+    assert resolved.created
+    assert resolved.entity_id != merged

@@ -49,11 +49,19 @@ class EntityRegistry:
         """
         lemma = normalized_lemma(surface=reference.name)
         with self._engine.begin() as connection:
-            existing = connection.execute(
-                _SELECT_BY_LEMMA, {"deployment_id": deployment_id, "lemma": lemma}
-            ).scalar_one_or_none()
+            # serialize concurrent mints of one lemma (Codex review: without
+            # this, two workers each mint an entity and facts never collapse):
+            connection.execute(_LOCK_LEMMA, {"key": f"{deployment_id}:lemma:{lemma}"})
+            existing = (
+                connection.execute(
+                    _SELECT_BY_LEMMA, {"deployment_id": deployment_id, "lemma": lemma}
+                )
+                .mappings()
+                .one_or_none()
+            )
             created = existing is None
-            entity_id = existing if existing is not None else uuid4()
+            entity_id = existing["entity_id"] if existing else uuid4()
+            entity_type = existing["type"] if existing else reference.type
             if created:
                 connection.execute(
                     _INSERT_ENTITY,
@@ -102,26 +110,38 @@ class EntityRegistry:
                     "resolver_version": T0_RESOLVER_VERSION,
                 },
             )
-        return ResolvedEntity(entity_id=entity_id, created=created)
+        return ResolvedEntity(
+            entity_id=entity_id, created=created, entity_type=entity_type
+        )
 
     def claim_already_normalized(self, *, claim_id: UUID) -> bool:
-        """Whether normalization already ran for the claim (mention-backed replay).
+        """Whether the claim's facts already landed (evidence-backed replay).
 
-        A claim that yielded no entities leaves no marker; its re-run on a
-        crash-retry is bounded by the attempt limit and lands idempotently.
+        The marker is fact evidence, not mentions — a crash between subject
+        resolution and the fact write must not strand the claim (Codex
+        review). A claim that yielded no facts leaves no marker; its re-run on
+        a crash-retry is bounded by the attempt limit and lands idempotently
+        (mentions/verdicts are append-only transcript rows either way).
         """
         with self._engine.connect() as connection:
             return (
-                connection.execute(_COUNT_MENTIONS, {"claim_id": claim_id}).scalar_one()
+                connection.execute(_COUNT_EVIDENCE, {"claim_id": claim_id}).scalar_one()
                 > 0
             )
 
 
+_LOCK_LEMMA = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+
 _SELECT_BY_LEMMA = text(
     """
-    SELECT entity_id FROM aliases
-    WHERE deployment_id = :deployment_id AND normalized_lemma = :lemma
-    ORDER BY first_seen
+    SELECT aliases.entity_id, entities.type FROM aliases
+    JOIN entities ON entities.deployment_id = aliases.deployment_id
+                 AND entities.entity_id = aliases.entity_id
+    WHERE aliases.deployment_id = :deployment_id
+      AND aliases.normalized_lemma = :lemma
+      AND entities.status = 'active'  -- merged/retired never become endpoints;
+                                      -- redirect-following arrives with merges
+    ORDER BY aliases.first_seen
     LIMIT 1
     """
 )
@@ -170,4 +190,9 @@ _INSERT_DECISION = text(
     """
 ).bindparams(bindparam("features", type_=JSON))
 
-_COUNT_MENTIONS = text("SELECT count(*) FROM mentions WHERE claim_id = :claim_id")
+_COUNT_EVIDENCE = text(
+    """
+    SELECT (SELECT count(*) FROM relation_evidence WHERE claim_id = :claim_id)
+         + (SELECT count(*) FROM observation_evidence WHERE claim_id = :claim_id)
+    """
+)

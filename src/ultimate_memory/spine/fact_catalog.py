@@ -46,6 +46,14 @@ class FactCatalog:
                 "predicate": predicate,
                 "object_entity_id": object_entity_id,
             }
+            # serialize concurrent upserts of one fact key (Codex review):
+            connection.execute(
+                _LOCK_FACT,
+                {
+                    "key": f"{deployment_id}:rel:{subject_entity_id}"
+                    f":{predicate}:{object_entity_id}"
+                },
+            )
             existing = connection.execute(_SELECT_RELATION, key).scalar_one_or_none()
             relation_id = existing if existing is not None else uuid4()
             if existing is None:
@@ -88,6 +96,10 @@ class FactCatalog:
         append-only `add` adjudication by the novelty_gate rung (D4).
         """
         with self._engine.begin() as connection:
+            connection.execute(
+                _LOCK_FACT,
+                {"key": f"{deployment_id}:obs:{subject_entity_id}:{statement}"},
+            )
             existing = connection.execute(
                 _SELECT_OBSERVATION,
                 {
@@ -161,6 +173,8 @@ class FactCatalog:
             ).all()
         return {entity_type: parent for entity_type, parent in rows}
 
+
+_LOCK_FACT = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
 
 _SELECT_RELATION = text(
     """
