@@ -2253,3 +2253,12 @@ the extension-pack model, indexes, and partition estate are otherwise unchanged.
 This is a design/plan reconciliation only: it changes no shipped user-visible behavior or
 configuration, so D66 requires no website or `/docs/project-status` edit and no aspirational public
 documentation is added.
+
+**Refined (2026-07-18) — the signature manifest is derived, not hand-listed.** The compact
+domain/range unions plus the deterministic expansion rule (product of unions, subject-major;
+same-kind diagonal for `part_of`; `any` = all eight roots in display order) are the normative
+form of the 116-signature manifest, in both `registries_design.md` §4 and the packaged
+`core_manifest`. The 116 concrete rows are always derived by that rule and count-asserted at
+bootstrap and at import — the same 116 rows, one representation, no hand-maintained expansion
+to drift from its source. Point 3's "normative inline manifest" is refined accordingly; nothing
+else in D69 changes.
