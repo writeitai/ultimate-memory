@@ -25,9 +25,11 @@ from ultimate_memory.model import ClaimifyResponse
 from ultimate_memory.model import ClaimRecord
 from ultimate_memory.model import DecisionRecord
 from ultimate_memory.model import DecisionType
+from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import ObjectKey
+from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import SelectionCandidate
 from ultimate_memory.model import SelectionResponse
 from ultimate_memory.model import SelectionVerdict
@@ -37,6 +39,7 @@ from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.e1 import E2_EXTRACTOR_VERSION
+from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 
 _logger = logging.getLogger(__name__)
 
@@ -121,7 +124,23 @@ class ExtractClaimsHandler:
             self._extract_chunk(
                 source=source, chunks=chunks, index=index, document_md=document_md
             )
-        return HandlerOutcome()
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.NORMALIZE_RELATIONS,
+                    component_version=E3_NORMALIZER_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={
+                        "version_id": str(source.version_id),
+                        "representation_id": str(source.representation_id),
+                    },
+                ),
+            )
+        )
 
     def _extract_chunk(
         self,

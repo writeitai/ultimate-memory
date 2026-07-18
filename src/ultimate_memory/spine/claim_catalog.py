@@ -13,6 +13,7 @@ from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.model import ClaimForNormalization
 from ultimate_memory.model import ClaimRecord
 from ultimate_memory.model import DecisionRecord
 
@@ -40,6 +41,22 @@ class ClaimCatalog:
                 ).scalar_one()
                 > 0
             )
+
+    def claims_for_chunks(
+        self, *, chunk_ids: tuple[UUID, ...]
+    ) -> tuple[ClaimForNormalization, ...]:
+        """Load the accepted claims of a chunk set for normalization (E3)."""
+        if not chunk_ids:
+            return ()
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_CLAIMS_FOR_CHUNKS, {"chunk_ids": list(chunk_ids)}
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(ClaimForNormalization.model_validate(dict(row)) for row in rows)
 
     def record_extraction(
         self, *, claims: tuple[ClaimRecord, ...], decisions: tuple[DecisionRecord, ...]
@@ -113,3 +130,12 @@ _INSERT_DECISION = text(
     )
     """
 ).bindparams(bindparam("edit_detail", type_=JSON))
+
+_SELECT_CLAIMS_FOR_CHUNKS = text(
+    """
+    SELECT claim_id, doc_id, chunk_id, claim_text, is_attributed
+    FROM claims
+    WHERE chunk_id = ANY(:chunk_ids)
+    ORDER BY ingested_at, claim_id
+    """
+)

@@ -1,0 +1,293 @@
+"""The E3 fact catalog: relation/observation upserts, evidence, D54 counting.
+
+Redundancy collapses here (D2): the same fact from many claims is one row plus
+evidence links, and `evidence_count` is the number of DISTINCT DOCUMENT
+LINEAGES with current-testimony support — re-extraction generations, document
+versions, and within-document repetition never inflate it (D54).
+"""
+
+from uuid import UUID
+from uuid import uuid4
+
+from sqlalchemy import bindparam
+from sqlalchemy import JSON
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+
+class FactCatalog:
+    """Relation and observation writes over an explicitly composed engine."""
+
+    def __init__(self, *, engine: Engine) -> None:
+        """Bind the catalog to the spine database."""
+        self._engine = engine
+
+    def upsert_relation(
+        self,
+        *,
+        deployment_id: UUID,
+        subject_entity_id: UUID,
+        predicate: str,
+        object_entity_id: UUID,
+        claim_id: UUID,
+        doc_id: UUID,
+        normalizer_version: str,
+    ) -> UUID:
+        """Land one asserted fact: one relation row, evidence-once, recount.
+
+        An existing believed relation for the (s, p, o) key is reused; the
+        evidence link is ON CONFLICT DO NOTHING (a retry can never inflate the
+        count); the D54 recount runs in the same transaction.
+        """
+        with self._engine.begin() as connection:
+            key = {
+                "deployment_id": deployment_id,
+                "subject_entity_id": subject_entity_id,
+                "predicate": predicate,
+                "object_entity_id": object_entity_id,
+            }
+            existing = connection.execute(_SELECT_RELATION, key).scalar_one_or_none()
+            relation_id = existing if existing is not None else uuid4()
+            if existing is None:
+                connection.execute(
+                    _INSERT_RELATION,
+                    {
+                        **key,
+                        "relation_id": relation_id,
+                        "normalizer_version": normalizer_version,
+                    },
+                )
+            connection.execute(
+                _INSERT_RELATION_EVIDENCE,
+                {
+                    "deployment_id": deployment_id,
+                    "relation_id": relation_id,
+                    "claim_id": claim_id,
+                    "doc_id": doc_id,
+                    "normalizer_version": normalizer_version,
+                },
+            )
+            connection.execute(_RECOUNT_RELATION, {"relation_id": relation_id})
+        return relation_id
+
+    def upsert_observation(
+        self,
+        *,
+        deployment_id: UUID,
+        subject_entity_id: UUID,
+        statement: str,
+        claim_id: UUID,
+        doc_id: UUID,
+        normalizer_version: str,
+    ) -> UUID:
+        """Land one entity-anchored statement (D43) with the novelty gate.
+
+        The gate: an identical live statement on the entity is the same
+        observation (evidence collapses onto it); anything else coexists as a
+        new row — fail-safe, never silently resolved. Each mint records an
+        append-only `add` adjudication by the novelty_gate rung (D4).
+        """
+        with self._engine.begin() as connection:
+            existing = connection.execute(
+                _SELECT_OBSERVATION,
+                {
+                    "deployment_id": deployment_id,
+                    "subject_entity_id": subject_entity_id,
+                    "statement": statement,
+                },
+            ).scalar_one_or_none()
+            observation_id = existing if existing is not None else uuid4()
+            if existing is None:
+                connection.execute(
+                    _INSERT_OBSERVATION,
+                    {
+                        "observation_id": observation_id,
+                        "deployment_id": deployment_id,
+                        "subject_entity_id": subject_entity_id,
+                        "statement": statement,
+                        "normalizer_version": normalizer_version,
+                    },
+                )
+                connection.execute(
+                    _INSERT_OBS_ADJUDICATION,
+                    {
+                        "adjudication_id": uuid4(),
+                        "deployment_id": deployment_id,
+                        "observation_id": observation_id,
+                        "triggering_claim_id": claim_id,
+                        "features": {"statement": statement},
+                        "adjudicator_version": normalizer_version,
+                    },
+                )
+            connection.execute(
+                _INSERT_OBS_EVIDENCE,
+                {
+                    "deployment_id": deployment_id,
+                    "observation_id": observation_id,
+                    "claim_id": claim_id,
+                    "doc_id": doc_id,
+                    "normalizer_version": normalizer_version,
+                },
+            )
+            connection.execute(_RECOUNT_OBSERVATION, {"observation_id": observation_id})
+        return observation_id
+
+    def active_predicates(self, *, deployment_id: UUID) -> dict[str, str | None]:
+        """The governed vocabulary: active predicate → its parent (D5/D18)."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_PREDICATES, {"deployment_id": deployment_id}
+            ).all()
+        return {predicate: parent for predicate, parent in rows}
+
+    def predicate_signatures(
+        self, *, deployment_id: UUID
+    ) -> dict[str, tuple[tuple[str, str], ...]]:
+        """Allowed (subject_type, object_type) pairs per predicate (D18)."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_SIGNATURES, {"deployment_id": deployment_id}
+            ).all()
+        signatures: dict[str, list[tuple[str, str]]] = {}
+        for predicate, subject_type, object_type in rows:
+            signatures.setdefault(predicate, []).append((subject_type, object_type))
+        return {predicate: tuple(pairs) for predicate, pairs in signatures.items()}
+
+    def entity_type_parents(self, *, deployment_id: UUID) -> dict[str, str | None]:
+        """The registry type hierarchy: type → parent (extend-never-fork)."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_TYPE_PARENTS, {"deployment_id": deployment_id}
+            ).all()
+        return {entity_type: parent for entity_type, parent in rows}
+
+
+_SELECT_RELATION = text(
+    """
+    SELECT relation_id FROM relations
+    WHERE deployment_id = :deployment_id
+      AND subject_entity_id = :subject_entity_id
+      AND predicate = :predicate
+      AND object_entity_id = :object_entity_id
+      AND invalidated_at IS NULL
+    """
+)
+
+_INSERT_RELATION = text(
+    """
+    INSERT INTO relations (
+        relation_id, deployment_id, subject_entity_id, predicate,
+        object_entity_id, normalizer_version
+    ) VALUES (
+        :relation_id, :deployment_id, :subject_entity_id, :predicate,
+        :object_entity_id, :normalizer_version
+    )
+    """
+)
+
+_INSERT_RELATION_EVIDENCE = text(
+    """
+    INSERT INTO relation_evidence (
+        deployment_id, relation_id, claim_id, doc_id, stance, normalizer_version
+    ) VALUES (
+        :deployment_id, :relation_id, :claim_id, :doc_id, 'supports',
+        :normalizer_version
+    )
+    ON CONFLICT (relation_id, claim_id) DO NOTHING
+    """
+)
+
+_RECOUNT_RELATION = text(
+    """
+    UPDATE relations SET evidence_count = (
+        SELECT count(DISTINCT evidence.doc_id)
+        FROM relation_evidence evidence
+        JOIN claims ON claims.claim_id = evidence.claim_id
+        WHERE evidence.relation_id = :relation_id
+          AND evidence.stance = 'supports'
+          AND claims.is_current_testimony
+    ), updated_at = now()
+    WHERE relation_id = :relation_id
+    """
+)
+
+_SELECT_OBSERVATION = text(
+    """
+    SELECT observation_id FROM observations
+    WHERE deployment_id = :deployment_id
+      AND subject_entity_id = :subject_entity_id
+      AND statement = :statement
+      AND invalidated_at IS NULL
+    """
+)
+
+_INSERT_OBSERVATION = text(
+    """
+    INSERT INTO observations (
+        observation_id, deployment_id, subject_entity_id, statement,
+        obs_label, normalizer_version
+    ) VALUES (
+        :observation_id, :deployment_id, :subject_entity_id, :statement,
+        :statement, :normalizer_version
+    )
+    """
+)
+
+_INSERT_OBS_ADJUDICATION = text(
+    """
+    INSERT INTO observation_adjudications (
+        adjudication_id, deployment_id, observation_id, outcome, method,
+        confidence, triggering_claim_id, features, adjudicator_version
+    ) VALUES (
+        :adjudication_id, :deployment_id, :observation_id, 'add', 'novelty_gate',
+        1.0, :triggering_claim_id, :features, :adjudicator_version
+    )
+    """
+).bindparams(bindparam("features", type_=JSON))
+
+_INSERT_OBS_EVIDENCE = text(
+    """
+    INSERT INTO observation_evidence (
+        deployment_id, observation_id, claim_id, doc_id, stance, normalizer_version
+    ) VALUES (
+        :deployment_id, :observation_id, :claim_id, :doc_id, 'supports',
+        :normalizer_version
+    )
+    ON CONFLICT (observation_id, claim_id) DO NOTHING
+    """
+)
+
+_RECOUNT_OBSERVATION = text(
+    """
+    UPDATE observations SET evidence_count = (
+        SELECT count(DISTINCT evidence.doc_id)
+        FROM observation_evidence evidence
+        JOIN claims ON claims.claim_id = evidence.claim_id
+        WHERE evidence.observation_id = :observation_id
+          AND evidence.stance = 'supports'
+          AND claims.is_current_testimony
+    ), updated_at = now()
+    WHERE observation_id = :observation_id
+    """
+)
+
+_SELECT_PREDICATES = text(
+    """
+    SELECT predicate, parent_predicate FROM predicates
+    WHERE deployment_id = :deployment_id AND status = 'active'
+    """
+)
+
+_SELECT_SIGNATURES = text(
+    """
+    SELECT predicate, subject_type, object_type FROM predicate_signatures
+    WHERE deployment_id = :deployment_id
+    """
+)
+
+_SELECT_TYPE_PARENTS = text(
+    """
+    SELECT type, parent_type FROM entity_types
+    WHERE deployment_id = :deployment_id
+    """
+)

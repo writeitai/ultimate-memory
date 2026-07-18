@@ -78,6 +78,12 @@ from ultimate_memory.model.queue import PipelineStage
 from ultimate_memory.model.queue import ProcessingLane
 from ultimate_memory.model.queue import QueueRoute
 from ultimate_memory.model.queue import UTCDateTime
+from ultimate_memory.model.relations import ClaimForNormalization
+from ultimate_memory.model.relations import EntityRef
+from ultimate_memory.model.relations import NormalizationResponse
+from ultimate_memory.model.relations import ObservationCandidate
+from ultimate_memory.model.relations import RelationCandidate
+from ultimate_memory.model.relations import ResolvedEntity
 from ultimate_memory.model.telemetry import TelemetryAttribute
 from ultimate_memory.model.telemetry import TelemetryEvent
 
@@ -93,6 +99,7 @@ __all__ = (
     "ChunkRecord",
     "ChunkSource",
     "ChunkSourceNotFoundError",
+    "ClaimForNormalization",
     "ClaimRecord",
     "ClaimedWork",
     "ClaimifyResponse",
@@ -119,6 +126,7 @@ __all__ = (
     "EmbeddingUpdate",
     "EnqueueOutcome",
     "EnqueueWork",
+    "EntityRef",
     "EvalSuite",
     "HandlerAlreadyRegisteredError",
     "IngestedVersion",
@@ -126,9 +134,11 @@ __all__ = (
     "LaneRouteError",
     "ModelRequest",
     "NonRetryableHandlerError",
+    "NormalizationResponse",
     "ObjectAlreadyExistsError",
     "ObjectKey",
     "ObjectKeyEscapesRootError",
+    "ObservationCandidate",
     "P1ChunkRow",
     "PackedChunk",
     "PerimeterCredential",
@@ -142,8 +152,10 @@ __all__ = (
     "RecordCall",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
+    "RelationCandidate",
     "RepresentationNotFoundError",
     "RepresentationRecord",
+    "ResolvedEntity",
     "RunResultOutcome",
     "SectionSpan",
     "SelectionCandidate",
