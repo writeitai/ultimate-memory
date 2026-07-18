@@ -14,6 +14,9 @@ from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.model import FactForLabeling
+from ultimate_memory.model import ObservationForEmbedding
+
 
 class FactCatalog:
     """Relation and observation writes over an explicitly composed engine."""
@@ -143,6 +146,60 @@ class FactCatalog:
             )
             connection.execute(_RECOUNT_OBSERVATION, {"observation_id": observation_id})
         return observation_id
+
+    def relations_for_labeling(
+        self, *, deployment_id: UUID, label_version: str
+    ) -> tuple[FactForLabeling, ...]:
+        """Relations still lacking this label generation, names resolved."""
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_RELATIONS_FOR_LABELING,
+                    {"deployment_id": deployment_id, "label_version": label_version},
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(FactForLabeling.model_validate(dict(row)) for row in rows)
+
+    def record_fact_label(
+        self, *, relation_id: UUID, label: str, label_version: str
+    ) -> None:
+        """Stamp one relation's readable label, ref, and generation (D8)."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                _STAMP_FACT_LABEL,
+                {
+                    "relation_id": relation_id,
+                    "label": label,
+                    "label_version": label_version,
+                },
+            )
+
+    def observations_for_embedding(
+        self, *, deployment_id: UUID, label_version: str
+    ) -> tuple[ObservationForEmbedding, ...]:
+        """Observations still lacking this label-embedding generation."""
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_OBSERVATIONS_FOR_EMBEDDING,
+                    {"deployment_id": deployment_id, "label_version": label_version},
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(ObservationForEmbedding.model_validate(dict(row)) for row in rows)
+
+    def record_observation_embedding(
+        self, *, observation_id: UUID, label_version: str
+    ) -> None:
+        """Stamp one observation's label ref and generation (D8)."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                _STAMP_OBSERVATION_EMBEDDING,
+                {"observation_id": observation_id, "label_version": label_version},
+            )
 
     def active_predicates(self, *, deployment_id: UUID) -> dict[str, str | None]:
         """The governed vocabulary: active predicate → its parent (D5/D18)."""
@@ -303,5 +360,49 @@ _SELECT_TYPE_PARENTS = text(
     """
     SELECT type, parent_type FROM entity_types
     WHERE deployment_id = :deployment_id
+    """
+)
+
+_SELECT_RELATIONS_FOR_LABELING = text(
+    """
+    SELECT r.relation_id, subject.canonical_name AS subject_name, r.predicate,
+           object.canonical_name AS object_name, r.status::text AS status
+    FROM relations r
+    JOIN entities subject ON subject.entity_id = r.subject_entity_id
+    JOIN entities object ON object.entity_id = r.object_entity_id
+    WHERE r.deployment_id = :deployment_id
+      AND (r.fact_label_version IS NULL OR r.fact_label_version <> :label_version)
+    ORDER BY r.created_at, r.relation_id
+    """
+)
+
+_STAMP_FACT_LABEL = text(
+    """
+    UPDATE relations
+    SET fact_label = :label,
+        fact_label_version = :label_version,
+        fact_label_embedding_ref = relation_id::text,
+        updated_at = now()
+    WHERE relation_id = :relation_id
+    """
+)
+
+_SELECT_OBSERVATIONS_FOR_EMBEDDING = text(
+    """
+    SELECT observation_id, obs_label, status::text AS status
+    FROM observations
+    WHERE deployment_id = :deployment_id
+      AND (obs_label_version IS NULL OR obs_label_version <> :label_version)
+    ORDER BY created_at, observation_id
+    """
+)
+
+_STAMP_OBSERVATION_EMBEDDING = text(
+    """
+    UPDATE observations
+    SET obs_label_version = :label_version,
+        obs_label_embedding_ref = observation_id::text,
+        updated_at = now()
+    WHERE observation_id = :observation_id
     """
 )

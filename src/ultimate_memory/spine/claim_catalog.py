@@ -13,6 +13,7 @@ from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.model import ClaimForEmbedding
 from ultimate_memory.model import ClaimForNormalization
 from ultimate_memory.model import ClaimRecord
 from ultimate_memory.model import DecisionRecord
@@ -57,6 +58,38 @@ class ClaimCatalog:
                 .all()
             )
         return tuple(ClaimForNormalization.model_validate(dict(row)) for row in rows)
+
+    def claims_for_embedding(
+        self, *, chunk_ids: tuple[UUID, ...], embedding_version: str
+    ) -> tuple[ClaimForEmbedding, ...]:
+        """Claims of a chunk set still lacking this embedding generation."""
+        if not chunk_ids:
+            return ()
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_CLAIMS_FOR_EMBEDDING,
+                    {
+                        "chunk_ids": list(chunk_ids),
+                        "embedding_version": embedding_version,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(ClaimForEmbedding.model_validate(dict(row)) for row in rows)
+
+    def record_claim_embeddings(
+        self, *, claim_ids: tuple[UUID, ...], embedding_version: str
+    ) -> None:
+        """Stamp embedded claims with their ref (= claim_id) and generation."""
+        if not claim_ids:
+            return
+        with self._engine.begin() as connection:
+            connection.execute(
+                _STAMP_CLAIM_EMBEDDINGS,
+                {"claim_ids": list(claim_ids), "embedding_version": embedding_version},
+            )
 
     def record_extraction(
         self, *, claims: tuple[ClaimRecord, ...], decisions: tuple[DecisionRecord, ...]
@@ -137,5 +170,24 @@ _SELECT_CLAIMS_FOR_CHUNKS = text(
     FROM claims
     WHERE chunk_id = ANY(:chunk_ids)
     ORDER BY ingested_at, claim_id
+    """
+)
+
+_SELECT_CLAIMS_FOR_EMBEDDING = text(
+    """
+    SELECT claim_id, doc_id, chunk_id, claim_text,
+           is_current_testimony, is_attributed
+    FROM claims
+    WHERE chunk_id = ANY(:chunk_ids)
+      AND (embedding_version IS NULL OR embedding_version <> :embedding_version)
+    ORDER BY ingested_at, claim_id
+    """
+)
+
+_STAMP_CLAIM_EMBEDDINGS = text(
+    """
+    UPDATE claims
+    SET embedding_ref = claim_id::text, embedding_version = :embedding_version
+    WHERE claim_id = ANY(:claim_ids)
     """
 )

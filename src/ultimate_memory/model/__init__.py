@@ -11,14 +11,20 @@ from ultimate_memory.model.chunks import ChunkSourceNotFoundError
 from ultimate_memory.model.chunks import ContextPrefix
 from ultimate_memory.model.chunks import EmbeddingUpdate
 from ultimate_memory.model.chunks import P1ChunkRow
+from ultimate_memory.model.chunks import P1ClaimRow
+from ultimate_memory.model.chunks import P1FactRow
 from ultimate_memory.model.chunks import PackedChunk
 from ultimate_memory.model.chunks import SectionSpan
 from ultimate_memory.model.claims import AddedContext
 from ultimate_memory.model.claims import CandidateClaim
+from ultimate_memory.model.claims import ClaimForEmbedding
 from ultimate_memory.model.claims import ClaimifyResponse
 from ultimate_memory.model.claims import ClaimRecord
 from ultimate_memory.model.claims import DecisionRecord
 from ultimate_memory.model.claims import DecisionType
+from ultimate_memory.model.claims import FactForLabeling
+from ultimate_memory.model.claims import FactLabelResponse
+from ultimate_memory.model.claims import ObservationForEmbedding
 from ultimate_memory.model.claims import SelectionCandidate
 from ultimate_memory.model.claims import SelectionResponse
 from ultimate_memory.model.claims import SelectionVerdict
@@ -99,6 +105,7 @@ __all__ = (
     "ChunkRecord",
     "ChunkSource",
     "ChunkSourceNotFoundError",
+    "ClaimForEmbedding",
     "ClaimForNormalization",
     "ClaimRecord",
     "ClaimedWork",
@@ -128,6 +135,8 @@ __all__ = (
     "EnqueueWork",
     "EntityRef",
     "EvalSuite",
+    "FactForLabeling",
+    "FactLabelResponse",
     "HandlerAlreadyRegisteredError",
     "IngestedVersion",
     "KRevision",
@@ -139,7 +148,10 @@ __all__ = (
     "ObjectKey",
     "ObjectKeyEscapesRootError",
     "ObservationCandidate",
+    "ObservationForEmbedding",
     "P1ChunkRow",
+    "P1ClaimRow",
+    "P1FactRow",
     "PackedChunk",
     "PerimeterCredential",
     "PipelineComponent",

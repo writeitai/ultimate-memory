@@ -22,6 +22,11 @@ from ultimate_memory.workers.e2 import ExtractClaimsHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
+from ultimate_memory.workers.p1 import EmbedClaimsHandler
+from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
+from ultimate_memory.workers.p1 import LabelFactsHandler
+from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
+from ultimate_memory.workers.p1 import P1Settings
 
 __all__ = (
     "ChunkHandler",
@@ -35,7 +40,12 @@ __all__ = (
     "E3Settings",
     "E3_NORMALIZER_VERSION",
     "ExtractClaimsHandler",
+    "EmbedClaimsHandler",
+    "FACT_LABEL_VERSION",
+    "LabelFactsHandler",
     "NormalizeRelationsHandler",
+    "P1Settings",
+    "P1_EMBED_CLAIMS_VERSION",
     "E0_CONVERT_VERSION",
     "E0_STRUCTURE_VERSION",
     "HandlerOutcome",
