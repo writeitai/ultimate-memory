@@ -226,6 +226,33 @@ EXPECTED_RANGE_PARENTS: Final = {
     "testimony_currency_events": "occurred_at",
 }
 EXPECTED_HASH_PARENTS: Final = ("observation_evidence", "relation_evidence")
+UNLANED_STAGES: Final = frozenset(
+    {
+        "refresh_profile",
+        "build_snapshot",
+        "detect_communities",
+        "compile_knowledge",
+        "reflect_knowledge",
+        "lint_knowledge",
+    }
+)
+"""Stages whose trigger model is debounce/schedule (planes K and P): their route is unlaned.
+
+Laned-ness is enforced here, at the spine enqueue path — not by a stage-enumerating
+database CHECK, which would need a migration edit for every new stage (D67, simplified
+2026-07-18).
+"""
+
+
+def lane_is_valid(*, stage: str, lane: str | None) -> bool:
+    """Return whether a lane value is legal for a stage's route (D67).
+
+    Plane-E stages require a concrete lane (steady or backfill); scheduled K/P
+    stages must be unlaned (SQL NULL).
+    """
+    return (lane is None) == (stage in UNLANED_STAGES)
+
+
 EXPECTED_VIEWS: Final = (
     "v_graph_crossref",
     "v_graph_documents",
@@ -241,7 +268,7 @@ EMPTY_AT_HEAD: Final = (
     "predicate_signatures",
     "predicates",
 )
-EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 26, "f": 106, "p": 57, "u": 28, "x": 1}
+EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 24, "f": 106, "p": 57, "u": 28, "x": 1}
 DECISION_OBJECTS: Final = {
     "D1": ("pipeline_component_versions",),
     "D2": ("claims", "relations", "relation_evidence"),

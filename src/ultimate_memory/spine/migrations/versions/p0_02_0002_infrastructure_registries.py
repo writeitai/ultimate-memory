@@ -80,7 +80,7 @@ CREATE TABLE processing_state (
   stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
   content_hash    text NOT NULL,               -- sha256 carried for diagnostics/replay; = doc raw-bytes hash, or parent-hash+salt for sub-document targets
-  lane            processing_lane,             -- steady | backfill for plane E; NULL for K/P and other unlaned scheduled aggregate jobs (D67)
+  lane            processing_lane,             -- steady | backfill for plane E; NULL for K/P scheduled jobs (D67); stage/lane pairing enforced at the spine enqueue path (catalog UNLANED_STAGES), not by a stage-enumerating CHECK
   status          processing_status NOT NULL DEFAULT 'pending',
   not_before      timestamptz NOT NULL DEFAULT now(), -- canonical earliest claim time; never hidden in payload (D67)
   defer_reason    processing_defer_reason,      -- scheduled | retry_backoff | budget; constrained to the corresponding status below
@@ -99,10 +99,6 @@ CREATE TABLE processing_state (
     (status = 'failed' AND defer_reason = 'retry_backoff') OR
     (status = 'pending' AND (defer_reason IS NULL OR defer_reason IN ('scheduled','budget'))) OR
     (status NOT IN ('pending','failed') AND defer_reason IS NULL)
-  ),
-  CHECK (
-    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
-    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
   )
 );
 COMMENT ON TABLE processing_state IS
@@ -145,7 +141,7 @@ CREATE TABLE cost_ledger (
   processing_id   uuid NOT NULL,               -- owning processing_state row; composite FK below
   provider_call_id uuid NOT NULL,               -- one actual provider invocation; shared by D31 pro-rata batch slices
   stage           pipeline_stage NOT NULL,     -- which layer/stage incurred the spend
-  lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67)
+  lane            processing_lane,             -- copied from processing_state when the billed call begins; NULL for unlaned K/P work (D67); pairing enforced upstream (spine copies from the validated row)
   target_kind     processing_target,           -- optional: what was being processed
   target_id       uuid,                        -- LOGICAL FK → target
   component_version text,                       -- LOGICAL FK → pipeline_component_versions(version)
@@ -160,11 +156,7 @@ CREATE TABLE cost_ledger (
   occurred_at     timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (deployment_id, processing_id) REFERENCES processing_state (deployment_id, processing_id),
   UNIQUE (deployment_id, processing_id, attempt, call_key), -- multiple calls per attempt; one row per logical call
-  CHECK (attempt >= 1),
-  CHECK (
-    (stage IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NULL) OR
-    (stage NOT IN ('refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge') AND lane IS NOT NULL)
-  )
+  CHECK (attempt >= 1)
 );
 COMMENT ON TABLE cost_ledger IS
   'Append-only LLM/embedding call attribution for D67 budgets. Idempotent per (processing_id,attempt,call_key), so multi-call handlers are complete and acknowledged-late retries cannot double-count. provider_call_id groups lane-homogeneous pro-rata slices of one batched call (D31); their token/cost shares sum to the provider total. Nullable diagnostic target fields do not weaken deduplication.';
