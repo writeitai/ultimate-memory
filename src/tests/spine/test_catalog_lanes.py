@@ -1,7 +1,7 @@
 """Behavior tests for the stage/lane pairing rule (D67, application-enforced)."""
 
-from ultimate_memory.spine.catalog_contract import UNLANED_STAGES
 from ultimate_memory.spine.catalog_contract import lane_is_valid
+from ultimate_memory.spine.catalog_contract import UNLANED_STAGES
 
 
 def test_plane_e_stages_require_a_concrete_lane() -> None:

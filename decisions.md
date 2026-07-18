@@ -657,7 +657,8 @@ worked example: `plan/designs/e2_e3_claims_relations_design.md`. (C1–C8.)
 **Refined by D58 (batched extraction).** The two-call shape applies to a **batch window** (a
 section's contiguous chunks in one call pair) exactly as to a single chunk — the window is the
 extraction unit, the calls are still two; bookkeeping stays per-chunk (per-chunk
-`processing_state` commits keyed by `extraction_input_hash`; `cost_ledger` allocated pro-rata).
+`processing_state` commits keyed by `extraction_input_hash`; the batch's calls billed to the
+claiming row — refined 2026-07-18).
 `e1_chunks_design.md` §6.
 
 ## D32. Claim grounding is layered and dual-field, not verbatim-substring
@@ -2155,6 +2156,14 @@ and D61/D62 are refined only by making delivery snapshots explicitly non-authori
 Protocol, migration, adapter, or runtime implementation is created by this decision.
 
 ---
+
+**Refined (2026-07-18) — batched-call attribution simplified.** A batched provider call is
+billed as **one** `cost_ledger` row on the claiming processing row; `provider_call_id` and
+pro-rata slicing are removed. A batch window is a section's contiguous chunks (D58), so it can
+never cross a document or a lane — lane budgets and document-level accounting stay exact
+without splitting, and nothing downstream consumed per-chunk cost. The
+`(processing_id, attempt, call_key)` uniqueness and multi-call attempts are unchanged;
+per-chunk cost splitting returns only via a measured need.
 
 ## D68. Each deployment has its own Postgres instance or schema
 

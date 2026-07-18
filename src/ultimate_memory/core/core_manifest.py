@@ -61,7 +61,6 @@ class CoreManifest:
     predicate_signatures: tuple[PredicateSignatureDefinition, ...]
 
 
-
 _CORE_TYPE_NAMES: tuple[str, ...] = (
     "Person",
     "Organization",
@@ -95,14 +94,10 @@ _ANY: tuple[str, ...] = _CORE_TYPE_NAMES
 
 _PREDICATE_DOMAIN_RANGES: tuple[PredicateDomainRange, ...] = (
     PredicateDomainRange(
-        predicate="works_for",
-        subject_types=("Person",),
-        object_types=("Organization",),
+        predicate="works_for", subject_types=("Person",), object_types=("Organization",)
     ),
     PredicateDomainRange(
-        predicate="member_of",
-        subject_types=("Person",),
-        object_types=("Organization",),
+        predicate="member_of", subject_types=("Person",), object_types=("Organization",)
     ),
     PredicateDomainRange(
         predicate="affiliated_with",
@@ -120,10 +115,7 @@ _PREDICATE_DOMAIN_RANGES: tuple[PredicateDomainRange, ...] = (
         object_types=("Place",),
     ),
     PredicateDomainRange(
-        predicate="part_of",
-        subject_types=_ANY,
-        object_types=_ANY,
-        same_kind=True,
+        predicate="part_of", subject_types=_ANY, object_types=_ANY, same_kind=True
     ),
     PredicateDomainRange(
         predicate="authored",
@@ -136,19 +128,13 @@ _PREDICATE_DOMAIN_RANGES: tuple[PredicateDomainRange, ...] = (
         object_types=("Product", "Concept"),
     ),
     PredicateDomainRange(
-        predicate="about",
-        subject_types=("Document", "Event"),
-        object_types=_ANY,
+        predicate="about", subject_types=("Document", "Event"), object_types=_ANY
     ),
     PredicateDomainRange(
-        predicate="knows_about",
-        subject_types=("Person",),
-        object_types=("Concept",),
+        predicate="knows_about", subject_types=("Person",), object_types=("Concept",)
     ),
     PredicateDomainRange(
-        predicate="knows",
-        subject_types=("Person",),
-        object_types=("Person",),
+        predicate="knows", subject_types=("Person",), object_types=("Person",)
     ),
     PredicateDomainRange(
         predicate="participated_in",
@@ -166,15 +152,9 @@ _PREDICATE_DOMAIN_RANGES: tuple[PredicateDomainRange, ...] = (
         object_types=("Product",),
     ),
     PredicateDomainRange(
-        predicate="reports_to",
-        subject_types=("Person",),
-        object_types=("Person",),
+        predicate="reports_to", subject_types=("Person",), object_types=("Person",)
     ),
-    PredicateDomainRange(
-        predicate="related_to",
-        subject_types=_ANY,
-        object_types=_ANY,
-    ),
+    PredicateDomainRange(predicate="related_to", subject_types=_ANY, object_types=_ANY),
 )
 
 
@@ -201,9 +181,7 @@ def _expand_signatures(
         )
         signatures.extend(
             PredicateSignatureDefinition(
-                predicate=domain_range.predicate,
-                subject_type=subject,
-                object_type=obj,
+                predicate=domain_range.predicate, subject_type=subject, object_type=obj
             )
             for subject, obj in pairs
         )
@@ -590,9 +568,7 @@ CORE_MANIFEST = CoreManifest(
             status="active",
         ),
     ),
-    predicate_signatures=_expand_signatures(
-        domain_ranges=_PREDICATE_DOMAIN_RANGES
-    ),
+    predicate_signatures=_expand_signatures(domain_ranges=_PREDICATE_DOMAIN_RANGES),
 )
 
 

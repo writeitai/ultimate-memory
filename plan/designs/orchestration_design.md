@@ -132,9 +132,10 @@ document" — requirements). Rules:
 Each logical model/provider call writes an attribution row identified by
 `(processing_id, attempt, call_key)`. The handler assigns a deterministic stage-local call key—D31
 uses separate `selection` and `decontextualize` keys—so multi-call attempts are fully counted and
-an acknowledged-late retry of one call is an idempotent insert. A batched call shares one
-`provider_call_id` across its per-processing rows and allocates tokens/cost pro rata; a batch may
-not cross lanes, and its slices sum to the provider total. `cost_ledger.lane` is copied from
+an acknowledged-late retry of one call is an idempotent insert. A batched call (a D58
+window) is billed as one row on the claiming processing row; a batch never crosses a document or a
+lane by construction, so lane budgets and document-level accounting stay exact without cost
+splitting. `cost_ledger.lane` is copied from
 `processing_state.lane` when that call begins. The budget lookup is therefore a range sum on
 `(deployment_id, stage, lane, occurred_at)`; K/P calls can be metered on their unlaned route with
 `lane IS NULL`, but they do not silently join either plane-E lane. A delivery envelope or Cloud

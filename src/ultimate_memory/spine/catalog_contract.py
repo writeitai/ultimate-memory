@@ -150,7 +150,6 @@ EXPECTED_INDEXES: Final = (
     "ix_claims_flagged",
     "ix_communities_snapshot",
     "ix_cost_budget_window",
-    "ix_cost_provider_call",
     "ix_crossrefs_from",
     "ix_crossrefs_to",
     "ix_currency_claim",
