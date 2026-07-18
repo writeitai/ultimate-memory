@@ -529,7 +529,7 @@ def test_p1_channels_carry_claims_and_labeled_facts(rig: _E3Rig) -> None:
     """WP-1.5 acceptance: the claims channel (with the current-testimony
     default-filter scalar) and the labeled facts channel land in Lance, and
     the PG rows carry their refs and generations (D8)."""
-    rig.ingestor.ingest(
+    ingested = rig.ingestor.ingest(
         deployment_id=_DEPLOYMENT_ID,
         upload=DocumentUpload(
             filename="staffing.md",
@@ -587,7 +587,7 @@ def test_p1_channels_carry_claims_and_labeled_facts(rig: _E3Rig) -> None:
             content_hash="sha256:replay",
             lane=ProcessingLane.STEADY,
             attempt=2,
-            payload={},
+            payload={"doc_id": str(ingested.doc_id)},
         )
     )
     assert len(rig.provider.generated_prompts) == calls

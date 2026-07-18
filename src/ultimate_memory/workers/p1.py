@@ -133,49 +133,46 @@ class LabelFactsHandler:
         self._settings = settings
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Label and embed every fact still lacking this label generation.
+        """Label and embed the document's facts still lacking this generation.
 
-        Idempotent replay: labeled rows are stamped with the generation and
-        never reloaded, so a retried attempt only finishes the remainder.
+        Ordering is the invariant (Codex review): the index write lands
+        BEFORE any PG stamp, so Postgres never advertises a Lance ref that
+        was not written — a crash mid-pass re-labels the remainder on retry.
+        The generation stamp folds in the embedding model (D63): a model
+        change re-labels and re-embeds instead of silently skipping.
+        Concurrent document jobs serialize on the deployment label lock.
         """
-        rows: list[P1FactRow] = []
-        for relation in self._facts.relations_for_labeling(
-            deployment_id=work.deployment_id, label_version=FACT_LABEL_VERSION
-        ):
-            label = self._model_provider.generate(
-                request=ModelRequest(
-                    model=self._settings.label_model,
-                    prompt=_FACT_LABEL_PROMPT.format(
-                        subject=relation.subject_name,
-                        predicate=relation.predicate,
-                        object=relation.object_name,
+        doc_id = _payload_uuid(work=work, field="doc_id")
+        generation = f"{FACT_LABEL_VERSION}+{self._settings.embedding_model}"
+        with self._facts.label_lock(deployment_id=work.deployment_id):
+            rows: list[P1FactRow] = []
+            for relation in self._facts.relations_for_labeling(
+                deployment_id=work.deployment_id,
+                doc_id=doc_id,
+                label_version=generation,
+            ):
+                label = self._model_provider.generate(
+                    request=ModelRequest(
+                        model=self._settings.label_model,
+                        prompt=_FACT_LABEL_PROMPT.format(
+                            subject=relation.subject_name,
+                            predicate=relation.predicate,
+                            object=relation.object_name,
+                        ),
                     ),
-                ),
-                response_type=FactLabelResponse,
-            ).label
-            self._facts.record_fact_label(
-                relation_id=relation.relation_id,
-                label=label,
-                label_version=FACT_LABEL_VERSION,
-            )
-            rows.append(
-                P1FactRow(
-                    fact_id=relation.relation_id,
-                    deployment_id=work.deployment_id,
-                    kind="relation",
-                    label=label,
-                    status=relation.status,
-                    vector=(0.0,),  # replaced below by the batch embedding
+                    response_type=FactLabelResponse,
+                ).label
+                rows.append(
+                    P1FactRow(
+                        fact_id=relation.relation_id,
+                        deployment_id=work.deployment_id,
+                        kind="relation",
+                        label=label,
+                        status=relation.status,
+                        vector=(0.0,),  # replaced below by the batch embedding
+                    )
                 )
-            )
-        for observation in self._facts.observations_for_embedding(
-            deployment_id=work.deployment_id, label_version=FACT_LABEL_VERSION
-        ):
-            self._facts.record_observation_embedding(
-                observation_id=observation.observation_id,
-                label_version=FACT_LABEL_VERSION,
-            )
-            rows.append(
+            rows.extend(
                 P1FactRow(
                     fact_id=observation.observation_id,
                     deployment_id=work.deployment_id,
@@ -184,21 +181,37 @@ class LabelFactsHandler:
                     status=observation.status,
                     vector=(0.0,),
                 )
+                for observation in self._facts.observations_for_embedding(
+                    deployment_id=work.deployment_id,
+                    doc_id=doc_id,
+                    label_version=generation,
+                )
             )
-        if not rows:
-            return HandlerOutcome()
-        response = self._model_provider.embed(
-            request=EmbeddingRequest(
-                model=self._settings.embedding_model,
-                texts=tuple(row.label for row in rows),
+            if not rows:
+                return HandlerOutcome()
+            response = self._model_provider.embed(
+                request=EmbeddingRequest(
+                    model=self._settings.embedding_model,
+                    texts=tuple(row.label for row in rows),
+                )
             )
-        )
-        self._fact_index.upsert_facts(
-            rows=tuple(
-                row.model_copy(update={"vector": vector})
-                for row, vector in zip(rows, response.vectors, strict=True)
+            self._fact_index.upsert_facts(
+                rows=tuple(
+                    row.model_copy(update={"vector": vector})
+                    for row, vector in zip(rows, response.vectors, strict=True)
+                )
             )
-        )
+            for row in rows:  # stamps only after the index write landed
+                if row.kind == "relation":
+                    self._facts.record_fact_label(
+                        relation_id=row.fact_id,
+                        label=row.label,
+                        label_version=generation,
+                    )
+                else:
+                    self._facts.record_observation_embedding(
+                        observation_id=row.fact_id, label_version=generation
+                    )
         return HandlerOutcome()
 
 

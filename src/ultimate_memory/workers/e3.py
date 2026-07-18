@@ -135,7 +135,7 @@ class NormalizeRelationsHandler:
                     component_version=FACT_LABEL_VERSION,
                     content_hash=work.content_hash,
                     lane=work.lane,
-                    payload=dict(work.payload or {}),
+                    payload={**(work.payload or {}), "doc_id": str(source.doc_id)},
                 ),
             )
         )
