@@ -12,14 +12,18 @@
 | src/ultimate\_memory/adapters/selfhost/queue.py                                                  |       65 |        1 |       10 |        2 |     96.0% |111-\>118, 135 |
 | src/ultimate\_memory/adapters/testing/\_\_init\_\_.py                                            |        3 |        3 |        0 |        0 |      0.0% |       3-6 |
 | src/ultimate\_memory/adapters/testing/queue.py                                                   |       12 |       12 |        0 |        0 |      0.0% |      3-37 |
-| src/ultimate\_memory/core/\_\_init\_\_.py                                                        |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/core/\_\_init\_\_.py                                                        |        9 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/core/blockizer.py                                                           |       70 |        2 |       24 |        2 |     95.7% |  162, 175 |
 | src/ultimate\_memory/core/core\_manifest.py                                                      |       40 |        0 |        2 |        0 |    100.0% |           |
-| src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        3 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/harness.py                                                             |       41 |        1 |        4 |        1 |     95.6% |        69 |
 | src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       43 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       49 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/auth.py                                                               |       10 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/blocks.py                                                             |       16 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/component\_version.py                                                 |       64 |        0 |        4 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/deployment.py                                                         |       16 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/evaluation.py                                                         |       19 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/git.py                                                                |        6 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/model\_provider.py                                                    |       22 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/mounts.py                                                             |        9 |        0 |        0 |        0 |    100.0% |           |
@@ -55,7 +59,7 @@
 | src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |        6 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/base.py                                                             |       58 |        5 |        6 |        2 |     89.1% |71, 80, 111-121 |
-| **TOTAL**                                                                                        | **1235** |   **63** |  **224** |   **39** | **92.9%** |           |
+| **TOTAL**                                                                                        | **1393** |   **66** |  **252** |   **42** | **93.3%** |           |
 
 
 ## Setup coverage badge
