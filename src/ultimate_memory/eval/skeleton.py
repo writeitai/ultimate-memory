@@ -49,13 +49,18 @@ SKELETON_CANARIES: Final[tuple[dict[str, object], ...]] = (
     {
         "description": "grain contract: claims answers are evidence grain",
         "input": {"scenario": "grain_contract", "query": "Alice Novak employer"},
-        "expected": {},
+        "expected": {"min_evidence": 1},
     },
 )
 
 
 def seed_skeleton_canaries(*, engine: Engine, deployment_id: UUID) -> None:
-    """Insert the skeleton pack idempotently (stable per-deployment ids)."""
+    """Insert or refresh the skeleton pack (stable per-deployment ids).
+
+    This function is the canonical definition: re-seeding updates an existing
+    canary in place, so a changed case can never silently keep evaluating its
+    stale stored form (Codex review).
+    """
     with engine.begin() as connection:
         for canary in SKELETON_CANARIES:
             connection.execute(
@@ -122,8 +127,16 @@ def _s2(engine: QueryEngine, deployment_id: UUID, case: CanaryCase) -> bool:
         entity_id=entity,
         property_query=str(case.input["property_query"]),
     )
-    return answer.grain is Grain.FACT and any(
-        str(case.expected["label_contains"]) in fact.label for fact in answer.facts
+    # discrimination is bounded by the corpus: with richer golden corpora
+    # (WP-0.6 tooling) this tightens to "only the matching property returns";
+    # here the match must exist, rank in the top results, and drop nothing:
+    return (
+        answer.grain is Grain.FACT
+        and answer.dropped_by_hydration == 0
+        and any(
+            str(case.expected["label_contains"]) in fact.label
+            for fact in answer.facts[:3]
+        )
     )
 
 
@@ -142,11 +155,18 @@ def _s5(engine: QueryEngine, deployment_id: UUID, case: CanaryCase) -> bool:
     hydrated = engine.hydrate_relation(
         deployment_id=deployment_id, relation_id=relations.facts[0].fact_id
     )
+    source_docs = {source.doc_id for source in hydrated.sources}
     return (
         hydrated.grain is Grain.COMPOSITE
         and len(hydrated.evidence) >= int(case.expected["min_evidence"])  # type: ignore[call-overload]
-        and all(claim.source_span for claim in hydrated.evidence)
         and len(hydrated.sources) >= int(case.expected["min_sources"])  # type: ignore[call-overload]
+        # provenance linkage (Codex review): every claim's offsets are
+        # span-coherent and its document is among the returned sources:
+        and all(
+            claim.char_end - claim.char_start == len(claim.source_span)
+            and claim.doc_id in source_docs
+            for claim in hydrated.evidence
+        )
     )
 
 
@@ -171,11 +191,21 @@ def _s39(engine: QueryEngine, deployment_id: UUID, case: CanaryCase) -> bool:
 
 
 def _grain_contract(engine: QueryEngine, deployment_id: UUID, case: CanaryCase) -> bool:
-    """Claims answers are evidence grain — never a current-fact answer."""
+    """Claims answers are evidence grain — never a current-fact answer.
+
+    Substance is required (Codex review): an implementation returning empty
+    evidence for every query must fail, and every returned claim must be
+    current testimony (the default channel's contract).
+    """
     answer: Envelope = engine.search_claims(
         deployment_id=deployment_id, query=str(case.input["query"])
     )
-    return answer.grain is Grain.EVIDENCE and not answer.facts
+    return (
+        answer.grain is Grain.EVIDENCE
+        and not answer.facts
+        and len(answer.evidence) >= int(case.expected["min_evidence"])  # type: ignore[call-overload]
+        and all(claim.is_current_testimony for claim in answer.evidence)
+    )
 
 
 def _resolve_one(engine: QueryEngine, deployment_id: UUID, name: str) -> UUID | None:
@@ -193,6 +223,9 @@ _INSERT_CANARY = text(
     ) VALUES (
         :canary_id, :deployment_id, 'retrieval', :description, :input, :expected
     )
-    ON CONFLICT (canary_id) DO NOTHING
+    ON CONFLICT (canary_id) DO UPDATE
+        SET description = EXCLUDED.description,
+            input = EXCLUDED.input,
+            expected = EXCLUDED.expected
     """
 ).bindparams(bindparam("input", type_=JSON), bindparam("expected", type_=JSON))
