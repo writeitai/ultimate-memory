@@ -19,6 +19,9 @@ from ultimate_memory.workers.e1 import E2_EXTRACTOR_VERSION
 from ultimate_memory.workers.e1 import EmbedChunksHandler
 from ultimate_memory.workers.e2 import E2Settings
 from ultimate_memory.workers.e2 import ExtractClaimsHandler
+from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
+from ultimate_memory.workers.e3 import E3Settings
+from ultimate_memory.workers.e3 import NormalizeRelationsHandler
 
 __all__ = (
     "ChunkHandler",
@@ -29,7 +32,10 @@ __all__ = (
     "E2Settings",
     "E2_EXTRACTOR_VERSION",
     "EmbedChunksHandler",
+    "E3Settings",
+    "E3_NORMALIZER_VERSION",
     "ExtractClaimsHandler",
+    "NormalizeRelationsHandler",
     "E0_CONVERT_VERSION",
     "E0_STRUCTURE_VERSION",
     "HandlerOutcome",
