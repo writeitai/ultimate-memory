@@ -15,7 +15,10 @@ from ultimate_memory.workers.e1 import ChunkHandler
 from ultimate_memory.workers.e1 import E1_CHUNK_VERSION
 from ultimate_memory.workers.e1 import E1_EMBED_VERSION
 from ultimate_memory.workers.e1 import E1Settings
+from ultimate_memory.workers.e1 import E2_EXTRACTOR_VERSION
 from ultimate_memory.workers.e1 import EmbedChunksHandler
+from ultimate_memory.workers.e2 import E2Settings
+from ultimate_memory.workers.e2 import ExtractClaimsHandler
 
 __all__ = (
     "ChunkHandler",
@@ -23,7 +26,10 @@ __all__ = (
     "E1Settings",
     "E1_CHUNK_VERSION",
     "E1_EMBED_VERSION",
+    "E2Settings",
+    "E2_EXTRACTOR_VERSION",
     "EmbedChunksHandler",
+    "ExtractClaimsHandler",
     "E0_CONVERT_VERSION",
     "E0_STRUCTURE_VERSION",
     "HandlerOutcome",

@@ -1,0 +1,452 @@
+"""The E2 extractor (D31-D35): two-call Claimify over the context bundle.
+
+Per chunk: a Selection call judges every proposition (keep / keep-flagged /
+drop — drops and flags go to the D33 ledger), then one fused call
+decontextualizes, decomposes, and self-grounds the keeps. The deterministic
+grounding gate (D32 layers 1-2) accepts a claim only if its verbatim source
+span anchors inside the chunk and every added substring exists in the bundle
+element it was attributed to — a check the model cannot talk its way past.
+"""
+
+import logging
+from typing import Final
+from uuid import UUID
+from uuid import uuid4
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
+
+from ultimate_memory.model import CandidateClaim
+from ultimate_memory.model import ChunkForEmbedding
+from ultimate_memory.model import ChunkSource
+from ultimate_memory.model import ClaimedWork
+from ultimate_memory.model import ClaimifyResponse
+from ultimate_memory.model import ClaimRecord
+from ultimate_memory.model import DecisionRecord
+from ultimate_memory.model import DecisionType
+from ultimate_memory.model import ModelRequest
+from ultimate_memory.model import NonRetryableHandlerError
+from ultimate_memory.model import ObjectKey
+from ultimate_memory.model import SelectionCandidate
+from ultimate_memory.model import SelectionResponse
+from ultimate_memory.model import SelectionVerdict
+from ultimate_memory.ports.model_provider import ModelProviderPort
+from ultimate_memory.ports.object_store import ObjectStorePort
+from ultimate_memory.spine.chunk_catalog import ChunkCatalog
+from ultimate_memory.spine.claim_catalog import ClaimCatalog
+from ultimate_memory.workers.base import HandlerOutcome
+from ultimate_memory.workers.e1 import E2_EXTRACTOR_VERSION
+
+_logger = logging.getLogger(__name__)
+
+_SELECTION_PROMPT: Final = """You are the Selection stage of a claim extractor.
+Judge every proposition in the TARGET CHUNK: keep statements making a specific,
+verifiable proposition (state, event, decision, quantity, policy, relationship).
+Drop unattributed opinions, advice, hypotheticals, generic truisms, questions,
+section intros/conclusions, and "we don't know" statements. An ATTRIBUTED
+stance ("X said/believes/opposes Y") is a KEEP. Never-drop classes even if
+phrased opinionatedly: quantities, dates, named-entity+predicate,
+change-of-state. When unsure, prefer keep_flagged over drop. Each candidate's
+source_span must be a verbatim substring of the target chunk.
+
+{bundle}"""
+
+_CLAIMIFY_PROMPT: Final = """You are the decontextualize+decompose+ground stage
+of a claim extractor. For each KEPT proposition below: resolve every pronoun,
+partial name, acronym, and relative date USING ONLY THE BUNDLE (never outside
+knowledge), adding the minimum context needed; split into the simplest
+standalone claims, preserving attribution ("X said Y" stays attributed); if a
+careful reader could not pick one interpretation from the bundle, omit the
+candidate. For each claim return: claim_text (standalone), source_span (the
+verbatim chunk substring it derives from), added_context (every substring you
+ADDED, each tagged header|neighbour|prefix with the exact text as it appears
+in that bundle element), entailment_self_verdict (does chunk+bundle entail the
+claim), is_attributed.
+
+KEPT PROPOSITIONS:
+{keeps}
+
+{bundle}"""
+
+
+class E2Settings(BaseSettings):
+    """The E2 model binding (D70): interchangeable per-deployment port config."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_E2_")
+
+    extract_model: str = Field(default="openai/gpt-5.6-luna")
+
+
+class ExtractClaimsHandler:
+    """The extract stage: every chunk of one representation through Claimify."""
+
+    def __init__(
+        self,
+        *,
+        catalog: ClaimCatalog,
+        chunk_catalog: ChunkCatalog,
+        artifact_store: ObjectStorePort,
+        model_provider: ModelProviderPort,
+        settings: E2Settings,
+        chunker_version: str,
+    ) -> None:
+        """Bind the handler to its catalogs, store, provider, and generation."""
+        self._catalog = catalog
+        self._chunk_catalog = chunk_catalog
+        self._artifact_store = artifact_store
+        self._model_provider = model_provider
+        self._settings = settings
+        self._chunker_version = chunker_version
+
+    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+        """Extract claims for one document version, chunk by chunk (D12 replay)."""
+        source = self._chunk_catalog.chunk_source(
+            representation_id=_payload_uuid(work=work, field="representation_id")
+        )
+        chunks = self._chunk_catalog.chunks_for_embedding(
+            representation_id=source.representation_id,
+            chunker_version=self._chunker_version,
+        )
+        if not chunks:
+            return HandlerOutcome()
+        document_md = self._artifact_store.read_bytes(
+            key=ObjectKey(source.markdown_uri)
+        ).decode("utf-8")
+        for index, chunk in enumerate(chunks):
+            if self._catalog.chunk_already_extracted(
+                chunk_id=chunk.chunk_id, extractor_version=E2_EXTRACTOR_VERSION
+            ):
+                continue  # replay: stored claims + decisions are the output (D7)
+            self._extract_chunk(
+                source=source, chunks=chunks, index=index, document_md=document_md
+            )
+        return HandlerOutcome()
+
+    def _extract_chunk(
+        self,
+        *,
+        source: ChunkSource,
+        chunks: tuple[ChunkForEmbedding, ...],
+        index: int,
+        document_md: str,
+    ) -> None:
+        """Run the two Claimify calls for one chunk and land the results."""
+        chunk = chunks[index]
+        bundle = _bundle_text(
+            source=source, chunks=chunks, index=index, document_md=document_md
+        )
+        selection = self._model_provider.generate(
+            request=ModelRequest(
+                model=self._settings.extract_model,
+                prompt=_SELECTION_PROMPT.format(bundle=bundle),
+            ),
+            response_type=SelectionResponse,
+        )
+        decisions = list(
+            _selection_decisions(source=source, chunk=chunk, selection=selection)
+        )
+        keeps = tuple(
+            candidate
+            for candidate in selection.candidates
+            if candidate.verdict is not SelectionVerdict.DROP
+        )
+        claims: list[ClaimRecord] = []
+        if keeps:
+            kept_ranges = _kept_ranges(
+                keeps=keeps, chunk=chunk, document_md=document_md
+            )
+            flagged_spans = {
+                candidate.source_span
+                for candidate in keeps
+                if candidate.verdict is SelectionVerdict.KEEP_FLAGGED
+            }
+            response = self._model_provider.generate(
+                request=ModelRequest(
+                    model=self._settings.extract_model,
+                    prompt=_CLAIMIFY_PROMPT.format(
+                        keeps="\n".join(f"- {keep.source_span}" for keep in keeps),
+                        bundle=bundle,
+                    ),
+                ),
+                response_type=ClaimifyResponse,
+            )
+            for candidate in response.claims:
+                record = _grounded_claim(
+                    candidate=candidate,
+                    source=source,
+                    chunk=chunk,
+                    chunks=chunks,
+                    index=index,
+                    document_md=document_md,
+                    flagged_spans=flagged_spans,
+                    kept_ranges=kept_ranges,
+                )
+                if record is None:
+                    _logger.warning(
+                        "grounding gate rejected candidate %r on chunk %s",
+                        candidate.claim_text,
+                        chunk.chunk_id,
+                    )
+                    continue
+                claims.append(record)
+                if record.added_context:
+                    decisions.append(_edit_decision(source=source, record=record))
+        decisions = _link_flagged_decisions(decisions=decisions, claims=claims)
+        if not claims and not decisions:
+            # terminal marker (D7): an extraction that found nothing claim-worthy
+            # is DONE — without it, replay would re-call the model.
+            decisions = [_empty_extraction_marker(source=source, chunk=chunk)]
+        self._catalog.record_extraction(
+            claims=tuple(claims), decisions=tuple(decisions)
+        )
+
+
+def _grounded_claim(
+    *,
+    candidate: CandidateClaim,
+    source: ChunkSource,
+    chunk: ChunkForEmbedding,
+    chunks: tuple[ChunkForEmbedding, ...],
+    index: int,
+    document_md: str,
+    flagged_spans: set[str],
+    kept_ranges: tuple[tuple[int, int], ...],
+) -> ClaimRecord | None:
+    """Apply the deterministic grounding gate (D32 layers 1-2).
+
+    Layer 1 (anchor): the source span must be a real in-bounds slice of the
+    target chunk, and must overlap a span Selection kept — the fused call can
+    never resurrect a dropped proposition. Layer 2 (window membership): every
+    added substring must verbatim-exist in the bundle element it was
+    attributed to. A failed check returns None — the candidate never becomes
+    a claims row. Semantic invention behind a real span is layer-3/4
+    territory: the in-call self-verdict is stored advisory, and the sampled
+    independent audit owns the honest measurement.
+    """
+    anchor_at = document_md.find(
+        candidate.source_span, chunk.char_start, chunk.char_end
+    )
+    if anchor_at < 0:
+        return None
+    anchor_end = anchor_at + len(candidate.source_span)
+    if not any(
+        anchor_at < kept_end and kept_start < anchor_end
+        for kept_start, kept_end in kept_ranges
+    ):
+        return None  # Selection is enforced, not advisory
+    for added in candidate.added_context:
+        element = _bundle_element(
+            kind=added.source_kind,
+            source=source,
+            chunks=chunks,
+            index=index,
+            document_md=document_md,
+        )
+        if element is None or added.text not in element:
+            return None
+    return ClaimRecord(
+        claim_id=uuid4(),
+        deployment_id=source.deployment_id,
+        doc_id=source.doc_id,
+        chunk_id=chunk.chunk_id,
+        section_id=None,
+        claim_text=candidate.claim_text,
+        source_span=candidate.source_span,
+        char_start=anchor_at,
+        char_end=anchor_at + len(candidate.source_span),
+        added_context=candidate.added_context,
+        is_attributed=candidate.is_attributed,
+        entailment_self_verdict=candidate.entailment_self_verdict,
+        kept_flagged=candidate.source_span in flagged_spans,
+        extractor_version=E2_EXTRACTOR_VERSION,
+    )
+
+
+def _bundle_text(
+    *,
+    source: ChunkSource,
+    chunks: tuple[ChunkForEmbedding, ...],
+    index: int,
+    document_md: str,
+) -> str:
+    """Assemble the D31 context bundle for one target chunk."""
+    chunk = chunks[index]
+    return (
+        f"DOCUMENT HEADER: {_header_text(source=source)}\n"
+        f"SECTION: path {chunk.section_path}, role {chunk.section_role}\n"
+        f"CONTEXT PREFIX: {chunk.context_prefix or '(none)'}\n"
+        f"PREVIOUS CHUNK:\n{_neighbour_text(chunks=chunks, index=index - 1, document_md=document_md, section_path=chunk.section_path)}\n"
+        f"NEXT CHUNK:\n{_neighbour_text(chunks=chunks, index=index + 1, document_md=document_md, section_path=chunk.section_path)}\n"
+        f"TARGET CHUNK:\n{document_md[chunk.char_start : chunk.char_end]}"
+    )
+
+
+def _bundle_element(
+    *,
+    kind: str,
+    source: ChunkSource,
+    chunks: tuple[ChunkForEmbedding, ...],
+    index: int,
+    document_md: str,
+) -> str | None:
+    """The bundle element an added substring claims to come from, or None."""
+    if kind == "header":
+        return _header_text(source=source)
+    if kind == "prefix":
+        return chunks[index].context_prefix
+    if kind == "neighbour":
+        return "\n".join(
+            _neighbour_text(
+                chunks=chunks,
+                index=neighbour,
+                document_md=document_md,
+                section_path=chunks[index].section_path,
+            )
+            for neighbour in (index - 1, index + 1)
+        )
+    return None
+
+
+def _header_text(*, source: ChunkSource) -> str:
+    """The deterministic document header shared by every chunk's bundle."""
+    modified = source.source_modified_at or source.published_at
+    return (
+        f"title {source.title or 'untitled'}; source {source.source_kind};"
+        f" date {modified.date().isoformat() if modified else 'unknown'};"
+        f" language {source.language or 'unknown'}"
+    )
+
+
+def _neighbour_text(
+    *,
+    chunks: tuple[ChunkForEmbedding, ...],
+    index: int,
+    document_md: str,
+    section_path: str,
+) -> str:
+    """A same-section neighbour's verbatim text, or a placeholder.
+
+    The D31 bundle rule is same-scope only: an ordinal-adjacent chunk from a
+    different section is not a neighbour and can never ground an addition.
+    """
+    if 0 <= index < len(chunks) and chunks[index].section_path == section_path:
+        neighbour = chunks[index]
+        return document_md[neighbour.char_start : neighbour.char_end]
+    return "(none)"
+
+
+def _kept_ranges(
+    *, keeps: tuple[SelectionCandidate, ...], chunk: ChunkForEmbedding, document_md: str
+) -> tuple[tuple[int, int], ...]:
+    """Absolute char ranges of the kept Selection spans inside the chunk."""
+    ranges: list[tuple[int, int]] = []
+    for keep in keeps:
+        found = document_md.find(keep.source_span, chunk.char_start, chunk.char_end)
+        if found >= 0:
+            ranges.append((found, found + len(keep.source_span)))
+    return tuple(ranges)
+
+
+def _link_flagged_decisions(
+    *, decisions: list[DecisionRecord], claims: list[ClaimRecord]
+) -> list[DecisionRecord]:
+    """Pair each keep-flagged ledger row with its grounded claim (schema §8).
+
+    The invariant: a kept_flagged claim is the pair (claims row) + (a
+    selection_keep_flagged decision naming it). A flag whose span grounded no
+    claim keeps claim_id NULL — the flag stands, nothing to pair.
+    """
+    linked: list[DecisionRecord] = []
+    for decision in decisions:
+        if decision.decision_type is DecisionType.SELECTION_KEEP_FLAGGED:
+            match = next(
+                (
+                    claim
+                    for claim in claims
+                    if claim.kept_flagged and claim.source_span == decision.source_span
+                ),
+                None,
+            )
+            if match is not None:
+                decision = decision.model_copy(update={"claim_id": match.claim_id})
+        linked.append(decision)
+    return linked
+
+
+def _empty_extraction_marker(
+    *, source: ChunkSource, chunk: ChunkForEmbedding
+) -> DecisionRecord:
+    """The terminal no_info row for a chunk whose extraction found nothing."""
+    return DecisionRecord(
+        decision_id=uuid4(),
+        deployment_id=source.deployment_id,
+        doc_id=source.doc_id,
+        chunk_id=chunk.chunk_id,
+        claim_id=None,
+        decision_type=DecisionType.SELECTION_DROP,
+        source_span=None,
+        reason="no_info",
+        edit_detail=None,
+        protected_class=None,
+        extractor_version=E2_EXTRACTOR_VERSION,
+    )
+
+
+def _selection_decisions(
+    *, source: ChunkSource, chunk: ChunkForEmbedding, selection: SelectionResponse
+) -> tuple[DecisionRecord, ...]:
+    """The D33 ledger rows for one Selection call: drops and keep-flags."""
+    return tuple(
+        DecisionRecord(
+            decision_id=uuid4(),
+            deployment_id=source.deployment_id,
+            doc_id=source.doc_id,
+            chunk_id=chunk.chunk_id,
+            claim_id=None,
+            decision_type=DecisionType.SELECTION_DROP
+            if candidate.verdict is SelectionVerdict.DROP
+            else DecisionType.SELECTION_KEEP_FLAGGED,
+            source_span=candidate.source_span,
+            reason=candidate.drop_reason
+            if candidate.verdict is SelectionVerdict.DROP
+            else None,
+            edit_detail=None,
+            protected_class=candidate.protected_class,
+            extractor_version=E2_EXTRACTOR_VERSION,
+        )
+        for candidate in selection.candidates
+        if candidate.verdict is not SelectionVerdict.KEEP
+    )
+
+
+def _edit_decision(*, source: ChunkSource, record: ClaimRecord) -> DecisionRecord:
+    """The D33 decontextualization-edit row for one accepted claim."""
+    return DecisionRecord(
+        decision_id=uuid4(),
+        deployment_id=source.deployment_id,
+        doc_id=source.doc_id,
+        chunk_id=record.chunk_id,
+        claim_id=record.claim_id,
+        decision_type=DecisionType.DECONTEXT_EDIT,
+        source_span=record.source_span,
+        reason=None,
+        edit_detail={
+            "added": [
+                {"text": added.text, "source_kind": added.source_kind}
+                for added in record.added_context
+            ]
+        },
+        protected_class=None,
+        extractor_version=E2_EXTRACTOR_VERSION,
+    )
+
+
+def _payload_uuid(*, work: ClaimedWork, field: str) -> UUID:
+    """Read a required UUID from the claimed payload; absence is non-retryable."""
+    value = (work.payload or {}).get(field)
+    if not isinstance(value, str):
+        raise NonRetryableHandlerError(
+            f"stage {work.stage} work {work.processing_id} carries no {field!r} payload"
+        )
+    return UUID(value)

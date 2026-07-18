@@ -13,6 +13,15 @@ from ultimate_memory.model.chunks import EmbeddingUpdate
 from ultimate_memory.model.chunks import P1ChunkRow
 from ultimate_memory.model.chunks import PackedChunk
 from ultimate_memory.model.chunks import SectionSpan
+from ultimate_memory.model.claims import AddedContext
+from ultimate_memory.model.claims import CandidateClaim
+from ultimate_memory.model.claims import ClaimifyResponse
+from ultimate_memory.model.claims import ClaimRecord
+from ultimate_memory.model.claims import DecisionRecord
+from ultimate_memory.model.claims import DecisionType
+from ultimate_memory.model.claims import SelectionCandidate
+from ultimate_memory.model.claims import SelectionResponse
+from ultimate_memory.model.claims import SelectionVerdict
 from ultimate_memory.model.component_version import ComponentVersionConflictError
 from ultimate_memory.model.component_version import ComponentVersionError
 from ultimate_memory.model.component_version import ComponentVersionNotFoundError
@@ -73,16 +82,20 @@ from ultimate_memory.model.telemetry import TelemetryAttribute
 from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
+    "AddedContext",
     "AuthenticatedContext",
     "Block",
     "BlockType",
     "CanaryCase",
+    "CandidateClaim",
     "CaseFailure",
     "ChunkForEmbedding",
     "ChunkRecord",
     "ChunkSource",
     "ChunkSourceNotFoundError",
+    "ClaimRecord",
     "ClaimedWork",
+    "ClaimifyResponse",
     "ComponentVersionConflictError",
     "ComponentVersionError",
     "ComponentVersionNotFoundError",
@@ -92,6 +105,8 @@ __all__ = (
     "ConversionResult",
     "ConvertSource",
     "CoreManifestConflictError",
+    "DecisionRecord",
+    "DecisionType",
     "DeferReason",
     "DeploymentBootstrapConflictError",
     "DeploymentBootstrapInput",
@@ -131,6 +146,9 @@ __all__ = (
     "RepresentationRecord",
     "RunResultOutcome",
     "SectionSpan",
+    "SelectionCandidate",
+    "SelectionResponse",
+    "SelectionVerdict",
     "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
