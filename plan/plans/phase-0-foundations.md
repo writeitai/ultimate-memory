@@ -22,7 +22,7 @@ scaffold exists with ≥1 seeded doc.
 | WP-0.2 | Alembic migrations for the full structural schema (schema shape only; no deployment/core data) | postgres_schema_design (all §; §0 conventions and §2 post-head boundary) | WP-0.1 | structural migration chain | fresh-DB apply + downgrade; §16 decision→table map spot-check; head contains no deployment/core rows | done |
 | WP-0.3 | Tenancy + pipeline substrate: typed transactional `bootstrap_deployment(DeploymentBootstrapInput) -> DeploymentBootstrapResult`, `pipeline_component_versions`, `processing_state`, `cost_ledger`, DLQ semantics; the **handler registration model** (stage handlers, chain rule) | schema §§2–3; registries §4 exact core manifest; orchestration §1–2; D12, D52, D69; packaging §§3–5 | WP-0.2 | library-owned deployment bootstrap + worker base library (idempotency, retries, versions, cost metering) | after schema head, bootstrap maps typed profile inputs to one deployment + exactly 8 roots/16 predicates/116 signatures in one transaction; identical retry is a verified no-op; conflicting retry rolls back with a typed conflict; demo no-op worker: enqueue → run → state row → retry → dead-letter | done |
 | WP-0.4 | **The D61 port interfaces** (`ports/` Protocols: object store, task queue, mounts, git remote, model provider, telemetry, auth) + import-linter contracts in CI | packaging §3–4; D61, D62 | WP-0.1 | `ports/` + CI architecture checks | illegal import fails CI (proven by a deliberate violation) | done |
-| WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), local-FS object store, local mount publisher, `adapters/testing` tier (MinIO wiring lands with WP-0.4c) | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs against real Postgres with zero GCP deps; transactional-enqueue crash test | planned |
+| WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), local-FS object store, local mount publisher, `adapters/testing` tier (MinIO wiring lands with WP-0.4c) | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs against real Postgres with zero GCP deps; transactional-enqueue crash test | done |
 | WP-0.4b | **Reference adapters**: Cloud Tasks push shell + dispatch server, GCS store, gcsfuse publisher; **the janitor sweep** (shared, port-agnostic) | packaging §3; orchestration §2–3; D61 | WP-0.4 | `adapters/gcp` + janitor job | same demo chain on the GCP profile; janitor re-announces a killed delivery on BOTH profiles | planned |
 | WP-0.4c | **Compose self-host profile** (postgres + minio + api + worker; `profiles/selfhost`) — the quickstart skeleton | packaging §5 | WP-0.4a | docker-compose + profile module | `docker compose up` → demo ingest → state rows; CI-run | planned |
 | WP-0.5 | **Eval harness skeleton** (questions #14 — this WP owns it): golden-set storage (`golden_pairs`, `golden_claim_labels`, `canary_cases`, `eval_runs`), suite runner, CI wiring | schema §5; D22; registries §10 | WP-0.2 | harness package + `eval` CI job | empty suites run; a seeded canary fails deliberately and blocks CI | planned |
@@ -86,6 +86,18 @@ attempt-limit / non-retryable → dead letter with the full traceback in `last_e
 never parked), and idempotent cost attribution copied from the locked running row. Earlier
 slices: bootstrap (PR #72), component versions (PR #73). Delivery shells, rate limits, and the
 janitor remain WP-0.4a/0.4b scope.
+
+
+**WP-0.4a complete (2026-07-18):** the self-host adapters land in `adapters/selfhost` —
+`SelfHostTaskQueue` (announce-only, via the spine's `wake` notification primitive; SQL stays in
+spine), `SelfHostWorkerLoop` (LISTEN on `queue_wake`, drain via SKIP LOCKED claims, slow
+fallback poll, token-bucket rate limit around the claim), `LocalFSObjectStore` (immutable
+write-once keys, traversal-proof), `LocalMountPublisher` (the four D51 views as local
+directories), and the `adapters/testing` tier (`RecordingTaskQueue`). Real-PostgreSQL proofs:
+the **transactional-enqueue crash test** (a rolled-back insert delivers no wake; a committed
+enqueue delivers exactly its row's wake — the schema trigger's by-construction guarantee),
+announce re-delivery, and the demo chain draining through the loop with zero GCP dependencies.
+MinIO wiring lands with WP-0.4c per the sequencing amendment.
 
 **WP-0.4 complete (2026-07-17; `P0-L01-D62-ARCH-GATE` and
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package

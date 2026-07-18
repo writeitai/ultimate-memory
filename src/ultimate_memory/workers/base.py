@@ -21,6 +21,7 @@ from ultimate_memory.model import HandlerAlreadyRegisteredError
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import UnknownStageHandlerError
 from ultimate_memory.spine.work_ledger import WorkLedger
 
@@ -54,7 +55,7 @@ class RunResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     processing_id: UUID | None
-    outcome: str  # no_work | succeeded | retry_scheduled | dead_lettered
+    outcome: RunResultOutcome
 
 
 class HandlerRegistry:
@@ -102,7 +103,7 @@ class Worker:
             deployment_id=deployment_id, stage=stage, lane=lane
         )
         if claimed is None:
-            return RunResult(processing_id=None, outcome="no_work")
+            return RunResult(processing_id=None, outcome=RunResultOutcome.NO_WORK)
         handler = self._registry.handler_for(stage=claimed.stage)
         try:
             outcome = handler.handle(work=claimed)
@@ -118,7 +119,8 @@ class Worker:
                 retryable=False,
             )
             return RunResult(
-                processing_id=claimed.processing_id, outcome="dead_lettered"
+                processing_id=claimed.processing_id,
+                outcome=RunResultOutcome.DEAD_LETTERED,
             )
         except Exception:
             _logger.exception(
@@ -133,9 +135,13 @@ class Worker:
             )
             return RunResult(
                 processing_id=claimed.processing_id,
-                outcome="retry_scheduled" if retry_scheduled else "dead_lettered",
+                outcome=RunResultOutcome.RETRY_SCHEDULED
+                if retry_scheduled
+                else RunResultOutcome.DEAD_LETTERED,
             )
         self._ledger.complete(
             processing_id=claimed.processing_id, follow_up=outcome.follow_up
         )
-        return RunResult(processing_id=claimed.processing_id, outcome="succeeded")
+        return RunResult(
+            processing_id=claimed.processing_id, outcome=RunResultOutcome.SUCCEEDED
+        )
