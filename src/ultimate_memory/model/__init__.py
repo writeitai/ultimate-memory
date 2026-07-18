@@ -2,6 +2,13 @@
 
 from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
+from ultimate_memory.model.component_version import ComponentVersionConflictError
+from ultimate_memory.model.component_version import ComponentVersionError
+from ultimate_memory.model.component_version import ComponentVersionNotFoundError
+from ultimate_memory.model.component_version import ComponentVersionRecord
+from ultimate_memory.model.component_version import PipelineComponent
+from ultimate_memory.model.component_version import RegisterComponentVersionInput
+from ultimate_memory.model.component_version import RegisterComponentVersionResult
 from ultimate_memory.model.deployment import CoreManifestConflictError
 from ultimate_memory.model.deployment import DeploymentBootstrapConflictError
 from ultimate_memory.model.deployment import DeploymentBootstrapInput
@@ -23,6 +30,10 @@ from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
     "AuthenticatedContext",
+    "ComponentVersionConflictError",
+    "ComponentVersionError",
+    "ComponentVersionNotFoundError",
+    "ComponentVersionRecord",
     "CoreManifestConflictError",
     "DeploymentBootstrapConflictError",
     "DeploymentBootstrapInput",
@@ -34,10 +45,13 @@ __all__ = (
     "ModelRequest",
     "ObjectKey",
     "PerimeterCredential",
+    "PipelineComponent",
     "PipelineStage",
     "ProcessingLane",
     "PublishedMounts",
     "QueueRoute",
+    "RegisterComponentVersionInput",
+    "RegisterComponentVersionResult",
     "StructuredResponseModel",
     "TelemetryAttribute",
     "TelemetryEvent",

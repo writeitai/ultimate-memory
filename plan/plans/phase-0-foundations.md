@@ -55,6 +55,17 @@ This bounded slice exposes no CLI, profile, configuration, deployment workflow, 
 surface, so D66 requires no website edit. Worker-state/handler behavior remains unimplemented;
 WP-0.3 therefore stays `in-progress` and Phase 0 remains incomplete.
 
+**WP-0.3 component-version registry slice in progress (2026-07-18; `P0-L08-WP03-COMPONENT-VERSION-REGISTRY`):**
+[PR #73](https://github.com/writeitai/ultimate-memory/pull/73) implementation commit
+[`5b9e168`](https://github.com/writeitai/ultimate-memory/commit/5b9e168121873200347d707a5e020c099c6f014a)
+adds the exact typed 22-component catalog boundary and explicit-Engine transactional
+register/resolve operation, with real-PostgreSQL no-op, conflict, key-independence, FK, and rollback
+proofs. Python 3.12, Python 3.13, and coverage passed in
+[CI run 29635472800](https://github.com/writeitai/ultimate-memory/actions/runs/29635472800).
+This library-only slice exposes no CLI/API/MCP/configuration/mount/connector/deployment surface,
+so D66 requires no website edit. Processing-state, cost, handler, and worker behavior remains
+unimplemented; WP-0.3 stays `in-progress` and Phase 0 remains incomplete.
+
 **WP-0.4 complete (2026-07-17; `P0-L01-D62-ARCH-GATE` and
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package
 homes, the locked [import-linter configuration](../../.importlinter), and the required
