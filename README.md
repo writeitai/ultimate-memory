@@ -2,34 +2,46 @@
 
 [Full report](https://htmlpreview.github.io/?https://github.com/writeitai/ultimate-memory/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
-| Name                                          |    Stmts |     Miss |   Branch |   BrPart |     Cover |   Missing |
-|---------------------------------------------- | -------: | -------: | -------: | -------: | --------: | --------: |
-| src/ultimate\_memory/\_\_init\_\_.py          |        6 |        2 |        0 |        0 |     66.7% |     12-13 |
-| src/ultimate\_memory/adapters/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/core/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/eval/\_\_init\_\_.py     |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/llm/\_\_init\_\_.py      |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/\_\_init\_\_.py    |       16 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/auth.py            |       10 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/git.py             |        6 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/model\_provider.py |       22 |        0 |        2 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/mounts.py          |        9 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/object\_store.py   |        6 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/queue.py           |       44 |        0 |        2 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/telemetry.py       |       10 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/\_\_init\_\_.py    |        8 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/auth.py            |        7 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/git.py             |        8 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/model\_provider.py |       12 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/mounts.py          |        7 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/object\_store.py   |        7 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/queue.py           |        8 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/ports/telemetry.py       |        7 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/profiles/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/spine/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/surfaces/\_\_init\_\_.py |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/workers/\_\_init\_\_.py  |        0 |        0 |        0 |        0 |    100.0% |           |
-| **TOTAL**                                     |  **193** |    **2** |    **4** |    **0** | **99.0%** |           |
+| Name                                                                                             |    Stmts |     Miss |   Branch |   BrPart |     Cover |   Missing |
+|------------------------------------------------------------------------------------------------- | -------: | -------: | -------: | -------: | --------: | --------: |
+| src/ultimate\_memory/\_\_init\_\_.py                                                             |        6 |        2 |        0 |        0 |     66.7% |     12-13 |
+| src/ultimate\_memory/adapters/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/core/\_\_init\_\_.py                                                        |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/eval/\_\_init\_\_.py                                                        |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |       16 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/auth.py                                                               |       10 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/git.py                                                                |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/model\_provider.py                                                    |       22 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/mounts.py                                                             |        9 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/object\_store.py                                                      |        6 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/queue.py                                                              |       44 |        0 |        2 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/telemetry.py                                                          |       10 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/\_\_init\_\_.py                                                       |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/auth.py                                                               |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/git.py                                                                |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/model\_provider.py                                                    |       12 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/mounts.py                                                             |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/object\_store.py                                                      |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/queue.py                                                              |        8 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/ports/telemetry.py                                                          |        7 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/profiles/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/\_\_init\_\_.py                                                       |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/catalog\_contract.py                                                  |      132 |       19 |       60 |       20 |     79.7% |355, 374, 402, 415, 455, 468, 483, 505, 520, 531, 541, 551, 605-\>617, 639, 641, 643, 645, 647, 649, 698 |
+| src/ultimate\_memory/spine/migrations/\_\_init\_\_.py                                            |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/\_helpers.py                                               |      123 |        9 |       72 |        5 |     91.8% |104-109, 130-132, 139-\>143, 145-\>147, 152 |
+| src/ultimate\_memory/spine/migrations/env.py                                                     |       29 |        5 |        6 |        3 |     77.1% |13-\>16, 24, 29-37, 56 |
+| src/ultimate\_memory/spine/migrations/versions/\_\_init\_\_.py                                   |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0001\_extensions\_enums.py                |       16 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0002\_infrastructure\_registries.py       |       18 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0003\_entities\_evaluation\_e0\_e1.py     |       13 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0004\_claims\_facts\_evidence.py          |       13 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0005\_projection\_knowledge\_retrieval.py |       13 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/migrations/versions/p0\_02\_0006\_partitions\_views.py                |       18 |        0 |        4 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        0 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |        0 |        0 |        0 |        0 |    100.0% |           |
+| **TOTAL**                                                                                        |  **577** |   **35** |  **146** |   **28** | **91.0%** |           |
 
 
 ## Setup coverage badge
