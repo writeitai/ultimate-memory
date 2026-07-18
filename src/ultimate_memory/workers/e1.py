@@ -17,6 +17,7 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
 from ultimate_memory.core import CHUNKER_VERSION
+from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import extraction_input_hash
 from ultimate_memory.core import pack_blocks
@@ -84,6 +85,7 @@ class ChunkHandler:
         self._catalog = catalog
         self._artifact_store = artifact_store
         self._params = params
+        self._chunker_version = chunker_version(params=params)
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
         """Pack one representation into chunks and chain the embed stage.
@@ -95,7 +97,8 @@ class ChunkHandler:
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
         if self._catalog.existing_chunk_ids(
-            version_id=source.version_id, chunker_version=CHUNKER_VERSION
+            representation_id=source.representation_id,
+            chunker_version=self._chunker_version,
         ):
             return _embed_follow_up(work=work, source=source)
         document_md = self._artifact_store.read_bytes(
@@ -113,7 +116,12 @@ class ChunkHandler:
         )
         self._catalog.record_chunks(
             records=tuple(
-                _chunk_record(source=source, packed=packed, index=index)
+                _chunk_record(
+                    source=source,
+                    packed=packed,
+                    index=index,
+                    chunker_version=self._chunker_version,
+                )
                 for index in range(len(packed))
             )
         )
@@ -136,20 +144,29 @@ class EmbedChunksHandler:
         model_provider: ModelProviderPort,
         chunk_index: ChunkIndexPort,
         settings: E1Settings,
+        params: ChunkerParams,
     ) -> None:
-        """Bind the handler to its catalog, stores, provider, and P1 index."""
+        """Bind the handler to its catalog, stores, provider, and P1 index.
+
+        `params` names the chunker generation whose rows this stage embeds —
+        the same parameters the composing profile gave the chunk stage.
+        """
         self._catalog = catalog
         self._artifact_store = artifact_store
         self._model_provider = model_provider
         self._chunk_index = chunk_index
         self._settings = settings
+        self._chunker_version = chunker_version(params=params)
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
         """Prefix, embed, and index every chunk of one document version."""
         source = self._catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
-        chunks = self._catalog.chunks_for_embedding(version_id=source.version_id)
+        chunks = self._catalog.chunks_for_embedding(
+            representation_id=source.representation_id,
+            chunker_version=self._chunker_version,
+        )
         if not chunks:
             return HandlerOutcome()  # an empty document has nothing to index
         document_md = self._artifact_store.read_bytes(
@@ -199,7 +216,16 @@ class EmbedChunksHandler:
     def _context_prefix(
         self, *, source: ChunkSource, chunk: ChunkForEmbedding, document_md: str
     ) -> str:
-        """Generate one chunk's "where this sits" sentence (E1 prefix stage)."""
+        """One chunk's "where this sits" sentence: replayed if already stored.
+
+        A retried attempt reuses the row's stored prefix (D7 replay) — the
+        model is re-called only when no prefix of this generation exists.
+        """
+        if (
+            chunk.context_prefix is not None
+            and chunk.prefixer_version == E1_PREFIXER_VERSION
+        ):
+            return chunk.context_prefix
         head = document_md[chunk.char_start : chunk.char_end][:400]
         prompt = _PREFIX_PROMPT_TEMPLATE.format(
             title=source.title or "untitled",
@@ -215,7 +241,11 @@ class EmbedChunksHandler:
 
 
 def _chunk_record(
-    *, source: ChunkSource, packed: tuple[PackedChunk, ...], index: int
+    *,
+    source: ChunkSource,
+    packed: tuple[PackedChunk, ...],
+    index: int,
+    chunker_version: str,
 ) -> ChunkRecord:
     """Build one chunk row, deriving its D56 reuse key from stable inputs only."""
     chunk = packed[index]
@@ -252,7 +282,7 @@ def _chunk_record(
         char_start=chunk.char_start,
         char_end=chunk.char_end,
         token_count=chunk.token_count,
-        chunker_version=CHUNKER_VERSION,
+        chunker_version=chunker_version,
     )
 
 

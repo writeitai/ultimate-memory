@@ -6,6 +6,7 @@ from ultimate_memory.core.blockizer import BLOCKIZER_VERSION
 from ultimate_memory.core.blockizer import normalized_block_text
 from ultimate_memory.core.chunker import chunk_content_hash
 from ultimate_memory.core.chunker import CHUNKER_VERSION
+from ultimate_memory.core.chunker import chunker_version
 from ultimate_memory.core.chunker import ChunkerParams
 from ultimate_memory.core.chunker import count_tokens
 from ultimate_memory.core.chunker import extraction_input_hash
@@ -26,6 +27,7 @@ __all__ = (
     "CHUNKER_VERSION",
     "ChunkerParams",
     "chunk_content_hash",
+    "chunker_version",
     "count_tokens",
     "extraction_input_hash",
     "is_anchor",

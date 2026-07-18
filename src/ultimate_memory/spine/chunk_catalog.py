@@ -50,13 +50,21 @@ class ChunkCatalog:
         )
 
     def existing_chunk_ids(
-        self, *, version_id: UUID, chunker_version: str
+        self, *, representation_id: UUID, chunker_version: str
     ) -> tuple[UUID, ...]:
-        """Chunks this chunker generation already packed for the version (D7 replay)."""
+        """Chunks this generation already packed for the representation (D7 replay).
+
+        Scoped by representation AND chunker generation: a re-conversion or a
+        parameter change never replays rows cut from a different coordinate
+        system or under different numbers.
+        """
         with self._engine.connect() as connection:
             rows = connection.execute(
                 _SELECT_EXISTING_CHUNKS,
-                {"version_id": version_id, "chunker_version": chunker_version},
+                {
+                    "representation_id": representation_id,
+                    "chunker_version": chunker_version,
+                },
             ).scalars()
             return tuple(rows)
 
@@ -69,12 +77,18 @@ class ChunkCatalog:
                 connection.execute(_INSERT_CHUNK, record.model_dump(mode="json"))
 
     def chunks_for_embedding(
-        self, *, version_id: UUID
+        self, *, representation_id: UUID, chunker_version: str
     ) -> tuple[ChunkForEmbedding, ...]:
-        """Load the version's chunk rows with their section signals."""
+        """Load one (representation, generation)'s chunk rows with their signals."""
         with self._engine.connect() as connection:
             rows = (
-                connection.execute(_SELECT_FOR_EMBEDDING, {"version_id": version_id})
+                connection.execute(
+                    _SELECT_FOR_EMBEDDING,
+                    {
+                        "representation_id": representation_id,
+                        "chunker_version": chunker_version,
+                    },
+                )
                 .mappings()
                 .all()
             )
@@ -107,14 +121,15 @@ _SELECT_SECTIONS = text(
     SELECT section_id, node_path, role, block_start, block_end
     FROM document_sections
     WHERE representation_id = :representation_id
-    ORDER BY node_path
+    ORDER BY string_to_array(node_path, '.')::int[]
     """
 )
 
 _SELECT_EXISTING_CHUNKS = text(
     """
     SELECT chunk_id FROM chunks
-    WHERE version_id = :version_id AND chunker_version = :chunker_version
+    WHERE representation_id = :representation_id
+      AND chunker_version = :chunker_version
     ORDER BY ordinal
     """
 )
@@ -138,11 +153,12 @@ _INSERT_CHUNK = text(
 _SELECT_FOR_EMBEDDING = text(
     """
     SELECT c.chunk_id, c.doc_id, c.version_id, c.ordinal,
-           c.char_start, c.char_end,
+           c.char_start, c.char_end, c.context_prefix, c.prefixer_version,
            s.role AS section_role, s.node_path AS section_path
     FROM chunks c
     JOIN document_sections s ON s.section_id = c.section_id
-    WHERE c.version_id = :version_id
+    WHERE c.representation_id = :representation_id
+      AND c.chunker_version = :chunker_version
     ORDER BY c.ordinal
     """
 )

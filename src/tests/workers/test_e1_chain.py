@@ -20,7 +20,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.core import CHUNKER_VERSION
+from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import MarkdownPassthroughConverter
@@ -46,6 +46,8 @@ from ultimate_memory.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("70000000-0000-0000-0000-000000000001")
+
+_PARAMS = ChunkerParams(token_budget=40)
 
 _SOURCE = "\n\n".join(
     f"Paragraph {index} states a distinct fact about subsystem {index}."
@@ -134,7 +136,7 @@ class _E1Rig:
             handler=ChunkHandler(
                 catalog=self.chunk_catalog,
                 artifact_store=artifact_store,
-                params=ChunkerParams(token_budget=40),
+                params=_PARAMS,
             ),
         )
         registry.register(
@@ -145,6 +147,7 @@ class _E1Rig:
                 model_provider=self.provider,
                 chunk_index=self.chunk_index,
                 settings=E1Settings(),
+                params=_PARAMS,
             ),
         )
         self.worker = Worker(ledger=ledger, registry=registry)
@@ -203,7 +206,7 @@ def test_document_reaches_lance_with_prefixed_embeddings(rig: _E1Rig) -> None:
     covered: list[int] = []
     for row in rows:
         covered.extend(range(row["block_start"], row["block_end"] + 1))
-        assert row["chunker_version"] == CHUNKER_VERSION
+        assert row["chunker_version"] == chunker_version(params=_PARAMS)
         assert row["context_prefix"] == "Sits early in the test document."
         assert row["embedding_ref"] is not None
         assert row["embedding_version"] == "qwen/qwen3-embedding-8b"
@@ -232,10 +235,6 @@ def test_rerunning_the_chunk_stage_replays_the_stored_packing(
         ),
     )
     rig.run_chain()
-    first_ids = rig.chunk_catalog.existing_chunk_ids(
-        version_id=ingested.version_id, chunker_version=CHUNKER_VERSION
-    )
-
     representation = None
     with rig.engine.connect() as connection:
         representation = connection.execute(
@@ -245,6 +244,10 @@ def test_rerunning_the_chunk_stage_replays_the_stored_packing(
             ),
             {"version_id": ingested.version_id},
         ).scalar_one()
+    first_ids = rig.chunk_catalog.existing_chunk_ids(
+        representation_id=representation,
+        chunker_version=chunker_version(params=_PARAMS),
+    )
 
     from ultimate_memory.model import ClaimedWork
     from ultimate_memory.model import ProcessingTarget
@@ -254,7 +257,7 @@ def test_rerunning_the_chunk_stage_replays_the_stored_packing(
         catalog=rig.chunk_catalog,
         # an empty store: any artifact read would raise, proving pure replay
         artifact_store=LocalFSObjectStore(root=tmp_path / "empty-store"),
-        params=ChunkerParams(token_budget=40),
+        params=_PARAMS,
     )
     replay = handler.handle(
         work=ClaimedWork(
@@ -276,7 +279,8 @@ def test_rerunning_the_chunk_stage_replays_the_stored_packing(
     # the replay never re-read artifacts (nonexistent store) and kept the rows:
     assert replay.follow_up[0].stage is PipelineStage.EMBED_CHUNK
     second_ids = rig.chunk_catalog.existing_chunk_ids(
-        version_id=ingested.version_id, chunker_version=CHUNKER_VERSION
+        representation_id=representation,
+        chunker_version=chunker_version(params=_PARAMS),
     )
     assert second_ids == first_ids
 
@@ -295,3 +299,58 @@ def test_empty_document_chains_through_with_nothing_to_index(rig: _E1Rig) -> Non
         ).scalar_one()
     assert count == 0
     assert rig.chunk_index.row_count() == 0
+
+
+def test_embed_retry_replays_stored_prefixes(rig: _E1Rig, tmp_path: Path) -> None:
+    """Codex review: a retried embed attempt reuses stored prefixes (D7) —
+    the prefix model is never re-called and the embedded bytes are stable."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="skeleton.md",
+            mime="text/markdown",
+            content=_SOURCE.encode("utf-8"),
+        ),
+    )
+    rig.run_chain()
+    calls_after_first = len(rig.provider.generated_prompts)
+
+    with rig.engine.connect() as connection:
+        representation = connection.execute(
+            text(
+                "SELECT current_representation_id FROM document_versions"
+                " WHERE version_id = :version_id"
+            ),
+            {"version_id": ingested.version_id},
+        ).scalar_one()
+
+    from ultimate_memory.model import ClaimedWork
+    from ultimate_memory.model import ProcessingTarget
+    from ultimate_memory.workers import E1_EMBED_VERSION
+
+    handler = EmbedChunksHandler(
+        catalog=rig.chunk_catalog,
+        artifact_store=LocalFSObjectStore(root=tmp_path / "artifacts"),
+        model_provider=rig.provider,
+        chunk_index=rig.chunk_index,
+        settings=E1Settings(),
+        params=_PARAMS,
+    )
+    handler.handle(
+        work=ClaimedWork(
+            processing_id=ingested.version_id,
+            deployment_id=_DEPLOYMENT_ID,
+            target_kind=ProcessingTarget.DOCUMENT,
+            target_id=ingested.doc_id,
+            stage=PipelineStage.EMBED_CHUNK,
+            component_version=E1_EMBED_VERSION,
+            content_hash=ingested.content_hash,
+            lane=ProcessingLane.STEADY,
+            attempt=2,
+            payload={
+                "version_id": str(ingested.version_id),
+                "representation_id": str(representation),
+            },
+        )
+    )
+    assert len(rig.provider.generated_prompts) == calls_after_first

@@ -53,11 +53,20 @@ def test_packing_is_deterministic_and_partitions_the_grid() -> None:
     assert covered == list(range(len(blocks)))
 
 
-def test_chunks_never_cross_a_section_boundary() -> None:
-    """A section boundary is always a chunk boundary (e1 §4)."""
+def test_chunks_never_cross_a_section_boundary_and_only_leaves_pack() -> None:
+    """A section boundary is always a chunk boundary, and only the deepest
+    partition packs — the production shape includes the parent (Codex review:
+    packing every tree node would chunk each block twice)."""
     source, blocks = _document(paragraphs=6)
     half = len(blocks) // 2
     sections = (
+        SectionSpan(  # the parent — spans everything, must NOT pack
+            section_id=uuid4(),
+            node_path="0",
+            role="body",
+            block_start=0,
+            block_end=len(blocks) - 1,
+        ),
         SectionSpan(
             section_id=uuid4(),
             node_path="0.0",
@@ -82,6 +91,39 @@ def test_chunks_never_cross_a_section_boundary() -> None:
     assert len(chunks) == 2
     assert chunks[0].block_end == half - 1
     assert chunks[1].block_start == half
+    covered = [
+        ordinal
+        for chunk in chunks
+        for ordinal in range(chunk.block_start, chunk.block_end + 1)
+    ]
+    assert covered == list(range(len(blocks)))  # each block exactly once
+
+
+def test_leaf_order_is_numeric_not_lexical() -> None:
+    """Section '0.2' packs before '0.10' (Codex review: lexical order breaks
+    chunk ordinals and D56 neighbor inputs on wide trees)."""
+    source, blocks = _document(paragraphs=12)
+    third = len(blocks) // 3
+    paths = ("0.2", "0.10", "0.1")  # deliberately shuffled, lexically tricky
+    starts = (third, 2 * third, 0)
+    ends = (2 * third - 1, len(blocks) - 1, third - 1)
+    sections = tuple(
+        SectionSpan(
+            section_id=uuid4(),
+            node_path=path,
+            role="body",
+            block_start=start,
+            block_end=end,
+        )
+        for path, start, end in zip(paths, starts, ends, strict=True)
+    )
+    chunks = pack_blocks(
+        blocks=blocks,
+        sections=sections,
+        document_md=source,
+        params=ChunkerParams(token_budget=10_000),
+    )
+    assert [chunk.block_start for chunk in chunks] == [0, third, 2 * third]
 
 
 def test_an_oversized_block_ships_as_its_own_chunk() -> None:

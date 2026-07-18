@@ -23,7 +23,8 @@ from ultimate_memory.model import PackedChunk
 from ultimate_memory.model import SectionSpan
 
 CHUNKER_VERSION: Final = "e1-chunker-2026.07:whitespace-tokens:anchored"
-"""Pins the packing algorithm, the token counter, and the parameter set."""
+"""Pins the packing algorithm and the token counter; the full packing
+generation additionally encodes the parameter values — see `chunker_version`."""
 
 
 class ChunkerParams(BaseModel):
@@ -38,6 +39,21 @@ class ChunkerParams(BaseModel):
     anchor_min_gap_tokens: int = Field(default=200, ge=0)
 
 
+def chunker_version(*, params: "ChunkerParams") -> str:
+    """The complete packing-generation identity: algorithm + parameter values.
+
+    chunks = f(blocks, sections, budget, anchors, version) — so changing any
+    parameter re-keys packing automatically instead of silently replaying
+    rows produced under different numbers (D58).
+    """
+    return (
+        f"{CHUNKER_VERSION}"
+        f":b{params.token_budget}"
+        f"-m{params.anchor_modulus}"
+        f"-g{params.anchor_min_gap_tokens}"
+    )
+
+
 def pack_blocks(
     *,
     blocks: tuple[Block, ...],
@@ -47,13 +63,15 @@ def pack_blocks(
 ) -> tuple[PackedChunk, ...]:
     """Pack the block grid into chunks, section by section.
 
-    Within a section, blocks accumulate greedily to the token budget; a chunk
-    boundary is forced before every anchor block, and a block that alone
-    exceeds the budget ships as its own oversized chunk. Sections are never
-    crossed (§3 makes the partition well-defined).
+    Only LEAF sections are packed — a parent's span is covered by its
+    children, so packing every tree node would chunk each block twice and
+    break the non-overlap property. Within a leaf, blocks accumulate greedily
+    to the token budget; a chunk boundary is forced before every anchor block,
+    and a block that alone exceeds the budget ships as its own oversized
+    chunk. Sections are never crossed (§3 makes the partition well-defined).
     """
     chunks: list[PackedChunk] = []
-    for section in sections:
+    for section in _leaf_sections(sections=sections):
         section_blocks = tuple(
             block
             for block in blocks
@@ -69,6 +87,26 @@ def pack_blocks(
             )
         )
     return tuple(chunks)
+
+
+def _leaf_sections(*, sections: tuple[SectionSpan, ...]) -> tuple[SectionSpan, ...]:
+    """The deepest partition: sections no other section subdivides, in
+    document order (numeric node-path order — '0.2' before '0.10')."""
+    leaves = tuple(
+        section
+        for section in sections
+        if not any(
+            other.node_path.startswith(f"{section.node_path}.") for other in sections
+        )
+    )
+    return tuple(
+        sorted(
+            leaves,
+            key=lambda section: tuple(
+                int(part) for part in section.node_path.split(".")
+            ),
+        )
+    )
 
 
 def chunk_content_hash(*, block_hashes: tuple[str, ...]) -> str:

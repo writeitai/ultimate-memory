@@ -99,6 +99,8 @@ class ChunkForEmbedding(BaseModel):
     char_end: int = Field(ge=0)
     section_role: str
     section_path: str
+    context_prefix: str | None
+    prefixer_version: str | None
 
 
 class EmbeddingUpdate(BaseModel):
