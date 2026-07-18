@@ -34,6 +34,7 @@ classifiers = [
 ]
 dependencies = [
     "alembic>=1.16",
+    "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",
     "psycopg[binary]>=3.2",

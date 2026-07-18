@@ -11,9 +11,19 @@ from ultimate_memory.workers.e0 import E0_STRUCTURE_VERSION
 from ultimate_memory.workers.e0 import StructureHandler
 from ultimate_memory.workers.e0 import UPLOAD_SOURCE_KIND
 from ultimate_memory.workers.e0 import UploadIngestor
+from ultimate_memory.workers.e1 import ChunkHandler
+from ultimate_memory.workers.e1 import E1_CHUNK_VERSION
+from ultimate_memory.workers.e1 import E1_EMBED_VERSION
+from ultimate_memory.workers.e1 import E1Settings
+from ultimate_memory.workers.e1 import EmbedChunksHandler
 
 __all__ = (
+    "ChunkHandler",
     "ConvertHandler",
+    "E1Settings",
+    "E1_CHUNK_VERSION",
+    "E1_EMBED_VERSION",
+    "EmbedChunksHandler",
     "E0_CONVERT_VERSION",
     "E0_STRUCTURE_VERSION",
     "HandlerOutcome",

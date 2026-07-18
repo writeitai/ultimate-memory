@@ -35,6 +35,7 @@ from ultimate_memory.model import UploadRecord
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.document_catalog import DocumentCatalog
 from ultimate_memory.workers.base import HandlerOutcome
+from ultimate_memory.workers.e1 import E1_CHUNK_VERSION
 
 E0_CONVERT_VERSION: Final = "e0-convert-2026.07"
 """The convert sub-worker's component version (D12 idempotency key member)."""
@@ -272,7 +273,23 @@ class StructureHandler:
                 structurer_version=E0_STRUCTURE_VERSION,
             )
         )
-        return HandlerOutcome()
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.CHUNK,
+                    component_version=E1_CHUNK_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={
+                        "version_id": str(source.version_id),
+                        "representation_id": str(source.representation_id),
+                    },
+                ),
+            )
+        )
 
 
 def _payload_uuid(*, work: ClaimedWork, field: str) -> UUID:

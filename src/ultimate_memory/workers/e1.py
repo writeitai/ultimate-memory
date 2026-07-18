@@ -1,0 +1,322 @@
+"""The E1 chain (D58): anchor-stabilized chunking, context prefixes, embeddings.
+
+The chunk stage packs the representation's block grid into section-bounded
+chunks and records their reuse keys; the embed stage writes each chunk's
+context prefix (the D63 conventional-mode branch), embeds prefix + text as one
+per-document batch, and lands the vectors in the P1 chunk index.
+"""
+
+from datetime import datetime
+import json
+from typing import Final
+from uuid import UUID
+from uuid import uuid4
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
+
+from ultimate_memory.core import CHUNKER_VERSION
+from ultimate_memory.core import chunker_version
+from ultimate_memory.core import ChunkerParams
+from ultimate_memory.core import extraction_input_hash
+from ultimate_memory.core import pack_blocks
+from ultimate_memory.model import Block
+from ultimate_memory.model import ChunkForEmbedding
+from ultimate_memory.model import ChunkRecord
+from ultimate_memory.model import ChunkSource
+from ultimate_memory.model import ClaimedWork
+from ultimate_memory.model import ContextPrefix
+from ultimate_memory.model import EmbeddingRequest
+from ultimate_memory.model import EmbeddingUpdate
+from ultimate_memory.model import EnqueueWork
+from ultimate_memory.model import ModelRequest
+from ultimate_memory.model import NonRetryableHandlerError
+from ultimate_memory.model import ObjectKey
+from ultimate_memory.model import P1ChunkRow
+from ultimate_memory.model import PackedChunk
+from ultimate_memory.model import PipelineStage
+from ultimate_memory.ports.model_provider import ModelProviderPort
+from ultimate_memory.ports.object_store import ObjectStorePort
+from ultimate_memory.ports.p1_index import ChunkIndexPort
+from ultimate_memory.spine.chunk_catalog import ChunkCatalog
+from ultimate_memory.workers.base import HandlerOutcome
+
+E1_CHUNK_VERSION: Final = CHUNKER_VERSION
+"""The chunk stage's component version IS the chunker version (D12/D58)."""
+
+E1_EMBED_VERSION: Final = "e1-embed-2026.07"
+"""The embed stage's component version (model identity rides settings/stamps)."""
+
+E1_PREFIXER_VERSION: Final = "e1-prefix-2026.07"
+"""The context-prefix call's prompt generation (D58; conventional mode, D63)."""
+
+E2_EXTRACTOR_VERSION: Final = "e2-extract-2026.07"
+"""The extractor generation baked into extraction_input_hash (D56); the E2
+stage (WP-1.3) binds its handler to this same constant."""
+
+_PREFIX_PROMPT_TEMPLATE: Final = (
+    "In one sentence, state where this passage sits in the document — "
+    "document title, section, and what surrounds it. Passage from "
+    "{title!r}, section path {section_path}, chunk {ordinal}:\n\n{head}"
+)
+
+
+class E1Settings(BaseSettings):
+    """The E1 model bindings: per-deployment port configuration (D61/D63)."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_E1_")
+
+    embedding_model: str = Field(default="qwen/qwen3-embedding-8b")
+    prefix_model: str = Field(default="openai/gpt-5.6-luna")
+
+
+class ChunkHandler:
+    """The chunk stage: block grid → section-bounded, anchor-stabilized runs."""
+
+    def __init__(
+        self,
+        *,
+        catalog: ChunkCatalog,
+        artifact_store: ObjectStorePort,
+        params: ChunkerParams,
+    ) -> None:
+        """Bind the handler to its catalog, the artifacts bucket, and the params."""
+        self._catalog = catalog
+        self._artifact_store = artifact_store
+        self._params = params
+        self._chunker_version = chunker_version(params=params)
+
+    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+        """Pack one representation into chunks and chain the embed stage.
+
+        Replay before regenerate (D7): rows this chunker generation already
+        packed for the version are kept as-is and the stage just re-chains.
+        """
+        source = self._catalog.chunk_source(
+            representation_id=_payload_uuid(work=work, field="representation_id")
+        )
+        if self._catalog.existing_chunk_ids(
+            representation_id=source.representation_id,
+            chunker_version=self._chunker_version,
+        ):
+            return _embed_follow_up(work=work, source=source)
+        document_md = self._artifact_store.read_bytes(
+            key=ObjectKey(source.markdown_uri)
+        ).decode("utf-8")
+        blocks_doc = json.loads(
+            self._artifact_store.read_bytes(key=ObjectKey(source.blocks_uri))
+        )
+        blocks = tuple(Block.model_validate(block) for block in blocks_doc["blocks"])
+        packed = pack_blocks(
+            blocks=blocks,
+            sections=source.sections,
+            document_md=document_md,
+            params=self._params,
+        )
+        self._catalog.record_chunks(
+            records=tuple(
+                _chunk_record(
+                    source=source,
+                    packed=packed,
+                    index=index,
+                    chunker_version=self._chunker_version,
+                )
+                for index in range(len(packed))
+            )
+        )
+        return _embed_follow_up(work=work, source=source)
+
+
+class EmbedChunksHandler:
+    """The embed stage: context prefixes + one embedding batch per document.
+
+    The conventional-mode branch binds (D63): each chunk gets a generated
+    "where this sits" prefix, and prefix + verbatim text embed together. The
+    batch never crosses a document (D58's billing and lane rule).
+    """
+
+    def __init__(
+        self,
+        *,
+        catalog: ChunkCatalog,
+        artifact_store: ObjectStorePort,
+        model_provider: ModelProviderPort,
+        chunk_index: ChunkIndexPort,
+        settings: E1Settings,
+        params: ChunkerParams,
+    ) -> None:
+        """Bind the handler to its catalog, stores, provider, and P1 index.
+
+        `params` names the chunker generation whose rows this stage embeds —
+        the same parameters the composing profile gave the chunk stage.
+        """
+        self._catalog = catalog
+        self._artifact_store = artifact_store
+        self._model_provider = model_provider
+        self._chunk_index = chunk_index
+        self._settings = settings
+        self._chunker_version = chunker_version(params=params)
+
+    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+        """Prefix, embed, and index every chunk of one document version."""
+        source = self._catalog.chunk_source(
+            representation_id=_payload_uuid(work=work, field="representation_id")
+        )
+        chunks = self._catalog.chunks_for_embedding(
+            representation_id=source.representation_id,
+            chunker_version=self._chunker_version,
+        )
+        if not chunks:
+            return HandlerOutcome()  # an empty document has nothing to index
+        document_md = self._artifact_store.read_bytes(
+            key=ObjectKey(source.markdown_uri)
+        ).decode("utf-8")
+        prefixes = tuple(
+            self._context_prefix(source=source, chunk=chunk, document_md=document_md)
+            for chunk in chunks
+        )
+        texts = tuple(
+            f"{prefix}\n\n{document_md[chunk.char_start : chunk.char_end]}"
+            for prefix, chunk in zip(prefixes, chunks, strict=True)
+        )
+        response = self._model_provider.embed(
+            request=EmbeddingRequest(model=self._settings.embedding_model, texts=texts)
+        )
+        self._chunk_index.upsert_chunks(
+            rows=tuple(
+                P1ChunkRow(
+                    chunk_id=chunk.chunk_id,
+                    deployment_id=work.deployment_id,
+                    doc_id=chunk.doc_id,
+                    version_id=chunk.version_id,
+                    section_role=chunk.section_role,
+                    text=text,
+                    vector=vector,
+                )
+                for chunk, text, vector in zip(
+                    chunks, texts, response.vectors, strict=True
+                )
+            )
+        )
+        self._catalog.record_embeddings(
+            updates=tuple(
+                EmbeddingUpdate(
+                    chunk_id=chunk.chunk_id,
+                    embedding_ref=str(chunk.chunk_id),
+                    embedding_version=self._settings.embedding_model,
+                    context_prefix=prefix,
+                    prefixer_version=E1_PREFIXER_VERSION,
+                )
+                for chunk, prefix in zip(chunks, prefixes, strict=True)
+            )
+        )
+        return HandlerOutcome()
+
+    def _context_prefix(
+        self, *, source: ChunkSource, chunk: ChunkForEmbedding, document_md: str
+    ) -> str:
+        """One chunk's "where this sits" sentence: replayed if already stored.
+
+        A retried attempt reuses the row's stored prefix (D7 replay) — the
+        model is re-called only when no prefix of this generation exists.
+        """
+        if (
+            chunk.context_prefix is not None
+            and chunk.prefixer_version == E1_PREFIXER_VERSION
+        ):
+            return chunk.context_prefix
+        head = document_md[chunk.char_start : chunk.char_end][:400]
+        prompt = _PREFIX_PROMPT_TEMPLATE.format(
+            title=source.title or "untitled",
+            section_path=chunk.section_path,
+            ordinal=chunk.ordinal,
+            head=head,
+        )
+        response = self._model_provider.generate(
+            request=ModelRequest(model=self._settings.prefix_model, prompt=prompt),
+            response_type=ContextPrefix,
+        )
+        return response.prefix
+
+
+def _chunk_record(
+    *,
+    source: ChunkSource,
+    packed: tuple[PackedChunk, ...],
+    index: int,
+    chunker_version: str,
+) -> ChunkRecord:
+    """Build one chunk row, deriving its D56 reuse key from stable inputs only."""
+    chunk = packed[index]
+    neighbor_hashes = tuple(
+        packed[neighbor].chunk_content_hash
+        for neighbor in (index - 1, index + 1)
+        if 0 <= neighbor < len(packed)
+    )
+    header_facts = (
+        source.title or "",
+        source.source_kind,
+        _isoformat_or_empty(value=source.source_modified_at),
+        _isoformat_or_empty(value=source.published_at),
+        source.language or "",
+    )
+    return ChunkRecord(
+        chunk_id=uuid4(),
+        deployment_id=source.deployment_id,
+        doc_id=source.doc_id,
+        version_id=source.version_id,
+        representation_id=source.representation_id,
+        section_id=chunk.section_id,
+        ordinal=chunk.ordinal,
+        block_start=chunk.block_start,
+        block_end=chunk.block_end,
+        chunk_content_hash=chunk.chunk_content_hash,
+        extraction_input_hash=extraction_input_hash(
+            own_block_hashes=(chunk.chunk_content_hash,),
+            neighbor_block_hashes=neighbor_hashes,
+            header_facts=header_facts,
+            extractor_version=E2_EXTRACTOR_VERSION,
+            structurer_version=source.structurer_version,
+        ),
+        char_start=chunk.char_start,
+        char_end=chunk.char_end,
+        token_count=chunk.token_count,
+        chunker_version=chunker_version,
+    )
+
+
+def _embed_follow_up(*, work: ClaimedWork, source: ChunkSource) -> HandlerOutcome:
+    """Chain the embed stage for one (version, representation)."""
+    return HandlerOutcome(
+        follow_up=(
+            EnqueueWork(
+                deployment_id=work.deployment_id,
+                target_kind=work.target_kind,
+                target_id=work.target_id,
+                stage=PipelineStage.EMBED_CHUNK,
+                component_version=E1_EMBED_VERSION,
+                content_hash=work.content_hash,
+                lane=work.lane,
+                payload={
+                    "version_id": str(source.version_id),
+                    "representation_id": str(source.representation_id),
+                },
+            ),
+        )
+    )
+
+
+def _isoformat_or_empty(*, value: datetime | None) -> str:
+    """Render an optional datetime deterministically for the reuse key."""
+    return "" if value is None else value.isoformat()
+
+
+def _payload_uuid(*, work: ClaimedWork, field: str) -> UUID:
+    """Read a required UUID from the claimed payload; absence is non-retryable."""
+    value = (work.payload or {}).get(field)
+    if not isinstance(value, str):
+        raise NonRetryableHandlerError(
+            f"stage {work.stage} work {work.processing_id} carries no {field!r} payload"
+        )
+    return UUID(value)
