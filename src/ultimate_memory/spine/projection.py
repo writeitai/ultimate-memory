@@ -181,6 +181,8 @@ class ProjectionCatalog:
         snapshot_id: UUID,
         communities: tuple[dict[str, object], ...],
         metrics: tuple[dict[str, object], ...],
+        detector_version: str,
+        label_model: str | None = None,
     ) -> None:
         """Write one rebuild's analytics back to Postgres (D6/D11/D72).
 
@@ -191,6 +193,17 @@ class ProjectionCatalog:
         same snapshot replaces its own rows rather than accumulating.
         """
         with self._engine.begin() as connection:
+            # the detector generation is registered like every other
+            # component (D12): an algorithm or label-model change is
+            # traceable to the assignments it produced
+            connection.execute(
+                _REGISTER_DETECTOR,
+                {
+                    "deployment_id": deployment_id,
+                    "version": detector_version,
+                    "model_name": label_model,
+                },
+            )
             connection.execute(_CLEAR_METRICS, {"snapshot_id": snapshot_id})
             connection.execute(_CLEAR_COMMUNITIES, {"snapshot_id": snapshot_id})
             for community in communities:
@@ -205,6 +218,26 @@ class ProjectionCatalog:
                     {"deployment_id": deployment_id, "snapshot_id": snapshot_id}
                     | metric,
                 )
+
+    def collect_superseded_analytics(
+        self, *, deployment_id: UUID, keep_snapshot_id: UUID
+    ) -> int:
+        """Drop analytics belonging to snapshots that are no longer current.
+
+        The schema's contract: these rows are GC'd when their snapshot is
+        superseded (they are per-snapshot derived state, not history). At a
+        rebuild cadence they would otherwise accumulate one row per entity
+        per cycle forever (Codex review). Returns how many rows were freed.
+        """
+        with self._engine.begin() as connection:
+            metrics = connection.execute(
+                _GC_METRICS, {"deployment_id": deployment_id, "keep": keep_snapshot_id}
+            ).rowcount
+            communities = connection.execute(
+                _GC_COMMUNITIES,
+                {"deployment_id": deployment_id, "keep": keep_snapshot_id},
+            ).rowcount
+        return (metrics or 0) + (communities or 0)
 
     def refresh_entity_degrees(self, *, deployment_id: UUID) -> None:
         """Copy degree from the PUBLISHED snapshot into `entities` (blast radius).
@@ -376,6 +409,31 @@ _INSERT_METRIC = text(
         :deployment_id, :entity_id, :snapshot_id, :community_id, :pagerank,
         :degree, :k_core, :component_id
     )
+    """
+)
+
+_REGISTER_DETECTOR = text(
+    """
+    INSERT INTO pipeline_component_versions (
+        deployment_id, component, version, model_name
+    ) VALUES (
+        :deployment_id, 'community_detector', :version, :model_name
+    )
+    ON CONFLICT (deployment_id, component, version) DO NOTHING
+    """
+)
+
+_GC_METRICS = text(
+    """
+    DELETE FROM entity_graph_metrics
+    WHERE deployment_id = :deployment_id AND snapshot_id <> :keep
+    """
+)
+
+_GC_COMMUNITIES = text(
+    """
+    DELETE FROM communities
+    WHERE deployment_id = :deployment_id AND snapshot_id <> :keep
     """
 )
 

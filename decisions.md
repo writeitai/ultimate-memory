@@ -2347,8 +2347,17 @@ The `leiden | louvain` schema enum already anticipated both.
 
 **Consequences.** No external analytics dependency, no second export consumer, and no
 cross-process handoff for the community pass: the rebuild worker computes assignments on the
-snapshot it just validated, then writes `communities`, `community_members`, and
-`entity_graph_metrics` in one transaction. Community *labels* (the K1 navigation aid) remain a
+graph it just loaded and persists them **only once that snapshot publishes** — a snapshot that
+fails validation or upload leaves no derived rows behind. The writeback lands in `communities`
+(one row per detected community, membership carried by `entity_graph_metrics.community_id` —
+there is no separate members table) and `entity_graph_metrics` (pagerank, degree, k-core,
+community, component), and both are GC'd when their snapshot is superseded: they are
+per-snapshot derived state, not history. Analytics measure CURRENT connectivity — the
+projection retains invalidated and expired edges for transaction-time as-of (D69), and a
+filtered projected graph keeps those withdrawn facts from inflating centrality or fusing
+communities. The detector generation registers as a `community_detector`
+`pipeline_component_versions` row (D12), so an algorithm or label-model change is traceable to
+the assignments it produced. Community *labels* (the K1 navigation aid) remain a
 batched micro-LLM call over each community's top members by PageRank, versioned under the
 `community_detector` component (p2 §7). The general lesson is recorded with the engine
 rulebooks: **vendored capability surveys go stale — verify on the deployed build**, which is

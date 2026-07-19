@@ -9,6 +9,7 @@ nothing computed here is ever loaded back into its node tables.
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 from uuid import uuid4
 
@@ -26,8 +27,10 @@ from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import ProjectionCatalog
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import COMMUNITY_DETECTOR_VERSION
 from ultimate_memory.workers import GraphAnalyticsWorker
 from ultimate_memory.workers import GraphRebuildWorker
+from ultimate_memory.workers import SnapshotValidationError
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("44000000-0000-0000-0000-000000000001")
@@ -122,7 +125,16 @@ def _rebuild(
     """One rebuild with the analytics pass attached."""
     catalog = ProjectionCatalog(engine=corpus.engine)
     provider = (
-        FakeModelProvider(generate_payloads={"CommunityLabel": {"label": "Team"}})
+        FakeModelProvider(
+            generate_payloads={
+                "CommunityLabels": {
+                    "labels": [
+                        {"index": 0, "label": "Team"},
+                        {"index": 1, "label": "Team"},
+                    ]
+                }
+            }
+        )
         if labels
         else None
     )
@@ -203,16 +215,9 @@ def test_published_degrees_reach_the_blast_radius_cache(
 
 
 def test_analytics_are_idempotent_per_snapshot(corpus: _Corpus, tmp_path: Path) -> None:
-    """Re-running the pass on one snapshot rewrites its own rows rather than
-    accumulating duplicates (stable per-(snapshot, group) ids)."""
+    """Each snapshot owns its analytics, and superseded snapshots' rows are
+    collected — derived state never accumulates across cycles."""
     result = _rebuild(corpus, tmp_path)
-    catalog = ProjectionCatalog(engine=corpus.engine)
-    reader_worker = GraphRebuildWorker(
-        catalog=catalog,
-        snapshot_store=LocalFSObjectStore(root=tmp_path / "snapshots-2"),
-        analytics=GraphAnalyticsWorker(catalog=catalog),
-    )
-    del reader_worker
     with corpus.engine.connect() as connection:
         first = connection.execute(
             text("SELECT count(*) FROM communities WHERE snapshot_id = :s"),
@@ -228,8 +233,11 @@ def test_analytics_are_idempotent_per_snapshot(corpus: _Corpus, tmp_path: Path) 
         total = connection.execute(
             text("SELECT count(*) FROM communities")
         ).scalar_one()
-    assert first == second == 2
-    assert total == 4  # two snapshots × two communities, no cross-contamination
+    assert first == 2
+    assert second == 2
+    # Codex review: per-snapshot derived state is GC'd on supersession —
+    # only the current snapshot's analytics survive
+    assert total == 2
 
 
 def test_community_labels_are_optional_navigation_aids(
@@ -261,3 +269,137 @@ def test_community_labels_are_optional_navigation_aids(
             .all()
         )
     assert set(labels) == {"Team"}
+
+
+def test_invalidated_edges_do_not_inflate_analytics(
+    corpus: _Corpus, tmp_path: Path
+) -> None:
+    """Codex review: the snapshot RETAINS withdrawn edges for as-of (D69),
+    but analytics measure CURRENT connectivity — an invalidated bridge must
+    not fuse two communities or raise blast-radius degree."""
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE relations SET invalidated_at = now()"
+                " WHERE subject_entity_id = :s AND object_entity_id = :o"
+            ),
+            {"s": corpus.ids["Dave"], "o": corpus.ids["Erin"]},
+        )
+    result = _rebuild(corpus, tmp_path)
+    with corpus.engine.connect() as connection:
+        edges = connection.execute(text("SELECT count(*) FROM relations")).scalar_one()
+        metrics = (
+            connection.execute(
+                text(
+                    "SELECT e.canonical_name, m.degree, m.component_id"
+                    " FROM entity_graph_metrics m"
+                    " JOIN entities e ON e.entity_id = m.entity_id"
+                    " WHERE m.snapshot_id = :s"
+                ),
+                {"s": result["snapshot_id"]},
+            )
+            .mappings()
+            .all()
+        )
+        counts = cast("dict[str, int]", result["row_counts"])
+    assert counts["RELATES"] == edges  # the edge still PROJECTS (D69)
+    by_name = {row["canonical_name"]: row for row in metrics}
+    assert by_name["Dave"]["degree"] == 3  # the withdrawn bridge is not counted
+    # and with the bridge withdrawn the clusters are separate components
+    assert len({row["component_id"] for row in metrics}) == 2
+
+
+def test_failed_snapshot_leaves_no_analytics_behind(
+    corpus: _Corpus, tmp_path: Path
+) -> None:
+    """Codex review: analytics persist only for a snapshot that PUBLISHED —
+    a rebuild that aborts must not leave derived rows readable."""
+    _rebuild(corpus, tmp_path)  # a healthy baseline
+    with corpus.engine.begin() as connection:  # plant a merge cycle
+        left, right = uuid4(), uuid4()
+        for entity_id, name in ((left, "cyc-l"), (right, "cyc-r")):
+            connection.execute(
+                text(
+                    "INSERT INTO entities (entity_id, deployment_id, type,"
+                    " canonical_name, normalized_name)"
+                    " VALUES (:e, :d, 'Person', :n, lower(:n))"
+                ),
+                {"e": entity_id, "d": _DEPLOYMENT_ID, "n": name},
+            )
+        connection.execute(
+            text(
+                "UPDATE entities SET status = 'merged', merged_into = :other"
+                " WHERE entity_id = :self"
+            ),
+            {"other": right, "self": left},
+        )
+        connection.execute(
+            text(
+                "UPDATE entities SET status = 'merged', merged_into = :other"
+                " WHERE entity_id = :self"
+            ),
+            {"other": left, "self": right},
+        )
+    with pytest.raises(SnapshotValidationError):
+        _rebuild(corpus, tmp_path / "aborted")
+    with corpus.engine.connect() as connection:
+        orphaned = connection.execute(
+            text(
+                "SELECT count(*) FROM entity_graph_metrics m"
+                " JOIN projection_snapshots s ON s.snapshot_id = m.snapshot_id"
+                " WHERE s.status <> 'published'"
+            )
+        ).scalar_one()
+    assert orphaned == 0
+
+
+def test_component_version_is_registered(corpus: _Corpus, tmp_path: Path) -> None:
+    """Codex review: the detector generation is a real component version
+    row (D12), so assignments are traceable to what produced them."""
+    _rebuild(corpus, tmp_path, labels=True)
+    with corpus.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT version, model_name FROM pipeline_component_versions"
+                    " WHERE component = 'community_detector'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert row["version"] == COMMUNITY_DETECTOR_VERSION
+    assert row["model_name"] is not None  # the label seat is recorded too
+
+
+def test_labels_are_one_batched_call(corpus: _Corpus, tmp_path: Path) -> None:
+    """Codex review: labeling is BATCHED (p2 §7) — community count must not
+    multiply rebuild latency."""
+    catalog = ProjectionCatalog(engine=corpus.engine)
+    provider = FakeModelProvider(
+        generate_payloads={
+            "CommunityLabels": {
+                "labels": [
+                    {"index": 0, "label": "Left Team"},
+                    {"index": 1, "label": "Right Team"},
+                ]
+            }
+        }
+    )
+    worker = GraphRebuildWorker(
+        catalog=catalog,
+        snapshot_store=LocalFSObjectStore(root=tmp_path / "snapshots"),
+        analytics=GraphAnalyticsWorker(catalog=catalog, model_provider=provider),
+    )
+    result = worker.rebuild(deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work")
+    assert len(provider.generated_prompts) == 1  # ONE call for both clusters
+    with corpus.engine.connect() as connection:
+        labels = (
+            connection.execute(
+                text("SELECT label FROM communities WHERE snapshot_id = :s"),
+                {"s": result["snapshot_id"]},
+            )
+            .scalars()
+            .all()
+        )
+    assert set(labels) == {"Left Team", "Right Team"}

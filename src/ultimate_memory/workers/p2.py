@@ -36,6 +36,7 @@ from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.projection import GRAPH_NODE_TABLES
 from ultimate_memory.spine.projection import GRAPH_REL_TABLES
 from ultimate_memory.spine.projection import ProjectionCatalog
+from ultimate_memory.workers.p2_analytics import GraphAnalyticsWorker
 
 P2_REBUILD_VERSION: Final = "p2-rebuild-2026.07"
 """The rebuild worker's component version (D12)."""
@@ -168,18 +169,19 @@ class GraphRebuildWorker:
         catalog: ProjectionCatalog,
         snapshot_store: ObjectStorePort,
         settings: GraphRebuildSettings | None = None,
-        analytics: object = None,
+        analytics: object | None = None,
     ) -> None:
         """Bind the worker to the spine, the snapshot bucket, and analytics.
 
-        `analytics` (a `GraphAnalyticsWorker`) is optional: without it a
-        rebuild still produces a valid snapshot, it just carries no
-        centrality or community writeback that cycle.
+        Analytics are part of a rebuild, not an add-on: without an
+        explicit worker one is composed with the default seat, so no
+        deployment can publish snapshots that silently leave
+        `graph_degree` at zero (Codex review).
         """
         self._catalog = catalog
         self._snapshot_store = snapshot_store
         self._settings = settings or GraphRebuildSettings()
-        self._analytics = analytics
+        self._analytics = analytics or GraphAnalyticsWorker(catalog=catalog)
 
     def rebuild(
         self, *, deployment_id: UUID, workdir: Path, version: str | None = None
@@ -250,11 +252,10 @@ class GraphRebuildWorker:
                     path=parquet_dir / f"{table}.parquet",
                 )
         graph_dir = workdir / version / "graph"
-        loaded = _load_graph(
+        loaded, computed = _load_graph(
             parquet_dir=parquet_dir,
             graph_dir=graph_dir,
             analytics=self._analytics,
-            deployment_id=deployment_id,
             snapshot_id=snapshot_id,
         )
         mismatched = {
@@ -278,8 +279,22 @@ class GraphRebuildWorker:
             built_from_watermark=watermark,
         )
         if published:
+            # analytics persist ONLY for a snapshot that actually published:
+            # a failed validation or upload must leave no derived rows
+            # behind (Codex review)
+            self._analytics.persist(  # type: ignore[attr-defined]
+                deployment_id=deployment_id,
+                snapshot_id=snapshot_id,
+                communities=computed[0],
+                metrics=computed[1],
+            )
             # blast radius reads the PUBLISHED snapshot's degrees only
             self._catalog.refresh_entity_degrees(deployment_id=deployment_id)
+            # per-snapshot derived state is GC'd with its snapshot's
+            # supersession — it is not history
+            self._catalog.collect_superseded_analytics(
+                deployment_id=deployment_id, keep_snapshot_id=snapshot_id
+            )
         return {
             "snapshot_id": snapshot_id,
             "version": version,
@@ -449,9 +464,8 @@ def _load_graph(
     parquet_dir: Path,
     graph_dir: Path,
     analytics: object = None,
-    deployment_id: UUID | None = None,
     snapshot_id: UUID | None = None,
-) -> dict[str, int]:
+) -> tuple[dict[str, int], tuple[tuple[dict[str, object], ...], ...]]:
     """COPY the export into a fresh graph — nodes first — and count back.
 
     Analytics (PageRank, k-core, WCC, Louvain — D72) run here, on the
@@ -475,10 +489,11 @@ def _load_graph(
         result = connection.execute(pattern)
         assert isinstance(result, ladybug.QueryResult)
         counts[table] = int(result.get_next()[0])  # type: ignore[index, arg-type]
-    if analytics is not None and deployment_id is not None and snapshot_id is not None:
-        analytics.analyze(  # type: ignore[attr-defined]
-            deployment_id=deployment_id, snapshot_id=snapshot_id, connection=connection
+    computed: tuple[tuple[dict[str, object], ...], ...] = ((), ())
+    if analytics is not None and snapshot_id is not None:
+        computed = analytics.compute(  # type: ignore[attr-defined]
+            snapshot_id=snapshot_id, connection=connection
         )
     connection.close()
     database.close()
-    return counts
+    return counts, computed

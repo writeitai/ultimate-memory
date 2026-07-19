@@ -41,18 +41,28 @@ _LABEL_MEMBERS: Final = 8
 """How many top-PageRank members the labeling prompt sees per community."""
 
 _LABEL_PROMPT: Final = (
-    "These entities form one cluster in a knowledge graph. Give the cluster"
-    " a short topic label (2-5 words) an agent could navigate by. Members,"
-    " most central first:\n{members}"
+    "Each numbered line lists the most central members of one cluster in a"
+    " knowledge graph. Give EVERY cluster a short topic label (2-5 words) an"
+    " agent could navigate by, returning the cluster's number with its"
+    " label.\n\n{clusters}"
 )
 
 
-class CommunityLabel(BaseModel):
-    """The labeling call's structured output."""
+class CommunityLabelItem(BaseModel):
+    """One cluster's label, keyed by its position in the batched prompt."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
+    index: int = Field(default=-1)
     label: str = Field(default="")
+
+
+class CommunityLabels(BaseModel):
+    """The batched labeling call's structured output (p2 §7)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    labels: tuple[CommunityLabelItem, ...] = ()
 
 
 class AnalyticsSettings(BaseSettings):
@@ -79,14 +89,27 @@ class GraphAnalyticsWorker:
         self._model_provider = model_provider
         self._settings = settings or AnalyticsSettings()
 
-    def analyze(
-        self, *, deployment_id: UUID, snapshot_id: UUID, connection: ladybug.Connection
-    ) -> dict[str, int]:
-        """Run every algorithm on the snapshot and write the results back."""
+    def compute(
+        self, *, snapshot_id: UUID, connection: ladybug.Connection
+    ) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+        """Run every algorithm on the snapshot; return rows, write nothing.
+
+        Computing and writing are deliberately separate (Codex review): the
+        algorithms need the writer's live graph, but their rows must not
+        outlive a snapshot that later fails validation or upload — so the
+        caller persists them only after the snapshot publishes.
+        """
         connection.execute("INSTALL algo")
         connection.execute("LOAD algo")
         connection.execute(
-            f"CALL PROJECT_GRAPH('{_PROJECTION}', ['Entity'], ['RELATES'])"
+            # analytics measure CURRENT connectivity: the snapshot
+            # deliberately retains invalidated and expired edges for
+            # transaction-time as-of (D69), but a withdrawn fact must not
+            # inflate centrality or fuse two communities (Codex review).
+            # The engine's filtered projection applies this per edge.
+            f"CALL PROJECT_GRAPH('{_PROJECTION}', ['Entity'],"
+            " {'RELATES': 'r.invalidated_at IS NULL AND (r.valid_until IS NULL"
+            " OR r.valid_until > current_timestamp())'})"
         )
         pagerank = _algorithm_scores(connection, algorithm="PAGE_RANK")
         k_core = _algorithm_scores(connection, algorithm="K_CORE_DECOMPOSITION")
@@ -102,24 +125,28 @@ class GraphAnalyticsWorker:
             members.setdefault(group, []).append(entity_id)
         communities: list[dict[str, object]] = []
         community_ids: dict[object, UUID] = {}
+        labels = self._labels(members=members, pagerank=pagerank, names=names)
         for group, group_members in sorted(
             members.items(), key=lambda item: str(item[0])
         ):
-            # a stable id per (snapshot, group): re-running the pass on the
-            # same snapshot rewrites its own rows instead of forking them
-            community_id = uuid5(NAMESPACE_URL, f"ugm:community:{snapshot_id}:{group}")
+            # the id derives from the MEMBER SET, never the engine's group
+            # label: Louvain's numbering is order-dependent, so a re-run
+            # could otherwise reuse an id for a different community
+            # (Codex review). Same members ⇒ same id, always.
+            fingerprint = ",".join(sorted(str(member) for member in group_members))
+            community_id = uuid5(
+                NAMESPACE_URL, f"ugm:community:{snapshot_id}:{fingerprint}"
+            )
             community_ids[group] = community_id
             communities.append(
                 {
                     "community_id": community_id,
-                    "label": self._label(
-                        members=group_members, pagerank=pagerank, names=names
-                    ),
+                    "label": labels.get(group),
                     "size": len(group_members),
                     "algorithm": "louvain",
                 }
             )
-        metrics = tuple(
+        metrics: tuple[dict[str, object], ...] = tuple(
             {
                 "entity_id": entity_id,
                 "community_id": community_ids.get(louvain.get(entity_id)),
@@ -133,48 +160,79 @@ class GraphAnalyticsWorker:
             }
             for entity_id in names
         )
+        return tuple(communities), metrics
+
+    def persist(
+        self,
+        *,
+        deployment_id: UUID,
+        snapshot_id: UUID,
+        communities: tuple[dict[str, object], ...],
+        metrics: tuple[dict[str, object], ...],
+    ) -> dict[str, int]:
+        """Write a PUBLISHED snapshot's analytics back to Postgres (D6)."""
         self._catalog.record_graph_analytics(
             deployment_id=deployment_id,
             snapshot_id=snapshot_id,
-            communities=tuple(communities),
+            communities=communities,
             metrics=metrics,
+            detector_version=COMMUNITY_DETECTOR_VERSION,
+            label_model=(
+                self._settings.label_model if self._model_provider is not None else None
+            ),
         )
         return {"communities": len(communities), "entities": len(metrics)}
 
-    def _label(
+    def _labels(
         self,
         *,
-        members: list[UUID],
+        members: dict[object, list[UUID]],
         pagerank: dict[UUID, object],
         names: dict[UUID, str],
-    ) -> str | None:
-        """A short navigation label from the community's most central members.
+    ) -> dict[object, str]:
+        """Short navigation labels for every eligible community — ONE call.
 
-        Skipped for tiny communities and whenever no model seat is composed
-        — labels are navigation aids (p2 §7); nothing load-bearing reads
-        them, so their absence must never fail a rebuild.
+        Batched by contract (p2 §7): community count must not multiply
+        rebuild latency, and thousands of small clusters must not become
+        thousands of sequential calls (Codex review). Skipped entirely
+        without a model seat; a failed call yields no labels rather than a
+        failed rebuild — labels are navigation aids, nothing load-bearing
+        reads them.
         """
-        if (
-            self._model_provider is None
-            or len(members) < self._settings.min_community_size_to_label
-        ):
-            return None
-        central = sorted(
-            members,
-            key=lambda entity: float(cast("float", pagerank.get(entity, 0.0))),
-            reverse=True,
-        )[:_LABEL_MEMBERS]
-        prompt = _LABEL_PROMPT.format(
-            members="\n".join(f"- {names.get(entity, '')}" for entity in central)
-        )
+        if self._model_provider is None:
+            return {}
+        eligible = {
+            group: group_members
+            for group, group_members in members.items()
+            if len(group_members) >= self._settings.min_community_size_to_label
+        }
+        if not eligible:
+            return {}
+        ordered = sorted(eligible, key=str)
+        blocks: list[str] = []
+        for index, group in enumerate(ordered):
+            central = sorted(
+                eligible[group],
+                key=lambda entity: float(cast("float", pagerank.get(entity, 0.0))),
+                reverse=True,
+            )[:_LABEL_MEMBERS]
+            listing = ", ".join(names.get(entity, "") for entity in central)
+            blocks.append(f"{index}. {listing}")
         try:
             response = self._model_provider.generate(
-                request=ModelRequest(model=self._settings.label_model, prompt=prompt),
-                response_type=CommunityLabel,
+                request=ModelRequest(
+                    model=self._settings.label_model,
+                    prompt=_LABEL_PROMPT.format(clusters="\n".join(blocks)),
+                ),
+                response_type=CommunityLabels,
             )
         except Exception:  # noqa: BLE001 — a label never fails the analytics
-            return None
-        return response.label or None
+            return {}
+        return {
+            ordered[item.index]: item.label
+            for item in response.labels
+            if 0 <= item.index < len(ordered) and item.label
+        }
 
 
 def _algorithm_scores(
@@ -194,7 +252,10 @@ def _algorithm_scores(
 def _degrees(connection: ladybug.Connection) -> dict[UUID, int]:
     """Relation degree per entity (undirected: the blast-radius input)."""
     result = connection.execute(
-        "MATCH (e:Entity) OPTIONAL MATCH (e)-[r:RELATES]-() RETURN e.id, count(r)"
+        "MATCH (e:Entity) OPTIONAL MATCH (e)-[r:RELATES]-()"
+        " WHERE r.invalidated_at IS NULL"
+        " AND (r.valid_until IS NULL OR r.valid_until > current_timestamp())"
+        " RETURN e.id, count(r)"
     )
     assert isinstance(result, ladybug.QueryResult)
     degrees: dict[UUID, int] = {}
