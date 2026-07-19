@@ -10,6 +10,14 @@ shape), deletion (uniform rule; split-into-four survives), extractor bump (curre
 planted non-rederivation raises exactly one `support_withdrawn` flag and triages both ways);
 counts invariant throughout.
 
+**Exit: met (2026-07-19).** Edit → reuse measured (hit rate 0.79, extraction bounded to the
+edit + neighbors — `plan/analysis/reuse_hit_rate_spike.md`); removal → living retract per
+shape at the cycle barrier (worked-example test); deletion → uniform cascade, split-into-four
+survives, forgotten ≠ deleted; extractor bump → exactly one flag, triaged both ways
+(restore_support plants the D35 canary; invalidate_fact recorded); counts guarded by the
+`lifecycle` eval suite's standing invariants. Proofs: `src/tests/workers/test_watch_loop.py`,
+`test_reuse_lifecycle.py`, `test_lifecycle_reconciliation.py`.
+
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
 | WP-3.1 | Lineage/version/content-object model + migrations already in place → workers honor them; version-aware E0 | lifecycle §2; schema §6; D55 | Phase 1 | versioned ingest | same-bytes/off-cycle no-ops | done (PR #95) |
@@ -18,4 +26,4 @@ counts invariant throughout.
 | WP-3.4 | Reuse: block diff, `extraction_input_hash` check, `chunk_claims` occurrence writes, context carry-forward | e1 §7; lifecycle §6; D56 | WP-3.1 | reuse path in E1/E2 | **reuse hit-rate spike measured** on real edits | done (PR #97; spike: `plan/analysis/reuse_hit_rate_spike.md` — hit rate 0.79, re-extraction bounded to edit+neighbors) |
 | WP-3.5 | Currency + reconciliation: events ledger, recount (D54 SQL), per-shape closure, retract-at-finalization, K delta emission; **A1 old↔new block alignment + structure carry-forward for unchanged regions (completes A3)** | lifecycle §3–5; e1 §7 A1/A3; D54–D55; schema §8 | WP-3.4 | reconciliation worker | worked-example test (lifecycle §5) green; idempotent retry | done (PR #98; A1 explicit alignment + structure carry-forward noted → carried follow-up, see PR body) |
 | WP-3.6 | Deletion grains (version/lineage/source-observed) + normal-delete semantics | lifecycle §8; schema §13.1 | WP-3.5 | delete worker | split-into-four test; forgotten≠deleted audit distinction | done (PR #98) |
-| WP-3.7 | Lifecycle eval pack: currency/count invariants, flag-rate metric, canaries | lifecycle §4; D35 | WP-3.5, WP-0.5 | eval suite `lifecycle` | suite green; flag-rate dashboarded | planned |
+| WP-3.7 | Lifecycle eval pack: currency/count invariants, flag-rate metric, canaries | lifecycle §4; D35 | WP-3.5, WP-0.5 | eval suite `lifecycle` | suite green; flag-rate dashboarded | done (PR #99) |

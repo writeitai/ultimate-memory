@@ -32,9 +32,14 @@ from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import MarkdownPassthroughConverter
+from ultimate_memory.eval import flag_rate_by_extractor
+from ultimate_memory.eval import register_lifecycle_evaluator
+from ultimate_memory.eval import run_lifecycle_suite
+from ultimate_memory.eval.harness import EvalHarness
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocumentUpload
+from ultimate_memory.model import EvalSuite
 from ultimate_memory.model import IngestedVersion
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
@@ -115,6 +120,8 @@ _TABLES = (
     "aliases",
     "review_queue",
     "knowledge_refresh_queue",
+    "canary_cases",
+    "eval_runs",
 )
 
 
@@ -836,3 +843,105 @@ def test_finalization_never_closes_a_flagged_fact(rig: _LifecycleRig) -> None:
         )
         == 0
     )
+
+
+def test_lifecycle_suite_passes_on_healthy_state_and_records_the_run(
+    rig: _LifecycleRig,
+) -> None:
+    """WP-3.7: on a deployment the machinery just exercised, every invariant
+    holds, the run lands in eval_runs, and the flag-rate metric is shaped."""
+    rig.observe(source_ref="ok.md", content=f"{_FACT_SENTENCE}\n")
+    rig.drain()
+    report = run_lifecycle_suite(
+        engine=rig.engine,
+        deployment_id=_DEPLOYMENT_ID,
+        component_version="reconcile-2026.07",
+    )
+    assert report.passed
+    assert report.violations == {}
+    assert "e2-extract-2026.07" in report.flag_rate_by_extractor
+    assert report.flag_rate_by_extractor["e2-extract-2026.07"]["flag_rate"] == 0.0
+    recorded = rig.scalar("SELECT passed FROM eval_runs WHERE suite = 'lifecycle'")
+    assert recorded is True
+
+
+def test_lifecycle_suite_catches_cache_and_count_corruption(rig: _LifecycleRig) -> None:
+    """The invariants bite: a cache flipped without its ledger event and a
+    drifted cached count both fail the suite with the offending ids."""
+    rig.observe(source_ref="broken.md", content=f"{_FACT_SENTENCE}\n")
+    rig.drain()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE relations SET evidence_count = 7")  # drifted cache
+        )
+    report = run_lifecycle_suite(
+        engine=rig.engine,
+        deployment_id=_DEPLOYMENT_ID,
+        component_version="reconcile-2026.07",
+    )
+    assert not report.passed
+    assert "relation_counts_match_recompute" in report.violations
+    assert rig.scalar("SELECT passed FROM eval_runs WHERE suite = 'lifecycle'") is False
+
+
+def test_restore_support_plants_a_canary_the_pack_rechecks(rig: _LifecycleRig) -> None:
+    """D35: the triaged regression becomes a standing canary — it passes
+    while the restored claim stays current and fails the moment a
+    generation silently loses it again."""
+    ingested = rig.observe(source_ref="canary.md", content=f"{_FACT_SENTENCE}\n")
+    rig.drain()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE claims SET extractor_version = 'e2-extract-OLD'")
+        )
+    representation_id = rig.scalar(
+        "SELECT current_representation_id FROM document_versions WHERE version_id = :v",
+        v=ingested.version_id,
+    )
+    rig.reconcile_handler.handle(
+        work=ClaimedWork(
+            processing_id=uuid4(),
+            deployment_id=_DEPLOYMENT_ID,
+            target_kind=ProcessingTarget.DOCUMENT_VERSION,
+            target_id=ingested.version_id,
+            stage=PipelineStage.RECONCILE,
+            component_version=RECONCILE_VERSION,
+            content_hash="bump",
+            lane=ProcessingLane.STEADY,
+            attempt=1,
+            payload={
+                "version_id": str(ingested.version_id),
+                "representation_id": str(representation_id),
+            },
+        )
+    )
+    review_id = rig.scalar("SELECT review_id FROM review_queue")
+    rig.review.decide_support_withdrawn(
+        deployment_id=_DEPLOYMENT_ID,
+        review_id=review_id,  # type: ignore[arg-type]
+        verdict="restore_support",
+        reviewer="test-reviewer",
+    )
+    planted = rig.scalar("SELECT count(*) FROM canary_cases WHERE suite = 'lifecycle'")
+    assert planted == 1
+
+    harness = EvalHarness(engine=rig.engine)
+    register_lifecycle_evaluator(harness=harness, engine=rig.engine)
+    healthy = harness.run_suite(
+        deployment_id=_DEPLOYMENT_ID,
+        suite=EvalSuite.LIFECYCLE,
+        component_version="e2-extract-NEXT",
+    )
+    assert healthy.passed  # the restored claim is current: the guard holds
+
+    with rig.engine.begin() as connection:  # a generation loses it again
+        connection.execute(text("UPDATE claims SET is_current_testimony = false"))
+    regressed = harness.run_suite(
+        deployment_id=_DEPLOYMENT_ID,
+        suite=EvalSuite.LIFECYCLE,
+        component_version="e2-extract-NEXT",
+    )
+    assert not regressed.passed  # the canary blocks the regressing version
+
+    flag_rates = flag_rate_by_extractor(engine=rig.engine, deployment_id=_DEPLOYMENT_ID)
+    assert flag_rates["e2-extract-2026.07"]["flags_raised"] == 1.0

@@ -261,6 +261,27 @@ class ReviewQueue:
             {"claim_id": claim_id, "deployment_id": deployment_id},
         )
         self._recount(connection=connection, fact_kind=fact_kind, fact_id=fact_id)
+        # plant the D35 canary (lifecycle §4): no future extractor ships
+        # while silently missing this claim again — the lifecycle eval
+        # pack re-checks it per version. Idempotent per review.
+        connection.execute(
+            _PLANT_LIFECYCLE_CANARY,
+            {
+                "canary_id": uuid4(),
+                "deployment_id": deployment_id,
+                "description": (
+                    f"restore_support review {review_id}: the claim must"
+                    " remain current testimony"
+                ),
+                "input": {
+                    "review_id": str(review_id),
+                    "fact_kind": fact_kind,
+                    "fact_id": str(fact_id),
+                },
+                "expected": {"current_claim_id": str(claim_id)},
+                "review_id": str(review_id),
+            },
+        )
 
     def _require_bound(
         self,
@@ -448,6 +469,21 @@ _SELECT_OPEN_FLAG = text(
     LIMIT 1
     """
 )
+
+_PLANT_LIFECYCLE_CANARY = text(
+    """
+    INSERT INTO canary_cases (
+        canary_id, deployment_id, suite, description, input, expected
+    )
+    SELECT :canary_id, :deployment_id, 'lifecycle', :description,
+           :input, :expected
+    WHERE NOT EXISTS (
+        SELECT 1 FROM canary_cases c
+        WHERE c.suite = 'lifecycle'
+          AND c.input ->> 'review_id' = :review_id
+    )
+    """
+).bindparams(bindparam("input", type_=JSON), bindparam("expected", type_=JSON))
 
 _INSERT_REVIEW = text(
     """
