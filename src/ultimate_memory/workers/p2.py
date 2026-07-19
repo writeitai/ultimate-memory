@@ -391,6 +391,7 @@ class GraphSnapshotReader:
         self._cache_dir = cache_dir
         self._version: str | None = None
         self._published_at: datetime | None = None
+        self._database: ladybug.Database | None = None
         self._connection: ladybug.Connection | None = None
 
     @property
@@ -442,9 +443,8 @@ class GraphSnapshotReader:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
             staging.rename(local)
-        self._connection = ladybug.Connection(
-            ladybug.Database(str(local / "graph.lbdb"), read_only=True)
-        )
+        self._database = ladybug.Database(str(local / "graph.lbdb"), read_only=True)
+        self._connection = ladybug.Connection(self._database)
         self._version = version
         published = latest.get("published_at")
         self._published_at = published if isinstance(published, datetime) else None
@@ -457,6 +457,20 @@ class GraphSnapshotReader:
         if self._connection is None:
             raise RuntimeError("no published P2 snapshot exists yet")
         return self._connection
+
+    def fresh_connection(self) -> ladybug.Connection:
+        """A NEW connection to the served snapshot's database.
+
+        The graph primitive uses this to retry a query after a transient
+        engine fault on a clean per-connection scan state — a wedged
+        connection must not be able to break the read permanently. Same
+        read-only database, so it never sees uncommitted or torn data.
+        """
+        if self._database is None:
+            self.refresh()
+        if self._database is None:
+            raise RuntimeError("no published P2 snapshot exists yet")
+        return ladybug.Connection(self._database)
 
 
 def _load_graph(
