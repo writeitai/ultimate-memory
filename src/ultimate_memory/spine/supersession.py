@@ -105,6 +105,13 @@ class SupersessionAdjudicator:
                     f":{subject['subject_entity_id']}:{subject['predicate']}"
                 },
             )
+            # and take the deployment identity lock SHARED: adjudications run
+            # concurrently with each other, but an un-merge (which takes it
+            # exclusively) waits for every in-flight adjudication — a closure
+            # can never land after the ripple scan missed it (Codex review).
+            connection.execute(
+                _LOCK_IDENTITY_SHARED, {"key": f"{deployment_id}:identity-epoch"}
+            )
             if self._already_adjudicated(
                 connection=connection, relation_id=relation_id
             ):
@@ -383,7 +390,33 @@ _BLOCK_CANDIDATES = text(
         LIMIT 1
     ) evidence ON true
     WHERE r.deployment_id = :deployment_id
-      AND r.subject_entity_id = :subject_entity_id
+      -- IDENTITY-SET blocking (registries §11.3 spike): while entities are
+      -- merged they are ONE identity, so the block spans every endpoint that
+      -- redirects to the subject's survivor root — an absorbed entity's
+      -- employment spell is visible to the survivor's supersession. The
+      -- un-merge ripple (a closure across what splits back into two people)
+      -- is flagged for review by the clusterer's unmerge.
+      AND r.subject_entity_id IN (
+          WITH RECURSIVE up AS (
+              SELECT entity_id, status, merged_into FROM entities
+              WHERE deployment_id = :deployment_id
+                AND entity_id = :subject_entity_id
+              UNION ALL
+              SELECT e.entity_id, e.status, e.merged_into
+              FROM up JOIN entities e ON e.entity_id = up.merged_into
+              WHERE up.status = 'merged'
+          ),
+          down AS (
+              -- the FULL identity closure: from the active root, every
+              -- redirect descendant at any depth (C -> B -> A included)
+              SELECT entity_id FROM up WHERE status = 'active'
+              UNION ALL
+              SELECT m.entity_id FROM entities m
+              JOIN down ON m.merged_into = down.entity_id
+              WHERE m.status = 'merged'
+          )
+          SELECT entity_id FROM down
+      )
       AND r.predicate = :predicate
       AND r.relation_id <> :relation_id
       AND r.invalidated_at IS NULL
@@ -446,4 +479,8 @@ _SURVIVOR_ROOTS = text(
     )
     SELECT start, entity_id FROM walk WHERE status = 'active'
     """
+)
+
+_LOCK_IDENTITY_SHARED = text(
+    "SELECT pg_advisory_xact_lock_shared(hashtextextended(:key, 0))"
 )

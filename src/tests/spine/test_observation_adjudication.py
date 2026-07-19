@@ -454,3 +454,28 @@ def test_one_sided_golden_set_never_passes_the_gate(database_engine: Engine) -> 
         component_version=OBSERVATION_ADJUDICATOR_VERSION,
     )
     assert not report["passed"]  # one-sided: unmeasurable, never approved
+
+
+def test_stance_content_never_becomes_a_fact(database_engine: Engine) -> None:
+    """WP-2.7 / D59 guard: a stance observation anchors on the HOLDER only —
+    nothing about the stance's content object is ever derived."""
+    adjudicator, _ = _adjudicator(engine=database_engine)
+    team = _entity(engine=database_engine)
+    _add(
+        adjudicator=adjudicator,
+        entity=team,
+        statement="The team considers Project Atlas a runaway success",
+    )
+    with database_engine.connect() as connection:
+        subjects = (
+            connection.execute(
+                text("SELECT DISTINCT subject_entity_id FROM observations")
+            )
+            .scalars()
+            .all()
+        )
+        relations = connection.execute(
+            text("SELECT count(*) FROM relations")
+        ).scalar_one()
+    assert subjects == [team]  # anchored on the holder, nowhere else
+    assert relations == 0  # no fact about Atlas was derived

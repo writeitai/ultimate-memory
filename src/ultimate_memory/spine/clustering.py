@@ -116,6 +116,9 @@ class EntityClusterer:
         overwritten, the full history survives. Returns the reversal id.
         """
         with self._engine.begin() as connection:
+            connection.execute(  # exclusive: wait out in-flight adjudications
+                _LOCK_IDENTITY_EXCLUSIVE, {"key": f"{deployment_id}:identity-epoch"}
+            )
             event = (
                 connection.execute(
                     _SELECT_MERGE_LOCKED,
@@ -184,7 +187,53 @@ class EntityClusterer:
             raise UnmergeError(
                 f"merge event {event['merge_id']} was reversed concurrently"
             )
+        self._flag_ripple(
+            connection=connection,
+            deployment_id=deployment_id,
+            survivor_id=UUID(str(event["survivor_id"])),
+            absorbed_id=UUID(str(absorbed_id)),
+            reversal_id=reversal_id,
+        )
         return reversal_id
+
+    def _flag_ripple(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        survivor_id: UUID,
+        absorbed_id: UUID,
+        reversal_id: UUID,
+    ) -> None:
+        """The un-merge → supersession ripple (registries §11.3): a validity
+        window closed ACROSS the split identities was adjudicated as one
+        person's history and may now be wrong — never silently reopened,
+        always flagged for review with the pair attached."""
+        rows = connection.execute(
+            _CROSS_IDENTITY_CLOSURES,
+            {
+                "deployment_id": deployment_id,
+                "left_id": survivor_id,
+                "right_id": absorbed_id,
+            },
+        ).all()  # both sides are FULL post-unmerge identity closures
+        for relation_id, related_id in rows:
+            connection.execute(
+                _INSERT_RIPPLE_REVIEW,
+                {
+                    "review_id": uuid4(),
+                    "deployment_id": deployment_id,
+                    "candidate": {
+                        "reason": "unmerge_supersession_ripple",
+                        "closed_relation_id": str(relation_id),
+                        "superseding_relation_id": str(related_id),
+                        "unmerge_event_id": str(reversal_id),
+                    },
+                    "blast_radius": 2,
+                    "confidence": 0.5,
+                    "expected_impact": 1.0,
+                },
+            )
 
     def _restore_mention_decision(
         self,
@@ -641,3 +690,51 @@ _SUPERSEDE_DECISION = text(
     WHERE decision_id = :decision_id
     """
 )
+
+_CROSS_IDENTITY_CLOSURES = text(
+    """
+    WITH RECURSIVE left_side AS (
+        SELECT CAST(:left_id AS uuid) AS entity_id
+        UNION ALL
+        SELECT m.entity_id FROM entities m
+        JOIN left_side ON m.merged_into = left_side.entity_id
+        WHERE m.status = 'merged' AND m.deployment_id = :deployment_id
+    ),
+    right_side AS (
+        SELECT CAST(:right_id AS uuid) AS entity_id
+        UNION ALL
+        SELECT m.entity_id FROM entities m
+        JOIN right_side ON m.merged_into = right_side.entity_id
+        WHERE m.status = 'merged' AND m.deployment_id = :deployment_id
+    )
+    SELECT a.relation_id, a.related_relation_id
+    FROM relation_adjudications a
+    JOIN relations closed ON closed.relation_id = a.relation_id
+    JOIN relations superseding ON superseding.relation_id = a.related_relation_id
+    WHERE a.deployment_id = :deployment_id
+      AND a.outcome = 'supersede'
+      AND a.superseded_by IS NULL
+      AND ((closed.subject_entity_id IN (SELECT entity_id FROM left_side)
+            AND superseding.subject_entity_id
+                IN (SELECT entity_id FROM right_side))
+        OR (closed.subject_entity_id IN (SELECT entity_id FROM right_side)
+            AND superseding.subject_entity_id
+                IN (SELECT entity_id FROM left_side)))
+    """
+)
+
+_LOCK_IDENTITY_EXCLUSIVE = text(
+    "SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"
+)
+
+_INSERT_RIPPLE_REVIEW = text(
+    """
+    INSERT INTO review_queue (
+        review_id, deployment_id, item_kind, candidate, blast_radius,
+        confidence, expected_impact
+    ) VALUES (
+        :review_id, :deployment_id, 'split_cluster', :candidate,
+        :blast_radius, :confidence, :expected_impact
+    )
+    """
+).bindparams(bindparam("candidate", type_=JSON))
