@@ -391,8 +391,7 @@ class StructureHandler:
             markdown_chars=blocks_doc["markdown_chars"],
         )
         structurer_name = "pageindex_llm" if len(sections) > 1 else "synthetic_root"
-        self._write_sidecar(source=source, sections=sections, placement=placement)
-        self._catalog.record_section_tree(
+        persisted = self._catalog.record_section_tree(
             record=SectionTreeRecord(
                 deployment_id=source.deployment_id,
                 doc_id=source.doc_id,
@@ -403,6 +402,14 @@ class StructureHandler:
                 structurer_name=structurer_name,
                 structurer_version=E0_STRUCTURE_VERSION,
             )
+        )
+        # the sidecar is derived from what the database actually persisted —
+        # a retry that lost to an earlier attempt must not write a fresher
+        # LLM proposal beside rows carrying the first one (Codex review):
+        self._write_sidecar(
+            source=source,
+            sections=persisted.sections,
+            placement=persisted.placement_path,
         )
         return HandlerOutcome(
             follow_up=(

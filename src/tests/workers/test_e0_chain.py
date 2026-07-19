@@ -32,6 +32,8 @@ from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.model import SectionTreeRecord
+from ultimate_memory.model import SnappedSection
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import WorkLedger
@@ -573,3 +575,55 @@ def test_failed_structurer_degrades_to_the_synthetic_root(rig: _E0Rig) -> None:
         params={"version_id": ingested.version_id},
     )
     assert section == {"node_path": "0", "role": "body"}
+
+
+def test_retried_tree_write_returns_the_first_attempts_truth(rig: _E0Rig) -> None:
+    """Codex review: a retry whose (fresher) LLM proposal differs must not
+    win — rows keep the first tree, the catalog returns it, and the sidecar
+    is derived from that persisted truth."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="report.md",
+            mime="text/markdown",
+            content=_STRUCTURED_SOURCE.encode("utf-8"),
+        ),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    representation = rig.row(
+        sql="SELECT representation_id FROM document_representations"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    representation_id = representation["representation_id"]
+
+    def _record(title: str) -> SectionTreeRecord:
+        return SectionTreeRecord(
+            deployment_id=_DEPLOYMENT_ID,
+            doc_id=ingested.doc_id,
+            version_id=ingested.version_id,
+            representation_id=representation_id,  # type: ignore[arg-type]
+            sections=(
+                SnappedSection(
+                    node_path="0",
+                    parent_path=None,
+                    title=title,
+                    role="body",
+                    block_start=0,
+                    block_end=8,
+                    char_start=0,
+                    char_end=len(_STRUCTURED_SOURCE),
+                    summary="",
+                    ordinal=0,
+                ),
+            ),
+            placement_path=f"/{title}/",
+            structurer_name="pageindex_llm",
+            structurer_version="test-structurer",
+        )
+
+    first = rig.catalog.record_section_tree(record=_record("first"))
+    retry = rig.catalog.record_section_tree(record=_record("second"))
+    assert first.sections[0].title == "first"
+    assert retry.sections[0].title == "first"  # the first attempt's row won
+    assert retry.placement_path == "/first/"

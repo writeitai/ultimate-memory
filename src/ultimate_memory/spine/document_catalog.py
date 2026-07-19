@@ -18,6 +18,7 @@ from ultimate_memory.model import ConvertSource
 from ultimate_memory.model import DocumentVersionNotFoundError
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import IngestedVersion
+from ultimate_memory.model import PersistedSectionTree
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
@@ -237,7 +238,7 @@ class DocumentCatalog:
             )
         )
 
-    def record_section_tree(self, *, record: SectionTreeRecord) -> None:
+    def record_section_tree(self, *, record: SectionTreeRecord) -> PersistedSectionTree:
         """Complete the E0 chain for one representation in one transaction (D39/D54).
 
         Inserts the section rows (root first, parents resolved by path),
@@ -252,6 +253,10 @@ class DocumentCatalog:
         live representation, and the currency pointer only moves FORWARD by
         version number — a delayed older version completing after a newer
         one must not drag the lineage back to stale content.
+
+        Returns what is actually PERSISTED — on a retry that lost to an
+        earlier attempt, that is the earlier attempt's tree, and derived
+        artifacts (the sidecar) must be built from it, not from the input.
         """
         with self._engine.begin() as connection:
             ids_by_path: dict[str, UUID] = {}
@@ -319,6 +324,36 @@ class DocumentCatalog:
                 _SUPERSEDE_PRIOR_VERSIONS,  # are superseded as of now (D55)
                 {"doc_id": record.doc_id, "version_id": record.version_id},
             )
+            persisted = (
+                connection.execute(
+                    _SELECT_SECTION_TREE, {"version_id": record.version_id}
+                )
+                .mappings()
+                .all()
+            )
+        return PersistedSectionTree(
+            sections=tuple(
+                SnappedSection(
+                    node_path=row["node_path"],
+                    parent_path=(
+                        row["node_path"].rsplit(".", 1)[0]
+                        if "." in row["node_path"]
+                        else None
+                    ),
+                    title=row["title"] or "",
+                    role=row["role"],
+                    block_start=row["block_start"],
+                    block_end=row["block_end"],
+                    char_start=row["char_start"],
+                    char_end=row["char_end"],
+                    summary=row["summary"] or "",
+                    ordinal=row["ordinal"],
+                )
+                for row in persisted
+            ),
+            placement_path=persisted[0]["placement_path"],
+            structurer_version=persisted[0]["structurer_version"] or "",
+        )
 
 
 def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
@@ -501,6 +536,17 @@ _SELECT_SECTION_BY_PATH = text(
     """
     SELECT section_id FROM document_sections
     WHERE version_id = :version_id AND node_path = :node_path
+    """
+)
+
+_SELECT_SECTION_TREE = text(
+    """
+    SELECT node_path, title, role::text AS role, block_start, block_end,
+           char_start, char_end, summary, ordinal, placement_path,
+           structurer_version
+    FROM document_sections
+    WHERE version_id = :version_id
+    ORDER BY ordinal
     """
 )
 

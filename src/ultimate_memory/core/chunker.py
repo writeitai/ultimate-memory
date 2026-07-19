@@ -22,7 +22,7 @@ from ultimate_memory.model import Block
 from ultimate_memory.model import PackedChunk
 from ultimate_memory.model import SectionSpan
 
-CHUNKER_VERSION: Final = "e1-chunker-2026.07:whitespace-tokens:anchored"
+CHUNKER_VERSION: Final = "e1-chunker-2026.07b:whitespace-tokens:anchored:owner-runs"
 """Pins the packing algorithm and the token counter; the full packing
 generation additionally encodes the parameter values — see `chunker_version`."""
 
@@ -61,26 +61,29 @@ def pack_blocks(
     document_md: str,
     params: ChunkerParams,
 ) -> tuple[PackedChunk, ...]:
-    """Pack the block grid into chunks, section by section.
+    """Pack the block grid into chunks, deepest-owner run by run.
 
-    Only LEAF sections are packed — a parent's span is covered by its
-    children, so packing every tree node would chunk each block twice and
-    break the non-overlap property. Within a leaf, blocks accumulate greedily
-    to the token budget; a chunk boundary is forced before every anchor block,
-    and a block that alone exceeds the budget ships as its own oversized
-    chunk. Sections are never crossed (§3 makes the partition well-defined).
+    Every block belongs to exactly one DEEPEST section (D57): a leaf owns
+    its whole range, and a parent directly owns the blocks none of its
+    children cover (content before the first child, and gaps between
+    children — the snap assigns those to the parent, never to a child).
+    Each contiguous run of same-owner blocks packs independently, so no
+    block is chunked twice and none is silently dropped (Codex review: a
+    leaf-only walk lost every parent's direct content). Within a run,
+    blocks accumulate greedily to the token budget; a chunk boundary is
+    forced before every anchor block, and a block that alone exceeds the
+    budget ships as its own oversized chunk. Sections are never crossed
+    (§3 makes the partition well-defined).
     """
     chunks: list[PackedChunk] = []
-    for section in _leaf_sections(sections=sections):
-        section_blocks = tuple(
-            block
-            for block in blocks
-            if section.block_start <= block.ordinal <= section.block_end
+    for section, run_start, run_end in _owner_runs(sections=sections):
+        run_blocks = tuple(
+            block for block in blocks if run_start <= block.ordinal <= run_end
         )
         chunks.extend(
             _pack_section(
                 section=section,
-                blocks=section_blocks,
+                blocks=run_blocks,
                 document_md=document_md,
                 params=params,
                 first_ordinal=len(chunks),
@@ -89,24 +92,29 @@ def pack_blocks(
     return tuple(chunks)
 
 
-def _leaf_sections(*, sections: tuple[SectionSpan, ...]) -> tuple[SectionSpan, ...]:
-    """The deepest partition: sections no other section subdivides, in
-    document order (numeric node-path order — '0.2' before '0.10')."""
-    leaves = tuple(
-        section
-        for section in sections
-        if not any(
-            other.node_path.startswith(f"{section.node_path}.") for other in sections
+def _owner_runs(
+    *, sections: tuple[SectionSpan, ...]
+) -> tuple[tuple[SectionSpan, int, int], ...]:
+    """Every contiguous block run with its deepest-owning section, in
+    document order: a section's runs are its range minus its direct
+    children's ranges."""
+    runs: list[tuple[SectionSpan, int, int]] = []
+    for section in sections:
+        prefix = f"{section.node_path}."
+        child_ranges = sorted(
+            (other.block_start, other.block_end)
+            for other in sections
+            if other.node_path.startswith(prefix)
+            and "." not in other.node_path.removeprefix(prefix)
         )
-    )
-    return tuple(
-        sorted(
-            leaves,
-            key=lambda section: tuple(
-                int(part) for part in section.node_path.split(".")
-            ),
-        )
-    )
+        cursor = section.block_start
+        for child_start, child_end in child_ranges:
+            if child_start > cursor:
+                runs.append((section, cursor, child_start - 1))
+            cursor = max(cursor, child_end + 1)
+        if cursor <= section.block_end:
+            runs.append((section, cursor, section.block_end))
+    return tuple(sorted(runs, key=lambda run: run[1]))
 
 
 def chunk_content_hash(*, block_hashes: tuple[str, ...]) -> str:

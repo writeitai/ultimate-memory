@@ -203,3 +203,84 @@ def test_pathological_depth_is_flattened_not_fatal() -> None:
     _invariants(sections)
     deepest = max(section.node_path.count(".") for section in sections)
     assert deepest < 20
+
+
+def test_zero_length_and_outside_parent_proposals_are_pruned() -> None:
+    """Codex review: step 4's clipping prunes whole nodes — a zero-length
+    span, and a child wholly outside its parent's char range, must never be
+    inflated into a real section by the start clamp + tiling."""
+    architecture = _DOCUMENT.index("## Architecture")
+    operations = _DOCUMENT.index("## Operations")
+    proposed = (
+        ProposedSection(
+            title="Middle",
+            role="methods",
+            char_start=architecture,
+            char_end=operations,
+            children=(
+                ProposedSection(  # entirely BEFORE the parent's char range
+                    title="Escapee", char_start=0, char_end=10
+                ),
+                ProposedSection(  # zero-length marker
+                    title="Marker",
+                    char_start=architecture + 3,
+                    char_end=architecture + 3,
+                ),
+            ),
+        ),
+    )
+    sections = snap_sections(
+        proposed=proposed, blocks=_BLOCKS, title="Atlas", markdown_chars=len(_DOCUMENT)
+    )
+    _invariants(sections)
+    titles = [section.title for section in sections]
+    assert "Middle" in titles
+    assert "Escapee" not in titles
+    assert "Marker" not in titles
+
+
+def test_the_catalog_refuses_a_disconnected_tree() -> None:
+    """Codex review: a record whose paths don't form a connected root-first
+    tree is refused at the model boundary, never silently persisted as a
+    second root."""
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    from ultimate_memory.model import SectionTreeRecord
+
+    root = SnappedSection(
+        node_path="0",
+        parent_path=None,
+        title="",
+        role="body",
+        block_start=0,
+        block_end=5,
+        char_start=0,
+        char_end=100,
+        summary="",
+        ordinal=0,
+    )
+    orphan = SnappedSection(
+        node_path="0.0.0",  # its parent '0.0' does not exist
+        parent_path="0.0",
+        title="",
+        role="body",
+        block_start=1,
+        block_end=2,
+        char_start=10,
+        char_end=40,
+        summary="",
+        ordinal=1,
+    )
+    with pytest.raises(ValidationError, match="before its parent"):
+        SectionTreeRecord(
+            deployment_id=uuid4(),
+            doc_id=uuid4(),
+            version_id=uuid4(),
+            representation_id=uuid4(),
+            sections=(root, orphan),
+            placement_path=None,
+            structurer_name="pageindex_llm",
+            structurer_version="test",
+        )

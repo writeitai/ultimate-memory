@@ -120,6 +120,7 @@ from ultimate_memory.model.resolution import P1EntityRow
 from ultimate_memory.model.resolution import ResolutionCandidate
 from ultimate_memory.model.resolution import ResolverConfig
 from ultimate_memory.model.resolution import TypeThresholds
+from ultimate_memory.model.sections import PersistedSectionTree
 from ultimate_memory.model.sections import ProposedSection
 from ultimate_memory.model.sections import SectionTreeRecord
 from ultimate_memory.model.sections import SnappedSection
@@ -228,6 +229,7 @@ __all__ = (
     "SelectionCandidate",
     "SelectionResponse",
     "SelectionVerdict",
+    "PersistedSectionTree",
     "ProposedSection",
     "SectionTreeRecord",
     "SnappedSection",

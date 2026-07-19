@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 
 class ProposedSection(BaseModel):
@@ -64,7 +65,10 @@ class SectionTreeRecord(BaseModel):
     """The complete write input for one representation's section tree.
 
     ``sections`` is in depth-first document order with the root first — the
-    catalog resolves each row's parent id from the paths as it inserts.
+    catalog resolves each row's parent id from the paths as it inserts, so
+    the record refuses any ordering or path structure that would silently
+    persist a disconnected tree (an orphan row would reach E1 as a second
+    root and double-chunk its range).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -76,4 +80,41 @@ class SectionTreeRecord(BaseModel):
     sections: tuple[SnappedSection, ...] = Field(min_length=1)
     placement_path: str | None
     structurer_name: str
+    structurer_version: str
+
+    @model_validator(mode="after")
+    def _tree_is_connected(self) -> SectionTreeRecord:
+        """Root first; every node extends a parent that appeared before it."""
+        root = self.sections[0]
+        if root.node_path != "0" or root.parent_path is not None:
+            raise ValueError("the first section must be the root '0'")
+        seen = {root.node_path}
+        for section in self.sections[1:]:
+            if section.node_path in seen:
+                raise ValueError(f"duplicate section path {section.node_path!r}")
+            if section.parent_path not in seen:
+                raise ValueError(
+                    f"section {section.node_path!r} appears before its parent"
+                )
+            if section.node_path.rsplit(".", 1)[0] != section.parent_path:
+                raise ValueError(
+                    f"section {section.node_path!r} does not extend its"
+                    f" parent path {section.parent_path!r}"
+                )
+            seen.add(section.node_path)
+        return self
+
+
+class PersistedSectionTree(BaseModel):
+    """What one representation's section-tree write actually landed.
+
+    On a retried attempt the FIRST write wins row by row, so the caller must
+    treat this — not its own input — as the truth (the sidecar is derived
+    from it, never from a fresher LLM proposal).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sections: tuple[SnappedSection, ...] = Field(min_length=1)
+    placement_path: str | None
     structurer_version: str

@@ -157,15 +157,25 @@ def _ordered_candidates(
 
     Yields ``(snapped_start, winner, adopted_children)`` with strictly
     increasing starts; a tie's loser is dropped and its children are adopted
-    by the winner so a duplicated heading cannot erase a subtree.
+    by the winner so a duplicated heading cannot erase a subtree. Step 4's
+    clipping is applied here where it prunes whole nodes: a zero-length
+    proposal, and a proposal whose char span lies entirely outside its
+    parent's char range, are empty after clipping — pruned, never inflated
+    into a real section by the start clamp + tiling (Codex review).
     """
+    parent_char_start = blocks[parent_start].char_start
+    parent_char_end = blocks[parent_end].char_end
     snapped: list[tuple[int, int, int, ProposedSection]] = []
     for emission_index, node in enumerate(nodes):
+        if node.char_end <= node.char_start:
+            continue  # zero-length (or reversed): pruned
+        if node.char_end <= parent_char_start or node.char_start >= parent_char_end:
+            continue  # no overlap with the parent: empty after clipping
         start = _snap_start(char=node.char_start, blocks=blocks)
         start = max(start, parent_start)
         if start > parent_end:
             continue  # entirely outside the parent: pruned by clipping
-        proposed_length = max(0, node.char_end - node.char_start)
+        proposed_length = node.char_end - node.char_start
         snapped.append((start, -proposed_length, emission_index, node))
     snapped.sort(key=lambda entry: entry[:3])
     candidates: list[tuple[int, ProposedSection, tuple[ProposedSection, ...]]] = []
