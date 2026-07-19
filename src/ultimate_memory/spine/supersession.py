@@ -383,7 +383,32 @@ _BLOCK_CANDIDATES = text(
         LIMIT 1
     ) evidence ON true
     WHERE r.deployment_id = :deployment_id
-      AND r.subject_entity_id = :subject_entity_id
+      -- IDENTITY-SET blocking (registries §11.3 spike): while entities are
+      -- merged they are ONE identity, so the block spans every endpoint that
+      -- redirects to the subject's survivor root — an absorbed entity's
+      -- employment spell is visible to the survivor's supersession. The
+      -- un-merge ripple (a closure across what splits back into two people)
+      -- is flagged for review by the clusterer's unmerge.
+      AND r.subject_entity_id IN (
+          WITH RECURSIVE root AS (
+              SELECT entity_id, status, merged_into FROM entities
+              WHERE deployment_id = :deployment_id
+                AND entity_id = :subject_entity_id
+              UNION ALL
+              SELECT e.entity_id, e.status, e.merged_into
+              FROM root JOIN entities e ON e.entity_id = root.merged_into
+              WHERE root.status = 'merged'
+          ),
+          identity AS (
+              SELECT entity_id FROM root WHERE status = 'active'
+              UNION
+              SELECT m.entity_id FROM entities m
+              JOIN root ON root.status = 'active'
+                       AND m.merged_into = root.entity_id
+              WHERE m.status = 'merged'
+          )
+          SELECT entity_id FROM identity
+      )
       AND r.predicate = :predicate
       AND r.relation_id <> :relation_id
       AND r.invalidated_at IS NULL

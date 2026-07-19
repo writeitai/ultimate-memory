@@ -184,7 +184,53 @@ class EntityClusterer:
             raise UnmergeError(
                 f"merge event {event['merge_id']} was reversed concurrently"
             )
+        self._flag_ripple(
+            connection=connection,
+            deployment_id=deployment_id,
+            survivor_id=UUID(str(event["survivor_id"])),
+            absorbed_id=UUID(str(absorbed_id)),
+            reversal_id=reversal_id,
+        )
         return reversal_id
+
+    def _flag_ripple(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        survivor_id: UUID,
+        absorbed_id: UUID,
+        reversal_id: UUID,
+    ) -> None:
+        """The un-merge → supersession ripple (registries §11.3): a validity
+        window closed ACROSS the split identities was adjudicated as one
+        person's history and may now be wrong — never silently reopened,
+        always flagged for review with the pair attached."""
+        rows = connection.execute(
+            _CROSS_IDENTITY_CLOSURES,
+            {
+                "deployment_id": deployment_id,
+                "left_id": survivor_id,
+                "right_id": absorbed_id,
+            },
+        ).all()
+        for relation_id, related_id in rows:
+            connection.execute(
+                _INSERT_RIPPLE_REVIEW,
+                {
+                    "review_id": uuid4(),
+                    "deployment_id": deployment_id,
+                    "candidate": {
+                        "reason": "unmerge_supersession_ripple",
+                        "closed_relation_id": str(relation_id),
+                        "superseding_relation_id": str(related_id),
+                        "unmerge_event_id": str(reversal_id),
+                    },
+                    "blast_radius": 2,
+                    "confidence": 0.5,
+                    "expected_impact": 1.0,
+                },
+            )
 
     def _restore_mention_decision(
         self,
@@ -641,3 +687,32 @@ _SUPERSEDE_DECISION = text(
     WHERE decision_id = :decision_id
     """
 )
+
+_CROSS_IDENTITY_CLOSURES = text(
+    """
+    SELECT a.relation_id, a.related_relation_id
+    FROM relation_adjudications a
+    JOIN relations closed ON closed.relation_id = a.relation_id
+    JOIN relations superseding ON superseding.relation_id = a.related_relation_id
+    WHERE a.deployment_id = :deployment_id
+      AND a.outcome = 'supersede'
+      AND a.superseded_by IS NULL
+      AND closed.subject_entity_id <> superseding.subject_entity_id
+      AND ((closed.subject_entity_id = :left_id
+            AND superseding.subject_entity_id = :right_id)
+        OR (closed.subject_entity_id = :right_id
+            AND superseding.subject_entity_id = :left_id))
+    """
+)
+
+_INSERT_RIPPLE_REVIEW = text(
+    """
+    INSERT INTO review_queue (
+        review_id, deployment_id, item_kind, candidate, blast_radius,
+        confidence, expected_impact
+    ) VALUES (
+        :review_id, :deployment_id, 'split_cluster', :candidate,
+        :blast_radius, :confidence, :expected_impact
+    )
+    """
+).bindparams(bindparam("candidate", type_=JSON))
