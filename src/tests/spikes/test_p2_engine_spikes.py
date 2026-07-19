@@ -782,3 +782,51 @@ def test_spike_i_copy_is_positional_not_by_name(
     row = _next_row(conn.execute("MATCH ()-[r:R]->() RETURN r.alpha, r.beta"))
     # position won: the DDL's FIRST property took the Parquet's THIRD column
     assert row == ["FIRST-COLUMN", "SECOND-COLUMN"]
+
+
+def test_spike_j_louvain_is_native(graph_connection: ladybug.Connection) -> None:
+    """WP-4.4 finding (D72): `LOUVAIN` IS shipped on the deployed build,
+    contradicting the vendored capability survey — and it is REAL community
+    detection, not a relabeled connected-components pass. Two 4-cliques
+    joined by a single bridge: WCC sees one component, Louvain sees two
+    communities. A build that drops the algorithm fails this canary, which
+    is exactly when D72's external-pass fallback would matter."""
+    conn = graph_connection
+    conn.execute("CREATE NODE TABLE N(id INT64, PRIMARY KEY (id))")
+    conn.execute("CREATE REL TABLE R(FROM N TO N)")
+    conn.execute("UNWIND range(1, 8) AS i CREATE (:N {id: i})")
+    bridged_cliques = (
+        (1, 2),
+        (1, 3),
+        (2, 3),
+        (1, 4),
+        (2, 4),
+        (3, 4),
+        (5, 6),
+        (5, 7),
+        (6, 7),
+        (5, 8),
+        (6, 8),
+        (7, 8),
+        (4, 5),  # the single bridge
+    )
+    for left, right in bridged_cliques:
+        conn.execute(
+            "MATCH (a:N {id: $l}), (b:N {id: $r}) CREATE (a)-[:R]->(b)",
+            {"l": left, "r": right},
+        )
+    conn.execute("INSTALL algo")
+    conn.execute("LOAD algo")
+    conn.execute("CALL PROJECT_GRAPH('G', ['N'], ['R'])")
+
+    def _grouping(algorithm: str) -> list[list[int]]:
+        result = _result(conn.execute(f"CALL {algorithm}('G') RETURN *"))
+        groups: dict[object, list[int]] = {}
+        while result.has_next():
+            row = cast("list[object]", result.get_next())
+            node = cast("dict[str, object]", row[0])
+            groups.setdefault(row[1], []).append(cast("int", node["id"]))
+        return sorted(sorted(members) for members in groups.values())
+
+    assert _grouping("WEAKLY_CONNECTED_COMPONENTS") == [[1, 2, 3, 4, 5, 6, 7, 8]]
+    assert _grouping("LOUVAIN") == [[1, 2, 3, 4], [5, 6, 7, 8]]

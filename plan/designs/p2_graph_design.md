@@ -389,9 +389,12 @@ LadybugDB ships some graph algorithms natively (PageRank, K-Core, connected comp
 them on the snapshot after rebuild, write results **back to Postgres** (community assignments,
 centrality scores) — the graph stays a projection. Uses, in priority order:
 
-Note: Louvain/Leiden are NOT shipped in LadybugDB's algo extension (verified) — community
-detection runs as an external pass (igraph/graspologic) over the rebuild's Parquet export;
-PageRank/K-Core/WCC run natively on the snapshot.
+Note (corrected 2026-07-19, **D72**): `LOUVAIN` **is** shipped in the deployed engine's algo
+extension — verified live on the build we run, and verified to be real community detection
+(two cliques joined by one bridge split correctly, where WCC sees a single component). The
+whole analytics pass therefore runs natively on the freshly built snapshot: PageRank, K-Core,
+WCC, and Louvain. The earlier external-pass plan (igraph/graspologic over the Parquet export,
+D11) is superseded and kept only as the documented fallback shape.
 
 Community topic **labels** (`communities.label` — the human-readable name K1 topic pages and
 compile hints carry) are written during the same writeback by a batched micro-LLM call over
