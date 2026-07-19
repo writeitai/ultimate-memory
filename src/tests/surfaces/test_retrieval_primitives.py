@@ -339,6 +339,23 @@ class _Corpus:
                 "at": _NEW,
             },
         )
+        # an observation supersede caps the headcount window (delta 'capped')
+        connection.execute(  # type: ignore[attr-defined]
+            text(
+                "INSERT INTO observation_adjudications (adjudication_id,"
+                " deployment_id, observation_id, related_observation_id,"
+                " outcome, method, adjudicator_version, decided_by, decided_at)"
+                " VALUES (:a, :d, :obs, :rel, 'supersede', 'small_model', 'toy',"
+                " 'auto', :at)"
+            ),
+            {
+                "a": uuid4(),
+                "d": _DEPLOYMENT_ID,
+                "obs": self.obs["headcount"],
+                "rel": self.obs["revenue"],
+                "at": _CAP,
+            },
+        )
         # Alice's identity history: a resolution decision, then a merge
         connection.execute(  # type: ignore[attr-defined]
             text(
@@ -646,6 +663,7 @@ def test_delta_reports_all_four_change_types(corpus: _Corpus) -> None:
     assert ("relation", "invalidated") in by_change
     assert ("relation", "capped") in by_change
     assert ("observation", "new") in by_change
+    assert ("observation", "capped") in by_change  # observation supersede too
     assert ("claim", "new") in by_change
     assert ("page", "recompiled") in by_change
     # nothing ingested before the window leaks in
@@ -679,6 +697,29 @@ def test_delta_empty_window_is_known_empty(corpus: _Corpus) -> None:
     assert answer.changes == ()
     assert answer.negative is not None
     assert answer.negative.kind is NegativeKind.KNOWN_EMPTY
+
+
+def test_delta_pagination_via_continuation_drops_nothing(corpus: _Corpus) -> None:
+    """Paging the feed one row at a time via the continuation returns exactly
+    the same set as one unpaged call — a page boundary that splits rows
+    sharing a timestamp never skips the tied remainder (Codex finding)."""
+    engine = _engine(corpus)
+    whole = engine.delta(deployment_id=_DEPLOYMENT_ID, since=_SINCE, limit=1000)
+    expected = [(c.kind, c.change, c.id) for c in whole.changes]
+
+    paged: list[tuple[str, str, UUID]] = []
+    cursor: str | None = None
+    for _ in range(len(expected) + 5):  # a bound so a bug cannot loop forever
+        page = engine.delta(
+            deployment_id=_DEPLOYMENT_ID, since=_SINCE, limit=1, continuation=cursor
+        )
+        paged.extend((c.kind, c.change, c.id) for c in page.changes)
+        assert page.truncation is not None
+        if not page.truncation.truncated:
+            break
+        cursor = page.truncation.continuation
+        assert cursor is not None
+    assert paged == expected  # same order, every row, no duplicates, no drops
 
 
 # --- pages_about: the routing index, backwards -----------------------------
@@ -823,3 +864,77 @@ def test_scan_unknown_kind_raises(corpus: _Corpus) -> None:
     stream that reads as 'nothing to export'."""
     with pytest.raises(ValueError, match="scan export"):
         next(_engine(corpus).scan(deployment_id=_DEPLOYMENT_ID, kind="galaxies"))
+
+
+# --- regression proofs for the Codex review fixes --------------------------
+
+
+def test_rrf_duplicate_in_one_channel_does_not_forge_agreement(corpus: _Corpus) -> None:
+    """A channel that lists an id twice must not out-score an id another
+    channel ranks once — only an item's best rank per channel counts."""
+    engine = _engine(corpus)
+    a, b = uuid4(), uuid4()
+    fused = engine.fuse(rankings=[[a, a], [b]])  # a duplicated in one channel
+    scores = {item.item_id: item.score for item in fused.ranking}
+    assert scores[a] == scores[b]  # each contributes exactly one channel
+
+
+def test_rerank_missing_signal_keeps_a_finite_score_and_sorts_last(
+    corpus: _Corpus,
+) -> None:
+    """An item missing the signal keeps its incoming (finite) score and sorts
+    last — never stamped with an infinity that would not survive JSON."""
+    engine = _engine(corpus)
+    has, lacks = uuid4(), uuid4()
+    items = [
+        RankedItem(item_id=lacks, score=0.5, signals={}),
+        RankedItem(item_id=has, score=0.0, signals={"evidence_count": 4}),
+    ]
+    ranked = engine.rerank(items=items, signal="evidence_count")
+    assert ranked.ranking[0].item_id == has
+    assert ranked.ranking[-1].item_id == lacks
+    assert ranked.ranking[-1].score == 0.5  # finite, its own prior score
+    # and the whole envelope serializes as valid JSON (no Infinity token)
+    assert "Infinity" not in ranked.model_dump_json()
+
+
+def test_transcript_related_id_is_the_counterpart_from_either_side(
+    corpus: _Corpus,
+) -> None:
+    """Querying the transcript from the OTHER relation in a supersede pair
+    still reports the counterpart as related_id, never the subject itself."""
+    answer = _engine(corpus).transcript(
+        deployment_id=_DEPLOYMENT_ID,
+        subject_kind="relation",
+        subject_id=corpus.rel["works_for_acme"],  # the related side of the pair
+    )
+    (entry,) = answer.transcript
+    assert entry.related_id == corpus.rel["works_for_contoso"]
+    assert entry.related_id != corpus.rel["works_for_acme"]
+
+
+def test_aggregate_truncation_is_disclosed(corpus: _Corpus) -> None:
+    """A bounded aggregate that hits its limit says so — the bucket total is
+    a floor, never a silent 'this is all there is' (Codex finding)."""
+    absent = _engine(corpus).aggregate(
+        deployment_id=_DEPLOYMENT_ID,
+        form="typed_absence",
+        entity_type="Organization",
+        predicate="works_for",
+        limit=1,
+    )
+    assert absent.truncation is not None
+    assert absent.truncation.truncated is True
+    assert absent.truncation.total_is_exact is False
+    assert absent.aggregate is not None
+    assert len(absent.aggregate.buckets) == 1  # capped, not the full two
+
+
+def test_scan_and_aggregate_reject_nonpositive_bounds(corpus: _Corpus) -> None:
+    """Zero or negative bounds are programming errors, raised — not a silent
+    unbounded scan or an empty result posing as complete."""
+    engine = _engine(corpus)
+    with pytest.raises(ValueError, match="batch_size"):
+        next(engine.scan(deployment_id=_DEPLOYMENT_ID, kind="relation", batch_size=0))
+    with pytest.raises(ValueError, match="limit"):
+        engine.aggregate(deployment_id=_DEPLOYMENT_ID, form="count", limit=0)

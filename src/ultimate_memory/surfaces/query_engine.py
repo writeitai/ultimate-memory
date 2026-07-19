@@ -8,6 +8,8 @@ results are honest about their denominator. No primitive calls an LLM; reads
 never trigger anything.
 """
 
+import base64
+import binascii
 from collections.abc import Iterator
 from collections.abc import Sequence
 from datetime import datetime
@@ -54,6 +56,30 @@ DEFAULT_SCAN_BATCH = 1_000
 _RERANK_SIGNALS = {"graph_distance": True, "evidence_count": False}
 """The inspectable rerank signals and whether each sorts ascending: nearer
 the focal entity wins (ascending), more corroboration wins (descending)."""
+
+_BOUNDED_AGGREGATE_FORMS = frozenset(
+    {"group_by_predicate", "group_by_object", "delta_top_entities", "typed_absence"}
+)
+"""The aggregate forms that take a `limit` and so must disclose truncation.
+`count` and `timeline` are naturally bounded (one row / one row per year)."""
+
+
+def _encode_feed_cursor(*, at: datetime, item_id: UUID) -> str:
+    """Pack a delta feed position into one opaque, resumable token."""
+    raw = f"{at.isoformat()}|{item_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_feed_cursor(token: str | None) -> tuple[datetime, UUID] | None:
+    """Unpack a feed cursor into (at, id), or None when there is no cursor."""
+    if token is None:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        at_text, id_text = raw.rsplit("|", 1)
+        return (datetime.fromisoformat(at_text), UUID(id_text))
+    except (ValueError, binascii.Error) as error:
+        raise ValueError(f"invalid delta continuation: {token!r}") from error
 
 
 class QueryEngine:
@@ -437,21 +463,27 @@ class QueryEngine:
         since: datetime,
         kinds: tuple[str, ...] | None = None,
         limit: int = DEFAULT_DELTA_LIMIT,
+        continuation: str | None = None,
     ) -> Envelope:
         """The change feed as a query: what changed since `since` (S13/S14/S30).
 
         Four timestamped change types across the evidence kinds and K pages:
-        `new` (ingested after `since`), `invalidated` (retracted after it),
-        `capped` (a relation whose validity window a supersede closed — dated
-        by the adjudication), and `recompiled` (a K page rebuilt after it).
-        `kinds` filters to a subset of {relation, observation, claim, page}.
-        Ordered newest-first and bounded: hitting `limit` sets an explicit
-        truncation marker (never a silent cut), and the caller resumes from
-        the oldest `at` it saw.
+        `new` (ingested after `since`), `invalidated` (retracted after it —
+        source-removal retractions land here too, since they set
+        `invalidated_at`), `capped` (a relation or observation whose validity
+        window a supersede closed — dated by the adjudication), and
+        `recompiled` (a K page rebuilt after it). `kinds` filters to a subset
+        of {relation, observation, claim, page}.
+
+        Ordered newest-first over the FULL `(at, id)` key and bounded: hitting
+        `limit` sets a truncation marker carrying an opaque `continuation`.
+        Paginating means passing that token back (keeping the same `since`) —
+        it resumes strictly before the last row seen, so a page boundary that
+        splits rows sharing one timestamp never drops the tied remainder.
         """
         if limit < 1:
             raise ValueError("limit must be at least 1")
-        kind_filter = list(kinds) if kinds else None
+        cursor = _decode_feed_cursor(continuation)
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -459,7 +491,9 @@ class QueryEngine:
                     {
                         "deployment_id": deployment_id,
                         "since": since,
-                        "kinds": kind_filter,
+                        "kinds": list(kinds) if kinds else None,
+                        "cursor_at": cursor[0] if cursor else None,
+                        "cursor_id": str(cursor[1]) if cursor else None,
                         "fetch": limit + 1,
                     },
                 )
@@ -467,6 +501,7 @@ class QueryEngine:
                 .all()
             )
         truncated = len(rows) > limit
+        kept = rows[:limit]
         changes = tuple(
             ChangeRecord(
                 kind=row["kind"],
@@ -475,7 +510,12 @@ class QueryEngine:
                 label=row["label"],
                 at=row["at"],
             )
-            for row in rows[:limit]
+            for row in kept
+        )
+        next_cursor = (
+            _encode_feed_cursor(at=kept[-1]["at"], item_id=kept[-1]["id"])
+            if truncated and kept
+            else None
         )
         return Envelope(
             grain=Grain.COMPOSITE,
@@ -487,6 +527,7 @@ class QueryEngine:
                 returned=len(changes),
                 estimated_total=len(changes),
                 total_is_exact=not truncated,
+                continuation=next_cursor,
             ),
             negative=None
             if changes
@@ -575,11 +616,16 @@ class QueryEngine:
         an unbounded ad-hoc aggregation over 10⁸ rows is a denial of service
         against the spine (the escape hatch is `scan`). The forms: `count`,
         `group_by_predicate`, `group_by_object`, `timeline` (an entity's
-        facts by year), `delta_top_entities` (evidence gained since T,
-        bounded by the delta window — S30), and `typed_absence` (entities of
-        a type with no relation of a predicate — S40, answerable because the
-        ontology types entities). An unknown form is a typed `boundary`.
+        facts by year), `delta_top_entities` (facts gained since T, bounded
+        by the delta window — S30), and `typed_absence` (entities of a type
+        with no relation of a predicate — S40, answerable because the
+        ontology types entities). A `limit`-bounded form that hits its cap
+        sets an explicit truncation marker — the bucket total is then a
+        floor, never a silent "this is all there is". An unknown form is a
+        typed `boundary`.
         """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
         builder = _AGGREGATE_FORMS.get(form)
         if builder is None:
             return Envelope(
@@ -598,7 +644,7 @@ class QueryEngine:
             "predicate": predicate,
             "entity_type": entity_type,
             "since": since,
-            "limit": limit,
+            "fetch": limit + 1,  # one extra row reveals a truncation honestly
         }
         for required, value in (
             ("subject_entity_id", subject_entity_id),
@@ -610,13 +656,15 @@ class QueryEngine:
                 raise ValueError(f"aggregate {form!r} requires {required}")
         with self._engine.connect() as connection:
             rows = connection.execute(statement, parameters).mappings().all()
+        bounded = form in _BOUNDED_AGGREGATE_FORMS
+        truncated = bounded and len(rows) > limit
         buckets = tuple(
             AggregateBucket(
                 key=None if row["key"] is None else str(row["key"]),
                 count=row["count"],
                 entity_id=row.get("entity_id"),
             )
-            for row in rows
+            for row in (rows[:limit] if bounded else rows)
         )
         total = sum(bucket.count for bucket in buckets)
         return Envelope(
@@ -629,6 +677,14 @@ class QueryEngine:
                 bounded_by="delta window" if form == "delta_top_entities" else None,
             ),
             freshness=_freshness(),
+            truncation=Truncation(
+                truncated=truncated,
+                returned=len(buckets),
+                estimated_total=len(buckets),
+                total_is_exact=not truncated,
+            )
+            if bounded
+            else None,
         )
 
     def scan(
@@ -643,6 +699,8 @@ class QueryEngine:
         `kind` selects the export: `relation`, `observation`, or `claim`. An
         unknown kind raises rather than streaming a silent empty export.
         """
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
         statement = _SCAN_EXPORTS.get(kind)
         if statement is None:
             raise ValueError(
@@ -883,10 +941,13 @@ _HYDRATE_SOURCES = text(
 
 _RELATION_TRANSCRIPT = text(
     """
+    -- related_id is always the OTHER relation in the pair, whichever side of
+    -- the adjudication the subject sits on (never the subject itself)
     SELECT 'relation' AS subject_kind,
            outcome::text AS outcome, method::text AS method, confidence,
-           related_relation_id AS related_id, decided_by::text AS decided_by,
-           decided_at, features
+           CASE WHEN relation_id = :subject_id THEN related_relation_id
+                ELSE relation_id END AS related_id,
+           decided_by::text AS decided_by, decided_at, features
     FROM relation_adjudications
     WHERE deployment_id = :deployment_id
       AND (relation_id = :subject_id OR related_relation_id = :subject_id)
@@ -898,8 +959,9 @@ _OBSERVATION_TRANSCRIPT = text(
     """
     SELECT 'observation' AS subject_kind,
            outcome::text AS outcome, method::text AS method, confidence,
-           related_observation_id AS related_id, decided_by::text AS decided_by,
-           decided_at, features
+           CASE WHEN observation_id = :subject_id THEN related_observation_id
+                ELSE observation_id END AS related_id,
+           decided_by::text AS decided_by, decided_at, features
     FROM observation_adjudications
     WHERE deployment_id = :deployment_id
       AND (observation_id = :subject_id OR related_observation_id = :subject_id)
@@ -911,7 +973,9 @@ _ENTITY_TRANSCRIPT = text(
     """
     -- an entity's decision history braids two append-only logs: how each of
     -- its mentions resolved (resolution_decisions) and every merge it took
-    -- part in (merge_events), newest-last across both
+    -- part in (merge_events), newest-last across both. related_id is the
+    -- COUNTERPART entity of a merge (never the subject); a reversed merge is
+    -- an unmerge.
     SELECT 'entity' AS subject_kind,
            CASE WHEN is_new_entity THEN 'new_entity' ELSE 'linked' END AS outcome,
            method::text AS method, confidence,
@@ -921,9 +985,12 @@ _ENTITY_TRANSCRIPT = text(
     WHERE deployment_id = :deployment_id AND entity_id = :subject_id
     UNION ALL
     SELECT 'entity' AS subject_kind,
-           'merge' AS outcome, 'merge_event' AS method, NULL::real AS confidence,
-           absorbed_id AS related_id, decided_by::text AS decided_by,
-           decided_at, evidence AS features
+           CASE WHEN reversed_by IS NOT NULL THEN 'unmerge' ELSE 'merge' END
+               AS outcome,
+           'merge_event' AS method, NULL::real AS confidence,
+           CASE WHEN survivor_id = :subject_id THEN absorbed_id
+                ELSE survivor_id END AS related_id,
+           decided_by::text AS decided_by, decided_at, evidence AS features
     FROM merge_events
     WHERE deployment_id = :deployment_id
       AND (survivor_id = :subject_id OR absorbed_id = :subject_id)
@@ -992,6 +1059,16 @@ _DELTA_FEED = text(
         FROM observations
         WHERE deployment_id = :deployment_id AND invalidated_at > :since
         UNION ALL
+        -- an observation supersede caps the OLD observation's window, dated
+        -- by the adjudication (symmetric with the relation cap above)
+        SELECT 'observation', 'capped', o.observation_id, o.statement,
+               oa.decided_at
+        FROM observation_adjudications oa
+        JOIN observations o ON o.deployment_id = oa.deployment_id
+                           AND o.observation_id = oa.observation_id
+        WHERE oa.deployment_id = :deployment_id
+          AND oa.outcome = 'supersede' AND oa.decided_at > :since
+        UNION ALL
         SELECT 'claim', 'new', claim_id, left(claim_text, 80), ingested_at
         FROM claims
         WHERE deployment_id = :deployment_id AND ingested_at > :since
@@ -1002,8 +1079,16 @@ _DELTA_FEED = text(
     )
     SELECT kind, change, id, label, at
     FROM feed
-    WHERE CAST(:kinds AS text[]) IS NULL OR kind = ANY(:kinds)
-    ORDER BY at DESC, id
+    WHERE (CAST(:kinds AS text[]) IS NULL OR kind = ANY(:kinds))
+      -- resume strictly before the cursor over the FULL (at, id) order, so a
+      -- page boundary that splits rows sharing a timestamp never drops the
+      -- tied remainder
+      AND (
+          CAST(:cursor_at AS timestamptz) IS NULL
+          OR at < :cursor_at
+          OR (at = :cursor_at AND id < CAST(:cursor_id AS uuid))
+      )
+    ORDER BY at DESC, id DESC
     LIMIT :fetch
     """
 )
@@ -1032,6 +1117,7 @@ _PAGES_ABOUT = text(
         WHERE rk.deployment_id = :deployment_id
           AND rk.key_kind = CAST(:key_kind AS rule_key_kind)
           AND rk.key_value = :key_value
+          AND pr.status = 'active'  -- a deprecated rule no longer routes
           AND a.status::text <> 'tombstoned'
         ORDER BY a.artifact_id
     ) page
@@ -1058,7 +1144,7 @@ _AGG_GROUP_BY_PREDICATE = text(
       AND subject_entity_id = :subject_entity_id
     GROUP BY predicate
     ORDER BY count DESC, predicate
-    LIMIT :limit
+    LIMIT :fetch
     """
 )
 
@@ -1074,19 +1160,29 @@ _AGG_GROUP_BY_OBJECT = text(
       AND (CAST(:predicate AS text) IS NULL OR r.predicate = :predicate)
     GROUP BY e.canonical_name, r.object_entity_id
     ORDER BY count DESC, e.canonical_name
-    LIMIT :limit
+    LIMIT :fetch
     """
 )
 
 _AGG_TIMELINE = text(
     """
-    SELECT to_char(date_trunc('year', coalesce(valid_from, ingested_at)),
-                   'YYYY') AS key,
+    -- an entity's facts by year — relations it is either end of AND the
+    -- observations about it, so the timeline is the whole fact evolution,
+    -- not just relations
+    SELECT to_char(date_trunc('year', ts), 'YYYY') AS key,
            count(*) AS count, NULL::uuid AS entity_id
-    FROM relations
-    WHERE deployment_id = :deployment_id AND invalidated_at IS NULL
-      AND (subject_entity_id = :subject_entity_id
-           OR object_entity_id = :subject_entity_id)
+    FROM (
+        SELECT coalesce(valid_from, ingested_at) AS ts
+        FROM relations
+        WHERE deployment_id = :deployment_id AND invalidated_at IS NULL
+          AND (subject_entity_id = :subject_entity_id
+               OR object_entity_id = :subject_entity_id)
+        UNION ALL
+        SELECT coalesce(valid_from, ingested_at) AS ts
+        FROM observations
+        WHERE deployment_id = :deployment_id AND invalidated_at IS NULL
+          AND subject_entity_id = :subject_entity_id
+    ) facts
     GROUP BY 1
     ORDER BY 1
     """
@@ -1094,17 +1190,27 @@ _AGG_TIMELINE = text(
 
 _AGG_DELTA_TOP_ENTITIES = text(
     """
-    -- evidence gained since T, grouped by the subject entity, bounded by the
-    -- delta window (S30): a leaderboard of what moved, not a full-history scan
-    SELECT e.canonical_name AS key, count(*) AS count,
-           r.subject_entity_id AS entity_id
-    FROM relations r
-    JOIN entities e ON e.deployment_id = r.deployment_id
-                   AND e.entity_id = r.subject_entity_id
-    WHERE r.deployment_id = :deployment_id AND r.ingested_at > :since
-    GROUP BY e.canonical_name, r.subject_entity_id
+    -- facts gained since T, grouped by the subject entity, bounded by the
+    -- delta window (S30): a leaderboard of what moved, over relations AND
+    -- observations, not a full-history scan
+    SELECT e.canonical_name AS key, sum(gained.cnt) AS count,
+           gained.entity_id AS entity_id
+    FROM (
+        SELECT subject_entity_id AS entity_id, count(*) AS cnt
+        FROM relations
+        WHERE deployment_id = :deployment_id AND ingested_at > :since
+        GROUP BY subject_entity_id
+        UNION ALL
+        SELECT subject_entity_id AS entity_id, count(*) AS cnt
+        FROM observations
+        WHERE deployment_id = :deployment_id AND ingested_at > :since
+        GROUP BY subject_entity_id
+    ) gained
+    JOIN entities e ON e.deployment_id = :deployment_id
+                   AND e.entity_id = gained.entity_id
+    GROUP BY e.canonical_name, gained.entity_id
     ORDER BY count DESC, e.canonical_name
-    LIMIT :limit
+    LIMIT :fetch
     """
 )
 
@@ -1125,7 +1231,7 @@ _AGG_TYPED_ABSENCE = text(
             AND r.invalidated_at IS NULL
       )
     ORDER BY e.canonical_name
-    LIMIT :limit
+    LIMIT :fetch
     """
 )
 

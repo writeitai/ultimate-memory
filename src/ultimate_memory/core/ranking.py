@@ -38,15 +38,22 @@ def reciprocal_rank_fusion(
 
     Each inner sequence is one channel's ranking, best first. An item's
     score is the sum over channels of ``1/(k + rank)`` (rank 1-based), so
-    agreement across channels wins without ever comparing raw scores. Ties
-    break on the id's own order for determinism. `k` must be positive.
+    agreement across channels wins without ever comparing raw scores. Only
+    an item's BEST rank within a channel counts — a channel that lists an id
+    twice contributes once, so one channel cannot forge cross-channel
+    agreement. Ties break on the id's own order for determinism. `k` must be
+    positive.
     """
     if k < 1:
         raise ValueError("the RRF constant k must be at least 1")
     scores: dict[UUID, float] = {}
     contributions: dict[UUID, dict[str, float]] = {}
     for channel, ranking in enumerate(rankings):
+        seen: set[UUID] = set()
         for rank, item_id in enumerate(ranking, start=1):
+            if item_id in seen:
+                continue  # a duplicate in one channel counts only at its best rank
+            seen.add(item_id)
             increment = 1.0 / (k + rank)
             scores[item_id] = scores.get(item_id, 0.0) + increment
             contributions.setdefault(item_id, {})[f"channel_{channel}"] = increment
@@ -68,16 +75,20 @@ def rerank_by_signal(
     relevant); `evidence_count` reranks descending (more corroboration
     first). An item missing the signal sorts last in either direction
     rather than raising — a partial signal is a weaker rerank, not an
-    error. The new `score` is the signal value, and `signals` is preserved
-    so a later stage can read every contribution.
+    error — and keeps its incoming `score` rather than being stamped with a
+    non-finite sentinel that would not survive JSON. An item that HAS the
+    signal takes it as its new `score`; `signals` is preserved throughout so
+    a later stage can read every contribution.
     """
-    missing = float("inf") if ascending else float("-inf")
+    sentinel = float("inf") if ascending else float("-inf")
 
     def key(item: RankedItem) -> tuple[float, bytes]:
-        value = item.signals.get(signal, missing)
+        value = item.signals.get(signal, sentinel)
         return (value if ascending else -value, item.item_id.bytes)
 
     return tuple(
-        item.model_copy(update={"score": item.signals.get(signal, missing)})
+        item.model_copy(update={"score": item.signals[signal]})
+        if signal in item.signals
+        else item
         for item in sorted(items, key=key)
     )
