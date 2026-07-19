@@ -752,3 +752,33 @@ def test_spike_h_path_element_comprehension_limit(
         )
     )
     assert supported == [["a", "b"]]  # the supported projection form
+
+
+def test_spike_i_copy_is_positional_not_by_name(
+    graph_connection: ladybug.Connection, tmp_path: Path
+) -> None:
+    """WP-4.3 finding: `COPY … FROM` maps Parquet columns POSITIONALLY —
+    column names are ignored. A rel export whose column order differs from
+    the DDL's property order silently lands values in the wrong properties;
+    this canary pins the behavior so the export/DDL contract stays paired."""
+    conn = graph_connection
+    conn.execute("CREATE NODE TABLE N(id STRING, PRIMARY KEY (id))")
+    conn.execute("CREATE REL TABLE R(FROM N TO N, alpha STRING, beta STRING)")
+    conn.execute("CREATE (:N {id: 'x'}), (:N {id: 'y'})")
+    # the Parquet NAMES beta first — if COPY honored names, beta would win
+    path = tmp_path / "swapped.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "from": pa.array(["x"]),
+                "to": pa.array(["y"]),
+                "beta": pa.array(["FIRST-COLUMN"]),
+                "alpha": pa.array(["SECOND-COLUMN"]),
+            }
+        ),
+        str(path),
+    )
+    conn.execute(f"COPY R FROM '{path}'")
+    row = _next_row(conn.execute("MATCH ()-[r:R]->() RETURN r.alpha, r.beta"))
+    # position won: the DDL's FIRST property took the Parquet's THIRD column
+    assert row == ["FIRST-COLUMN", "SECOND-COLUMN"]

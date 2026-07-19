@@ -143,6 +143,7 @@ class GraphEdge(BaseModel):
     evidence_count: int
     valid_from: UTCDateTime | None
     valid_until: UTCDateTime | None
+    ingested_at: UTCDateTime | None
     invalidated_at: UTCDateTime | None
 
 
@@ -173,6 +174,7 @@ class Truncation(BaseModel):
     truncated: bool
     returned: int = Field(ge=0)
     estimated_total: int = Field(ge=0)
+    total_is_exact: bool = True  # false when the count itself hit its cap
     continuation: str | None = None
 
 
@@ -183,6 +185,7 @@ class Envelope(BaseModel):
 
     grain: Grain
     as_of_valid_at: UTCDateTime | None = None  # echo of the applied valid_at
+    as_of_believed_at: UTCDateTime | None = None  # echo of the applied believed_at
     entities: tuple[EntityCandidate, ...] = ()
     facts: tuple[FactResult, ...] = ()
     evidence: tuple[EvidenceResult, ...] = ()

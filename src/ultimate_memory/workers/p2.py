@@ -48,15 +48,19 @@ GRAPH_DDL: Final = (
     " PRIMARY KEY (id))",
     "CREATE NODE TABLE Document(id UUID, title STRING, source_uri STRING,"
     " published_at DATE, PRIMARY KEY (id))",
+    # subject_id/object_id are stored EXPLICITLY: a traversal may cross an
+    # edge backwards, and reading direction from traversal order would
+    # reverse the fact ("Acme works_for Alice") — Codex review
     "CREATE REL TABLE RELATES(FROM Entity TO Entity, relation_id UUID,"
+    " subject_id UUID, object_id UUID,"
     " predicate STRING, fact STRING, evidence_count INT64,"
     " contradict_count INT64, confidence DOUBLE, contradiction_group UUID,"
     " valid_from TIMESTAMP, valid_until TIMESTAMP, ingested_at TIMESTAMP,"
     " invalidated_at TIMESTAMP)",
     "CREATE REL TABLE MENTIONED_IN(FROM Entity TO Document,"
     " mention_count INT64, first_seen TIMESTAMP)",
-    "CREATE REL TABLE DOC_CROSSREF(FROM Document TO Document, kind STRING,"
-    " context STRING)",
+    "CREATE REL TABLE DOC_CROSSREF(FROM Document TO Document,"
+    " from_doc_id UUID, to_doc_id UUID, kind STRING, context STRING)",
     "CREATE REL TABLE IS_DOCUMENT(FROM Entity TO Document)",
 )
 
@@ -106,10 +110,15 @@ _TABLE_COLUMNS: Final[dict[str, tuple[tuple[str, tuple[str, Callable]], ...]]] =
         ("source_uri", _STRING),
         ("published_at", _DATE),
     ),
+    # NB: COPY maps Parquet columns POSITIONALLY — the two endpoints first,
+    # then rel properties in DDL declaration order. This tuple IS that
+    # order; a mismatch silently loads values into the wrong properties.
     "RELATES": (
         ("from", _STRING),
         ("to", _STRING),
         ("relation_id", _STRING),
+        ("subject_id", _STRING),
+        ("object_id", _STRING),
         ("predicate", _STRING),
         ("fact", _STRING),
         ("evidence_count", _INT),
@@ -130,6 +139,8 @@ _TABLE_COLUMNS: Final[dict[str, tuple[tuple[str, tuple[str, Callable]], ...]]] =
     "DOC_CROSSREF": (
         ("from", _STRING),
         ("to", _STRING),
+        ("from_doc_id", _STRING),
+        ("to_doc_id", _STRING),
         ("kind", _STRING),
         ("context", _STRING),
     ),
@@ -348,12 +359,18 @@ class GraphSnapshotReader:
         self._deployment_id = deployment_id
         self._cache_dir = cache_dir
         self._version: str | None = None
+        self._published_at: datetime | None = None
         self._connection: ladybug.Connection | None = None
 
     @property
     def version(self) -> str | None:
         """The snapshot version currently served (None before the first)."""
         return self._version
+
+    @property
+    def published_at(self) -> datetime | None:
+        """When the served snapshot published (the S42 freshness stamp)."""
+        return self._published_at
 
     def refresh(self) -> bool:
         """Serve the latest published snapshot; True when a swap happened."""
@@ -398,6 +415,8 @@ class GraphSnapshotReader:
             ladybug.Database(str(local / "graph.lbdb"), read_only=True)
         )
         self._version = version
+        published = latest.get("published_at")
+        self._published_at = published if isinstance(published, datetime) else None
         return True
 
     def connection(self) -> ladybug.Connection:

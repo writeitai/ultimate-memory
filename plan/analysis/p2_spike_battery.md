@@ -69,7 +69,15 @@ be shaped:
    `SHORTEST` is load-bearing for neighborhood queries, not an
    optimization**; a plain variable-length match is only safe with a tiny
    bound on an acyclic shape.
-5. **List comprehensions over path elements are unsupported.**
+5. **`COPY … FROM` maps Parquet columns POSITIONALLY, never by name.**
+   A rel table's Parquet must be: the two endpoints, then every rel
+   property **in DDL declaration order**. Column *names* are ignored, so a
+   reordered export silently loads values into the wrong properties (found
+   here: `relation_id` receiving an endpoint id, subject/object swapped —
+   caught only because a direction proof asserted the stored semantics).
+   **Rule: the export's column tuple and the DDL are one contract; keep
+   them adjacent and assert a round-trip.**
+6. **List comprehensions over path elements are unsupported.**
    `[x IN nodes(p) | x.name]` fails with `Variable x is not in scope`.
    **Rule: return `nodes(p)` / `rels(p)` directly** (they yield full property
    maps) or use `properties(rels(p), 'predicate')`; read the maps client-side.

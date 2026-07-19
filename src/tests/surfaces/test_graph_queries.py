@@ -92,6 +92,40 @@ class _Graph:
             self._edge(connection, "Carol", "works_on", "ESB Migration")
             self._edge(connection, "Beacon", "part_of", "ESB Migration")
             self._edge(connection, "Bob", "knows_about", "Vector Databases")
+            self.docs: dict[str, UUID] = {}
+            for title in ("Report", "Follow-up", "Original Spec"):
+                doc_id = uuid4()
+                self.docs[title] = doc_id
+                connection.execute(
+                    text(
+                        "INSERT INTO documents (doc_id, deployment_id,"
+                        " source_kind, source_ref, title)"
+                        " VALUES (:doc, :d, 'upload', :ref, :title)"
+                    ),
+                    {
+                        "doc": doc_id,
+                        "d": _DEPLOYMENT_ID,
+                        "ref": title.lower().replace(" ", "-"),
+                        "title": title,
+                    },
+                )
+            for citing, cited in (
+                ("Report", "Follow-up"),
+                ("Follow-up", "Original Spec"),
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO document_crossrefs (crossref_id,"
+                        " deployment_id, from_doc_id, to_doc_id, kind,"
+                        " resolved) VALUES (:c, :d, :f, :t, 'cites', true)"
+                    ),
+                    {
+                        "c": uuid4(),
+                        "d": _DEPLOYMENT_ID,
+                        "f": self.docs[citing],
+                        "t": self.docs[cited],
+                    },
+                )
             # S21: an edge that only existed in 2024 (closed since)
             self._edge(
                 connection,
@@ -166,6 +200,7 @@ def graph(database_engine: Engine, tmp_path: Path) -> Iterator[GraphQueries]:
     )
     queries = GraphQueries(reader=reader)
     queries.ids = corpus.ids  # type: ignore[attr-defined]
+    queries.docs = corpus.docs  # type: ignore[attr-defined]
     yield queries
 
 
@@ -204,9 +239,14 @@ def test_s18_neighborhood_caps_are_explicit(graph: GraphQueries) -> None:
     assert page.truncation is not None
     assert page.truncation.truncated is True
     assert page.truncation.returned == 1
-    assert page.truncation.continuation == "1"  # the follow-up cursor
+    assert page.truncation.estimated_total > 1  # the real total, not limit+1
+    assert page.truncation.total_is_exact is True
+    assert page.truncation.continuation is not None
     nxt = graph.neighborhood(
-        entity_id=ids["Acme"], hops=2, limit=1, offset=int(page.truncation.continuation)
+        entity_id=ids["Acme"],
+        hops=2,
+        limit=1,
+        continuation=page.truncation.continuation,
     )
     assert _names(nxt).isdisjoint(_names(page))  # pagination is stable
 
@@ -253,9 +293,32 @@ def test_s21_multi_hop_as_of(graph: GraphQueries) -> None:
     assert current.as_of_valid_at == _JAN_2026  # the echo (S15/S16)
 
 
-def test_s22_document_graph_traversal(graph: GraphQueries) -> None:
-    """S22 shape: a chain traverses transitively — Alice reaches the ESB
-    migration through Beacon at 2 hops but not at 1."""
+def test_s22_document_citation_chain(graph: GraphQueries) -> None:
+    """S22: 'Which documents ultimately cite the original spec?' — the
+    DOCUMENT graph traverses transitively (Codex review: the entity graph
+    cannot answer this; DOC_CROSSREF can)."""
+    docs = graph.docs  # type: ignore[attr-defined]
+    chain = graph.citation_path(
+        from_doc_id=docs["Report"], to_doc_id=docs["Original Spec"]
+    )
+    assert chain.negative is None
+    assert chain.paths
+    path = chain.paths[0]
+    assert path.length == 2  # Report → Follow-up → Original Spec
+    assert [edge.predicate for edge in path.edges] == ["cites", "cites"]
+    # direction is the STORED direction, edge by edge
+    assert path.edges[0].subject_id == docs["Report"]
+    assert path.edges[-1].object_id == docs["Original Spec"]
+
+    unrelated = graph.citation_path(
+        from_doc_id=docs["Original Spec"], to_doc_id=docs["Report"]
+    )
+    assert unrelated.negative is not None  # citation is directed
+
+
+def test_transitive_entity_reach_by_hop_bound(graph: GraphQueries) -> None:
+    """A chain is reachable at 2 hops and not at 1 — the hop bound means
+    what it says."""
     ids = graph.ids  # type: ignore[attr-defined]
     one_hop = graph.neighborhood(
         entity_id=ids["Alice"], hops=1, predicates=("works_on", "part_of")
@@ -271,10 +334,17 @@ def test_typed_negatives_and_the_hop_clamp(graph: GraphQueries) -> None:
     """Absence is typed, and a request beyond the engine's 30-hop ceiling is
     clamped AND disclosed rather than silently honored or thrown."""
     ids = graph.ids  # type: ignore[attr-defined]
-    isolated = uuid4()
-    empty = graph.neighborhood(entity_id=isolated, hops=2)
-    assert empty.negative is not None
-    assert empty.negative.kind is NegativeKind.KNOWN_EMPTY
+    absent = graph.neighborhood(entity_id=uuid4(), hops=2)
+    assert absent.negative is not None
+    # Codex review: an id the graph never heard of is UNKNOWN_ENTITY, not
+    # "this entity has no neighbors"
+    assert absent.negative.kind is NegativeKind.UNKNOWN_ENTITY
+
+    isolated = graph.neighborhood(
+        entity_id=ids["Vector Databases"], hops=1, predicates=("works_for",)
+    )
+    assert isolated.negative is not None
+    assert isolated.negative.kind is NegativeKind.KNOWN_EMPTY  # exists, no match
 
     no_path = graph.path(
         from_entity_id=ids["Vector Databases"],
@@ -303,3 +373,71 @@ def test_boundary_when_no_snapshot_is_published(tmp_path: Path) -> None:
     assert envelope.negative is not None
     assert envelope.negative.kind is NegativeKind.BOUNDARY
     assert envelope.negative.workaround is not None
+
+
+def test_current_means_currently_valid(graph: GraphQueries) -> None:
+    """Codex review: a default (no `valid_at`) neighborhood must not return
+    an EXPIRED edge just because it was never invalidated — 'current' means
+    currently-valid, and the applied instant is always echoed."""
+    ids = graph.ids  # type: ignore[attr-defined]
+    default = graph.neighborhood(entity_id=ids["Acme"], hops=1)
+    assert "Carol" not in _names(default)  # her spell closed in June 2024
+    assert {"Alice", "Bob"} <= _names(default)
+    assert default.as_of_valid_at is not None  # echoed, never silent
+
+
+def test_edge_direction_survives_reverse_traversal(graph: GraphQueries) -> None:
+    """Codex review: traversing an edge BACKWARDS must not invert the fact.
+    Stored: Alice -[works_for]-> Acme. Asked the other way round, the edge
+    still reports Alice as subject and Acme as object."""
+    ids = graph.ids  # type: ignore[attr-defined]
+    reverse = graph.path(
+        from_entity_id=ids["Acme"], to_entity_id=ids["Alice"], max_hops=1
+    )
+    assert reverse.negative is None
+    edge = reverse.paths[0].edges[0]
+    assert edge.subject_id == ids["Alice"]  # never "Acme works_for Alice"
+    assert edge.object_id == ids["Acme"]
+    assert edge.predicate == "works_for"
+    assert edge.ingested_at is not None  # the bi-temporal state is complete
+
+
+def test_continuation_is_snapshot_bound(graph: GraphQueries) -> None:
+    """Codex review: a cursor from a superseded snapshot is refused, not
+    silently applied — paging across a swap would skip or duplicate."""
+    ids = graph.ids  # type: ignore[attr-defined]
+    page = graph.neighborhood(entity_id=ids["Acme"], hops=2, limit=1)
+    assert page.truncation is not None
+    stale = graph.neighborhood(
+        entity_id=ids["Acme"], hops=2, limit=1, continuation="some-older-snapshot:1"
+    )
+    assert stale.negative is not None
+    assert stale.negative.kind is NegativeKind.BOUNDARY
+    with pytest.raises(ValueError, match="at least 1"):
+        graph.neighborhood(entity_id=ids["Acme"], limit=0)  # no zero-page loop
+
+
+def test_believed_at_is_applied_and_echoed(graph: GraphQueries) -> None:
+    """Codex review: system-time filtering must be visible in the answer —
+    two calls differing only by `believed_at` are distinguishable."""
+    ids = graph.ids  # type: ignore[attr-defined]
+    before_ingest = graph.neighborhood(
+        entity_id=ids["Acme"], hops=1, believed_at=datetime(2020, 1, 1, tzinfo=UTC)
+    )
+    assert before_ingest.negative is not None  # nothing was believed yet
+    assert before_ingest.as_of_believed_at == datetime(2020, 1, 1, tzinfo=UTC)
+
+    now = graph.neighborhood(
+        entity_id=ids["Acme"], hops=1, believed_at=datetime(2026, 12, 1, tzinfo=UTC)
+    )
+    assert {"Alice", "Bob"} <= _names(now)
+    assert now.as_of_believed_at == datetime(2026, 12, 1, tzinfo=UTC)
+
+
+def test_freshness_carries_the_snapshot_stamp(graph: GraphQueries) -> None:
+    """Codex review: S42 needs WHEN, not only which — the published-at
+    timestamp rides every graph answer."""
+    ids = graph.ids  # type: ignore[attr-defined]
+    envelope = graph.neighborhood(entity_id=ids["Acme"], hops=1)
+    assert envelope.freshness.p2_snapshot_version is not None
+    assert envelope.freshness.p2_snapshot_ts is not None

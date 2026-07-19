@@ -213,7 +213,8 @@ _EXPORT_SQL: Final[dict[str, TextClause]] = {
     "RELATES": text(
         """
         SELECT s1.survivor AS from_id, s2.survivor AS to_id,
-               r.relation_id, r.predicate, r.fact_label AS fact,
+               r.relation_id, s1.survivor AS subject_id, s2.survivor AS object_id,
+               r.predicate, r.fact_label AS fact,
                r.evidence_count::bigint AS evidence_count,
                r.contradict_count::bigint AS contradict_count,
                r.confidence::float8 AS confidence, r.contradiction_group,
@@ -245,7 +246,8 @@ _EXPORT_SQL: Final[dict[str, TextClause]] = {
     ),
     "DOC_CROSSREF": text(
         """
-        SELECT "from" AS from_id, "to" AS to_id, kind, context
+        SELECT "from" AS from_id, "to" AS to_id,
+               "from" AS from_doc_id, "to" AS to_doc_id, kind, context
         FROM v_graph_crossref
         """
     ),
