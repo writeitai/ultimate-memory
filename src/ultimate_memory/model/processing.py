@@ -16,6 +16,7 @@ class ProcessingTarget(StrEnum):
     """Exact values of the binding Postgres ``processing_target`` enum."""
 
     DOCUMENT = "document"
+    DOCUMENT_VERSION = "document_version"
     DOCUMENT_SECTION = "document_section"
     CHUNK = "chunk"
     CLAIM = "claim"

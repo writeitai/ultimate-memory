@@ -76,14 +76,20 @@ class DocumentCatalog:
                         "deployment_id": record.deployment_id,
                         "doc_id": doc_id,
                         "content_hash": record.content_hash,
+                        "source_modified_at": record.source_modified_at,
+                        "source_version_ref": record.source_version_ref,
+                        "sync_cycle_id": record.sync_cycle_id,
                     },
                 )
             enqueue_on(
                 connection=connection,
                 work=EnqueueWork(
                     deployment_id=record.deployment_id,
-                    target_kind=ProcessingTarget.DOCUMENT,
-                    target_id=doc_id,
+                    # the idempotency key names the VERSION (D12/D55): a
+                    # lineage's second version must never collide with the
+                    # first version's completed work row
+                    target_kind=ProcessingTarget.DOCUMENT_VERSION,
+                    target_id=version_id,
                     stage=PipelineStage.CONVERT,
                     component_version=convert_component_version,
                     content_hash=record.content_hash,
@@ -228,6 +234,10 @@ class DocumentCatalog:
                 _MARK_LINEAGE_CURRENT,
                 {"doc_id": record.doc_id, "version_id": record.version_id},
             )
+            connection.execute(  # the lineage pointer moved: older versions
+                _SUPERSEDE_PRIOR_VERSIONS,  # are superseded as of now (D55)
+                {"doc_id": record.doc_id, "version_id": record.version_id},
+            )
 
 
 def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
@@ -245,6 +255,7 @@ def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
             "source_ref": record.source_ref,
             "source_uri": record.source_uri,
             "title": record.title,
+            "versioning_mode": record.versioning_mode,
         },
     ).scalar_one_or_none()
     if inserted is not None:
@@ -262,9 +273,11 @@ def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
 _INSERT_DOCUMENT = text(
     """
     INSERT INTO documents (
-        doc_id, deployment_id, source_kind, source_ref, source_uri, title
+        doc_id, deployment_id, source_kind, source_ref, source_uri, title,
+        versioning_mode
     ) VALUES (
-        :doc_id, :deployment_id, :source_kind, :source_ref, :source_uri, :title
+        :doc_id, :deployment_id, :source_kind, :source_ref, :source_uri, :title,
+        CAST(:versioning_mode AS versioning_mode)
     )
     ON CONFLICT (deployment_id, source_kind, source_ref) DO NOTHING
     RETURNING doc_id
@@ -304,12 +317,14 @@ _SELECT_VERSION_BY_CONTENT = text(
 _INSERT_VERSION = text(
     """
     INSERT INTO document_versions (
-        version_id, deployment_id, doc_id, content_hash, version_no, status
+        version_id, deployment_id, doc_id, content_hash, version_no, status,
+        source_modified_at, source_version_ref, sync_cycle_id
     ) VALUES (
         :version_id, :deployment_id, :doc_id, :content_hash,
         (SELECT coalesce(max(version_no), 0) + 1 FROM document_versions
          WHERE deployment_id = :deployment_id AND doc_id = :doc_id),
-        'converting'
+        'converting',
+        :source_modified_at, :source_version_ref, :sync_cycle_id
     )
     """
 )
@@ -424,5 +439,16 @@ _MARK_LINEAGE_CURRENT = text(
     UPDATE documents
     SET current_version_id = :version_id, last_observed_at = now()
     WHERE doc_id = :doc_id
+    """
+)
+
+_SUPERSEDE_PRIOR_VERSIONS = text(
+    """
+    UPDATE document_versions SET superseded_at = now()
+    WHERE doc_id = :doc_id
+      AND version_id <> :version_id
+      AND superseded_at IS NULL
+      AND version_no < (SELECT version_no FROM document_versions
+                        WHERE version_id = :version_id)
     """
 )

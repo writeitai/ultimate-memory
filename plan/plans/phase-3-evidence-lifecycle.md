@@ -12,8 +12,8 @@ counts invariant throughout.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-3.1 | Lineage/version/content-object model + migrations already in place → workers honor them; version-aware E0 | lifecycle §2; schema §6; D55 | Phase 1 | versioned ingest | same-bytes/off-cycle no-ops | planned |
-| WP-3.2 | Drive connector: watch loop, debounce, `connector_sync_cycles`, source-deletion detection | lifecycle §2, §8; e0 §2 | WP-3.1 | connector | cycle rows; delete observed → lineage cascade | planned |
+| WP-3.1 | Lineage/version/content-object model + migrations already in place → workers honor them; version-aware E0 | lifecycle §2; schema §6; D55 | Phase 1 | versioned ingest | same-bytes/off-cycle no-ops | done (PR #95) |
+| WP-3.2 | Drive connector: watch loop, debounce, `connector_sync_cycles`, source-deletion detection | lifecycle §2, §8; e0 §2 | WP-3.1 | connector | cycle rows; delete observed → lineage cascade | done (PR #95; detection + tombstone — the downstream cascade is WP-3.6's delete worker) |
 | WP-3.3 | Full PageIndex route + section snap + placement hints | e0 §4; e1 §3; D39, D57 | WP-3.1, gate #7 | structure worker | snap algorithm property tests | planned |
 | WP-3.4 | Reuse: block diff, `extraction_input_hash` check, `chunk_claims` occurrence writes, context carry-forward | e1 §7; lifecycle §6; D56 | WP-3.1 | reuse path in E1/E2 | **reuse hit-rate spike measured** on real edits | planned |
 | WP-3.5 | Currency + reconciliation: events ledger, recount (D54 SQL), per-shape closure, retract-at-finalization, K delta emission | lifecycle §3–5; D54–D55; schema §8 | WP-3.4 | reconciliation worker | worked-example test (lifecycle §5) green; idempotent retry | planned |

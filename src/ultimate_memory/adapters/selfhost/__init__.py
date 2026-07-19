@@ -8,9 +8,11 @@ from ultimate_memory.adapters.selfhost.object_store import ObjectKeyEscapesRootE
 from ultimate_memory.adapters.selfhost.queue import SelfHostTaskQueue
 from ultimate_memory.adapters.selfhost.queue import SelfHostWorkerLoop
 from ultimate_memory.adapters.selfhost.queue import TokenBucket
+from ultimate_memory.adapters.selfhost.watcher import LocalDirectoryWatcher
 
 __all__ = (
     "LanceChunkIndex",
+    "LocalDirectoryWatcher",
     "LocalFSObjectStore",
     "LocalMountPublisher",
     "ObjectAlreadyExistsError",

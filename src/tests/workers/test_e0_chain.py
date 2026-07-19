@@ -280,9 +280,9 @@ def test_unroutable_mime_dead_letters_without_retries(rig: _E0Rig) -> None:
     work = rig.row(
         sql="""
         SELECT status, attempts, last_error FROM processing_state
-        WHERE target_id = :doc_id AND stage = 'convert'
+        WHERE target_id = :version_id AND stage = 'convert'
         """,
-        params={"doc_id": ingested.doc_id},
+        params={"version_id": ingested.version_id},
     )
     assert work["status"] == "dead_letter"
     assert work["attempts"] == 1

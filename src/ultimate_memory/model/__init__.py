@@ -62,7 +62,9 @@ from ultimate_memory.model.documents import DocumentVersionNotFoundError
 from ultimate_memory.model.documents import IngestedVersion
 from ultimate_memory.model.documents import RepresentationNotFoundError
 from ultimate_memory.model.documents import RepresentationRecord
+from ultimate_memory.model.documents import SourceItem
 from ultimate_memory.model.documents import StructureSource
+from ultimate_memory.model.documents import SyncCycleSummary
 from ultimate_memory.model.documents import SyntheticRootRecord
 from ultimate_memory.model.documents import UploadRecord
 from ultimate_memory.model.envelope import EntityCandidate
@@ -222,12 +224,14 @@ __all__ = (
     "SelectionCandidate",
     "SelectionResponse",
     "SelectionVerdict",
+    "SourceItem",
     "SourceRecord",
     "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
     "SupersessionOutcome",
     "SupersessionVerdict",
+    "SyncCycleSummary",
     "SyntheticRootRecord",
     "TelemetryAttribute",
     "TelemetryEvent",
