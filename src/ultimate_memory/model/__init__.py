@@ -1,5 +1,7 @@
 """Shared provider-boundary values with no dependency on other application layers."""
 
+from ultimate_memory.model.adjudication import ObservationOutcome
+from ultimate_memory.model.adjudication import ObservationVerdict
 from ultimate_memory.model.adjudication import RelationUpsert
 from ultimate_memory.model.adjudication import SupersessionOutcome
 from ultimate_memory.model.adjudication import SupersessionVerdict
@@ -185,6 +187,8 @@ __all__ = (
     "ObjectKeyEscapesRootError",
     "ObservationCandidate",
     "ObservationForEmbedding",
+    "ObservationOutcome",
+    "ObservationVerdict",
     "OtherPredicateGrammarError",
     "P1ChunkRow",
     "P1ClaimRow",

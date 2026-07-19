@@ -152,20 +152,28 @@ class QueryEngine:
         entity_id: UUID,
         property_query: str | None = None,
         k: int = 10,
+        valid_at: datetime | None = None,
     ) -> Envelope:
-        """Live observations on one entity — semantic over statements (S2, D43).
+        """Observations on one entity — current, or as-of on the valid-time
+        axis (S2/S9, D43): "headcount mid-2024" is the capped slice whose
+        window covers that instant.
 
         With a property query, the facts channel NOMINATES by label similarity
         and the spine confirms live rows (D48); without one, the entity block
         is read directly.
         """
         dropped = 0
+        as_of = valid_at or datetime.now(tz=UTC)
         if property_query is None:
             with self._engine.connect() as connection:
                 rows = (
                     connection.execute(
                         _LOOKUP_OBSERVATIONS,
-                        {"deployment_id": deployment_id, "entity_id": entity_id},
+                        {
+                            "deployment_id": deployment_id,
+                            "entity_id": entity_id,
+                            "as_of": as_of,
+                        },
                     )
                     .mappings()
                     .all()
@@ -181,10 +189,12 @@ class QueryEngine:
                 deployment_id=deployment_id,
                 entity_id=entity_id,
                 observation_ids=tuple(UUID(item) for item in nominated),
+                as_of=as_of,
             )
         facts = tuple(_fact_result(row=row, kind="observation") for row in rows)
         return Envelope(
             grain=Grain.FACT,
+            as_of_valid_at=valid_at,
             facts=facts,
             freshness=_freshness(),
             dropped_by_hydration=dropped,
@@ -334,7 +344,12 @@ class QueryEngine:
         return results, len(claim_ids) - len(results)
 
     def _confirm_observations(
-        self, *, deployment_id: UUID, entity_id: UUID, observation_ids: tuple[UUID, ...]
+        self,
+        *,
+        deployment_id: UUID,
+        entity_id: UUID,
+        observation_ids: tuple[UUID, ...],
+        as_of: datetime,
     ) -> tuple[tuple[dict[str, object], ...], int]:
         """The D48 confirmation hop for observation nominations."""
         if not observation_ids:
@@ -347,6 +362,7 @@ class QueryEngine:
                         "deployment_id": deployment_id,
                         "entity_id": entity_id,
                         "observation_ids": list(observation_ids),
+                        "as_of": as_of,
                     },
                 )
                 .mappings()
@@ -441,13 +457,14 @@ _LOOKUP_RELATIONS = text(
 _LOOKUP_OBSERVATIONS = text(
     """
     SELECT observation_id AS fact_id, statement AS label,
-           evidence_count, valid_from, valid_until, ingested_at, invalidated_at
+           evidence_count, valid_from, valid_until, ingested_at, invalidated_at,
+           contradiction_group
     FROM observations
     WHERE deployment_id = :deployment_id
       AND subject_entity_id = :entity_id
       AND invalidated_at IS NULL
-      AND (valid_from IS NULL OR valid_from <= now())
-      AND (valid_until IS NULL OR valid_until > now())
+      AND (valid_from IS NULL OR valid_from <= :as_of)
+      AND (valid_until IS NULL OR valid_until > :as_of)
     ORDER BY evidence_count DESC, ingested_at
     """
 )
@@ -455,14 +472,15 @@ _LOOKUP_OBSERVATIONS = text(
 _CONFIRM_OBSERVATIONS = text(
     """
     SELECT observation_id AS fact_id, statement AS label,
-           evidence_count, valid_from, valid_until, ingested_at, invalidated_at
+           evidence_count, valid_from, valid_until, ingested_at, invalidated_at,
+           contradiction_group
     FROM observations
     WHERE deployment_id = :deployment_id
       AND subject_entity_id = :entity_id
       AND observation_id = ANY(:observation_ids)
       AND invalidated_at IS NULL
-      AND (valid_from IS NULL OR valid_from <= now())
-      AND (valid_until IS NULL OR valid_until > now())
+      AND (valid_from IS NULL OR valid_from <= :as_of)
+      AND (valid_until IS NULL OR valid_until > :as_of)
     """
 )
 

@@ -12,6 +12,11 @@ from ultimate_memory.spine.extension_packs import install_pack
 from ultimate_memory.spine.extension_packs import PackAnchorError
 from ultimate_memory.spine.extension_packs import PackConflictError
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.observation_adjudication import (
+    OBSERVATION_ADJUDICATOR_VERSION,
+)
+from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
+from ultimate_memory.spine.observation_adjudication import ObservationSettings
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.resolver import RESOLVER_VERSION
 from ultimate_memory.spine.resolver import seed_resolver_version
@@ -33,6 +38,9 @@ __all__ = (
     "SupersessionAdjudicator",
     "SupersessionSettings",
     "FactCatalog",
+    "OBSERVATION_ADJUDICATOR_VERSION",
+    "ObservationAdjudicator",
+    "ObservationSettings",
     "RESOLVER_VERSION",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",
