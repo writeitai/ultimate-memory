@@ -81,6 +81,7 @@ from ultimate_memory.model.envelope import Validity
 from ultimate_memory.model.evaluation import CanaryCase
 from ultimate_memory.model.evaluation import CaseFailure
 from ultimate_memory.model.evaluation import EvalSuite
+from ultimate_memory.model.evaluation import LifecycleReport
 from ultimate_memory.model.evaluation import SuiteReport
 from ultimate_memory.model.git import KRevision
 from ultimate_memory.model.lifecycle import CurrencyTransition
@@ -233,6 +234,7 @@ __all__ = (
     "SelectionCandidate",
     "SelectionResponse",
     "SelectionVerdict",
+    "LifecycleReport",
     "CurrencyTransition",
     "ReconciliationDelta",
     "PersistedSectionTree",

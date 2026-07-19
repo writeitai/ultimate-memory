@@ -15,6 +15,7 @@ class EvalSuite(StrEnum):
     GROUNDING = "grounding"
     RETRIEVAL = "retrieval"
     CONTRADICTION = "contradiction"
+    LIFECYCLE = "lifecycle"  # appended (ALTER TYPE ADD VALUE lands last)
 
 
 class CanaryCase(BaseModel):
@@ -52,3 +53,19 @@ class SuiteReport(BaseModel):
     def passed(self) -> bool:
         """A suite passes only with zero failures (empty suites pass)."""
         return not self.failures
+
+
+class LifecycleReport(BaseModel):
+    """One lifecycle-suite run: invariant verdicts + the flag-rate metric.
+
+    ``passed`` reflects the invariants alone; the flag rate is the watched
+    rollout canary (its alarm threshold is an operations decision).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    passed: bool
+    quiescent: bool = True  # count/closure checks defer while mid-flight
+    violations: dict[str, tuple[str, ...]] = {}
+    canary_failures: tuple[str, ...] = ()
+    flag_rate_by_extractor: dict[str, dict[str, float]] = {}

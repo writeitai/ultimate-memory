@@ -98,7 +98,7 @@ needs to restate it:
 | 0 | Foundations + harness | scaffolding, migrations, tenancy, `processing_state`/`cost_ledger`, queues, **eval harness + golden-set tooling**, blockizer golden corpus | schema; orchestration §1–2; D22 | done (exit criteria met 2026-07-18; WP-0.4b/0.4c + WP-0.6 carried per the phase file) |
 | 1 | Walking skeleton | one document end-to-end, everything minimal; 4 retrieval primitives + envelope core | e0, e1, e2_e3, observations, retrieval §2–3 | done (exit criteria met 2026-07-18; PRs #81-#87 — see the phase file) |
 | 2 | Truth machinery | full ER cascade + registries + review queue; supersession; observation adjudication; thresholds measured | registries, e2_e3 §5, observations | done (exit criteria met 2026-07-19; PRs #88-#94 — see the phase file) |
-| 3 | Evidence lifecycle | lineages/versions, Drive connector + sync cycles, currency + counting + reconciliation, chunk reuse, deletion grains, full PageIndex route | evidence_lifecycle, e1 §7, e0 | planned |
+| 3 | Evidence lifecycle | lineages/versions, Drive connector + sync cycles, currency + counting + reconciliation, chunk reuse, deletion grains, full PageIndex route | evidence_lifecycle, e1 §7, e0 | done (exit criteria met 2026-07-19; PRs #95-#99 — see the phase file) |
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | planned |
 | 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | planned |
 | 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, belief tier | k_layers | planned |

@@ -6,6 +6,9 @@ from ultimate_memory.eval.contradiction import run_contradiction_suite
 from ultimate_memory.eval.contradiction import seed_contradiction_cases
 from ultimate_memory.eval.harness import CaseEvaluator
 from ultimate_memory.eval.harness import EvalHarness
+from ultimate_memory.eval.lifecycle import flag_rate_by_extractor
+from ultimate_memory.eval.lifecycle import register_lifecycle_evaluator
+from ultimate_memory.eval.lifecycle import run_lifecycle_suite
 from ultimate_memory.eval.resolution import PRECISION_FLOOR
 from ultimate_memory.eval.resolution import RECALL_FLOOR
 from ultimate_memory.eval.resolution import run_resolution_suite
@@ -19,6 +22,9 @@ __all__ = (
     "CONTRADICTION_RECALL_FLOOR",
     "CaseEvaluator",
     "run_contradiction_suite",
+    "flag_rate_by_extractor",
+    "register_lifecycle_evaluator",
+    "run_lifecycle_suite",
     "seed_contradiction_cases",
     "EvalHarness",
     "PRECISION_FLOOR",
