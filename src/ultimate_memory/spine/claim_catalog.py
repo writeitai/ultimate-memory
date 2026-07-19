@@ -31,8 +31,10 @@ class ClaimCatalog:
     ) -> bool:
         """Whether this extractor generation already processed the chunk (D12/D7).
 
-        True if any claim or any ledgered decision exists — a chunk whose
-        extraction yielded only drops is still done, not pending.
+        True if any claim, any ledgered decision, or any occurrence link
+        exists — a chunk whose extraction yielded only drops is still done,
+        and a chunk that REUSED prior claims (D56, occurrence links only) is
+        equally done.
         """
         with self._engine.connect() as connection:
             return (
@@ -42,6 +44,55 @@ class ClaimCatalog:
                 ).scalar_one()
                 > 0
             )
+
+    def prior_extracted_chunk(
+        self,
+        *,
+        deployment_id: UUID,
+        doc_id: UUID,
+        chunk_id: UUID,
+        extraction_input_hash: str,
+    ) -> UUID | None:
+        """The D56 reuse lookup: an already-extracted chunk with the same key.
+
+        Searches the LINEAGE (extraction never reuses across documents —
+        identical text in another document is that document's own testimony)
+        for a different chunk carrying the same ``extraction_input_hash``
+        that is already extracted. The key embeds the extractor and
+        structurer versions, so a match is by construction the same
+        generation reading the same stable inputs.
+        """
+        with self._engine.connect() as connection:
+            return connection.execute(
+                _SELECT_PRIOR_EXTRACTED,
+                {
+                    "deployment_id": deployment_id,
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_id,
+                    "extraction_input_hash": extraction_input_hash,
+                },
+            ).scalar_one_or_none()
+
+    def attach_reused_claims(
+        self, *, deployment_id: UUID, chunk_id: UUID, prior_chunk_id: UUID
+    ) -> int:
+        """Re-attach a prior chunk's claims to a new version's chunk (D56/F4).
+
+        Copies the occurrence rows — claim ids with their derivation labels
+        and locators — so one immutable claim attaches to every version-chunk
+        that carried it. Idempotent: already-attached claims are skipped.
+        Returns how many attachments this call created.
+        """
+        with self._engine.begin() as connection:
+            result = connection.execute(
+                _COPY_CHUNK_CLAIMS,
+                {
+                    "deployment_id": deployment_id,
+                    "chunk_id": chunk_id,
+                    "prior_chunk_id": prior_chunk_id,
+                },
+            )
+        return result.rowcount or 0
 
     def claims_for_chunks(
         self, *, chunk_ids: tuple[UUID, ...]
@@ -124,6 +175,40 @@ _SELECT_EXTRACTED = text(
          + (SELECT count(*) FROM claim_extraction_decisions
             WHERE chunk_id = :chunk_id
               AND extractor_version = :extractor_version)
+         + (SELECT count(*) FROM chunk_claims
+            WHERE chunk_id = :chunk_id)
+    """
+)
+
+_SELECT_PRIOR_EXTRACTED = text(
+    """
+    SELECT c.chunk_id
+    FROM chunks c
+    WHERE c.deployment_id = :deployment_id
+      AND c.doc_id = :doc_id
+      AND c.chunk_id <> :chunk_id
+      AND c.extraction_input_hash = :extraction_input_hash
+      AND (EXISTS (SELECT 1 FROM chunk_claims x WHERE x.chunk_id = c.chunk_id)
+           OR EXISTS (SELECT 1 FROM claim_extraction_decisions d
+                      WHERE d.chunk_id = c.chunk_id))
+    ORDER BY c.created_at DESC
+    LIMIT 1
+    """
+)
+
+_COPY_CHUNK_CLAIMS = text(
+    """
+    INSERT INTO chunk_claims (
+        deployment_id, chunk_id, claim_id,
+        derivation_kind, evidence_mode, source_locators
+    )
+    SELECT :deployment_id, :chunk_id, prior.claim_id,
+           prior.derivation_kind, prior.evidence_mode, prior.source_locators
+    FROM chunk_claims prior
+    WHERE prior.chunk_id = :prior_chunk_id
+      AND NOT EXISTS (SELECT 1 FROM chunk_claims existing
+                      WHERE existing.chunk_id = :chunk_id
+                        AND existing.claim_id = prior.claim_id)
     """
 )
 

@@ -12,6 +12,7 @@ from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
 from ultimate_memory.model.blocks import Block
 from ultimate_memory.model.blocks import BlockType
+from ultimate_memory.model.chunks import CarryForwardSource
 from ultimate_memory.model.chunks import ChunkForEmbedding
 from ultimate_memory.model.chunks import ChunkRecord
 from ultimate_memory.model.chunks import ChunkSource
@@ -137,6 +138,7 @@ __all__ = (
     "CanaryCase",
     "CandidateClaim",
     "CaseFailure",
+    "CarryForwardSource",
     "ChunkForEmbedding",
     "ChunkRecord",
     "ChunkSource",
