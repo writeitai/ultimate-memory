@@ -39,14 +39,24 @@ class RelationUpsert(BaseModel):
 
 
 class TranscriptEntry(BaseModel):
-    """One append-only adjudication record, as the S8 audit query returns it."""
+    """One append-only decision record, as the `transcript` primitive returns it.
+
+    The audit trail is uniform across the four subjects a decision can be
+    about (S8/S32/S35): a supersession-adjudicated relation or observation,
+    a resolved/merged entity, or a compiled K page. `subject_kind` says
+    which, and `related_id` points at the counterpart the decision paired
+    the subject with — the other relation/observation in a supersede pair,
+    the entity absorbed in a merge, or the compilation's artifact — so an
+    agent can walk from any decision to what it acted on.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    subject_kind: str  # relation | observation | entity | k_page
     outcome: str
     method: str
     confidence: float | None
-    related_relation_id: UUID | None
+    related_id: UUID | None
     decided_by: str
     decided_at: UTCDateTime
     features: dict[str, object] | None

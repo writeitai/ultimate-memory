@@ -196,7 +196,8 @@ def test_supersession_closes_the_window_and_kills_the_zombie(
     supersede = next(
         entry for entry in transcript.transcript if entry.outcome == "supersede"
     )
-    assert supersede.related_relation_id == new
+    assert supersede.related_id == new
+    assert supersede.subject_kind == "relation"
     assert supersede.method == "small_model"
 
     # replay (D7): a second pass makes no further model calls
