@@ -18,6 +18,7 @@ from ultimate_memory.spine.observation_adjudication import (
 )
 from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
 from ultimate_memory.spine.observation_adjudication import ObservationSettings
+from ultimate_memory.spine.projection import ProjectionCatalog
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.resolver import RESOLVER_VERSION
 from ultimate_memory.spine.resolver import seed_resolver_version
@@ -47,6 +48,7 @@ __all__ = (
     "ObservationSettings",
     "RESOLVER_VERSION",
     "LifecycleCatalog",
+    "ProjectionCatalog",
     "ReviewQueue",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",

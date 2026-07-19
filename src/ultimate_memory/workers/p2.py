@@ -1,0 +1,432 @@
+"""The P2 graph rebuild pipeline (D7/D44, p2 §5): rebuild-first, snapshots.
+
+The writer rebuilds the WHOLE graph from Postgres every cycle — zero drift
+by construction, merges become no-ops, and "rebuildable from Postgres" is
+exercised every run instead of rotting as a disaster-recovery script. The
+flow: consistent export (survivor map materialized once — the spike
+battery's bound strategy) → Parquet → `COPY` into a fresh embedded graph
+(nodes before rels) → validation gate (unresolved survivors or a count
+mismatch ABORT the snapshot) → immutable upload → registry publish.
+
+Readers never touch the writer's files: they resolve the latest published
+snapshot from the registry, download it, and open it READ_ONLY (the
+engine's supported many-readers mode), hot-swapping when a newer snapshot
+publishes.
+"""
+
+from collections.abc import Callable
+from datetime import datetime
+from datetime import UTC
+import hashlib
+import json
+from pathlib import Path
+import shutil
+from typing import Final
+from uuid import UUID
+
+import ladybug
+import pyarrow as pa
+import pyarrow.parquet as pq
+from pydantic import Field
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
+
+from ultimate_memory.model import ObjectKey
+from ultimate_memory.ports.object_store import ObjectStorePort
+from ultimate_memory.spine.projection import GRAPH_NODE_TABLES
+from ultimate_memory.spine.projection import GRAPH_REL_TABLES
+from ultimate_memory.spine.projection import ProjectionCatalog
+
+P2_REBUILD_VERSION: Final = "p2-rebuild-2026.07"
+"""The rebuild worker's component version (D12)."""
+
+GRAPH_DDL: Final = (
+    # the D44 COPY contract (translation SYNTHESIS §1): analytics columns are
+    # NOT loaded — pagerank/degree are graph-derived post-load (D11)
+    "CREATE NODE TABLE Entity(id UUID, type STRING, name STRING,"
+    " normalized_name STRING, summary STRING, created_at TIMESTAMP,"
+    " PRIMARY KEY (id))",
+    "CREATE NODE TABLE Document(id UUID, title STRING, source_uri STRING,"
+    " published_at DATE, PRIMARY KEY (id))",
+    "CREATE REL TABLE RELATES(FROM Entity TO Entity, relation_id UUID,"
+    " predicate STRING, fact STRING, evidence_count INT64,"
+    " contradict_count INT64, confidence DOUBLE, contradiction_group UUID,"
+    " valid_from TIMESTAMP, valid_until TIMESTAMP, ingested_at TIMESTAMP,"
+    " invalidated_at TIMESTAMP)",
+    "CREATE REL TABLE MENTIONED_IN(FROM Entity TO Document,"
+    " mention_count INT64, first_seen TIMESTAMP)",
+    "CREATE REL TABLE DOC_CROSSREF(FROM Document TO Document, kind STRING,"
+    " context STRING)",
+    "CREATE REL TABLE IS_DOCUMENT(FROM Entity TO Document)",
+)
+
+
+class SnapshotValidationError(Exception):
+    """The validation gate aborted the snapshot (recorded in the registry)."""
+
+
+class GraphRebuildSettings(BaseSettings):
+    """The rebuild pipeline's knobs."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_P2_")
+
+    snapshot_prefix: str = Field(default="graph/snapshots")
+
+
+def _uuid_text(value: object) -> object:
+    """UUIDs travel as strings in Parquet; COPY casts into UUID columns."""
+    return str(value) if isinstance(value, UUID) else value
+
+
+def _naive(value: object) -> object:
+    """The graph stores naive UTC timestamps (the views cast to UTC)."""
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    return value
+
+
+_STRING = ("string", _uuid_text)
+_INT = ("int64", lambda value: value)
+_FLOAT = ("float64", lambda value: value)
+_TS = ("timestamp", _naive)
+_DATE = ("date", lambda value: value)
+
+_TABLE_COLUMNS: Final[dict[str, tuple[tuple[str, tuple[str, Callable]], ...]]] = {
+    "Entity": (
+        ("id", _STRING),
+        ("type", _STRING),
+        ("name", _STRING),
+        ("normalized_name", _STRING),
+        ("summary", _STRING),
+        ("created_at", _TS),
+    ),
+    "Document": (
+        ("id", _STRING),
+        ("title", _STRING),
+        ("source_uri", _STRING),
+        ("published_at", _DATE),
+    ),
+    "RELATES": (
+        ("from", _STRING),
+        ("to", _STRING),
+        ("relation_id", _STRING),
+        ("predicate", _STRING),
+        ("fact", _STRING),
+        ("evidence_count", _INT),
+        ("contradict_count", _INT),
+        ("confidence", _FLOAT),
+        ("contradiction_group", _STRING),
+        ("valid_from", _TS),
+        ("valid_until", _TS),
+        ("ingested_at", _TS),
+        ("invalidated_at", _TS),
+    ),
+    "MENTIONED_IN": (
+        ("from", _STRING),
+        ("to", _STRING),
+        ("mention_count", _INT),
+        ("first_seen", _TS),
+    ),
+    "DOC_CROSSREF": (
+        ("from", _STRING),
+        ("to", _STRING),
+        ("kind", _STRING),
+        ("context", _STRING),
+    ),
+    "IS_DOCUMENT": (("from", _STRING), ("to", _STRING)),
+}
+
+_BATCH_ROWS: Final = 10_000
+"""Parquet write granularity — matches the export cursor's yield_per."""
+
+_ARROW_TYPES: Final = {
+    "string": pa.string(),
+    "int64": pa.int64(),
+    "float64": pa.float64(),
+    "timestamp": pa.timestamp("us"),
+    "date": pa.date32(),
+}
+
+
+class GraphRebuildWorker:
+    """One full rebuild: export → build → validate → snapshot → publish."""
+
+    def __init__(
+        self,
+        *,
+        catalog: ProjectionCatalog,
+        snapshot_store: ObjectStorePort,
+        settings: GraphRebuildSettings | None = None,
+    ) -> None:
+        """Bind the worker to the spine and the snapshot bucket."""
+        self._catalog = catalog
+        self._snapshot_store = snapshot_store
+        self._settings = settings or GraphRebuildSettings()
+
+    def rebuild(
+        self, *, deployment_id: UUID, workdir: Path, version: str | None = None
+    ) -> dict[str, object]:
+        """Run one rebuild cycle end to end; abort loudly on any gate."""
+        version = version or datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S%f")
+        prefix = f"{self._settings.snapshot_prefix}/{deployment_id}/{version}"
+        snapshot_id = self._catalog.open_snapshot(
+            deployment_id=deployment_id,
+            plane="P2_graph",
+            version=version,
+            store_prefix=prefix,
+        )
+        try:
+            return self._run(
+                deployment_id=deployment_id,
+                snapshot_id=snapshot_id,
+                version=version,
+                prefix=prefix,
+                workdir=workdir,
+            )
+        except SnapshotValidationError:
+            raise  # the gates recorded their own reports
+        except Exception as error:
+            # NO failure may strand a snapshot as eternally 'building' — a
+            # thrown COPY (e.g. a rel endpoint absent from the emitted
+            # nodes), a Parquet error, an upload error: all land as a
+            # recorded failed row (Codex review)
+            self._catalog.mark_failed(
+                snapshot_id=snapshot_id,
+                validation={"gate": "exception", "error": str(error)[:500]},
+            )
+            raise
+
+    def _run(
+        self,
+        *,
+        deployment_id: UUID,
+        snapshot_id: UUID,
+        version: str,
+        prefix: str,
+        workdir: Path,
+    ) -> dict[str, object]:
+        """The pipeline body; every exit is a recorded registry state."""
+        parquet_dir = workdir / version / "parquet"
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+        counts: dict[str, int] = {}
+        with self._catalog.graph_export() as export:
+            offenders = export.unresolved_survivors()
+            if offenders:
+                validation = {
+                    "gate": "unresolved_survivors",
+                    "offenders": [str(entity) for entity in offenders],
+                }
+                self._catalog.mark_failed(
+                    snapshot_id=snapshot_id, validation=validation
+                )
+                raise SnapshotValidationError(
+                    f"snapshot {version} aborted: {len(offenders)} endpoint(s)"
+                    " fail to resolve to an active survivor (merge cycle or"
+                    " corrupt redirect chain)"
+                )
+            watermark = export.watermark()  # on-snapshot (Codex review)
+            for table in (*GRAPH_NODE_TABLES, *GRAPH_REL_TABLES):
+                counts[table] = self._write_parquet(
+                    export_rows=export.rows(table=table),
+                    table=table,
+                    path=parquet_dir / f"{table}.parquet",
+                )
+        graph_dir = workdir / version / "graph"
+        loaded = _load_graph(parquet_dir=parquet_dir, graph_dir=graph_dir)
+        mismatched = {
+            table: {"exported": counts[table], "loaded": loaded[table]}
+            for table in counts
+            if counts[table] != loaded[table]
+        }
+        if mismatched:
+            validation = {"gate": "count_mismatch", "tables": mismatched}
+            self._catalog.mark_failed(snapshot_id=snapshot_id, validation=validation)
+            raise SnapshotValidationError(
+                f"snapshot {version} aborted: graph/export count mismatch {mismatched}"
+            )
+        manifest = self._upload(prefix=prefix, version=version, graph_dir=graph_dir)
+        published = self._catalog.publish(
+            deployment_id=deployment_id,
+            snapshot_id=snapshot_id,
+            plane="P2_graph",
+            row_counts=counts,
+            validation={"gate": "passed", "files": len(manifest)},
+            built_from_watermark=watermark,
+        )
+        return {
+            "snapshot_id": snapshot_id,
+            "version": version,
+            "row_counts": counts,
+            "published": published,
+        }
+
+    def _write_parquet(self, *, export_rows: object, table: str, path: Path) -> int:
+        """Stream one table's export into Parquet in BOUNDED batches.
+
+        Memory stays proportional to the batch, never the table (Codex
+        review) — the tens-of-millions transport contract depends on it.
+        """
+        spec = _TABLE_COLUMNS[table]
+        schema = pa.schema([(name, _ARROW_TYPES[kind]) for name, (kind, _) in spec])
+        total = 0
+        with pq.ParquetWriter(str(path), schema) as writer:
+            columns: list[list[object]] = [[] for _ in spec]
+            for row in export_rows:  # type: ignore[attr-defined]
+                total += 1
+                for index, (_, (_, caster)) in enumerate(spec):
+                    columns[index].append(caster(row[index]))
+                if total % _BATCH_ROWS == 0:
+                    writer.write_batch(
+                        _record_batch(spec=spec, schema=schema, columns=columns)
+                    )
+                    columns = [[] for _ in spec]
+            if columns[0] or total == 0:
+                writer.write_batch(
+                    _record_batch(spec=spec, schema=schema, columns=columns)
+                )
+        return total
+
+    def _upload(self, *, prefix: str, version: str, graph_dir: Path) -> list[str]:
+        """Ship the immutable snapshot files + a digest manifest.
+
+        Per-file sha256 digests let readers verify a download before
+        serving it — a truncated or corrupted transfer must never open.
+        """
+        files: dict[str, str] = {}
+        for path in sorted(graph_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(graph_dir).as_posix()
+            content = path.read_bytes()
+            self._snapshot_store.write_bytes(
+                key=ObjectKey(f"{prefix}/files/{relative}"), content=content
+            )
+            files[relative] = hashlib.sha256(content).hexdigest()
+        self._snapshot_store.write_bytes(
+            key=ObjectKey(f"{prefix}/MANIFEST.json"),
+            content=json.dumps({"version": version, "files": files}).encode(),
+        )
+        return sorted(files)
+
+
+def _record_batch(
+    *,
+    spec: tuple[tuple[str, tuple[str, Callable]], ...],
+    schema: pa.Schema,
+    columns: list[list[object]],
+) -> pa.RecordBatch:
+    """One bounded Arrow batch from accumulated column lists."""
+    return pa.record_batch(
+        [
+            pa.array(values, type=_ARROW_TYPES[kind])
+            for (_, (kind, _)), values in zip(spec, columns, strict=True)
+        ],
+        schema=schema,
+    )
+
+
+class GraphSnapshotReader:
+    """A read-only consumer of the latest published snapshot (hot-swapping).
+
+    Resolves the pointer from the registry (never a mutable store object),
+    downloads the immutable files once per version, opens READ_ONLY — the
+    engine's supported many-readers mode — and swaps when a newer snapshot
+    publishes. Old local copies are point-in-time debugging artifacts.
+    """
+
+    def __init__(
+        self,
+        *,
+        catalog: ProjectionCatalog,
+        snapshot_store: ObjectStorePort,
+        deployment_id: UUID,
+        cache_dir: Path,
+    ) -> None:
+        """Bind the reader to the registry, the bucket, and a local cache."""
+        self._catalog = catalog
+        self._snapshot_store = snapshot_store
+        self._deployment_id = deployment_id
+        self._cache_dir = cache_dir
+        self._version: str | None = None
+        self._connection: ladybug.Connection | None = None
+
+    @property
+    def version(self) -> str | None:
+        """The snapshot version currently served (None before the first)."""
+        return self._version
+
+    def refresh(self) -> bool:
+        """Serve the latest published snapshot; True when a swap happened."""
+        latest = self._catalog.latest_snapshot(
+            deployment_id=self._deployment_id, plane="P2_graph"
+        )
+        if latest is None or latest["version"] == self._version:
+            return False
+        version = str(latest["version"])
+        prefix = str(latest["gcs_uri"])
+        local = self._cache_dir / version
+        if not local.exists():
+            # stage → verify → atomic rename: a half-downloaded or corrupt
+            # transfer must never be mistaken for a complete snapshot on a
+            # later refresh (Codex review)
+            staging = self._cache_dir / f".staging-{version}"
+            if staging.exists():
+                shutil.rmtree(staging)
+            manifest = json.loads(
+                self._snapshot_store.read_bytes(
+                    key=ObjectKey(f"{prefix}/MANIFEST.json")
+                )
+            )
+            if manifest["version"] != version:
+                raise RuntimeError(
+                    f"snapshot manifest names version {manifest['version']!r},"
+                    f" registry says {version!r}"
+                )
+            for relative, digest in manifest["files"].items():
+                content = self._snapshot_store.read_bytes(
+                    key=ObjectKey(f"{prefix}/files/{relative}")
+                )
+                if hashlib.sha256(content).hexdigest() != digest:
+                    raise RuntimeError(
+                        f"snapshot file {relative!r} failed its digest check"
+                    )
+                target = staging / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            staging.rename(local)
+        self._connection = ladybug.Connection(
+            ladybug.Database(str(local / "graph.lbdb"), read_only=True)
+        )
+        self._version = version
+        return True
+
+    def connection(self) -> ladybug.Connection:
+        """The read-only connection to the served snapshot."""
+        if self._connection is None:
+            self.refresh()
+        if self._connection is None:
+            raise RuntimeError("no published P2 snapshot exists yet")
+        return self._connection
+
+
+def _load_graph(*, parquet_dir: Path, graph_dir: Path) -> dict[str, int]:
+    """COPY the export into a fresh graph — nodes first — and count back."""
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    database = ladybug.Database(str(graph_dir / "graph.lbdb"))
+    connection = ladybug.Connection(database)
+    for ddl in GRAPH_DDL:
+        connection.execute(ddl)
+    counts: dict[str, int] = {}
+    for table in (*GRAPH_NODE_TABLES, *GRAPH_REL_TABLES):
+        connection.execute(f"COPY {table} FROM '{parquet_dir / f'{table}.parquet'}'")
+        pattern = (
+            f"MATCH (n:{table}) RETURN count(*)"
+            if table in GRAPH_NODE_TABLES
+            else f"MATCH ()-[r:{table}]->() RETURN count(*)"
+        )
+        result = connection.execute(pattern)
+        assert isinstance(result, ladybug.QueryResult)
+        counts[table] = int(result.get_next()[0])  # type: ignore[index, arg-type]
+    connection.close()
+    database.close()
+    return counts
