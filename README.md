@@ -94,7 +94,7 @@
 | src/ultimate\_memory/spine/migrations/versions/p3\_07\_0010\_lifecycle\_eval\_suite.py           |        9 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/migrations/versions/p4\_01\_0011\_survivor\_view\_rewrite.py          |       12 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/observation\_adjudication.py                                          |      122 |        9 |       24 |        7 |     89.0% |158, 221-239, 320-\>211, 347, 371-375, 504, 509 |
-| src/ultimate\_memory/spine/projection.py                                                         |       74 |        2 |        2 |        0 |     97.4% |     49-50 |
+| src/ultimate\_memory/spine/projection.py                                                         |       99 |        2 |        6 |        0 |     98.1% |     49-50 |
 | src/ultimate\_memory/spine/resolver.py                                                           |      171 |       10 |       42 |        9 |     91.1% |203, 205, 213-\>215, 221-225, 278, 288-289, 293, 580, 585 |
 | src/ultimate\_memory/spine/review.py                                                             |      120 |        7 |       30 |        7 |     90.7% |118, 178, 248-\>259, 345-349, 396, 398, 649 |
 | src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
@@ -106,17 +106,18 @@
 | src/ultimate\_memory/surfaces/graph\_queries.py                                                  |      159 |        7 |       46 |        7 |     93.2% |176, 180, 235, 239, 328-329, 430-\>435, 452-\>454, 537 |
 | src/ultimate\_memory/surfaces/http\_api.py                                                       |       26 |        1 |        0 |        0 |     96.2% |        47 |
 | src/ultimate\_memory/surfaces/query\_engine.py                                                   |       96 |        3 |        8 |        3 |     94.2% |264, 328, 356 |
-| src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |       40 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |       43 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/base.py                                                             |       63 |        1 |        8 |        1 |     97.2% |        73 |
 | src/ultimate\_memory/workers/e0.py                                                               |      156 |        7 |       10 |        2 |     94.6% |213-217, 439, 476-477, 484 |
 | src/ultimate\_memory/workers/e1.py                                                               |      120 |        2 |       14 |        2 |     97.0% |  222, 409 |
 | src/ultimate\_memory/workers/e2.py                                                               |      146 |        5 |       50 |        7 |     93.9% |115, 175, 350, 363, 401-\>399, 426-\>428, 504 |
 | src/ultimate\_memory/workers/e3.py                                                               |      123 |        6 |       34 |        5 |     93.0% |221-224, 315, 340, 364, 374 |
 | src/ultimate\_memory/workers/p1.py                                                               |       75 |        2 |       12 |        2 |     95.4% |   88, 222 |
-| src/ultimate\_memory/workers/p2.py                                                               |      174 |       10 |       40 |        9 |     91.1% |253-255, 290-293, 294-\>298, 309, 385-\>414, 391, 398, 407, 427 |
+| src/ultimate\_memory/workers/p2.py                                                               |      183 |       10 |       44 |       11 |     90.7% |267-269, 281-\>298, 321-324, 325-\>329, 340, 416-\>445, 422, 429, 438, 458, 493-\>497 |
+| src/ultimate\_memory/workers/p2\_analytics.py                                                    |      104 |        3 |       16 |        1 |     96.7% |210, 229-230 |
 | src/ultimate\_memory/workers/reconcile.py                                                        |      138 |        7 |       36 |       10 |     90.2% |113, 209, 214, 248-\>240, 250, 284, 285-\>290, 294, 367-\>378, 470 |
 | src/ultimate\_memory/workers/sync.py                                                             |       68 |        0 |       18 |        1 |     98.8% |  106-\>83 |
-| **TOTAL**                                                                                        | **5390** |  **218** |  **964** |  **169** | **93.8%** |           |
+| **TOTAL**                                                                                        | **5531** |  **221** |  **988** |  **172** | **93.8%** |           |
 
 
 ## Setup coverage badge
