@@ -1,5 +1,9 @@
 # LadybugDB Capability Findings
 
+> **Recency warning.** This file surveys a VENDORED snapshot; the deployed package moves.
+> Where it disagrees with a live verification (the WP-4.1 spike battery,
+> `p2_spike_battery.md`), the live verification wins — see the corrected §3 entry.
+
 Verified June 2026 against (a) the vendored source tree at `../../_additional_context/ladybug`
 (git-ignored, ~129 MB, C++ core) and (b) docs.ladybugdb.com. Compiled to ground the L6 design
 decisions in `../designs/p2_graph_design.md` and `../../decisions.md` (D7, D8, D10, D11, D13).
@@ -39,8 +43,12 @@ official docs — not from reading implementation code. Flagged per section belo
 - Algo extension registry (verified in `src/extension/extension_entries.cpp`):
   `PAGE_RANK`, `K_CORE_DECOMPOSITION`, `STRONGLY_CONNECTED_COMPONENTS` (+ Kosaraju variant),
   `WEAKLY_CONNECTED_COMPONENTS`.
-- **No Louvain/Leiden community detection.** → D11: external pass (igraph/graspologic) over
-  the rebuild's Parquet export.
+- ~~**No Louvain/Leiden community detection.**~~ **CORRECTED 2026-07-19 (WP-4.4, D72):**
+  `LOUVAIN` IS registered and functional on the deployed build (`ladybug` 0.18.2) — verified
+  live, and verified to be real community detection rather than a relabeled connected-
+  components pass (two 4-cliques joined by one bridge: WCC → one component, Louvain → two
+  communities). Community detection therefore runs **natively**; D11's external
+  igraph/graspologic pass is superseded by D72. Canary: `test_spike_j_louvain_is_native`.
 - Algorithms run on **projected graphs** (filtered subgraphs) and return results as query
   output (`CALL PAGE_RANK() RETURN *`); persistence via writing results out, no in-place
   write-back observed.
@@ -108,6 +116,6 @@ official docs — not from reading implementation code. Flagged per section belo
 | Fast Parquet `COPY FROM` | Rebuild-first sync is cheap at target scale (D7) |
 | Projected graphs w/ rel predicates | As-of traversal without native temporal support (D10) |
 | Native SHORTEST/BFS, weighted | Graph-distance reranking is native and cheap (D9) |
-| No Louvain/Leiden | Community detection external, results to Postgres (D11) |
+| ~~No Louvain/Leiden~~ → Louvain IS native (corrected, D72) | Community detection runs natively on the snapshot; results still written back to Postgres |
 | No REST server | Graph access only via our API processes holding snapshots |
 | Extensions not vendored | Build/persistence details of vector/FTS unverified — acceptable, we don't use them |

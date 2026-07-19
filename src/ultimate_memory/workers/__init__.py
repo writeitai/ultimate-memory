@@ -33,6 +33,9 @@ from ultimate_memory.workers.p2 import GraphRebuildSettings
 from ultimate_memory.workers.p2 import GraphRebuildWorker
 from ultimate_memory.workers.p2 import GraphSnapshotReader
 from ultimate_memory.workers.p2 import SnapshotValidationError
+from ultimate_memory.workers.p2_analytics import AnalyticsSettings
+from ultimate_memory.workers.p2_analytics import COMMUNITY_DETECTOR_VERSION
+from ultimate_memory.workers.p2_analytics import GraphAnalyticsWorker
 from ultimate_memory.workers.reconcile import CycleFinalizer
 from ultimate_memory.workers.reconcile import DeletionService
 from ultimate_memory.workers.reconcile import RECONCILE_VERSION
@@ -65,6 +68,9 @@ __all__ = (
     "HandlerRegistry",
     "RunResult",
     "StageHandler",
+    "AnalyticsSettings",
+    "COMMUNITY_DETECTOR_VERSION",
+    "GraphAnalyticsWorker",
     "GraphRebuildSettings",
     "GraphRebuildWorker",
     "GraphSnapshotReader",

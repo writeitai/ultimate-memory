@@ -174,6 +174,47 @@ class ProjectionCatalog:
             )
         return True
 
+    def record_graph_analytics(
+        self,
+        *,
+        deployment_id: UUID,
+        snapshot_id: UUID,
+        communities: tuple[dict[str, object], ...],
+        metrics: tuple[dict[str, object], ...],
+    ) -> None:
+        """Write one rebuild's analytics back to Postgres (D6/D11/D72).
+
+        The graph stays a projection: PageRank, k-core, WCC, and community
+        membership are graph-DERIVED, so they land here and are never
+        reprojected into the node tables (that would be circular). Both
+        tables are snapshot-scoped and cascade with it, so a re-run of the
+        same snapshot replaces its own rows rather than accumulating.
+        """
+        with self._engine.begin() as connection:
+            connection.execute(_CLEAR_METRICS, {"snapshot_id": snapshot_id})
+            connection.execute(_CLEAR_COMMUNITIES, {"snapshot_id": snapshot_id})
+            for community in communities:
+                connection.execute(
+                    _INSERT_COMMUNITY,
+                    {"deployment_id": deployment_id, "snapshot_id": snapshot_id}
+                    | community,
+                )
+            for metric in metrics:
+                connection.execute(
+                    _INSERT_METRIC,
+                    {"deployment_id": deployment_id, "snapshot_id": snapshot_id}
+                    | metric,
+                )
+
+    def refresh_entity_degrees(self, *, deployment_id: UUID) -> None:
+        """Copy degree from the PUBLISHED snapshot into `entities` (blast radius).
+
+        Only the `is_latest` snapshot feeds this cache — a superseded or
+        failed rebuild must never move the registry's blast-radius input.
+        """
+        with self._engine.begin() as connection:
+            connection.execute(_REFRESH_DEGREES, {"deployment_id": deployment_id})
+
     def latest_snapshot(
         self, *, deployment_id: UUID, plane: str
     ) -> dict[str, object] | None:
@@ -308,6 +349,49 @@ _PUBLISH_SNAPSHOT = text(
     WHERE snapshot_id = :snapshot_id
     """
 ).bindparams(bindparam("row_counts", type_=JSON), bindparam("validation", type_=JSON))
+
+_CLEAR_METRICS = text(
+    "DELETE FROM entity_graph_metrics WHERE snapshot_id = :snapshot_id"
+)
+
+_CLEAR_COMMUNITIES = text("DELETE FROM communities WHERE snapshot_id = :snapshot_id")
+
+_INSERT_COMMUNITY = text(
+    """
+    INSERT INTO communities (
+        community_id, deployment_id, snapshot_id, label, size, algorithm
+    ) VALUES (
+        :community_id, :deployment_id, :snapshot_id, :label, :size,
+        CAST(:algorithm AS community_algorithm)
+    )
+    """
+)
+
+_INSERT_METRIC = text(
+    """
+    INSERT INTO entity_graph_metrics (
+        deployment_id, entity_id, snapshot_id, community_id, pagerank,
+        degree, k_core, component_id
+    ) VALUES (
+        :deployment_id, :entity_id, :snapshot_id, :community_id, :pagerank,
+        :degree, :k_core, :component_id
+    )
+    """
+)
+
+_REFRESH_DEGREES = text(
+    """
+    UPDATE entities e
+    SET graph_degree = m.degree, updated_at = now()
+    FROM entity_graph_metrics m
+    JOIN projection_snapshots s ON s.snapshot_id = m.snapshot_id
+    WHERE m.entity_id = e.entity_id
+      AND m.deployment_id = :deployment_id
+      AND s.is_latest
+      AND s.plane = 'P2_graph'
+      AND e.graph_degree IS DISTINCT FROM m.degree
+    """
+)
 
 _SELECT_LATEST = text(
     """

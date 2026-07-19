@@ -2326,3 +2326,30 @@ and short documents skip the call entirely (the synthetic root serves them). Reb
 section row and `pageindex.json` sidecar carries `structurer_version`, so reprocessing is
 version-scoped like any component bump (D7/D12). Degradation is total: no provider, a short
 document, or a failed call all land the synthetic root — a document never fails structuring.
+
+## D72. Community detection runs natively — Louvain ships on the deployed engine (refines D11)
+
+**Decision.** Community detection runs **inside the graph engine** on the freshly built
+snapshot: `LOUVAIN` over a projected graph, alongside `PAGE_RANK`, `K_CORE_DECOMPOSITION`,
+and `WEAKLY_CONNECTED_COMPONENTS`. Assignments and centralities are still written back to
+**Postgres** (D6: the graph stays a projection, and analytics are never reprojected into the
+node tables). D11's external igraph/graspologic pass is **removed as machinery**, not
+deferred — a simpler mechanism makes it unnecessary at any scale — and remains documented
+here as the fallback shape if a future engine build drops the algorithm.
+
+**Context.** D11 rested on a source-tree survey of the pre-fork engine
+(`plan/analysis/ladybug_capabilities.md` §3: "No Louvain/Leiden"). Verified live against the
+deployed build (`ladybug` 0.18.2) during WP-4.4 scoping: `LOUVAIN` is registered and is real
+community detection, not a relabeled connected-components pass — on two 4-cliques joined by a
+single bridge, WCC reports one component while Louvain correctly returns the two cliques
+(asserted as a canary in the spike battery, so a future build that drops it fails loudly).
+The `leiden | louvain` schema enum already anticipated both.
+
+**Consequences.** No external analytics dependency, no second export consumer, and no
+cross-process handoff for the community pass: the rebuild worker computes assignments on the
+snapshot it just validated, then writes `communities`, `community_members`, and
+`entity_graph_metrics` in one transaction. Community *labels* (the K1 navigation aid) remain a
+batched micro-LLM call over each community's top members by PageRank, versioned under the
+`community_detector` component (p2 §7). The general lesson is recorded with the engine
+rulebooks: **vendored capability surveys go stale — verify on the deployed build**, which is
+exactly what the WP-4.1 battery exists to do.

@@ -168,11 +168,18 @@ class GraphRebuildWorker:
         catalog: ProjectionCatalog,
         snapshot_store: ObjectStorePort,
         settings: GraphRebuildSettings | None = None,
+        analytics: object = None,
     ) -> None:
-        """Bind the worker to the spine and the snapshot bucket."""
+        """Bind the worker to the spine, the snapshot bucket, and analytics.
+
+        `analytics` (a `GraphAnalyticsWorker`) is optional: without it a
+        rebuild still produces a valid snapshot, it just carries no
+        centrality or community writeback that cycle.
+        """
         self._catalog = catalog
         self._snapshot_store = snapshot_store
         self._settings = settings or GraphRebuildSettings()
+        self._analytics = analytics
 
     def rebuild(
         self, *, deployment_id: UUID, workdir: Path, version: str | None = None
@@ -243,7 +250,13 @@ class GraphRebuildWorker:
                     path=parquet_dir / f"{table}.parquet",
                 )
         graph_dir = workdir / version / "graph"
-        loaded = _load_graph(parquet_dir=parquet_dir, graph_dir=graph_dir)
+        loaded = _load_graph(
+            parquet_dir=parquet_dir,
+            graph_dir=graph_dir,
+            analytics=self._analytics,
+            deployment_id=deployment_id,
+            snapshot_id=snapshot_id,
+        )
         mismatched = {
             table: {"exported": counts[table], "loaded": loaded[table]}
             for table in counts
@@ -264,6 +277,9 @@ class GraphRebuildWorker:
             validation={"gate": "passed", "files": len(manifest)},
             built_from_watermark=watermark,
         )
+        if published:
+            # blast radius reads the PUBLISHED snapshot's degrees only
+            self._catalog.refresh_entity_degrees(deployment_id=deployment_id)
         return {
             "snapshot_id": snapshot_id,
             "version": version,
@@ -428,8 +444,21 @@ class GraphSnapshotReader:
         return self._connection
 
 
-def _load_graph(*, parquet_dir: Path, graph_dir: Path) -> dict[str, int]:
-    """COPY the export into a fresh graph — nodes first — and count back."""
+def _load_graph(
+    *,
+    parquet_dir: Path,
+    graph_dir: Path,
+    analytics: object = None,
+    deployment_id: UUID | None = None,
+    snapshot_id: UUID | None = None,
+) -> dict[str, int]:
+    """COPY the export into a fresh graph — nodes first — and count back.
+
+    Analytics (PageRank, k-core, WCC, Louvain — D72) run here, on the
+    writer's own connection before the snapshot ships: the algorithms need
+    a graph, the readers only ever get read-only copies, and the results
+    belong in Postgres (D6), never in the projection.
+    """
     graph_dir.mkdir(parents=True, exist_ok=True)
     database = ladybug.Database(str(graph_dir / "graph.lbdb"))
     connection = ladybug.Connection(database)
@@ -446,6 +475,10 @@ def _load_graph(*, parquet_dir: Path, graph_dir: Path) -> dict[str, int]:
         result = connection.execute(pattern)
         assert isinstance(result, ladybug.QueryResult)
         counts[table] = int(result.get_next()[0])  # type: ignore[index, arg-type]
+    if analytics is not None and deployment_id is not None and snapshot_id is not None:
+        analytics.analyze(  # type: ignore[attr-defined]
+            deployment_id=deployment_id, snapshot_id=snapshot_id, connection=connection
+        )
     connection.close()
     database.close()
     return counts
