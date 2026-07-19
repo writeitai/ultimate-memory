@@ -26,6 +26,7 @@ are composed conditionally; and a plain variable-length match enumerates
 paths combinatorially, so `SHORTEST` is load-bearing for reachability.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from datetime import UTC
 from typing import cast
@@ -55,6 +56,13 @@ COUNT_CAP: Final = 10_000
 """How far the total-count probe walks before reporting an inexact total —
 a hub must never turn an honest count into an unbounded scan."""
 
+_TRANSIENT_MARKERS: Final = ("Overflow", "INT128", "out of range")
+"""Substrings of the intermittent engine faults a single retry clears."""
+
+
+class _TransientEngineError(Exception):
+    """A transient engine fault a retry did not clear (→ typed boundary)."""
+
 
 class GraphQueries:
     """Snapshot traversal: neighborhoods, paths, as-of, distance ranking."""
@@ -82,11 +90,36 @@ class GraphQueries:
         defaults to NOW so "current" means currently-valid (S18) and is
         always echoed; historical reads pass an explicit instant.
         """
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        try:
+            return self._neighborhood(
+                entity_id=entity_id,
+                hops=hops,
+                predicates=predicates,
+                valid_at=valid_at,
+                believed_at=believed_at,
+                limit=limit,
+                continuation=continuation,
+            )
+        except _TransientEngineError as error:
+            return self._transient(error=error)
+
+    def _neighborhood(
+        self,
+        *,
+        entity_id: UUID,
+        hops: int,
+        predicates: tuple[str, ...],
+        valid_at: datetime | None,
+        believed_at: datetime | None,
+        limit: int,
+        continuation: str | None,
+    ) -> Envelope:
+        """The neighborhood body (a transient engine fault surfaces above)."""
         connection = self._connection()
         if connection is None:
             return self._no_snapshot()
-        if limit < 1:
-            raise ValueError("limit must be at least 1")
         offset = self._decode_continuation(continuation)
         if offset is None:
             return self._stale_continuation()
@@ -119,6 +152,7 @@ class GraphQueries:
             f"{pattern} RETURN b.id, b.name, b.type, length(r) AS hops"
             " ORDER BY hops, b.name, b.id SKIP $offset LIMIT $fetch",  # noqa: S608
             {**parameters, "offset": offset, "fetch": limit},
+            fresh=self._reconnect,
         )
         nodes = tuple(
             GraphNode(
@@ -171,6 +205,27 @@ class GraphQueries:
         carrying its STORED direction, never the traversal's, so a fact
         read backwards is still reported as the fact it is.
         """
+        try:
+            return self._path(
+                from_entity_id=from_entity_id,
+                to_entity_id=to_entity_id,
+                max_hops=max_hops,
+                valid_at=valid_at,
+                believed_at=believed_at,
+            )
+        except _TransientEngineError as error:
+            return self._transient(error=error)
+
+    def _path(
+        self,
+        *,
+        from_entity_id: UUID,
+        to_entity_id: UUID,
+        max_hops: int,
+        valid_at: datetime | None,
+        believed_at: datetime | None,
+    ) -> Envelope:
+        """The path body (a transient engine fault surfaces above)."""
         connection = self._connection()
         if connection is None:
             return self._no_snapshot()
@@ -195,7 +250,7 @@ class GraphQueries:
             "to_id": to_entity_id,
         }
         _bind_temporal(parameters, valid_at=applied_valid_at, believed_at=believed_at)
-        rows = _rows(connection, query, parameters)
+        rows = _rows(connection, query, parameters, fresh=self._reconnect)
         if not rows:
             return self._empty(
                 explanation=(
@@ -230,6 +285,17 @@ class GraphQueries:
         not a bi-temporal fact), so this traversal takes no temporal
         parameters — the honest shape rather than a decorative one.
         """
+        try:
+            return self._citation_path(
+                from_doc_id=from_doc_id, to_doc_id=to_doc_id, max_hops=max_hops
+            )
+        except _TransientEngineError as error:
+            return self._transient(error=error)
+
+    def _citation_path(
+        self, *, from_doc_id: UUID, to_doc_id: UUID, max_hops: int
+    ) -> Envelope:
+        """The citation-path body (a transient engine fault surfaces above)."""
         connection = self._connection()
         if connection is None:
             return self._no_snapshot()
@@ -243,7 +309,12 @@ class GraphQueries:
                       (b:Document {{id: $to_id}})
             RETURN length(p) AS hops, nodes(p) AS path_nodes, rels(p) AS path_edges
             """  # noqa: S608 — `clamped` is a validated int
-        rows = _rows(connection, query, {"from_id": from_doc_id, "to_id": to_doc_id})
+        rows = _rows(
+            connection,
+            query,
+            {"from_id": from_doc_id, "to_id": to_doc_id},
+            fresh=self._reconnect,
+        )
         if not rows:
             return self._empty(
                 explanation=(
@@ -284,6 +355,7 @@ class GraphQueries:
             connection,
             f"{pattern} RETURN b.id LIMIT $count_cap",  # noqa: S608
             {**parameters, "count_cap": COUNT_CAP},
+            fresh=self._reconnect,
         )
         return len(rows), len(rows) < COUNT_CAP
 
@@ -295,6 +367,7 @@ class GraphQueries:
             connection,
             "MATCH (e:Entity {id: $entity_id}) RETURN e.id LIMIT 1",
             {"entity_id": entity_id},
+            fresh=self._reconnect,
         )
         return bool(rows)
 
@@ -304,6 +377,7 @@ class GraphQueries:
             connection,
             "MATCH (d:Document {id: $doc_id}) RETURN d.id LIMIT 1",
             {"doc_id": doc_id},
+            fresh=self._reconnect,
         )
         return bool(rows)
 
@@ -334,6 +408,18 @@ class GraphQueries:
             return cast("ladybug.Connection", self._reader.connection())  # type: ignore[attr-defined]
         except RuntimeError:
             return None
+
+    def _reconnect(self) -> ladybug.Connection:
+        """A FRESH connection to the same snapshot, for a transient-fault retry.
+
+        A reader that can mint one (the real `GraphSnapshotReader`) gives a
+        clean per-connection scan state; a stub without the method falls
+        back to the cached connection, so the retry still runs.
+        """
+        fresh = getattr(self._reader, "fresh_connection", None)
+        if callable(fresh):
+            return cast("ladybug.Connection", fresh())
+        return cast("ladybug.Connection", self._reader.connection())  # type: ignore[attr-defined]
 
     def _freshness(self) -> Freshness:
         """Stamp WHICH snapshot answered and WHEN it published (S42)."""
@@ -386,6 +472,27 @@ class GraphQueries:
                     "resolve the name first, or check whether the entity was"
                     " merged into a survivor or arrived after this snapshot"
                 ),
+            ),
+        )
+
+    def _transient(self, *, error: _TransientEngineError) -> Envelope:
+        """A retryable engine fault, surfaced honestly (never a raw crash).
+
+        The embedded engine intermittently overflows an internal counter on
+        a SHORTEST traversal under memory pressure; one retry already ran.
+        The caller sees a typed boundary with "retry" as the workaround
+        rather than an INT128 RuntimeError.
+        """
+        return Envelope(
+            grain=Grain.FACT,
+            freshness=self._freshness(),
+            negative=Negative(
+                kind=NegativeKind.BOUNDARY,
+                explanation=(
+                    "the graph engine hit a transient internal fault on this"
+                    f" traversal ({error}); one retry did not clear it"
+                ),
+                workaround="retry the query, or narrow the hop bound",
             ),
         )
 
@@ -519,16 +626,55 @@ def _citation_path_from_row(row: list[object]) -> GraphPath:
     return GraphPath(length=cast("int", row[0]), nodes=nodes, edges=edges)
 
 
-def _rows(
+def _is_transient(error: RuntimeError) -> bool:
+    """Whether an engine RuntimeError is the retryable overflow fault."""
+    return any(marker in str(error) for marker in _TRANSIENT_MARKERS)
+
+
+def _run_rows(
     connection: ladybug.Connection, query: str, parameters: dict[str, object]
 ) -> list[list[object]]:
-    """Run one Cypher statement and materialize its rows."""
+    """Execute one Cypher statement on a connection and drain its rows."""
     result = connection.execute(query, parameters)
     assert isinstance(result, ladybug.QueryResult)
     rows: list[list[object]] = []
     while result.has_next():
         rows.append(cast("list[object]", result.get_next()))
     return rows
+
+
+def _rows(
+    connection: ladybug.Connection,
+    query: str,
+    parameters: dict[str, object],
+    *,
+    fresh: Callable[[], ladybug.Connection] | None = None,
+) -> list[list[object]]:
+    """Run one Cypher statement and materialize its rows, transient-safe.
+
+    The embedded engine intermittently raises an internal
+    ``Overflow exception: INT128 is out of range`` under memory pressure on
+    a `SHORTEST` traversal — nondeterministic, and the identical query
+    clears on retry (recorded as a canary-less finding in the spike
+    report, since it does not reproduce deterministically). A retrieval
+    primitive must never throw a raw engine overflow at an agent, so on
+    that fault this retries once — on a FRESH connection when `fresh` is
+    given, since a wedged per-connection scan state must not be able to
+    break the read permanently — and, if it still fails, raises
+    `_TransientEngineError` for the caller to turn into a typed boundary.
+    """
+    try:
+        return _run_rows(connection, query, parameters)
+    except RuntimeError as first:
+        if not _is_transient(first):
+            raise
+    retry_connection = fresh() if fresh is not None else connection
+    try:
+        return _run_rows(retry_connection, query, parameters)
+    except RuntimeError as second:
+        if _is_transient(second):
+            raise _TransientEngineError(str(second)) from second
+        raise
 
 
 def _naive(value: datetime | None) -> datetime | None:

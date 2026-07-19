@@ -12,6 +12,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from datetime import UTC
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 from uuid import uuid4
 
@@ -314,6 +315,66 @@ def test_s22_document_citation_chain(graph: GraphQueries) -> None:
         from_doc_id=docs["Original Spec"], to_doc_id=docs["Report"]
     )
     assert unrelated.negative is not None  # citation is directed
+
+
+class _FailDocCrossref:
+    """A connection proxy that injects the engine's intermittent INT128
+    overflow on the DOC_CROSSREF traversal, delegating everything else to a
+    real connection — the WP-4.1 spike battery recorded this fault as
+    nondeterministic, so it is simulated rather than provoked."""
+
+    def __init__(self, *, real: object, forever: bool) -> None:
+        """Fail on every DOC_CROSSREF query (`forever`) or just the first."""
+        self._real = real
+        self._forever = forever
+        self._failed = False
+
+    def execute(self, query: str, parameters: object) -> object:
+        """Raise the overflow on the traversal; pass other queries through."""
+        if "DOC_CROSSREF" in query and (self._forever or not self._failed):
+            self._failed = True
+            raise RuntimeError(
+                "Overflow exception: INT128 is out of range: cannot add in place"
+            )
+        return self._real.execute(query, parameters)  # type: ignore[attr-defined]
+
+
+def test_a_transient_engine_fault_retries_on_a_fresh_connection(
+    graph: GraphQueries,
+) -> None:
+    """The engine's intermittent INT128 overflow on a SHORTEST traversal
+    must never surface as a crash: the read retries on a FRESH connection
+    and still returns the real citation chain (WP-4.5 defensive finding)."""
+    reader = cast("GraphSnapshotReader", graph._reader)  # type: ignore[attr-defined]
+    reader._connection = _FailDocCrossref(  # type: ignore[assignment]
+        real=reader.fresh_connection(), forever=False
+    )
+    docs = graph.docs  # type: ignore[attr-defined]
+    chain = graph.citation_path(
+        from_doc_id=docs["Report"], to_doc_id=docs["Original Spec"]
+    )
+    assert chain.negative is None  # the fresh-connection retry cleared it
+    assert chain.paths
+    assert chain.paths[0].length == 2
+
+
+def test_a_persistent_engine_fault_becomes_a_typed_boundary(
+    graph: GraphQueries,
+) -> None:
+    """If the fault does not clear on retry, the read degrades to a typed
+    BOUNDARY with a workaround — an agent sees an honest 'retry' negative,
+    never a raw INT128 RuntimeError."""
+    reader = cast("GraphSnapshotReader", graph._reader)  # type: ignore[attr-defined]
+    proxy = _FailDocCrossref(real=reader.fresh_connection(), forever=True)
+    reader._connection = proxy  # type: ignore[assignment]
+    reader.fresh_connection = lambda: proxy  # type: ignore[method-assign] # the retry faults too
+    docs = graph.docs  # type: ignore[attr-defined]
+    chain = graph.citation_path(
+        from_doc_id=docs["Report"], to_doc_id=docs["Original Spec"]
+    )
+    assert chain.negative is not None
+    assert chain.negative.kind is NegativeKind.BOUNDARY
+    assert chain.negative.workaround is not None
 
 
 def test_transitive_entity_reach_by_hop_bound(graph: GraphQueries) -> None:

@@ -82,6 +82,19 @@ be shaped:
    **Rule: return `nodes(p)` / `rels(p)` directly** (they yield full property
    maps) or use `properties(rels(p), 'predicate')`; read the maps client-side.
 
+## An intermittent engine fault (WP-4.5, handled defensively)
+
+7. **`SHORTEST` intermittently overflows an internal INT128 counter under
+   memory pressure.** A directed `DOC_CROSSREF* SHORTEST` traversal
+   occasionally raises `Overflow exception: INT128 is out of range: cannot
+   add in place` — nondeterministic (≈1 in 8 under full-suite memory
+   pressure; never in isolation, and the identical query clears on retry).
+   Not pinned as a canary because it does not reproduce deterministically.
+   Handled where it matters: the `graph` primitive's query helper retries
+   once and, if the fault persists, returns a **typed boundary** with
+   "retry" as the workaround — a retrieval read must never throw a raw
+   engine overflow at an agent.
+
 ## Transport decision (confirmed)
 
 **Postgres `v_graph_*` views → Parquet export → multi-threaded `COPY` into a fresh
