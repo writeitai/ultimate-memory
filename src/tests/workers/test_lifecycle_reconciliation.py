@@ -127,6 +127,8 @@ def _canned(prompt: str, type_name: str) -> dict[str, object]:
         assert match is not None
         span = match.group(1).strip()
         if type_name == "SelectionResponse":
+            if "DROP EVERYTHING" in span:
+                return {"candidates": []}  # nothing claim-worthy at all
             return {"candidates": [{"source_span": span, "verdict": "keep"}]}
         return {
             "claims": [
@@ -700,4 +702,137 @@ def test_delete_version_repoints_and_scopes_the_cascade(rig: _LifecycleRig) -> N
             v=second.version_id,
         )
         is not None
+    )
+
+
+def test_a_no_claims_replacement_still_supersedes(rig: _LifecycleRig) -> None:
+    """Codex review: a living replacement whose extraction yields NOTHING
+    still completes its basis change — the chain reaches reconcile and the
+    old claims flip, instead of staying current forever."""
+    rig.observe(source_ref="c.md", content=f"{_FACT_SENTENCE}\n")
+    rig.drain()
+    assert rig.relation()["evidence_count"] == 1
+    # sentences the Selection seat drops entirely (see _canned): no claims
+    rig.observe(source_ref="c.md", content="DROP EVERYTHING HERE.\n")
+    rig.drain()
+    fact = rig.relation()
+    assert fact["evidence_count"] == 0
+    assert fact["valid_until"] is not None  # closed: the source acted
+    assert (
+        rig.scalar(
+            "SELECT count(*) FROM testimony_currency_events"
+            " WHERE reason = 'version_superseded'"
+        )
+        == 1
+    )
+
+
+def test_interrupted_reconcile_completes_on_retry(rig: _LifecycleRig) -> None:
+    """Codex review: a crash between the currency transaction and the
+    downstream steps must not orphan the run — the retry unions the ledger
+    and still recounts, closes, and emits."""
+    rig.observe(source_ref="d.md", content=f"{_FACT_SENTENCE}\n")
+    rig.drain()
+    second = rig.observe(source_ref="d.md", content=f"{_FILLER_SENTENCE}\n")
+    # drain everything EXCEPT reconcile, so its work row sits queued
+    while True:
+        progressed = False
+        for stage in _STAGES[:-1]:
+            outcome = rig.worker.run_one(
+                deployment_id=_DEPLOYMENT_ID, stage=stage, lane=ProcessingLane.STEADY
+            ).outcome
+            if outcome is not RunResultOutcome.NO_WORK:
+                progressed = True
+        if not progressed:
+            break
+    reconciliation_id = rig.scalar(
+        "SELECT processing_id FROM processing_state"
+        " WHERE stage = 'reconcile' AND status = 'pending'"
+    )
+    assert reconciliation_id is not None
+    # simulate the crashed first attempt: the currency transaction landed…
+    context = rig.lifecycle.reconciliation_context(version_id=second.version_id)
+    stale = rig.lifecycle.stale_for_supersession(
+        deployment_id=_DEPLOYMENT_ID,
+        doc_id=context["doc_id"],  # type: ignore[arg-type]
+        current_version_id=context["current_version_id"],  # type: ignore[arg-type]
+    )
+    assert stale
+    rig.lifecycle.apply_transitions(
+        deployment_id=_DEPLOYMENT_ID,
+        reconciliation_id=reconciliation_id,  # type: ignore[arg-type]
+        transitions=stale,
+    )
+    # …and the process died. The queued stage now runs as the retry:
+    outcome = rig.worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.RECONCILE,
+        lane=ProcessingLane.STEADY,
+    ).outcome
+    assert outcome is RunResultOutcome.SUCCEEDED
+    fact = rig.relation()
+    assert fact["evidence_count"] == 0
+    assert fact["valid_until"] is not None  # the retry finished the close
+    assert (
+        rig.scalar(
+            "SELECT count(*) FROM knowledge_refresh_queue"
+            " WHERE trigger = 'evidence_changed'"
+        )
+        == 1
+    )
+
+
+def test_finalization_never_closes_a_flagged_fact(rig: _LifecycleRig) -> None:
+    """Codex review: the barrier must not convert the transcription-only
+    branch into a mechanical retraction — a fact under an open
+    support_withdrawn flag is excluded from closure at finalization."""
+    cycle = rig.sync.open_cycle(
+        deployment_id=_DEPLOYMENT_ID, source_kind="watched_directory"
+    )
+    ingested = rig.observe(
+        source_ref="flagged.md", content=f"{_FACT_SENTENCE}\n", sync_cycle_id=cycle
+    )
+    rig.sync.complete_cycle(cycle_id=cycle, observed=1, failed=0)
+    rig.drain()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE claims SET extractor_version = 'e2-extract-OLD'")
+        )
+    representation_id = rig.scalar(
+        "SELECT current_representation_id FROM document_versions WHERE version_id = :v",
+        v=ingested.version_id,
+    )
+    rig.reconcile_handler.handle(
+        work=ClaimedWork(
+            processing_id=uuid4(),
+            deployment_id=_DEPLOYMENT_ID,
+            target_kind=ProcessingTarget.DOCUMENT_VERSION,
+            target_id=ingested.version_id,
+            stage=PipelineStage.RECONCILE,
+            component_version=RECONCILE_VERSION,
+            content_hash="bump",
+            lane=ProcessingLane.STEADY,
+            attempt=1,
+            payload={
+                "version_id": str(ingested.version_id),
+                "representation_id": str(representation_id),
+            },
+        )
+    )
+    assert (
+        rig.scalar(
+            "SELECT count(*) FROM review_queue WHERE item_kind = 'support_withdrawn'"
+        )
+        == 1
+    )
+    rig.finalizer.finalize_ready(deployment_id=_DEPLOYMENT_ID)
+    fact = rig.relation()
+    assert fact["valid_until"] is None  # flagged, NOT mechanically closed
+    assert fact["invalidated_at"] is None
+    assert (
+        rig.scalar(
+            "SELECT count(*) FROM relation_adjudications"
+            " WHERE outcome = 'retracted_source_removal'"
+        )
+        == 0
     )

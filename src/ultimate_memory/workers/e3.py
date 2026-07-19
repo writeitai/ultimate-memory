@@ -119,7 +119,24 @@ class NormalizeRelationsHandler:
             chunk_ids=tuple(chunk.chunk_id for chunk in chunks)
         )
         if not claims:
-            return HandlerOutcome()
+            # a version whose extraction yielded nothing still completes its
+            # basis change: the chain must reach reconciliation (Codex
+            # review — a living replacement of pure boilerplate would
+            # otherwise never supersede the old claims)
+            return HandlerOutcome(
+                follow_up=(
+                    EnqueueWork(
+                        deployment_id=work.deployment_id,
+                        target_kind=work.target_kind,
+                        target_id=work.target_id,
+                        stage=PipelineStage.ADJUDICATE_SUPERSESSION,
+                        component_version=ADJUDICATOR_VERSION,
+                        content_hash=work.content_hash,
+                        lane=work.lane,
+                        payload={**(work.payload or {}), "relation_ids": []},
+                    ),
+                )
+            )
         deployment_id = work.deployment_id
         predicates = self._facts.active_predicates(deployment_id=deployment_id)
         prompt_lines = self._facts.predicate_prompt_lines(deployment_id=deployment_id)

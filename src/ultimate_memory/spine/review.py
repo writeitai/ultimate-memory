@@ -443,7 +443,7 @@ _SELECT_OPEN_FLAG = text(
     """
     SELECT review_id FROM review_queue
     WHERE item_kind = 'support_withdrawn'
-      AND status = 'pending'
+      AND status IN ('pending', 'deferred')
       AND candidate ->> 'fact_id' = :fact_id
     LIMIT 1
     """

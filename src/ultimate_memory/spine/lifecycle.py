@@ -71,20 +71,30 @@ class LifecycleCatalog:
         )
 
     def stale_for_reextraction(
-        self, *, representation_id: UUID, extractor_version: str
+        self,
+        *,
+        version_id: UUID,
+        representation_id: UUID,
+        chunker_version: str,
+        extractor_version: str,
     ) -> tuple[CurrencyTransition, ...]:
-        """Re-derivation §3 rule: older-generation claims on re-read chunks.
+        """Re-derivation §3 rule: older-BASIS claims on a re-read version.
 
-        When a generation completes for a (version, chunk), that chunk's
-        prior-generation claims flip `reextracted` — wholesale, by
-        coordinates, no content matching.
+        The reason covers ANY basis-coordinate change (§3): an extractor
+        bump, a converter bump (a different representation), or a
+        blockizer/chunker bump (a different packing generation) — a claim
+        of this version whose (representation, chunker generation,
+        extractor generation) differs from the completing basis flips
+        `reextracted`, wholesale, by coordinates, no content matching.
         """
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
                     _SELECT_STALE_REEXTRACTED,
                     {
+                        "version_id": version_id,
                         "representation_id": representation_id,
+                        "chunker_version": chunker_version,
                         "extractor_version": extractor_version,
                     },
                 )
@@ -126,6 +136,35 @@ class LifecycleCatalog:
             for row in rows
         )
 
+    def stale_for_version_deletion(
+        self, *, deployment_id: UUID, version_id: UUID
+    ) -> tuple[CurrencyTransition, ...]:
+        """§8 version grain: ONLY the deleted version's exclusive testimony ends.
+
+        A claim flips `version_deleted` iff it is carried by the deleted
+        version and by no other live version of the lineage — snapshot
+        lineages keep every other version's testimony current.
+        """
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_STALE_VERSION_DELETED,
+                    {"deployment_id": deployment_id, "version_id": version_id},
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(
+            CurrencyTransition(
+                claim_id=row["claim_id"],
+                doc_id=row["doc_id"],
+                became_current=False,
+                reason="version_deleted",
+                from_version_id=version_id,
+            )
+            for row in rows
+        )
+
     def regained_by_current_version(
         self, *, deployment_id: UUID, doc_id: UUID, current_version_id: UUID
     ) -> tuple[CurrencyTransition, ...]:
@@ -155,6 +194,36 @@ class LifecycleCatalog:
                 doc_id=doc_id,
                 became_current=True,
                 reason="version_deleted",
+                from_version_id=row["from_version_id"],
+            )
+            for row in rows
+        )
+
+    def recorded_transitions(
+        self, *, reconciliation_id: UUID
+    ) -> tuple[CurrencyTransition, ...]:
+        """This run's already-ledgered transitions (the retry recovery read).
+
+        A crash between the currency transaction and the downstream steps
+        must not orphan the run: a retry unions what the ledger already
+        holds under this reconciliation_id with whatever it recomputes, so
+        recount/closure/flags/emission always see the full set.
+        """
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_RUN_EVENTS, {"reconciliation_id": reconciliation_id}
+                )
+                .mappings()
+                .all()
+            )
+        return tuple(
+            CurrencyTransition(
+                claim_id=row["claim_id"],
+                doc_id=row["doc_id"],
+                became_current=row["became_current"],
+                reason=row["reason"],
+                from_extractor_version=row["from_extractor_version"],
                 from_version_id=row["from_version_id"],
             )
             for row in rows
@@ -230,15 +299,29 @@ class LifecycleCatalog:
 
     def recount(
         self, *, relation_ids: tuple[UUID, ...], observation_ids: tuple[UUID, ...]
-    ) -> None:
-        """Recompute the D54 counts for the touched facts (bounded, indexed)."""
+    ) -> tuple[tuple[UUID, ...], tuple[UUID, ...]]:
+        """Recompute the D54 counts for the touched facts (bounded, indexed).
+
+        Returns the facts whose counts actually CHANGED — the stale-storm
+        guard's input: a re-extraction that changes no fact state must
+        stale nothing, so only changed facts belong in the emitted delta.
+        """
+        changed_relations: list[UUID] = []
+        changed_observations: list[UUID] = []
         with self._engine.begin() as connection:
             for relation_id in relation_ids:
-                connection.execute(_RECOUNT_RELATION, {"relation_id": relation_id})
+                changed = connection.execute(
+                    _RECOUNT_RELATION, {"relation_id": relation_id}
+                ).scalar_one_or_none()
+                if changed:
+                    changed_relations.append(relation_id)
             for observation_id in observation_ids:
-                connection.execute(
+                changed = connection.execute(
                     _RECOUNT_OBSERVATION, {"observation_id": observation_id}
-                )
+                ).scalar_one_or_none()
+                if changed:
+                    changed_observations.append(observation_id)
+        return tuple(changed_relations), tuple(changed_observations)
 
     def open_zero_support_relations(
         self, *, relation_ids: tuple[UUID, ...]
@@ -391,19 +474,27 @@ class LifecycleCatalog:
         with self._engine.begin() as connection:
             connection.execute(_TOMBSTONE_LINEAGE_BY_ID, {"doc_id": doc_id})
 
-    def cycles_ready_to_finalize(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+    def cycles_ready_to_finalize(
+        self, *, deployment_id: UUID
+    ) -> tuple[tuple[UUID, int], ...]:
         """Completed, unfinalized cycles whose observed versions are done.
 
-        A cycle is ready when no version it stamped still has queued,
-        running, or retrying chain work — lineages still extracting defer
-        the cycle to the next finalization pass (the recorded grace).
+        A cycle is ready when no version it stamped still has pending,
+        running, or retrying (failed) chain work — lineages still
+        extracting defer the cycle to the next finalization pass (the
+        recorded grace). Each entry carries the cycle's `failed_items`
+        count: a LOSSY cycle's observation set is incomplete and must not
+        drive absence-based closure.
         """
         with self._engine.connect() as connection:
-            return tuple(
+            rows = (
                 connection.execute(
                     _SELECT_READY_CYCLES, {"deployment_id": deployment_id}
-                ).scalars()
+                )
+                .mappings()
+                .all()
             )
+        return tuple((row["cycle_id"], row["failed_items"]) for row in rows)
 
     def cycle_lineages(self, *, cycle_id: UUID) -> tuple[UUID, ...]:
         """Lineages the cycle observed via ingested versions."""
@@ -414,12 +505,20 @@ class LifecycleCatalog:
                 ).scalars()
             )
 
-    def cycle_tombstoned_lineages(self, *, cycle_id: UUID) -> tuple[UUID, ...]:
-        """Lineages whose source deletion this cycle observed."""
+    def tombstoned_lineages_needing_cascade(
+        self, *, deployment_id: UUID
+    ) -> tuple[UUID, ...]:
+        """Source-tombstoned lineages that still hold current testimony.
+
+        Deployment-wide, not per cycle: the cascade re-derives from current
+        state, so a finalizer crash between claiming a cycle and finishing
+        its cascades self-heals on the next pass instead of orphaning the
+        tombstone.
+        """
         with self._engine.connect() as connection:
             return tuple(
                 connection.execute(
-                    _SELECT_CYCLE_TOMBSTONES, {"cycle_id": cycle_id}
+                    _SELECT_TOMBSTONES_NEEDING_CASCADE, {"deployment_id": deployment_id}
                 ).scalars()
             )
 
@@ -442,10 +541,22 @@ class LifecycleCatalog:
                 _SELECT_CLOSURE_BOUNDARY, {"doc_id": doc_id}
             ).scalar_one_or_none()
 
-    def mark_finalized(self, *, cycle_id: UUID) -> None:
-        """Stamp the cycle's retraction evaluation as done."""
+    def claim_finalization(self, *, cycle_id: UUID) -> bool:
+        """Atomically claim one cycle's finalization (single winner).
+
+        Two finalizer instances can never both run a cycle's retraction
+        evaluation: the first UPDATE wins, the loser sees False. A crash
+        after claiming leaves any unfinished closure to the next
+        observation of the same lineages (a brief, visible, self-healing
+        gap — the cascade re-derives from current state, never from
+        per-cycle deltas) and tombstone cascades to the deployment-wide
+        sweep.
+        """
         with self._engine.begin() as connection:
-            connection.execute(_MARK_FINALIZED, {"cycle_id": cycle_id})
+            claimed = connection.execute(
+                _CLAIM_FINALIZATION, {"cycle_id": cycle_id}
+            ).scalar_one_or_none()
+        return claimed is not None
 
 
 def _record_adjudication(
@@ -503,9 +614,25 @@ _SELECT_STALE_REEXTRACTED = text(
     SELECT cl.claim_id, cl.doc_id, cl.extractor_version AS from_extractor_version
     FROM claims cl
     JOIN chunks c ON c.chunk_id = cl.chunk_id
-    WHERE c.representation_id = :representation_id
+    WHERE c.version_id = :version_id
       AND cl.is_current_testimony
-      AND cl.extractor_version <> :extractor_version
+      AND (c.representation_id <> :representation_id
+           OR c.chunker_version <> :chunker_version
+           OR cl.extractor_version <> :extractor_version)
+      AND NOT (
+          -- carried into the completing basis by a same-generation reuse
+          -- link: the claim IS part of the current transcription. An OLD
+          -- generation's own links never count — reuse keys embed the
+          -- extractor version, so re-attachment is same-generation only.
+          cl.extractor_version = :extractor_version
+          AND EXISTS (
+              SELECT 1 FROM chunk_claims cc
+              JOIN chunks cur ON cur.chunk_id = cc.chunk_id
+              WHERE cc.claim_id = cl.claim_id
+                AND cur.representation_id = :representation_id
+                AND cur.chunker_version = :chunker_version
+          )
+      )
     """
 )
 
@@ -517,6 +644,37 @@ _SELECT_STALE_DELETED = text(
     WHERE cl.deployment_id = :deployment_id
       AND cl.doc_id = :doc_id
       AND cl.is_current_testimony
+    """
+)
+
+_SELECT_STALE_VERSION_DELETED = text(
+    """
+    SELECT cl.claim_id, cl.doc_id
+    FROM claims cl
+    WHERE cl.deployment_id = :deployment_id
+      AND cl.is_current_testimony
+      AND EXISTS (SELECT 1 FROM chunks c
+                  WHERE c.chunk_id = cl.chunk_id
+                    AND c.version_id = :version_id
+                  UNION ALL
+                  SELECT 1 FROM chunk_claims cc
+                  JOIN chunks oc ON oc.chunk_id = cc.chunk_id
+                  WHERE cc.claim_id = cl.claim_id
+                    AND oc.version_id = :version_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM chunk_claims cc2
+          JOIN chunks other ON other.chunk_id = cc2.chunk_id
+          JOIN document_versions ov ON ov.version_id = other.version_id
+          WHERE cc2.claim_id = cl.claim_id
+            AND other.version_id <> :version_id
+            AND ov.deleted_at IS NULL
+          UNION ALL
+          SELECT 1 FROM chunks origin
+          JOIN document_versions ov2 ON ov2.version_id = origin.version_id
+          WHERE origin.chunk_id = cl.chunk_id
+            AND origin.version_id <> :version_id
+            AND ov2.deleted_at IS NULL
+      )
     """
 )
 
@@ -533,6 +691,15 @@ _SELECT_REGAINED = text(
                       JOIN chunks cur ON cur.chunk_id = cc.chunk_id
                       WHERE cc.claim_id = cl.claim_id
                         AND cur.version_id = :current_version_id))
+    """
+)
+
+_SELECT_RUN_EVENTS = text(
+    """
+    SELECT claim_id, doc_id, became_current, reason::text AS reason,
+           from_extractor_version, from_version_id
+    FROM testimony_currency_events
+    WHERE reconciliation_id = :reconciliation_id
     """
 )
 
@@ -579,49 +746,51 @@ _SELECT_AFFECTED_OBSERVATIONS = text(
 
 _RECOUNT_RELATION = text(
     """
-    UPDATE relations SET
-        evidence_count = (
-            SELECT count(DISTINCT evidence.doc_id)
-            FROM relation_evidence evidence
-            JOIN claims ON claims.claim_id = evidence.claim_id
-            WHERE evidence.relation_id = :relation_id
-              AND evidence.stance = 'supports'
-              AND claims.is_current_testimony
-        ),
-        contradict_count = (
-            SELECT count(DISTINCT evidence.doc_id)
-            FROM relation_evidence evidence
-            JOIN claims ON claims.claim_id = evidence.claim_id
-            WHERE evidence.relation_id = :relation_id
-              AND evidence.stance = 'contradicts'
-              AND claims.is_current_testimony
-        ),
+    WITH fresh AS (
+        SELECT
+            (SELECT count(DISTINCT e.doc_id)
+             FROM relation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
+             WHERE e.relation_id = :relation_id AND e.stance = 'supports'
+               AND cl.is_current_testimony) AS supports,
+            (SELECT count(DISTINCT e.doc_id)
+             FROM relation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
+             WHERE e.relation_id = :relation_id AND e.stance = 'contradicts'
+               AND cl.is_current_testimony) AS contradicts
+    )
+    UPDATE relations r
+    SET evidence_count = fresh.supports,
+        contradict_count = fresh.contradicts,
         updated_at = now()
-    WHERE relation_id = :relation_id
+    FROM fresh
+    WHERE r.relation_id = :relation_id
+      AND (r.evidence_count IS DISTINCT FROM fresh.supports
+           OR r.contradict_count IS DISTINCT FROM fresh.contradicts)
+    RETURNING r.relation_id
     """
 )
 
 _RECOUNT_OBSERVATION = text(
     """
-    UPDATE observations SET
-        evidence_count = (
-            SELECT count(DISTINCT evidence.doc_id)
-            FROM observation_evidence evidence
-            JOIN claims ON claims.claim_id = evidence.claim_id
-            WHERE evidence.observation_id = :observation_id
-              AND evidence.stance = 'supports'
-              AND claims.is_current_testimony
-        ),
-        contradict_count = (
-            SELECT count(DISTINCT evidence.doc_id)
-            FROM observation_evidence evidence
-            JOIN claims ON claims.claim_id = evidence.claim_id
-            WHERE evidence.observation_id = :observation_id
-              AND evidence.stance = 'contradicts'
-              AND claims.is_current_testimony
-        ),
+    WITH fresh AS (
+        SELECT
+            (SELECT count(DISTINCT e.doc_id)
+             FROM observation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
+             WHERE e.observation_id = :observation_id AND e.stance = 'supports'
+               AND cl.is_current_testimony) AS supports,
+            (SELECT count(DISTINCT e.doc_id)
+             FROM observation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
+             WHERE e.observation_id = :observation_id AND e.stance = 'contradicts'
+               AND cl.is_current_testimony) AS contradicts
+    )
+    UPDATE observations o
+    SET evidence_count = fresh.supports,
+        contradict_count = fresh.contradicts,
         updated_at = now()
-    WHERE observation_id = :observation_id
+    FROM fresh
+    WHERE o.observation_id = :observation_id
+      AND (o.evidence_count IS DISTINCT FROM fresh.supports
+           OR o.contradict_count IS DISTINCT FROM fresh.contradicts)
+    RETURNING o.observation_id
     """
 )
 
@@ -632,6 +801,14 @@ _SELECT_ZERO_RELATIONS = text(
       AND evidence_count = 0
       AND invalidated_at IS NULL
       AND valid_until IS NULL
+      AND NOT EXISTS (
+          -- a fact under an open support_withdrawn review is the
+          -- transcription-only branch: a reviewer decides, never mechanics
+          SELECT 1 FROM review_queue q
+          WHERE q.item_kind = 'support_withdrawn'
+            AND q.status IN ('pending', 'deferred')
+            AND q.candidate ->> 'fact_id' = relations.relation_id::text
+      )
     """
 )
 
@@ -641,6 +818,12 @@ _SELECT_ZERO_OBSERVATIONS = text(
     WHERE observation_id = ANY(:observation_ids)
       AND evidence_count = 0
       AND invalidated_at IS NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM review_queue q
+          WHERE q.item_kind = 'support_withdrawn'
+            AND q.status IN ('pending', 'deferred')
+            AND q.candidate ->> 'fact_id' = observations.observation_id::text
+      )
     """
 )
 
@@ -716,8 +899,8 @@ _INSERT_EVIDENCE_CHANGED = text(
 
 _TOMBSTONE_VERSION = text(
     """
-    UPDATE document_versions SET deleted_at = now()
-    WHERE version_id = :version_id AND deleted_at IS NULL
+    UPDATE document_versions SET deleted_at = coalesce(deleted_at, now())
+    WHERE version_id = :version_id
     RETURNING deployment_id, doc_id, version_id
     """
 )
@@ -746,7 +929,7 @@ _TOMBSTONE_LINEAGE_BY_ID = text(
 
 _SELECT_READY_CYCLES = text(
     """
-    SELECT y.cycle_id
+    SELECT y.cycle_id, y.failed_items
     FROM connector_sync_cycles y
     WHERE y.deployment_id = :deployment_id
       AND y.completed_at IS NOT NULL
@@ -758,7 +941,7 @@ _SELECT_READY_CYCLES = text(
             ON w.target_id = v.version_id
            AND w.target_kind = 'document_version'
           WHERE v.sync_cycle_id = y.cycle_id
-            AND w.status IN ('pending', 'running')
+            AND w.status IN ('pending', 'running', 'failed')
       )
     ORDER BY y.started_at
     """
@@ -771,10 +954,14 @@ _SELECT_CYCLE_LINEAGES = text(
     """
 )
 
-_SELECT_CYCLE_TOMBSTONES = text(
+_SELECT_TOMBSTONES_NEEDING_CASCADE = text(
     """
-    SELECT doc_id FROM documents
-    WHERE deleted_sync_cycle_id = :cycle_id
+    SELECT d.doc_id FROM documents d
+    WHERE d.deployment_id = :deployment_id
+      AND d.deleted_at IS NOT NULL
+      AND d.deleted_sync_cycle_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM claims cl
+                  WHERE cl.doc_id = d.doc_id AND cl.is_current_testimony)
     """
 )
 
@@ -794,9 +981,10 @@ _SELECT_CLOSURE_BOUNDARY = text(
     """
 )
 
-_MARK_FINALIZED = text(
+_CLAIM_FINALIZATION = text(
     """
     UPDATE connector_sync_cycles SET finalized_at = now()
     WHERE cycle_id = :cycle_id AND finalized_at IS NULL
+    RETURNING cycle_id
     """
 )

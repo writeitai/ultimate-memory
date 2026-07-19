@@ -22,6 +22,8 @@ from uuid import NAMESPACE_URL
 from uuid import UUID
 from uuid import uuid5
 
+from ultimate_memory.core import chunker_version as chunker_version_of
+from ultimate_memory.core import ChunkerParams
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import CurrencyTransition
 from ultimate_memory.model import NonRetryableHandlerError
@@ -44,11 +46,20 @@ class ReconcileHandler:
         catalog: LifecycleCatalog,
         review_queue: ReviewQueue,
         extractor_version: str = E2_EXTRACTOR_VERSION,
+        chunker_version: str | None = None,
     ) -> None:
-        """Bind the handler to the lifecycle catalog and the review queue."""
+        """Bind the handler to the lifecycle catalog and the review queue.
+
+        ``chunker_version`` names the packing generation of the completing
+        basis (the same parameters the composing profile gave the chunk
+        stage); it defaults to the default parameters' generation.
+        """
         self._catalog = catalog
         self._review_queue = review_queue
         self._extractor_version = extractor_version
+        self._chunker_version = chunker_version or chunker_version_of(
+            params=ChunkerParams()
+        )
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
         """Diff → transition → recount → policy → emit, idempotently.
@@ -74,7 +85,9 @@ class ReconcileHandler:
                 current_version_id=context["current_version_id"],  # type: ignore[arg-type]
             )
         transcription = self._catalog.stale_for_reextraction(
+            version_id=version_id,
             representation_id=representation_id,
+            chunker_version=self._chunker_version,
             extractor_version=self._extractor_version,
         )
         transitions = (*source_acted, *transcription)
@@ -83,11 +96,28 @@ class ReconcileHandler:
             reconciliation_id=reconciliation_id,
             transitions=transitions,
         )
+        # retry recovery (Codex review): a crash between the currency
+        # transaction and the steps below must not orphan the run — union
+        # what the ledger already holds under this reconciliation_id, since
+        # a retry recomputes an empty stale set (the cache already flipped)
+        recorded = self._catalog.recorded_transitions(
+            reconciliation_id=reconciliation_id
+        )
+        seen = {(t.claim_id, t.reason, t.became_current) for t in transitions}
+        for prior in recorded:
+            key = (prior.claim_id, prior.reason, prior.became_current)
+            if key not in seen:
+                seen.add(key)
+                transitions = (*transitions, *(prior,))
+                if prior.reason == "reextracted":
+                    transcription = (*transcription, prior)
+                else:
+                    source_acted = (*source_acted, prior)
 
         claim_ids = tuple({transition.claim_id for transition in transitions})
         relation_ids = self._catalog.affected_relation_ids(claim_ids=claim_ids)
         observation_ids = self._catalog.affected_observation_ids(claim_ids=claim_ids)
-        self._catalog.recount(
+        changed_relations, changed_observations = self._catalog.recount(
             relation_ids=relation_ids, observation_ids=observation_ids
         )
 
@@ -144,8 +174,10 @@ class ReconcileHandler:
             delta=ReconciliationDelta(
                 reconciliation_id=reconciliation_id,
                 transitions=applied,
-                recounted_relations=relation_ids,
-                recounted_observations=observation_ids,
+                # the stale-storm guard: only facts whose STATE moved — a
+                # re-extraction that changes no fact state stales nothing
+                recounted_relations=changed_relations,
+                recounted_observations=changed_observations,
                 relations_closed=closed_relations,
                 observations_closed=closed_observations,
                 flags_raised=flags,
@@ -230,26 +262,40 @@ class CycleFinalizer:
         self._catalog = catalog
 
     def finalize_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
-        """Finalize every ready cycle; returns the finalized cycle ids."""
+        """Finalize every ready cycle; returns the cycles this call won.
+
+        The claim is atomic and FIRST (two finalizer instances never both
+        evaluate one cycle); every cascade re-derives from current state
+        under a derived, stable reconciliation id, so a crash mid-cycle
+        leaves a brief, visible, self-healing gap rather than duplicates.
+        Source-tombstoned lineages are swept deployment-wide on every pass
+        for the same reason. A LOSSY cycle (per-item failures) skips
+        absence-based closure — its observation set is incomplete; the next
+        healthy cycle of the same source covers it.
+        """
         finalized: list[UUID] = []
-        for cycle_id in self._catalog.cycles_ready_to_finalize(
+        for cycle_id, failed_items in self._catalog.cycles_ready_to_finalize(
             deployment_id=deployment_id
         ):
-            for doc_id in self._catalog.cycle_tombstoned_lineages(cycle_id=cycle_id):
-                cascade_lineage_removal(
-                    catalog=self._catalog,
-                    deployment_id=deployment_id,
-                    doc_id=doc_id,
-                    reconciliation_id=_derived_run_id(
-                        kind="finalize-delete", cycle_id=cycle_id, doc_id=doc_id
-                    ),
-                )
-            for doc_id in self._catalog.cycle_lineages(cycle_id=cycle_id):
-                self._close_lineage_zero_support(
-                    deployment_id=deployment_id, cycle_id=cycle_id, doc_id=doc_id
-                )
-            self._catalog.mark_finalized(cycle_id=cycle_id)
+            if not self._catalog.claim_finalization(cycle_id=cycle_id):
+                continue  # another finalizer won this cycle
+            if failed_items == 0:
+                for doc_id in self._catalog.cycle_lineages(cycle_id=cycle_id):
+                    self._close_lineage_zero_support(
+                        deployment_id=deployment_id, cycle_id=cycle_id, doc_id=doc_id
+                    )
             finalized.append(cycle_id)
+        for doc_id in self._catalog.tombstoned_lineages_needing_cascade(
+            deployment_id=deployment_id
+        ):
+            cascade_lineage_removal(
+                catalog=self._catalog,
+                deployment_id=deployment_id,
+                doc_id=doc_id,
+                reconciliation_id=_derived_run_id(
+                    kind="finalize-delete", doc_id=doc_id
+                ),
+            )
         return tuple(finalized)
 
     def _close_lineage_zero_support(
@@ -308,25 +354,13 @@ class DeletionService:
         deployment_id: UUID = info["deployment_id"]  # type: ignore[assignment]
         doc_id: UUID = info["doc_id"]  # type: ignore[assignment]
         context = self._catalog.reconciliation_context(version_id=version_id)
-        if context["current_version_id"] is not None:
-            transitions = tuple(
-                CurrencyTransition(
-                    claim_id=stale.claim_id,
-                    doc_id=doc_id,
-                    became_current=False,
-                    reason="version_deleted",
-                    from_version_id=stale.from_version_id,
-                )
-                for stale in self._catalog.stale_for_supersession(
-                    deployment_id=deployment_id,
-                    doc_id=doc_id,
-                    current_version_id=context["current_version_id"],  # type: ignore[arg-type]
-                )
+        # ONLY the deleted version's exclusive testimony ends — a snapshot
+        # lineage's other versions keep their currency (Codex review)
+        transitions: tuple[CurrencyTransition, ...] = (
+            self._catalog.stale_for_version_deletion(
+                deployment_id=deployment_id, version_id=version_id
             )
-        else:  # no live version remains: the whole lineage's testimony ends
-            transitions = self._catalog.stale_for_deletion(
-                deployment_id=deployment_id, doc_id=doc_id
-            )
+        )
         if context["current_version_id"] is not None:
             # "the lineage continues": the repointed predecessor's testimony
             # is the current basis again — its claims regain currency
