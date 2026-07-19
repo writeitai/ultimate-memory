@@ -36,6 +36,9 @@ from ultimate_memory.workers.p2 import SnapshotValidationError
 from ultimate_memory.workers.p2_analytics import AnalyticsSettings
 from ultimate_memory.workers.p2_analytics import COMMUNITY_DETECTOR_VERSION
 from ultimate_memory.workers.p2_analytics import GraphAnalyticsWorker
+from ultimate_memory.workers.p3 import CorpusFsBuilder
+from ultimate_memory.workers.p3 import CorpusFsSettings
+from ultimate_memory.workers.p3 import P3_BUILDER_VERSION
 from ultimate_memory.workers.reconcile import CycleFinalizer
 from ultimate_memory.workers.reconcile import DeletionService
 from ultimate_memory.workers.reconcile import RECONCILE_VERSION
@@ -68,6 +71,9 @@ __all__ = (
     "HandlerRegistry",
     "RunResult",
     "StageHandler",
+    "CorpusFsBuilder",
+    "CorpusFsSettings",
+    "P3_BUILDER_VERSION",
     "AnalyticsSettings",
     "COMMUNITY_DETECTOR_VERSION",
     "GraphAnalyticsWorker",

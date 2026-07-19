@@ -1,7 +1,10 @@
 """Self-host adapters: pg delivery shell, local-FS object store, local mounts (WP-0.4a)."""
 
 from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
+from ultimate_memory.adapters.selfhost.mounts import AuditedRawReader
 from ultimate_memory.adapters.selfhost.mounts import LocalMountPublisher
+from ultimate_memory.adapters.selfhost.mounts import RawAccessDenied
+from ultimate_memory.adapters.selfhost.mounts import storage_class_for
 from ultimate_memory.adapters.selfhost.object_store import LocalFSObjectStore
 from ultimate_memory.adapters.selfhost.object_store import ObjectAlreadyExistsError
 from ultimate_memory.adapters.selfhost.object_store import ObjectKeyEscapesRootError
@@ -14,7 +17,10 @@ __all__ = (
     "LanceChunkIndex",
     "LocalDirectoryWatcher",
     "LocalFSObjectStore",
+    "AuditedRawReader",
     "LocalMountPublisher",
+    "RawAccessDenied",
+    "storage_class_for",
     "ObjectAlreadyExistsError",
     "ObjectKeyEscapesRootError",
     "SelfHostTaskQueue",
