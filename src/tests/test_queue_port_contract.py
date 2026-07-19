@@ -43,6 +43,7 @@ _PIPELINE_STAGE_VALUES = (
     "compile_knowledge",
     "reflect_knowledge",
     "lint_knowledge",
+    "reconcile",
 )
 
 

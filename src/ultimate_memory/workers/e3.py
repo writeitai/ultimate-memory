@@ -37,6 +37,7 @@ from ultimate_memory.spine.supersession import SupersessionAdjudicator
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
+from ultimate_memory.workers.reconcile import RECONCILE_VERSION
 
 _logger = logging.getLogger(__name__)
 
@@ -118,7 +119,24 @@ class NormalizeRelationsHandler:
             chunk_ids=tuple(chunk.chunk_id for chunk in chunks)
         )
         if not claims:
-            return HandlerOutcome()
+            # a version whose extraction yielded nothing still completes its
+            # basis change: the chain must reach reconciliation (Codex
+            # review — a living replacement of pure boilerplate would
+            # otherwise never supersede the old claims)
+            return HandlerOutcome(
+                follow_up=(
+                    EnqueueWork(
+                        deployment_id=work.deployment_id,
+                        target_kind=work.target_kind,
+                        target_id=work.target_id,
+                        stage=PipelineStage.ADJUDICATE_SUPERSESSION,
+                        component_version=ADJUDICATOR_VERSION,
+                        content_hash=work.content_hash,
+                        lane=work.lane,
+                        payload={**(work.payload or {}), "relation_ids": []},
+                    ),
+                )
+            )
         deployment_id = work.deployment_id
         predicates = self._facts.active_predicates(deployment_id=deployment_id)
         prompt_lines = self._facts.predicate_prompt_lines(deployment_id=deployment_id)
@@ -333,7 +351,13 @@ class AdjudicateSupersessionHandler:
         self._adjudicator = adjudicator
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Adjudicate every relation the normalize stage created (idempotent)."""
+        """Adjudicate every relation the normalize stage created (idempotent).
+
+        Chains the reconcile stage — the truth machinery for this version's
+        basis change is settled, so reconciliation (lifecycle §5: currency,
+        recount, zero-support policy, `evidence_changed`) can run on a
+        completed basis, never mid-flight.
+        """
         payload = work.payload or {}
         relation_ids = payload.get("relation_ids") or []
         if not isinstance(relation_ids, list):
@@ -344,4 +368,24 @@ class AdjudicateSupersessionHandler:
             self._adjudicator.adjudicate_new_relation(
                 deployment_id=work.deployment_id, relation_id=UUID(str(raw))
             )
-        return HandlerOutcome()
+        version_id = payload.get("version_id")
+        representation_id = payload.get("representation_id")
+        if not isinstance(version_id, str) or not isinstance(representation_id, str):
+            return HandlerOutcome()  # pre-lifecycle work rows: nothing to chain
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.RECONCILE,
+                    component_version=RECONCILE_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={
+                        "version_id": version_id,
+                        "representation_id": representation_id,
+                    },
+                ),
+            )
+        )

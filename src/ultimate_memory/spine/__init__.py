@@ -12,6 +12,7 @@ from ultimate_memory.spine.extension_packs import install_pack
 from ultimate_memory.spine.extension_packs import PackAnchorError
 from ultimate_memory.spine.extension_packs import PackConflictError
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.lifecycle import LifecycleCatalog
 from ultimate_memory.spine.observation_adjudication import (
     OBSERVATION_ADJUDICATOR_VERSION,
 )
@@ -45,6 +46,7 @@ __all__ = (
     "ObservationAdjudicator",
     "ObservationSettings",
     "RESOLVER_VERSION",
+    "LifecycleCatalog",
     "ReviewQueue",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",

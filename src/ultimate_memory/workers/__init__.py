@@ -29,6 +29,10 @@ from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import LabelFactsHandler
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 from ultimate_memory.workers.p1 import P1Settings
+from ultimate_memory.workers.reconcile import CycleFinalizer
+from ultimate_memory.workers.reconcile import DeletionService
+from ultimate_memory.workers.reconcile import RECONCILE_VERSION
+from ultimate_memory.workers.reconcile import ReconcileHandler
 from ultimate_memory.workers.sync import SyncCycleRunner
 from ultimate_memory.workers.sync import SyncSettings
 
@@ -57,6 +61,10 @@ __all__ = (
     "HandlerRegistry",
     "RunResult",
     "StageHandler",
+    "CycleFinalizer",
+    "DeletionService",
+    "ReconcileHandler",
+    "RECONCILE_VERSION",
     "StructureHandler",
     "StructurerSettings",
     "SyncCycleRunner",

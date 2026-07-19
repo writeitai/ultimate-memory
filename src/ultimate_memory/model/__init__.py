@@ -83,6 +83,8 @@ from ultimate_memory.model.evaluation import CaseFailure
 from ultimate_memory.model.evaluation import EvalSuite
 from ultimate_memory.model.evaluation import SuiteReport
 from ultimate_memory.model.git import KRevision
+from ultimate_memory.model.lifecycle import CurrencyTransition
+from ultimate_memory.model.lifecycle import ReconciliationDelta
 from ultimate_memory.model.model_provider import EmbeddingRequest
 from ultimate_memory.model.model_provider import EmbeddingResponse
 from ultimate_memory.model.model_provider import ModelRequest
@@ -231,6 +233,8 @@ __all__ = (
     "SelectionCandidate",
     "SelectionResponse",
     "SelectionVerdict",
+    "CurrencyTransition",
+    "ReconciliationDelta",
     "PersistedSectionTree",
     "ProposedSection",
     "SectionTreeRecord",
