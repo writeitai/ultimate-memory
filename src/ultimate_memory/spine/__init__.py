@@ -20,6 +20,7 @@ from ultimate_memory.spine.observation_adjudication import ObservationSettings
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.resolver import RESOLVER_VERSION
 from ultimate_memory.spine.resolver import seed_resolver_version
+from ultimate_memory.spine.review import ReviewQueue
 from ultimate_memory.spine.supersession import ADJUDICATOR_VERSION
 from ultimate_memory.spine.supersession import SupersessionAdjudicator
 from ultimate_memory.spine.supersession import SupersessionSettings
@@ -42,6 +43,7 @@ __all__ = (
     "ObservationAdjudicator",
     "ObservationSettings",
     "RESOLVER_VERSION",
+    "ReviewQueue",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",
     "ComponentVersionRegistrar",
