@@ -68,6 +68,9 @@ from ultimate_memory.model.documents import StructureSource
 from ultimate_memory.model.documents import SyncCycleSummary
 from ultimate_memory.model.documents import SyntheticRootRecord
 from ultimate_memory.model.documents import UploadRecord
+from ultimate_memory.model.envelope import AggregateBucket
+from ultimate_memory.model.envelope import AggregateReport
+from ultimate_memory.model.envelope import ChangeRecord
 from ultimate_memory.model.envelope import EntityCandidate
 from ultimate_memory.model.envelope import Envelope
 from ultimate_memory.model.envelope import EvidenceResult
@@ -79,6 +82,9 @@ from ultimate_memory.model.envelope import GraphNode
 from ultimate_memory.model.envelope import GraphPath
 from ultimate_memory.model.envelope import Negative
 from ultimate_memory.model.envelope import NegativeKind
+from ultimate_memory.model.envelope import PageRef
+from ultimate_memory.model.envelope import RankedItem
+from ultimate_memory.model.envelope import ScanRow
 from ultimate_memory.model.envelope import SourceRecord
 from ultimate_memory.model.envelope import Truncation
 from ultimate_memory.model.envelope import Validity
@@ -139,6 +145,8 @@ from ultimate_memory.model.telemetry import TelemetryEvent
 __all__ = (
     "AddedContext",
     "AdjudicationVerdict",
+    "AggregateBucket",
+    "AggregateReport",
     "AuthenticatedContext",
     "Block",
     "BlockType",
@@ -146,6 +154,7 @@ __all__ = (
     "CandidateClaim",
     "CaseFailure",
     "CarryForwardSource",
+    "ChangeRecord",
     "ChunkForEmbedding",
     "ChunkRecord",
     "ChunkSource",
@@ -225,6 +234,8 @@ __all__ = (
     "ProcessingTarget",
     "PublishedMounts",
     "QueueRoute",
+    "PageRef",
+    "RankedItem",
     "RecordCall",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
@@ -238,6 +249,7 @@ __all__ = (
     "ReviewDecisionError",
     "ReviewItem",
     "RunResultOutcome",
+    "ScanRow",
     "SectionSpan",
     "SelectionCandidate",
     "SelectionResponse",
