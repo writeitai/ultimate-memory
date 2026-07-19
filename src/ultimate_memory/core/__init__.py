@@ -25,6 +25,12 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.ranking import DEFAULT_RRF_K
+from ultimate_memory.core.ranking import reciprocal_rank_fusion
+from ultimate_memory.core.ranking import rerank_by_signal
+from ultimate_memory.core.recipe_linter import KNOWN_OPS
+from ultimate_memory.core.recipe_linter import lint_recipe
+from ultimate_memory.core.recipe_linter import RecipeLintError
 from ultimate_memory.core.section_snap import SECTION_ROLES
 from ultimate_memory.core.section_snap import snap_sections
 from ultimate_memory.core.storage_routing import HOT_MIME_PREFIXES
@@ -60,4 +66,10 @@ __all__ = (
     "storage_class_for",
     "SECTION_ROLES",
     "snap_sections",
+    "DEFAULT_RRF_K",
+    "KNOWN_OPS",
+    "RecipeLintError",
+    "lint_recipe",
+    "reciprocal_rank_fusion",
+    "rerank_by_signal",
 )

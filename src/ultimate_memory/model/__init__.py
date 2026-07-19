@@ -123,6 +123,9 @@ from ultimate_memory.model.queue import PipelineStage
 from ultimate_memory.model.queue import ProcessingLane
 from ultimate_memory.model.queue import QueueRoute
 from ultimate_memory.model.queue import UTCDateTime
+from ultimate_memory.model.recipes import Recipe
+from ultimate_memory.model.recipes import RecipeAnswerIntent
+from ultimate_memory.model.recipes import RecipeStep
 from ultimate_memory.model.relations import ClaimForNormalization
 from ultimate_memory.model.relations import EntityRef
 from ultimate_memory.model.relations import NormalizationResponse
@@ -236,6 +239,9 @@ __all__ = (
     "QueueRoute",
     "PageRef",
     "RankedItem",
+    "Recipe",
+    "RecipeAnswerIntent",
+    "RecipeStep",
     "RecordCall",
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
