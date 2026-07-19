@@ -17,8 +17,10 @@ publishes.
 from collections.abc import Callable
 from datetime import datetime
 from datetime import UTC
+import hashlib
 import json
 from pathlib import Path
+import shutil
 from typing import Final
 from uuid import UUID
 
@@ -134,6 +136,9 @@ _TABLE_COLUMNS: Final[dict[str, tuple[tuple[str, tuple[str, Callable]], ...]]] =
     "IS_DOCUMENT": (("from", _STRING), ("to", _STRING)),
 }
 
+_BATCH_ROWS: Final = 10_000
+"""Parquet write granularity — matches the export cursor's yield_per."""
+
 _ARROW_TYPES: Final = {
     "string": pa.string(),
     "int64": pa.int64(),
@@ -163,13 +168,44 @@ class GraphRebuildWorker:
     ) -> dict[str, object]:
         """Run one rebuild cycle end to end; abort loudly on any gate."""
         version = version or datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S%f")
-        prefix = f"{self._settings.snapshot_prefix}/{version}"
+        prefix = f"{self._settings.snapshot_prefix}/{deployment_id}/{version}"
         snapshot_id = self._catalog.open_snapshot(
             deployment_id=deployment_id,
             plane="P2_graph",
             version=version,
             store_prefix=prefix,
         )
+        try:
+            return self._run(
+                deployment_id=deployment_id,
+                snapshot_id=snapshot_id,
+                version=version,
+                prefix=prefix,
+                workdir=workdir,
+            )
+        except SnapshotValidationError:
+            raise  # the gates recorded their own reports
+        except Exception as error:
+            # NO failure may strand a snapshot as eternally 'building' — a
+            # thrown COPY (e.g. a rel endpoint absent from the emitted
+            # nodes), a Parquet error, an upload error: all land as a
+            # recorded failed row (Codex review)
+            self._catalog.mark_failed(
+                snapshot_id=snapshot_id,
+                validation={"gate": "exception", "error": str(error)[:500]},
+            )
+            raise
+
+    def _run(
+        self,
+        *,
+        deployment_id: UUID,
+        snapshot_id: UUID,
+        version: str,
+        prefix: str,
+        workdir: Path,
+    ) -> dict[str, object]:
+        """The pipeline body; every exit is a recorded registry state."""
         parquet_dir = workdir / version / "parquet"
         parquet_dir.mkdir(parents=True, exist_ok=True)
         counts: dict[str, int] = {}
@@ -188,7 +224,7 @@ class GraphRebuildWorker:
                     " fail to resolve to an active survivor (merge cycle or"
                     " corrupt redirect chain)"
                 )
-            watermark = self._catalog.ingestion_watermark()
+            watermark = export.watermark()  # on-snapshot (Codex review)
             for table in (*GRAPH_NODE_TABLES, *GRAPH_REL_TABLES):
                 counts[table] = self._write_parquet(
                     export_rows=export.rows(table=table),
@@ -209,7 +245,7 @@ class GraphRebuildWorker:
                 f"snapshot {version} aborted: graph/export count mismatch {mismatched}"
             )
         manifest = self._upload(prefix=prefix, version=version, graph_dir=graph_dir)
-        self._catalog.publish(
+        published = self._catalog.publish(
             deployment_id=deployment_id,
             snapshot_id=snapshot_id,
             plane="P2_graph",
@@ -217,42 +253,76 @@ class GraphRebuildWorker:
             validation={"gate": "passed", "files": len(manifest)},
             built_from_watermark=watermark,
         )
-        return {"snapshot_id": snapshot_id, "version": version, "row_counts": counts}
+        return {
+            "snapshot_id": snapshot_id,
+            "version": version,
+            "row_counts": counts,
+            "published": published,
+        }
 
     def _write_parquet(self, *, export_rows: object, table: str, path: Path) -> int:
-        """Stream one table's export into a Parquet file; returns the count."""
+        """Stream one table's export into Parquet in BOUNDED batches.
+
+        Memory stays proportional to the batch, never the table (Codex
+        review) — the tens-of-millions transport contract depends on it.
+        """
         spec = _TABLE_COLUMNS[table]
-        columns: list[list[object]] = [[] for _ in spec]
+        schema = pa.schema([(name, _ARROW_TYPES[kind]) for name, (kind, _) in spec])
         total = 0
-        for row in export_rows:  # type: ignore[attr-defined]
-            total += 1
-            for index, (_, (_, caster)) in enumerate(spec):
-                columns[index].append(caster(row[index]))
-        table_arrow = pa.table(
-            {
-                name: pa.array(values, type=_ARROW_TYPES[kind])
-                for (name, (kind, _)), values in zip(spec, columns, strict=True)
-            }
-        )
-        pq.write_table(table_arrow, str(path))
+        with pq.ParquetWriter(str(path), schema) as writer:
+            columns: list[list[object]] = [[] for _ in spec]
+            for row in export_rows:  # type: ignore[attr-defined]
+                total += 1
+                for index, (_, (_, caster)) in enumerate(spec):
+                    columns[index].append(caster(row[index]))
+                if total % _BATCH_ROWS == 0:
+                    writer.write_batch(
+                        _record_batch(spec=spec, schema=schema, columns=columns)
+                    )
+                    columns = [[] for _ in spec]
+            if columns[0] or total == 0:
+                writer.write_batch(
+                    _record_batch(spec=spec, schema=schema, columns=columns)
+                )
         return total
 
     def _upload(self, *, prefix: str, version: str, graph_dir: Path) -> list[str]:
-        """Ship the immutable snapshot files + a manifest naming them."""
-        files: list[str] = []
+        """Ship the immutable snapshot files + a digest manifest.
+
+        Per-file sha256 digests let readers verify a download before
+        serving it — a truncated or corrupted transfer must never open.
+        """
+        files: dict[str, str] = {}
         for path in sorted(graph_dir.rglob("*")):
             if not path.is_file():
                 continue
             relative = path.relative_to(graph_dir).as_posix()
+            content = path.read_bytes()
             self._snapshot_store.write_bytes(
-                key=ObjectKey(f"{prefix}/files/{relative}"), content=path.read_bytes()
+                key=ObjectKey(f"{prefix}/files/{relative}"), content=content
             )
-            files.append(relative)
+            files[relative] = hashlib.sha256(content).hexdigest()
         self._snapshot_store.write_bytes(
             key=ObjectKey(f"{prefix}/MANIFEST.json"),
             content=json.dumps({"version": version, "files": files}).encode(),
         )
-        return files
+        return sorted(files)
+
+
+def _record_batch(
+    *,
+    spec: tuple[tuple[str, tuple[str, Callable]], ...],
+    schema: pa.Schema,
+    columns: list[list[object]],
+) -> pa.RecordBatch:
+    """One bounded Arrow batch from accumulated column lists."""
+    return pa.record_batch(
+        [
+            pa.array(values, type=_ARROW_TYPES[kind])
+            for (_, (kind, _)), values in zip(spec, columns, strict=True)
+        ],
+        schema=schema,
+    )
 
 
 class GraphSnapshotReader:
@@ -296,19 +366,34 @@ class GraphSnapshotReader:
         prefix = str(latest["gcs_uri"])
         local = self._cache_dir / version
         if not local.exists():
+            # stage → verify → atomic rename: a half-downloaded or corrupt
+            # transfer must never be mistaken for a complete snapshot on a
+            # later refresh (Codex review)
+            staging = self._cache_dir / f".staging-{version}"
+            if staging.exists():
+                shutil.rmtree(staging)
             manifest = json.loads(
                 self._snapshot_store.read_bytes(
                     key=ObjectKey(f"{prefix}/MANIFEST.json")
                 )
             )
-            for relative in manifest["files"]:
-                target = local / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(
-                    self._snapshot_store.read_bytes(
-                        key=ObjectKey(f"{prefix}/files/{relative}")
-                    )
+            if manifest["version"] != version:
+                raise RuntimeError(
+                    f"snapshot manifest names version {manifest['version']!r},"
+                    f" registry says {version!r}"
                 )
+            for relative, digest in manifest["files"].items():
+                content = self._snapshot_store.read_bytes(
+                    key=ObjectKey(f"{prefix}/files/{relative}")
+                )
+                if hashlib.sha256(content).hexdigest() != digest:
+                    raise RuntimeError(
+                        f"snapshot file {relative!r} failed its digest check"
+                    )
+                target = staging / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            staging.rename(local)
         self._connection = ladybug.Connection(
             ladybug.Database(str(local / "graph.lbdb"), read_only=True)
         )

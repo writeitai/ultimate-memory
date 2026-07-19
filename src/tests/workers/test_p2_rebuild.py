@@ -336,3 +336,90 @@ def test_reader_hot_swaps_to_a_newer_snapshot(corpus: _Corpus, tmp_path: Path) -
     assert reader.version == second["version"]
     nodes = _scalar(reader.connection(), "MATCH (e:Entity) RETURN count(*)")
     assert nodes == 4  # the newcomer arrived with the swap
+
+
+def test_out_of_order_publish_never_regresses_the_pointer(
+    corpus: _Corpus, tmp_path: Path
+) -> None:
+    """Codex review: a slow OLD rebuild finishing after a newer one must not
+    take the pointer back — it lands as superseded, readers never regress."""
+    worker, _, catalog = _rig(corpus.engine, tmp_path)
+    slow_id = catalog.open_snapshot(  # the older cut, registered first…
+        deployment_id=_DEPLOYMENT_ID,
+        plane="P2_graph",
+        version="v-old-slow",
+        store_prefix="graph/snapshots/test/v-old-slow",
+    )
+    fresh = worker.rebuild(  # …and the newer rebuild completes first
+        deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work"
+    )
+    took_pointer = catalog.publish(
+        deployment_id=_DEPLOYMENT_ID,
+        snapshot_id=slow_id,
+        plane="P2_graph",
+        row_counts={},
+        validation={"gate": "passed"},
+        built_from_watermark=None,
+    )
+    assert took_pointer is False  # the late old snapshot never wins
+    latest = catalog.latest_snapshot(deployment_id=_DEPLOYMENT_ID, plane="P2_graph")
+    assert latest is not None
+    assert latest["version"] == fresh["version"]
+    with corpus.engine.connect() as connection:
+        status = connection.execute(
+            text(
+                "SELECT status::text FROM projection_snapshots WHERE snapshot_id = :s"
+            ),
+            {"s": slow_id},
+        ).scalar_one()
+    assert status == "superseded"
+
+
+def test_load_failures_are_recorded_never_stranded(
+    corpus: _Corpus, tmp_path: Path
+) -> None:
+    """Codex review: a COPY that throws (a crossref to a document absent
+    from the emitted nodes) lands as a recorded FAILED snapshot with the
+    error, never an eternally 'building' row — and the pointer is safe."""
+    worker, _, catalog = _rig(corpus.engine, tmp_path)
+    first = worker.rebuild(deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work")
+    ghost = uuid4()
+    with corpus.engine.begin() as connection:  # crossref → soon-deleted doc
+        connection.execute(
+            text(
+                "INSERT INTO documents (doc_id, deployment_id, source_kind,"
+                " source_ref, title, deleted_at)"
+                " VALUES (:doc, :d, 'upload', 'ghost', 'Ghost', now())"
+            ),
+            {"doc": ghost, "d": _DEPLOYMENT_ID},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO document_crossrefs (crossref_id, deployment_id,"
+                " from_doc_id, to_doc_id, kind, resolved)"
+                " VALUES (:c, :d, :from_doc, :to_doc, 'cites', true)"
+            ),
+            {
+                "c": uuid4(),
+                "d": _DEPLOYMENT_ID,
+                "from_doc": corpus.doc_id,
+                "to_doc": ghost,
+            },
+        )
+    with pytest.raises(Exception, match="(?i)copy|not found|exist"):
+        worker.rebuild(deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work")
+    with corpus.engine.connect() as connection:
+        gate = connection.execute(
+            text(
+                "SELECT validation ->> 'gate' FROM projection_snapshots"
+                " WHERE status = 'failed' ORDER BY built_at DESC LIMIT 1"
+            )
+        ).scalar_one()
+        stuck = connection.execute(
+            text("SELECT count(*) FROM projection_snapshots WHERE status = 'building'")
+        ).scalar_one()
+    assert gate == "exception"
+    assert stuck == 0  # nothing stranded
+    latest = catalog.latest_snapshot(deployment_id=_DEPLOYMENT_ID, plane="P2_graph")
+    assert latest is not None
+    assert latest["version"] == first["version"]  # the pointer is safe

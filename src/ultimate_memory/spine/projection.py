@@ -53,6 +53,14 @@ class GraphExport:
             ).scalar_one()
         )
 
+    def watermark(self) -> object:
+        """The max ingested_at INSIDE this export's snapshot (D7 bound).
+
+        Read on the export connection, so it can never advertise a relation
+        the consistent cut cannot contain.
+        """
+        return self._connection.execute(_SELECT_WATERMARK).scalar_one_or_none()
+
     def unresolved_survivors(self) -> tuple[UUID, ...]:
         """The abort-before-snapshot gate (spike c): entities whose survivor
         is still merged — a merge cycle or a corrupt redirect chain. Any row
@@ -119,9 +127,39 @@ class ProjectionCatalog:
         row_counts: dict[str, int],
         validation: dict[str, object],
         built_from_watermark: object,
-    ) -> None:
-        """Validation passed: publish and swap the latest pointer atomically."""
+    ) -> bool:
+        """Publish and swap the latest pointer — serialized and order-guarded.
+
+        A per-(deployment, plane) advisory lock serializes concurrent
+        publishers, and a snapshot whose build started BEFORE the currently
+        published one never takes the pointer — a slow old rebuild finishing
+        late must not regress readers. Such a snapshot is recorded as
+        superseded (its bytes remain a point-in-time artifact); returns
+        whether the pointer moved to this snapshot.
+        """
         with self._engine.begin() as connection:
+            connection.execute(
+                _LOCK_PUBLISH, {"key": f"p2-publish:{deployment_id}:{plane}"}
+            )
+            newer = connection.execute(
+                _SELECT_NEWER_LATEST,
+                {
+                    "deployment_id": deployment_id,
+                    "plane": plane,
+                    "snapshot_id": snapshot_id,
+                },
+            ).scalar_one_or_none()
+            if newer is not None:
+                connection.execute(
+                    _MARK_SUPERSEDED,
+                    {
+                        "snapshot_id": snapshot_id,
+                        "row_counts": row_counts,
+                        "validation": {**validation, "superseded_by_newer": str(newer)},
+                        "built_from_watermark": built_from_watermark,
+                    },
+                )
+                return False
             connection.execute(
                 _CLEAR_LATEST, {"deployment_id": deployment_id, "plane": plane}
             )
@@ -134,6 +172,7 @@ class ProjectionCatalog:
                     "built_from_watermark": built_from_watermark,
                 },
             )
+        return True
 
     def latest_snapshot(
         self, *, deployment_id: UUID, plane: str
@@ -148,11 +187,6 @@ class ProjectionCatalog:
                 .one_or_none()
             )
         return dict(row) if row is not None else None
-
-    def ingestion_watermark(self) -> object:
-        """The max ingested_at the snapshot covers (staleness bound, D7)."""
-        with self._engine.connect() as connection:
-            return connection.execute(_SELECT_WATERMARK).scalar_one_or_none()
 
 
 _CREATE_SURVIVOR_MAP = text(
@@ -288,3 +322,30 @@ _SELECT_WATERMARK = text(
     SELECT max(ingested_at) FROM relations
     """
 )
+
+_LOCK_PUBLISH = text(
+    """
+    SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))
+    """
+)
+
+_SELECT_NEWER_LATEST = text(
+    """
+    SELECT cur.snapshot_id
+    FROM projection_snapshots cur, projection_snapshots mine
+    WHERE cur.deployment_id = :deployment_id
+      AND cur.plane = CAST(:plane AS projection_plane)
+      AND cur.is_latest
+      AND mine.snapshot_id = :snapshot_id
+      AND cur.built_at > mine.built_at
+    """
+)
+
+_MARK_SUPERSEDED = text(
+    """
+    UPDATE projection_snapshots
+    SET status = 'superseded', row_counts = :row_counts,
+        validation = :validation, built_from_watermark = :built_from_watermark
+    WHERE snapshot_id = :snapshot_id
+    """
+).bindparams(bindparam("row_counts", type_=JSON), bindparam("validation", type_=JSON))
