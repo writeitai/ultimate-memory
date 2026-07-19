@@ -135,6 +135,10 @@ def test_the_mount_swaps_whole_trees(deployment: Engine, tmp_path: Path) -> None
     second_version = (Path(second.p3) / ".snapshot-version").read_text()
     assert second_version != first_version
     assert not list(Path(second.p3).parent.glob(".staging-*"))  # nothing stranded
+    # Codex review: the mount path is a SYMLINK swapped atomically — it is
+    # never absent mid-swap, and the previous version survives beside it
+    assert Path(second.p3).is_symlink()
+    assert (Path(second.p3).parent / f"p3-{first_version}").exists()
     entity_pages = list((Path(second.p3) / "entities").rglob("_index.md"))
     assert len(entity_pages) == 3  # facet index + two entity pages
 
@@ -199,3 +203,41 @@ def test_storage_class_routes_by_mime() -> None:
     assert storage_class_for(mime="image/jpeg") == "hot"
     assert storage_class_for(mime="application/pdf") == "cold"
     assert storage_class_for(mime="text/markdown") == "cold"
+
+
+def test_views_point_at_the_real_stores(deployment: Engine, tmp_path: Path) -> None:
+    """Codex review: an empty directory is not a usable mount — the
+    artifact and raw views resolve to the actual store roots, so a stub's
+    pointer is followable from the mount."""
+    artifacts = tmp_path / "stores" / "artifacts"
+    raw = tmp_path / "stores" / "raw"
+    LocalFSObjectStore(root=artifacts).write_bytes(
+        key=ObjectKey("doc/document.md"), content=b"# Body"
+    )
+    LocalFSObjectStore(root=raw).write_bytes(
+        key=ObjectKey("doc/original.pdf"), content=b"%PDF", storage_class="cold"
+    )
+    mounts = LocalMountPublisher(
+        root=tmp_path / "mounts",
+        catalog=ProjectionCatalog(engine=deployment),
+        corpusfs_store=LocalFSObjectStore(root=tmp_path / "corpusfs"),
+        artifacts_root=artifacts,
+        raw_root=raw,
+    ).publish(deployment_id=_DEPLOYMENT_ID)
+    assert (Path(mounts.artifacts) / "doc" / "document.md").read_bytes() == b"# Body"
+    assert (Path(mounts.raw) / "doc" / "original.pdf").exists()
+
+
+def test_ingest_routes_storage_class_by_mime(tmp_path: Path) -> None:
+    """Codex review: the routing must be LIVE, not a lookup table nobody
+    calls — the ingest path stamps every original's class at the write."""
+    raw_store = LocalFSObjectStore(root=tmp_path / "raw")
+    for key, mime in (
+        (ObjectKey("a/clip.mp4"), "video/mp4"),
+        (ObjectKey("b/report.pdf"), "application/pdf"),
+    ):
+        raw_store.write_bytes(
+            key=key, content=b"bytes", storage_class=storage_class_for(mime=mime)
+        )
+    assert raw_store.storage_class_of(key=ObjectKey("a/clip.mp4")) == "hot"
+    assert raw_store.storage_class_of(key=ObjectKey("b/report.pdf")) == "cold"

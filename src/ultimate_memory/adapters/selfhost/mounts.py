@@ -30,19 +30,18 @@ tree.
 from datetime import datetime
 from datetime import UTC
 import json
+import os
 from pathlib import Path
 import shutil
 from typing import Final
 from uuid import UUID
+from uuid import uuid4
 
+from ultimate_memory.core import storage_class_for
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PublishedMounts
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.projection import ProjectionCatalog
-
-HOT_MIME_PREFIXES: Final = ("video/", "audio/", "image/")
-"""Originals a multimodal harness actually reads: conversion yields only a
-lossy transcript for these, so the bytes themselves stay hot (D51)."""
 
 EMPTY_CORPUS_NOTE: Final = (
     "# Corpus filesystem\n\n"
@@ -55,11 +54,6 @@ class RawAccessDenied(Exception):
     """An unattributed raw read was refused (originals are audited)."""
 
 
-def storage_class_for(*, mime: str) -> str:
-    """Route one original's storage class by mime (D51 guardrail 3)."""
-    return "hot" if mime.startswith(HOT_MIME_PREFIXES) else "cold"
-
-
 class LocalMountPublisher:
     """Publish the P3, artifact, raw, and Plane-K views as local trees."""
 
@@ -69,70 +63,102 @@ class LocalMountPublisher:
         root: Path,
         catalog: ProjectionCatalog | None = None,
         corpusfs_store: ObjectStorePort | None = None,
+        artifacts_root: Path | None = None,
+        raw_root: Path | None = None,
+        knowledge_root: Path | None = None,
     ) -> None:
-        """Bind the publisher to its mount root and (optionally) the P3 source.
+        """Bind the publisher to its mount root, the P3 source, and the stores.
 
-        With a catalog and store the publisher materializes the published
-        corpus snapshot; without them it publishes empty view roots — the
-        Phase-0 shape, still useful for provisioning before any projection
-        exists.
+        The artifact/raw/knowledge views point at the REAL store roots when
+        given (Codex review: an empty directory is not a usable mount);
+        without them the publisher provisions empty view roots — the
+        Phase-0 shape, still useful before any store exists.
         """
         self._root = root.resolve()
         self._catalog = catalog
         self._corpusfs_store = corpusfs_store
+        self._artifacts_root = artifacts_root
+        self._raw_root = raw_root
+        self._knowledge_root = knowledge_root
 
     def publish(self, *, deployment_id: UUID) -> PublishedMounts:
         """Publish and return the exact four read-only deployment views."""
         base = self._root / str(deployment_id)
-        locators = {
-            name: base / name for name in ("p3", "artifacts", "raw", "knowledge")
-        }
-        for path in locators.values():
-            path.mkdir(parents=True, exist_ok=True)
-        self._materialize_corpus(deployment_id=deployment_id, target=locators["p3"])
+        base.mkdir(parents=True, exist_ok=True)
+        corpus = base / "p3"
+        self._materialize_corpus(deployment_id=deployment_id, link=corpus)
         return PublishedMounts(
             deployment_id=deployment_id,
-            p3=str(locators["p3"]),
-            artifacts=str(locators["artifacts"]),
-            # off the navigation path (D51): no index links here — the tree
-            # never promotes raw, stubs carry an explicit pointer
-            raw=str(locators["raw"]),
-            knowledge=str(locators["knowledge"]),
+            p3=str(corpus),
+            artifacts=str(
+                self._view(base=base, name="artifacts", real=self._artifacts_root)
+            ),
+            # off the navigation path (D51): the tree never promotes raw —
+            # stubs carry an explicit pointer, and reads go through
+            # AuditedRawReader, which is the only audited path on this tier
+            raw=str(self._view(base=base, name="raw", real=self._raw_root)),
+            knowledge=str(
+                self._view(base=base, name="knowledge", real=self._knowledge_root)
+            ),
             read_only=True,
         )
 
-    def _materialize_corpus(self, *, deployment_id: UUID, target: Path) -> None:
-        """Serve the LATEST PUBLISHED corpus snapshot, swapped atomically."""
+    def _view(self, *, base: Path, name: str, real: Path | None) -> Path:
+        """One view locator: the real store root when known, else an empty dir."""
+        if real is not None:
+            real.mkdir(parents=True, exist_ok=True)
+            return real.resolve()
+        placeholder = base / name
+        placeholder.mkdir(parents=True, exist_ok=True)
+        return placeholder
+
+    def _materialize_corpus(self, *, deployment_id: UUID, link: Path) -> None:
+        """Serve the LATEST PUBLISHED snapshot behind an ATOMIC pointer.
+
+        The mount path is a symlink to a versioned directory, and the swap
+        replaces that symlink with `os.replace` — atomic on POSIX. The
+        previous "rmtree then rename" left a window where the mount path
+        did not exist at all, so a reader could hit ENOENT mid-swap and two
+        publishers could delete each other's staging (Codex review).
+        """
         if self._catalog is None or self._corpusfs_store is None:
+            link.mkdir(parents=True, exist_ok=True)
             return
         latest = self._catalog.latest_snapshot(
             deployment_id=deployment_id, plane="P3_corpusfs"
         )
         if latest is None:
-            (target / "llms.txt").write_text(EMPTY_CORPUS_NOTE, encoding="utf-8")
+            empty = link.parent / "p3-empty"
+            empty.mkdir(parents=True, exist_ok=True)
+            (empty / "llms.txt").write_text(EMPTY_CORPUS_NOTE, encoding="utf-8")
+            _point(link=link, target=empty)
             return
         version = str(latest["version"])
-        if (target / ".snapshot-version").exists() and (
-            target / ".snapshot-version"
-        ).read_text(encoding="utf-8").strip() == version:
-            return  # already serving this snapshot
-        prefix = str(latest["gcs_uri"])
-        manifest = json.loads(
-            self._corpusfs_store.read_bytes(key=ObjectKey(f"{prefix}/MANIFEST.json"))
-        )
-        staging = target.with_name(f".staging-{version}")
-        if staging.exists():
-            shutil.rmtree(staging)
-        for relative in manifest["files"]:
-            destination = staging / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(
-                self._corpusfs_store.read_bytes(key=ObjectKey(f"{prefix}/{relative}"))
+        served = link.parent / f"p3-{version}"
+        if not (served / ".snapshot-version").exists():
+            prefix = str(latest["gcs_uri"])
+            manifest = json.loads(
+                self._corpusfs_store.read_bytes(
+                    key=ObjectKey(f"{prefix}/MANIFEST.json")
+                )
             )
-        (staging / ".snapshot-version").write_text(version, encoding="utf-8")
-        if target.exists():  # swap whole trees: never a half-built browse
-            shutil.rmtree(target)
-        staging.rename(target)
+            # a unique staging dir per publisher: concurrent publishes of
+            # the same version never delete each other's work
+            staging = link.parent / f".staging-{version}-{uuid4().hex[:8]}"
+            for relative in manifest["files"]:
+                destination = staging / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(
+                    self._corpusfs_store.read_bytes(
+                        key=ObjectKey(f"{prefix}/{relative}")
+                    )
+                )
+            (staging / ".snapshot-version").write_text(version, encoding="utf-8")
+            try:
+                staging.rename(served)  # atomic: the version dir appears whole
+            except OSError:  # another publisher won the race — theirs is fine
+                shutil.rmtree(staging, ignore_errors=True)
+        _point(link=link, target=served)
 
 
 class AuditedRawReader:
@@ -187,3 +213,25 @@ class AuditedRawReader:
         self._audit_log.parent.mkdir(parents=True, exist_ok=True)
         with self._audit_log.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry) + "\n")
+
+
+def _point(*, link: Path, target: Path) -> None:
+    """Atomically point the mount path at a versioned directory.
+
+    A symlink swapped with `os.replace` is atomic on POSIX: a reader either
+    sees the old snapshot or the new one, never a missing path.
+    """
+    staging_link = link.with_name(f".{link.name}-{uuid4().hex[:8]}")
+    staging_link.symlink_to(target, target_is_directory=True)
+    if link.exists() and not link.is_symlink():
+        shutil.rmtree(link)  # a legacy real directory: replaced once
+    os.replace(staging_link, link)
+
+
+__all__ = (
+    "AuditedRawReader",
+    "EMPTY_CORPUS_NOTE",
+    "LocalMountPublisher",
+    "RawAccessDenied",
+    "storage_class_for",  # re-exported: the adapter applies this policy
+)

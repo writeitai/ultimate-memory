@@ -50,6 +50,15 @@ P3_BUILDER_VERSION: Final = "p3-corpusfs-2026.07"
 INDEX_FILE: Final = "_index.md"
 MANIFEST_FILE: Final = "llms.txt"
 
+_MAX_SLUG_CHARS: Final = 60
+"""Cap on any generated path component — filesystem limits are real."""
+
+_MAX_TOPIC_DEPTH: Final = 6
+"""How deep a placement hint may nest: hints are inputs, not commitments."""
+
+_MAX_SHARD_DEPTH: Final = 4
+"""How far prefix sharding deepens before accepting a wide leaf."""
+
 
 class CorpusFsSettings(BaseSettings):
     """The P3 builder's knobs (starting points to measure, D22)."""
@@ -57,6 +66,10 @@ class CorpusFsSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="UGM_P3_")
 
     snapshot_prefix: str = Field(default="corpusfs/snapshots")
+    facets: tuple[str, ...] = ("by-source", "by-time", "by-topic")
+    """The declared facet skeleton (e0 §6 rule 1: the top level is
+    CONFIGURED, never emergent — facets are stable, their interiors
+    reorganize). Every declared facet gets orientation even when empty."""
     shard_threshold: int = Field(default=150, ge=2)
     """Above this many entries a directory shards deterministically — an
     unbounded directory is unbrowsable for an agent and slow to list."""
@@ -129,9 +142,10 @@ class CorpusFsBuilder:
 
     def _render(self, *, deployment_id: UUID) -> dict[str, str]:
         """Render every file of the tree, keyed by its snapshot-relative path."""
-        documents = self._catalog.corpus_documents(deployment_id=deployment_id)
-        entities = self._catalog.corpus_entities(deployment_id=deployment_id)
-        links = self._catalog.entity_document_links(deployment_id=deployment_id)
+        with self._catalog.corpus_export(deployment_id=deployment_id) as export:
+            documents = export.documents()
+            entities = export.entities()
+            links = export.entity_document_links()
         by_entity: dict[UUID, list[UUID]] = {}
         for link in links:
             by_entity.setdefault(UUID(str(link["entity_id"])), []).append(
@@ -162,30 +176,28 @@ class CorpusFsBuilder:
         for document in documents:
             for view_path in _view_paths(document=document):
                 views.setdefault(view_path, []).append(document)
+        directories: dict[str, list[dict[str, object]]] = {}
         for view_path, members in views.items():
-            for shard, shard_members in _shards(
-                members=members, threshold=self._settings.shard_threshold
+            for directory, shard_members in _shard_tree(
+                directory=view_path,
+                members=members,
+                threshold=self._settings.shard_threshold,
             ).items():
-                directory = f"{view_path}/{shard}" if shard else view_path
-                for document in shard_members:
-                    stub = _stub_name(document=document)
-                    files[f"{directory}/{stub}"] = _document_stub(
-                        document=document,
-                        canonical_path=_document_path(
-                            doc_id=UUID(str(document["doc_id"]))
-                        ),
-                        view_path=directory,
-                    )
-                files[f"{directory}/{INDEX_FILE}"] = _directory_index(
-                    directory=directory, members=shard_members
+                directories[directory] = shard_members
+        for directory, members in directories.items():
+            for document in members:
+                files[f"{directory}/{_stub_name(document=document)}"] = _document_stub(
+                    document=document,
+                    canonical_path=_document_path(doc_id=UUID(str(document["doc_id"]))),
+                    view_path=directory,
                 )
-                files[f"{directory}/{MANIFEST_FILE}"] = _directory_manifest(
-                    directory=directory, members=shard_members
-                )
-        # ── facet and root orientation ───────────────────────────────────
+        # ── every level gets orientation, including intermediates ────────
         files.update(
-            _facet_indexes(
-                files=files, documents=documents, entities=entities, views=views
+            _level_indexes(
+                documents=documents,
+                entities=entities,
+                directories=directories,
+                facets=self._settings.facets,
             )
         )
         return files
@@ -215,31 +227,53 @@ def _view_paths(*, document: dict[str, object]) -> tuple[str, ...]:
         paths.append(f"by-time/{stamp.year:04d}/{stamp.month:02d}")
     placement = document.get("placement_path")
     if isinstance(placement, str) and placement.strip("/"):
-        paths.append(
-            f"by-topic/{'/'.join(_slug(part) for part in placement.strip('/').split('/'))}"
-        )
+        parts = [_slug(part) for part in placement.strip("/").split("/")]
+        paths.append("by-topic/" + "/".join(parts[:_MAX_TOPIC_DEPTH]))
+
     return tuple(paths)
 
 
-def _shards(
-    *, members: list[dict[str, object]], threshold: int
+def _shard_tree(
+    *, directory: str, members: list[dict[str, object]], threshold: int
 ) -> dict[str, list[dict[str, object]]]:
-    """Split an oversized directory deterministically (bounded fan-out).
+    """Split an oversized directory until every leaf fits the threshold.
 
-    Sharding is alphabetical by stub name so a rebuild puts the same
-    document in the same shard — a view path may reorganize between
-    rebuilds by design, but never *randomly* within one.
+    Bounded fan-out means BOUNDED: a single-character split leaves a hot
+    initial ("Report …" × 500k) as unbrowsable as before (Codex review), so
+    the prefix deepens until each bucket fits — or until the names stop
+    distinguishing, which stops the recursion rather than looping.
+    Deterministic by name, so a rebuild puts a document in the same shard.
     """
     ordered = sorted(members, key=_stub_name_of)
-    if len(ordered) <= threshold:
-        return {"": ordered}
-    shards: dict[str, list[dict[str, object]]] = {}
-    for document in ordered:
-        initial = _stub_name_of(document)[:1].lower()
-        shards.setdefault(initial if initial.isalnum() else "other", []).append(
-            document
+    return _shard_level(
+        directory=directory, members=ordered, threshold=threshold, depth=1
+    )
+
+
+def _shard_level(
+    *, directory: str, members: list[dict[str, object]], threshold: int, depth: int
+) -> dict[str, list[dict[str, object]]]:
+    """One level of the shard recursion."""
+    if len(members) <= threshold or depth > _MAX_SHARD_DEPTH:
+        return {directory: members}
+    buckets: dict[str, list[dict[str, object]]] = {}
+    for document in members:
+        prefix = _stub_name_of(document)[:depth].lower()
+        key = prefix if prefix.isalnum() else "other"
+        buckets.setdefault(key, []).append(document)
+    if len(buckets) == 1:  # the prefix does not distinguish: stop here
+        return {directory: members}
+    result: dict[str, list[dict[str, object]]] = {}
+    for bucket, bucket_members in buckets.items():
+        result.update(
+            _shard_level(
+                directory=f"{directory}/{bucket}",
+                members=bucket_members,
+                threshold=threshold,
+                depth=depth + 1,
+            )
         )
-    return shards
+    return result
 
 
 def _stub_name_of(document: dict[str, object]) -> str:
@@ -248,9 +282,13 @@ def _stub_name_of(document: dict[str, object]) -> str:
 
 
 def _stub_name(*, document: dict[str, object]) -> str:
-    """The view stub's filename: readable, deterministic, collision-free."""
-    title = str(document.get("title") or "untitled")
-    return f"{_slug(title)}-{str(document['doc_id'])[:8]}.md"
+    """The view stub's filename: readable, deterministic, collision-FREE.
+
+    The FULL document id rides the name (Codex review: a truncated id
+    collides at corpus scale, silently overwriting one stub while the
+    member table still lists two documents).
+    """
+    return f"{_slug(str(document.get('title') or 'untitled'))}-{document['doc_id']}.md"
 
 
 def _document_stub(
@@ -261,31 +299,45 @@ def _document_stub(
     `grep -r` over stubs is content-ish lookup with zero API calls, so the
     title, summary, and pointers are IN the file — and every view stub
     names its Tier-1 canonical path, so a reorganized view never loses the
-    document.
+    document. The stub also carries the explicit `raw_uri` (D51): raw is
+    off the browse path, never unreachable — following this pointer is how
+    a multimodal harness or a re-OCR session opens the original, and that
+    read is audited.
     """
-    summary = str(document.get("root_summary") or "").strip()
-    frontmatter = {
+    summary = _one_line(str(document.get("root_summary") or ""))
+    frontmatter: dict[str, str] = {
         "doc_id": str(document["doc_id"]),
         "canonical_path": canonical_path,
         "version_id": str(document.get("version_id") or ""),
         "content_hash": str(document.get("content_hash") or ""),
         "artifact_uri": str(document.get("markdown_uri") or ""),
+        "raw_uri": str(document.get("raw_uri") or ""),
+        "mime": str(document.get("mime") or ""),
         "source_kind": str(document.get("source_kind") or ""),
         "source_ref": str(document.get("source_ref") or ""),
     }
     if view_path is not None:
         frontmatter["view_path"] = view_path
     lines = ["---"]
-    lines.extend(f"{key}: {value}" for key, value in frontmatter.items())
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# {document.get('title') or 'Untitled document'}")
-    lines.append("")
+    # values are JSON-escaped: a source ref carrying a newline must never
+    # inject or override a frontmatter field such as canonical_path
+    lines.extend(f"{key}: {json.dumps(value)}" for key, value in frontmatter.items())
+    lines.extend(
+        [
+            "---",
+            "",
+            f"# {_one_line(str(document.get('title') or 'Untitled document'))}",
+            "",
+        ]
+    )
     if summary:
-        lines.append(summary)
-        lines.append("")
+        lines.extend([summary, ""])
     lines.append(f"- Canonical path: `{canonical_path}/`")
     lines.append(f"- Full text: `{document.get('markdown_uri') or '(not converted)'}`")
+    if document.get("raw_uri"):
+        lines.append(
+            f"- Original (off the browse path; audited): `{document['raw_uri']}`"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -294,29 +346,33 @@ def _entity_index(
     *, entity: dict[str, object], documents: list[dict[str, object]]
 ) -> str:
     """An entity's Tier-1 page: profile plus the documents evidencing it."""
+    entity_id = UUID(str(entity["entity_id"]))
+    canonical = _entity_path(entity_id=entity_id, entity_type=str(entity["type"]))
     lines = [
         "---",
-        f"entity_id: {entity['entity_id']}",
-        f"type: {entity['type']}",
-        f"canonical_path: {_entity_path(entity_id=UUID(str(entity['entity_id'])), entity_type=str(entity['type']))}",
+        f"entity_id: {json.dumps(str(entity_id))}",
+        f"type: {json.dumps(str(entity['type']))}",
+        f"canonical_path: {json.dumps(canonical)}",
         "---",
         "",
-        f"# {entity['canonical_name']}",
+        f"# {_one_line(str(entity['canonical_name']))}",
         "",
         f"{entity['type']} · {entity.get('mention_count') or 0} mention(s)"
         f" · graph degree {entity.get('graph_degree') or 0}",
         "",
     ]
-    profile = str(entity.get("profile_summary") or "").strip()
+    profile = _one_line(str(entity.get("profile_summary") or ""))
     if profile:
         lines.extend([profile, ""])
-    lines.append("## Documents mentioning this entity")
+    lines.extend(["## Documents mentioning this entity", ""])
+    lines.extend(_member_table(members=documents, base=canonical))
     lines.append("")
-    lines.extend(_member_table(members=documents))
     return "\n".join(lines)
 
 
-def _directory_index(*, directory: str, members: list[dict[str, object]]) -> str:
+def _directory_index(
+    *, directory: str, members: list[dict[str, object]], children: list[str]
+) -> str:
     """The member table: every file's one-line meaning, from Postgres.
 
     This is the load-bearing property of the tree — one read tells an agent
@@ -325,122 +381,236 @@ def _directory_index(*, directory: str, members: list[dict[str, object]]) -> str
     page's job, e0 §6).
     """
     sources = sorted({str(member["source_kind"]) for member in members})
-    stamps = [
-        member.get("source_modified_at") or member.get("published_at")
-        for member in members
-    ]
-    dated = sorted(stamp for stamp in stamps if isinstance(stamp, datetime))
+    dated = sorted(
+        stamp
+        for stamp in (
+            member.get("source_modified_at") or member.get("published_at")
+            for member in members
+        )
+        if isinstance(stamp, datetime)
+    )
     span = f" · {dated[0].date()}–{dated[-1].date()}" if dated else ""
-    lines = [
-        f"# {directory}",
-        "",
-        f"{len(members)} document(s) · sources: {', '.join(sources)}{span}",
-        "",
-        "## Contents",
-        "",
-    ]
-    lines.extend(_member_table(members=members))
+    headline = f"{len(members)} document(s) directly here"
+    if children:
+        headline += f", {len(children)} subdirectory/subdirectories"
+    if sources:
+        headline += f" · sources: {', '.join(sources)}"
+    lines = [f"# {directory}", "", headline + span, ""]
+    if children:
+        lines.extend(["## Subdirectories", ""])
+        lines.extend(
+            f"- [`{PurePosixPath(child).name}/`]"
+            f"({PurePosixPath(child).name}/{INDEX_FILE})"
+            for child in sorted(children)
+        )
+        lines.append("")
+    lines.extend(["## Contents", ""])
+    lines.extend(_member_table(members=members, base=directory))
+    parent = str(PurePosixPath(directory).parent)
+    parent_link = INDEX_FILE if parent in {".", ""} else f"{parent}/{INDEX_FILE}"
     lines.extend(
         [
             "",
             "## Navigation",
             "",
-            f"- Parent: `{PurePosixPath(directory).parent}/{INDEX_FILE}`",
-            "- Canonical (never-moving) paths for these documents are in each"
-            " stub's `canonical_path` frontmatter.",
+            f"- Parent: `{parent_link}`",
+            "- Canonical (never-moving) paths are in the table above and in"
+            " each stub's `canonical_path` frontmatter.",
             "",
         ]
     )
     return "\n".join(lines)
 
 
-def _member_table(*, members: Iterable[dict[str, object]]) -> list[str]:
-    """One row per child carrying its root summary — navigation, not search."""
-    rows = ["| File | What it is | Source | Date |", "|---|---|---|---|"]
+def _member_table(*, members: Iterable[dict[str, object]], base: str) -> list[str]:
+    """One row per child carrying its root summary AND its canonical link.
+
+    The canonical column is what makes the table navigable from anywhere:
+    an entity page lists documents that do not live in its directory, so a
+    bare filename would be a dead end (Codex review).
+    """
+    rows = [
+        "| File | What it is | Canonical | Source | Date |",
+        "|---|---|---|---|---|",
+    ]
     for member in sorted(members, key=_stub_name_of):
-        summary = " ".join(str(member.get("root_summary") or "").split())[:160]
+        summary = _one_line(str(member.get("root_summary") or ""))[:160]
         stamp = member.get("source_modified_at") or member.get("published_at")
         date = stamp.date().isoformat() if isinstance(stamp, datetime) else "—"
+        canonical = _document_path(doc_id=UUID(str(member["doc_id"])))
+        link = f"{_relative(base=base, target=canonical)}/{INDEX_FILE}"
         rows.append(
             f"| `{_stub_name(document=member)}` | {summary or '—'} |"
+            f" [`{canonical}/`]({link}) |"
             f" {member.get('source_kind') or '—'} | {date} |"
         )
     if len(rows) == 2:
-        rows.append("| — | (empty) | — | — |")
+        rows.append("| — | (empty) | — | — | — |")
     return rows
 
 
-def _directory_manifest(*, directory: str, members: list[dict[str, object]]) -> str:
+def _directory_manifest(
+    *, directory: str, members: list[dict[str, object]], children: list[str]
+) -> str:
     """`llms.txt`: orientation before contents (the navigation-manifest pattern)."""
     lines = [
         f"# {directory}",
         "",
-        f"> {len(members)} document(s). Read {INDEX_FILE} for the member table"
-        " — every file's one-line meaning — before opening any file.",
-        "",
-        "## Files",
+        f"> {len(members)} document(s) here, {len(children)} subdirectory/"
+        f"subdirectories. Read {INDEX_FILE} for the member table — every"
+        " file's one-line meaning — before opening any file.",
         "",
     ]
-    lines.extend(
-        f"- [{_stub_name(document=member)}]({_stub_name(document=member)}):"
-        f" {' '.join(str(member.get('root_summary') or '').split())[:120] or 'no summary'}"
-        for member in sorted(members, key=_stub_name_of)
+    if children:
+        lines.extend(["## Subdirectories", ""])
+        lines.extend(f"- {PurePosixPath(child).name}/" for child in sorted(children))
+        lines.append("")
+    if members:
+        lines.extend(["## Files", ""])
+        lines.extend(
+            f"- [{_stub_name(document=member)}]({_stub_name(document=member)}):"
+            f" {_one_line(str(member.get('root_summary') or ''))[:120] or 'no summary'}"
+            for member in sorted(members, key=_stub_name_of)
+        )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _level_indexes(
+    *,
+    documents: tuple[dict[str, object], ...],
+    entities: tuple[dict[str, object], ...],
+    directories: dict[str, list[dict[str, object]]],
+    facets: tuple[str, ...],
+) -> dict[str, str]:
+    """Orientation for EVERY level: leaves, intermediates, facets, root.
+
+    e0 §6's contract is "each level carries a generated `_index.md` /
+    `llms.txt`" — an intermediate directory named as a parent but missing
+    its own index is a dead end in the navigation ladder (Codex review).
+    The CONFIGURED facet skeleton is emitted whether or not documents
+    landed in it, so the top level never depends on what happens to be
+    ingested (e0 §6 rule 1).
+    """
+    rendered: dict[str, str] = {}
+    members_by_directory: dict[str, list[dict[str, object]]] = dict(directories)
+    children_by_directory: dict[str, set[str]] = {}
+    for directory in list(directories):
+        current = PurePosixPath(directory)
+        while True:
+            parent = str(current.parent)
+            if parent in {".", ""}:
+                break
+            children_by_directory.setdefault(parent, set()).add(str(current))
+            members_by_directory.setdefault(parent, [])
+            current = current.parent
+    for facet in facets:
+        members_by_directory.setdefault(facet, [])
+        children_by_directory.setdefault(facet, set())
+    for directory, members in members_by_directory.items():
+        children = sorted(children_by_directory.get(directory, set()))
+        rendered[f"{directory}/{INDEX_FILE}"] = _directory_index(
+            directory=directory, members=members, children=children
+        )
+        rendered[f"{directory}/{MANIFEST_FILE}"] = _directory_manifest(
+            directory=directory, members=members, children=children
+        )
+    rendered[f"documents/{INDEX_FILE}"] = _tier_one_documents_index(documents=documents)
+    rendered[f"entities/{INDEX_FILE}"] = _tier_one_entities_index(entities=entities)
+    rendered[MANIFEST_FILE] = _root_manifest(
+        documents=documents, entities=entities, facets=facets
     )
+    rendered[INDEX_FILE] = _root_index(
+        documents=documents, entities=entities, facets=facets
+    )
+    return rendered
+
+
+def _tier_one_documents_index(*, documents: tuple[dict[str, object], ...]) -> str:
+    """`documents/_index.md`: the canonical leaves, one row each."""
+    lines = [
+        "# documents",
+        "",
+        "Canonical (Tier 1) document leaves — these paths never move across"
+        f" rebuilds. {len(documents)} lineage(s).",
+        "",
+    ]
+    lines.extend(_member_table(members=documents, base="documents"))
     lines.append("")
     return "\n".join(lines)
 
 
-def _facet_indexes(
+def _tier_one_entities_index(*, entities: tuple[dict[str, object], ...]) -> str:
+    """`entities/_index.md`: the canonical entity leaves, one row each."""
+    lines = [
+        "# entities",
+        "",
+        "Canonical (Tier 1) entity leaves — these paths never move across"
+        f" rebuilds. {len(entities)} active entity/entities.",
+        "",
+        "| Entity | Type | Mentions | Canonical |",
+        "|---|---|---|---|",
+    ]
+    for entity in sorted(entities, key=lambda item: str(item["canonical_name"])):
+        canonical = _entity_path(
+            entity_id=UUID(str(entity["entity_id"])), entity_type=str(entity["type"])
+        )
+        link = f"{_relative(base='entities', target=canonical)}/{INDEX_FILE}"
+        lines.append(
+            f"| {_one_line(str(entity['canonical_name']))} | {entity['type']} |"
+            f" {entity.get('mention_count') or 0} | [`{canonical}/`]({link}) |"
+        )
+    if len(lines) == 6:
+        lines.append("| — | — | — | — |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _root_index(
     *,
-    files: dict[str, str],
     documents: tuple[dict[str, object], ...],
     entities: tuple[dict[str, object], ...],
-    views: dict[str, list[dict[str, object]]],
-) -> dict[str, str]:
-    """Facet-level and root orientation — the top of the navigation ladder."""
-    rendered: dict[str, str] = {}
-    facets: dict[str, set[str]] = {}
-    for view_path in views:
-        facet = view_path.split("/", 1)[0]
-        facets.setdefault(facet, set()).add(view_path)
-    for facet, paths in facets.items():
-        listing = "\n".join(
-            f"- `{path}/` — {len(views[path])} document(s)" for path in sorted(paths)
-        )
-        rendered[f"{facet}/{INDEX_FILE}"] = (
-            f"# {facet}\n\n{len(paths)} view(s) in this facet.\n\n{listing}\n"
-        )
-    rendered[f"documents/{INDEX_FILE}"] = (
-        "# documents\n\nCanonical (Tier 1) document leaves — these paths never"
-        f" move across rebuilds.\n\n{len(documents)} lineage(s).\n"
+    facets: tuple[str, ...],
+) -> str:
+    """The root `_index.md`: how to navigate, and the durable-path contract."""
+    lines = [
+        "# Corpus",
+        "",
+        f"{len(documents)} document(s), {len(entities)} entity/entities.",
+        "",
+        "## How to navigate",
+        "",
+        "1. `cat llms.txt` — facets and where things live.",
+        f"2. `cat <facet>/{INDEX_FILE}` — what kinds of things exist there.",
+        f"3. `cat <directory>/{INDEX_FILE}` — the member table: every file's"
+        " one-line meaning.",
+        "4. `cat <stub>.md` — orientation, canonical path, artifact pointer.",
+        "",
+        "## Facets",
+        "",
+    ]
+    lines.extend(
+        f"- [`{facet}/`]({facet}/{INDEX_FILE}) — view paths (reorganizable)"
+        for facet in facets
     )
-    rendered[f"entities/{INDEX_FILE}"] = (
-        "# entities\n\nCanonical (Tier 1) entity leaves — these paths never move"
-        f" across rebuilds.\n\n{len(entities)} active entity/entities.\n"
+    lines.extend(
+        [
+            f"- [`documents/`](documents/{INDEX_FILE}) — canonical, stable per lineage",
+            f"- [`entities/`](entities/{INDEX_FILE}) — canonical, stable per entity",
+            "",
+            "Durable paths live under `documents/` and `entities/` (Tier 1) and"
+            " never move; view subtrees reorganize as the corpus grows.",
+            "",
+        ]
     )
-    rendered[MANIFEST_FILE] = _root_manifest(
-        documents=documents, entities=entities, facets=sorted(facets)
-    )
-    rendered[INDEX_FILE] = (
-        "# Corpus\n\n"
-        f"{len(documents)} document(s), {len(entities)} entity/entities.\n\n"
-        "## How to navigate\n\n"
-        "1. `cat llms.txt` — facets and where things live.\n"
-        f"2. `cat <facet>/{INDEX_FILE}` — what kinds of things exist there.\n"
-        f"3. `cat <directory>/{INDEX_FILE}` — the member table: every file's\n"
-        "   one-line meaning.\n"
-        "4. `cat <stub>.md` — orientation, canonical path, artifact pointer.\n\n"
-        "Durable paths live under `documents/` and `entities/` (Tier 1) and\n"
-        "never move; view subtrees reorganize as the corpus grows.\n"
-    )
-    return rendered
+    return "\n".join(lines)
 
 
 def _root_manifest(
     *,
     documents: tuple[dict[str, object], ...],
     entities: tuple[dict[str, object], ...],
-    facets: list[str],
+    facets: tuple[str, ...],
 ) -> str:
     """The root orientation file an agent reads first."""
     lines = [
@@ -468,16 +638,36 @@ def _root_manifest(
             " rebuilds and safe to store. View paths may reorganize; every"
             " view stub carries its canonical path in frontmatter.",
             "",
+            "Originals live off this path: follow a stub's `raw_uri`"
+            " deliberately — those reads are audited.",
+            "",
         ]
     )
     return "\n".join(lines)
 
 
+def _relative(*, base: str, target: str) -> str:
+    """A relative link from one directory to another inside the tree."""
+    up = "/".join([".."] * len(PurePosixPath(base).parts))
+    return f"{up}/{target}" if up else target
+
+
+def _one_line(value: str) -> str:
+    """Collapse whitespace so a title or summary can never break a table."""
+    return " ".join(value.split())
+
+
 def _slug(value: str) -> str:
-    """A filesystem-safe, deterministic slug."""
+    """A filesystem-safe, deterministic, LENGTH-CAPPED slug.
+
+    Capping matters: a 300-character title would otherwise produce a name
+    common filesystems reject, failing the whole publish for one verbose
+    (or hostile) document (Codex review).
+    """
     cleaned = "".join(
         character.lower() if character.isalnum() else "-" for character in value.strip()
     )
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
-    return cleaned.strip("-") or "untitled"
+    capped = (cleaned.strip("-") or "untitled")[:_MAX_SLUG_CHARS]
+    return capped.strip("-") or "untitled"

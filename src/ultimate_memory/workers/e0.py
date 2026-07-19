@@ -34,6 +34,7 @@ from ultimate_memory.core import BLOCKIZER_VERSION
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import SECTION_ROLES
 from ultimate_memory.core import snap_sections
+from ultimate_memory.core import storage_class_for
 from ultimate_memory.model import Block
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import ConversionError
@@ -89,7 +90,13 @@ class UploadIngestor:
         suffix = PurePosixPath(upload.filename).suffix
         raw_uri = f"{doc_id}/{content_hash}/original{suffix}"
         try:
-            self._raw_store.write_bytes(key=ObjectKey(raw_uri), content=upload.content)
+            self._raw_store.write_bytes(
+                key=ObjectKey(raw_uri),
+                content=upload.content,
+                # D51: media a harness reads stays hot; text originals
+                # kept only for audit go cold — routed at the write
+                storage_class=storage_class_for(mime=upload.mime),
+            )
         except ObjectAlreadyExistsError:
             pass  # identical bytes already landed — ingest retries are no-ops
         return self._catalog.record_upload(
@@ -132,7 +139,13 @@ class UploadIngestor:
         suffix = PurePosixPath(upload.filename).suffix
         raw_uri = f"{doc_id}/{content_hash}/original{suffix}"
         try:
-            self._raw_store.write_bytes(key=ObjectKey(raw_uri), content=upload.content)
+            self._raw_store.write_bytes(
+                key=ObjectKey(raw_uri),
+                content=upload.content,
+                # D51: media a harness reads stays hot; text originals
+                # kept only for audit go cold — routed at the write
+                storage_class=storage_class_for(mime=upload.mime),
+            )
         except ObjectAlreadyExistsError:
             pass
         return self._catalog.record_upload(

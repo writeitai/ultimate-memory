@@ -253,7 +253,7 @@ def test_the_navigation_ladder_is_walkable(corpus: _Corpus, tmp_path: Path) -> N
     assert "by-source/" in root  # a view facet
 
     facet = tree.read("by-source/_index.md")
-    assert "by-source/upload" in facet
+    assert "upload/" in facet  # the facet lists its subdirectories
 
     directory = tree.read("by-source/upload/_index.md")
     assert "3 document(s)" in directory
@@ -270,8 +270,9 @@ def test_the_navigation_ladder_is_walkable(corpus: _Corpus, tmp_path: Path) -> N
         and "annual-report" in path
     )
     stub = tree.read(f"by-source/upload/{stub_name}")
-    assert "canonical_path: documents/" in stub  # every view stub names Tier 1
+    assert 'canonical_path: "documents/' in stub  # every view stub names Tier 1
     assert "document.md" in stub  # and points at the artifact
+    assert "raw_uri" in stub  # D51: raw is off-path, never unreachable
 
 
 def test_tier_one_paths_survive_rebuilds(corpus: _Corpus, tmp_path: Path) -> None:
@@ -363,3 +364,81 @@ def test_the_builder_calls_no_model(corpus: _Corpus, tmp_path: Path) -> None:
     assert first.paths() == second.paths()
     for path in sorted(first.paths()):
         assert first.read(path) == second.read(path)
+
+
+def test_every_level_carries_orientation(corpus: _Corpus, tmp_path: Path) -> None:
+    """Codex review: e0 §6's contract is that EACH level carries an index —
+    an intermediate directory named as a parent but missing its own index
+    is a dead end in the navigation ladder."""
+    tree, _ = _build(corpus, tmp_path)
+    paths = tree.paths()
+    directories = {path.rsplit("/", 1)[0] for path in paths if "/" in path}
+    for directory in directories:
+        assert f"{directory}/_index.md" in paths, f"{directory} has no index"
+    # intermediates of a deep topic path exist in their own right
+    assert "by-topic/finance/_index.md" in paths
+    assert "by-topic/finance/annual-reports/_index.md" in paths
+    # and the declared facet skeleton exists whether or not documents landed
+    for facet in ("by-source", "by-time", "by-topic"):
+        assert f"{facet}/_index.md" in paths
+        assert f"{facet}/llms.txt" in paths
+
+
+def test_tier_one_roots_carry_member_tables(corpus: _Corpus, tmp_path: Path) -> None:
+    """Codex review: `documents/_index.md` and `entities/_index.md` are member
+    tables, not bare counts — and every member row links to a path that
+    actually exists."""
+    tree, _ = _build(corpus, tmp_path)
+    documents_index = tree.read("documents/_index.md")
+    assert "| File |" in documents_index
+    assert "Annual Report".lower().replace(" ", "-") in documents_index
+    entities_index = tree.read("entities/_index.md")
+    assert "| Entity |" in entities_index
+    assert "Acme" in entities_index
+    assert str(corpus.entity_id) in entities_index
+
+    # an entity page's member rows link to canonical paths that resolve
+    page = tree.read(f"entities/organization/{corpus.entity_id}/_index.md")
+    assert "../../../documents/" in page  # a real relative link, not a dead name
+
+
+def test_pathological_titles_and_refs_are_contained(
+    corpus: _Corpus, tmp_path: Path
+) -> None:
+    """Codex review: one hostile or merely verbose document must not break a
+    publish — long names are capped, and a source ref carrying a newline
+    cannot inject or override frontmatter."""
+    with corpus.engine.begin() as connection:
+        corpus._document(  # noqa: SLF001 — the fixture's own seeder
+            connection,
+            title="X" * 300,
+            placement="/" + "/".join("deep" for _ in range(20)) + "/",
+            summary="A very long title.",
+        )
+        connection.execute(
+            text("UPDATE documents SET source_ref = :ref WHERE title = :title"),
+            {
+                "ref": 'evil\ncanonical_path: "documents/attacker-controlled"',
+                "title": "X" * 300,
+            },
+        )
+    tree, _ = _build(corpus, tmp_path)
+    # a slug caps at 60 chars; a stub adds "-<uuid>.md" — comfortably under
+    # the 255-byte component limit common filesystems enforce
+    assert all(len(part) <= 110 for path in tree.paths() for part in path.split("/"))
+    # and a 20-deep placement hint is capped, not honored blindly
+    assert all(path.count("/") <= 8 for path in tree.paths())
+    hostile = next(
+        tree.read(path)
+        for path in tree.paths()
+        if path.startswith("by-source/") and "xxxxx" in path
+    )
+    # the injected text survives as part of a JSON-escaped VALUE (harmless)
+    # but never becomes a second frontmatter FIELD — only one line declares
+    # canonical_path, and it names the real document
+    field_lines = [
+        line for line in hostile.splitlines() if line.startswith("canonical_path:")
+    ]
+    assert len(field_lines) == 1
+    assert "attacker-controlled" not in field_lines[0]
+    assert "\\n" in hostile  # the newline was escaped, not emitted raw

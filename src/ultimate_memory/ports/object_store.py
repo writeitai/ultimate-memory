@@ -14,6 +14,14 @@ class ObjectStorePort(Protocol):
         """Read all bytes stored under an existing object key."""
         ...
 
-    def write_bytes(self, *, key: ObjectKey, content: bytes) -> None:
-        """Create immutable bytes, failing rather than replacing an occupied key."""
+    def write_bytes(
+        self, *, key: ObjectKey, content: bytes, storage_class: str | None = None
+    ) -> None:
+        """Create immutable bytes, failing rather than replacing an occupied key.
+
+        `storage_class` is the D51 mime routing decision made by the caller
+        (hot for media a harness reads, cold for originals kept only for
+        audit). Providers that have storage classes apply it; providers
+        that do not record it, so the routing is observable either way.
+        """
         ...

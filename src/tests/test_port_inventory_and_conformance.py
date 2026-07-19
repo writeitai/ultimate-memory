@@ -78,7 +78,9 @@ class FakeObjectStore:
         """Return the bytes stored under the requested key."""
         return self.objects[key.root]
 
-    def write_bytes(self, *, key: ObjectKey, content: bytes) -> None:
+    def write_bytes(
+        self, *, key: ObjectKey, content: bytes, storage_class: str | None = None
+    ) -> None:
         """Store new bytes and reject replacement of an existing immutable key."""
         if key.root in self.objects:
             raise FileExistsError(key.root)

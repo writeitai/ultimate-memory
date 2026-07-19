@@ -68,6 +68,36 @@ class GraphExport:
         return tuple(self._connection.execute(_SELECT_UNRESOLVED_SURVIVORS).scalars())
 
 
+class CorpusExport:
+    """One consistent corpus read for the P3 builder."""
+
+    def __init__(self, *, connection: Connection, deployment_id: UUID) -> None:
+        """Bind to the export connection and its deployment."""
+        self._connection = connection
+        self._deployment_id = deployment_id
+
+    def documents(self) -> tuple[dict[str, object], ...]:
+        """Every live lineage with its placement hint, summary, and pointers."""
+        return self._rows(_SELECT_CORPUS_DOCUMENTS)
+
+    def entities(self) -> tuple[dict[str, object], ...]:
+        """Active entities with their profile and reach (P3 tier 1)."""
+        return self._rows(_SELECT_CORPUS_ENTITIES)
+
+    def entity_document_links(self) -> tuple[dict[str, object], ...]:
+        """Which documents evidence which entity."""
+        return self._rows(_SELECT_ENTITY_DOCUMENTS)
+
+    def _rows(self, statement: TextClause) -> tuple[dict[str, object], ...]:
+        """Run one export query on the shared snapshot."""
+        return tuple(
+            dict(row)
+            for row in self._connection.execute(
+                statement, {"deployment_id": self._deployment_id}
+            ).mappings()
+        )
+
+
 class ProjectionCatalog:
     """Snapshot registry rows and the graph export reads."""
 
@@ -247,6 +277,21 @@ class ProjectionCatalog:
         """
         with self._engine.begin() as connection:
             connection.execute(_REFRESH_DEGREES, {"deployment_id": deployment_id})
+
+    @contextmanager
+    def corpus_export(self, *, deployment_id: UUID) -> Iterator["CorpusExport"]:
+        """One consistent cut of the corpus (single REPEATABLE READ read).
+
+        The tree's three inputs — documents, entities, and the mention
+        links between them — must come from ONE snapshot: read separately,
+        a deletion or re-resolution between them publishes a tree with a
+        just-deleted document or an entity page missing its evidence
+        (Codex review).
+        """
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            yield CorpusExport(connection=connection, deployment_id=deployment_id)
 
     def corpus_documents(self, *, deployment_id: UUID) -> tuple[dict[str, object], ...]:
         """Every live lineage with its placement hint and root summary (P3).
@@ -492,12 +537,14 @@ _SELECT_CORPUS_DOCUMENTS = text(
     """
     SELECT d.doc_id, d.title, d.source_kind, d.source_ref, d.source_uri,
            v.version_id, v.content_hash, v.source_modified_at, v.published_at,
-           r.markdown_uri, s.summary AS root_summary,
+           r.markdown_uri, c.raw_uri, c.mime, s.summary AS root_summary,
            s.placement_path
     FROM documents d
     JOIN document_versions v ON v.version_id = d.current_version_id
     LEFT JOIN document_representations r
            ON r.representation_id = v.current_representation_id
+    LEFT JOIN content_objects c
+           ON c.deployment_id = v.deployment_id AND c.content_hash = v.content_hash
     LEFT JOIN document_sections s
            ON s.version_id = v.version_id AND s.node_path = '0'
     WHERE d.deployment_id = :deployment_id AND d.deleted_at IS NULL
