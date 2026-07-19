@@ -202,17 +202,36 @@ def test_merged_identity_blocks_across_endpoints_and_unmerge_flags_the_ripple(
     assert item["candidate"]["reason"] == "unmerge_supersession_ripple"
     assert item["candidate"]["closed_relation_id"] == str(old_spell)
     assert item["candidate"]["superseding_relation_id"] == str(new_spell)
+    assert "unmerge_event_id" in item["candidate"]  # full provenance card
 
 
 def test_same_identity_closures_do_not_ripple(database_engine: Engine) -> None:
-    """A closure whose both sides share one endpoint is untouched by the
-    un-merge of an unrelated pair — no noise in the queue."""
+    """Codex review: a closure whose BOTH endpoints are the survivor survives
+    the un-merge of that survivor's pair without a flag — only closures that
+    STRADDLE the split identities ripple."""
+    from ultimate_memory.spine.clustering import apply_merge
+
     facts = FactCatalog(engine=database_engine)
-    person = _entity(engine=database_engine, name="Alice")
+    survivor = _entity(engine=database_engine, name="Alice")
+    variant = _entity(engine=database_engine, name="A. Nova")
     a_co = _entity(engine=database_engine, name="ACo")
     b_co = _entity(engine=database_engine, name="BCo")
-    first = _relation(facts=facts, subject=person, object_=a_co)
-    second = _relation(facts=facts, subject=person, object_=b_co)
+
+    # merge FIRST, then a same-endpoint (survivor/survivor) job change:
+    with database_engine.begin() as connection:
+        merge_id = apply_merge(
+            connection=connection,
+            deployment_id=_DEPLOYMENT_ID,
+            survivor_id=survivor,
+            absorbed_id=variant,
+            trigger_lemmas=[],
+            evidence={},
+            blast_radius=1,
+            decided_by="auto",
+        )
+    assert merge_id is not None
+    _relation(facts=facts, subject=survivor, object_=a_co)
+    second = _relation(facts=facts, subject=survivor, object_=b_co)
     provider = FakeModelProvider(
         generate_payloads={
             "SupersessionVerdict": {
@@ -226,23 +245,6 @@ def test_same_identity_closures_do_not_ripple(database_engine: Engine) -> None:
         engine=database_engine, model_provider=provider, settings=SupersessionSettings()
     ).adjudicate_new_relation(deployment_id=_DEPLOYMENT_ID, relation_id=second)
 
-    # an unrelated merge + unmerge elsewhere:
-    left = _entity(engine=database_engine, name="X One")
-    right = _entity(engine=database_engine, name="X Two")
-    from ultimate_memory.spine.clustering import apply_merge
-
-    with database_engine.begin() as connection:
-        merge_id = apply_merge(
-            connection=connection,
-            deployment_id=_DEPLOYMENT_ID,
-            survivor_id=left,
-            absorbed_id=right,
-            trigger_lemmas=[],
-            evidence={},
-            blast_radius=1,
-            decided_by="auto",
-        )
-    assert merge_id is not None
     EntityClusterer(
         engine=database_engine, entity_index=_StaticIndex(), config=ClusterConfig()
     ).unmerge(deployment_id=_DEPLOYMENT_ID, merge_id=merge_id)
@@ -251,5 +253,86 @@ def test_same_identity_closures_do_not_ripple(database_engine: Engine) -> None:
         flags = connection.execute(
             text("SELECT count(*) FROM review_queue")
         ).scalar_one()
-    assert flags == 0
-    del first
+        closure = connection.execute(
+            text(
+                "SELECT count(*) FROM relations"
+                " WHERE valid_until IS NOT NULL AND subject_entity_id = :s"
+            ),
+            {"s": survivor},
+        ).scalar_one()
+    assert closure == 1  # the same-endpoint closure survives, untouched
+    assert flags == 0  # and never ripples
+
+
+def test_nested_split_members_are_flagged(database_engine: Engine) -> None:
+    """Codex review: unmerging B -> A flags a closure whose far side sits on
+    C (merged into B) — the ripple scan walks the FULL post-split closures."""
+    from ultimate_memory.spine.clustering import apply_merge
+
+    facts = FactCatalog(engine=database_engine)
+    a = _entity(engine=database_engine, name="A Root")
+    b = _entity(engine=database_engine, name="B Mid")
+    c = _entity(engine=database_engine, name="C Leaf")
+    oldco = _entity(engine=database_engine, name="OldCo2")
+    newco = _entity(engine=database_engine, name="NewCo2")
+
+    # C's spell exists; C merges into B, then B merges into A:
+    c_spell = _relation(facts=facts, subject=c, object_=oldco)
+    with database_engine.begin() as connection:
+        apply_merge(
+            connection=connection,
+            deployment_id=_DEPLOYMENT_ID,
+            survivor_id=b,
+            absorbed_id=c,
+            trigger_lemmas=[],
+            evidence={},
+            blast_radius=1,
+            decided_by="auto",
+        )
+        ba_merge = apply_merge(
+            connection=connection,
+            deployment_id=_DEPLOYMENT_ID,
+            survivor_id=a,
+            absorbed_id=b,
+            trigger_lemmas=[],
+            evidence={},
+            blast_radius=1,
+            decided_by="auto",
+        )
+    assert ba_merge is not None
+
+    # under the A=B=C identity, A's new employer closes C's spell (the
+    # fully-recursive identity block finds the nested member):
+    provider = FakeModelProvider(
+        generate_payloads={
+            "SupersessionVerdict": {
+                "outcome": "supersede",
+                "confidence": 0.95,
+                "rationale": "one person moved on",
+            }
+        }
+    )
+    new_spell = _relation(facts=facts, subject=a, object_=newco)
+    SupersessionAdjudicator(
+        engine=database_engine, model_provider=provider, settings=SupersessionSettings()
+    ).adjudicate_new_relation(deployment_id=_DEPLOYMENT_ID, relation_id=new_spell)
+    with database_engine.connect() as connection:
+        closed = connection.execute(
+            text("SELECT valid_until FROM relations WHERE relation_id = :r"),
+            {"r": c_spell},
+        ).scalar_one()
+    assert closed is not None  # the nested member WAS visible to the block
+
+    # unmerging B -> A: the A-side closure straddles into the B-subtree
+    # (C included) — flagged even though neither endpoint equals B:
+    EntityClusterer(
+        engine=database_engine, entity_index=_StaticIndex(), config=ClusterConfig()
+    ).unmerge(deployment_id=_DEPLOYMENT_ID, merge_id=ba_merge)
+    with database_engine.connect() as connection:
+        flagged = connection.execute(
+            text(
+                "SELECT candidate->>'closed_relation_id' FROM review_queue"
+                " WHERE item_kind = 'split_cluster'"
+            )
+        ).scalar_one()
+    assert flagged == str(c_spell)

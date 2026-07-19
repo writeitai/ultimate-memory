@@ -116,6 +116,9 @@ class EntityClusterer:
         overwritten, the full history survives. Returns the reversal id.
         """
         with self._engine.begin() as connection:
+            connection.execute(  # exclusive: wait out in-flight adjudications
+                _LOCK_IDENTITY_EXCLUSIVE, {"key": f"{deployment_id}:identity-epoch"}
+            )
             event = (
                 connection.execute(
                     _SELECT_MERGE_LOCKED,
@@ -213,7 +216,7 @@ class EntityClusterer:
                 "left_id": survivor_id,
                 "right_id": absorbed_id,
             },
-        ).all()
+        ).all()  # both sides are FULL post-unmerge identity closures
         for relation_id, related_id in rows:
             connection.execute(
                 _INSERT_RIPPLE_REVIEW,
@@ -690,6 +693,20 @@ _SUPERSEDE_DECISION = text(
 
 _CROSS_IDENTITY_CLOSURES = text(
     """
+    WITH RECURSIVE left_side AS (
+        SELECT CAST(:left_id AS uuid) AS entity_id
+        UNION ALL
+        SELECT m.entity_id FROM entities m
+        JOIN left_side ON m.merged_into = left_side.entity_id
+        WHERE m.status = 'merged' AND m.deployment_id = :deployment_id
+    ),
+    right_side AS (
+        SELECT CAST(:right_id AS uuid) AS entity_id
+        UNION ALL
+        SELECT m.entity_id FROM entities m
+        JOIN right_side ON m.merged_into = right_side.entity_id
+        WHERE m.status = 'merged' AND m.deployment_id = :deployment_id
+    )
     SELECT a.relation_id, a.related_relation_id
     FROM relation_adjudications a
     JOIN relations closed ON closed.relation_id = a.relation_id
@@ -697,12 +714,17 @@ _CROSS_IDENTITY_CLOSURES = text(
     WHERE a.deployment_id = :deployment_id
       AND a.outcome = 'supersede'
       AND a.superseded_by IS NULL
-      AND closed.subject_entity_id <> superseding.subject_entity_id
-      AND ((closed.subject_entity_id = :left_id
-            AND superseding.subject_entity_id = :right_id)
-        OR (closed.subject_entity_id = :right_id
-            AND superseding.subject_entity_id = :left_id))
+      AND ((closed.subject_entity_id IN (SELECT entity_id FROM left_side)
+            AND superseding.subject_entity_id
+                IN (SELECT entity_id FROM right_side))
+        OR (closed.subject_entity_id IN (SELECT entity_id FROM right_side)
+            AND superseding.subject_entity_id
+                IN (SELECT entity_id FROM left_side)))
     """
+)
+
+_LOCK_IDENTITY_EXCLUSIVE = text(
+    "SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"
 )
 
 _INSERT_RIPPLE_REVIEW = text(
