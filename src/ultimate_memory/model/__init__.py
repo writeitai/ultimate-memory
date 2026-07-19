@@ -74,9 +74,13 @@ from ultimate_memory.model.envelope import EvidenceResult
 from ultimate_memory.model.envelope import FactResult
 from ultimate_memory.model.envelope import Freshness
 from ultimate_memory.model.envelope import Grain
+from ultimate_memory.model.envelope import GraphEdge
+from ultimate_memory.model.envelope import GraphNode
+from ultimate_memory.model.envelope import GraphPath
 from ultimate_memory.model.envelope import Negative
 from ultimate_memory.model.envelope import NegativeKind
 from ultimate_memory.model.envelope import SourceRecord
+from ultimate_memory.model.envelope import Truncation
 from ultimate_memory.model.envelope import Validity
 from ultimate_memory.model.evaluation import CanaryCase
 from ultimate_memory.model.evaluation import CaseFailure
@@ -178,6 +182,10 @@ __all__ = (
     "EntityCandidate",
     "EntityRef",
     "Envelope",
+    "GraphEdge",
+    "GraphNode",
+    "GraphPath",
+    "Truncation",
     "EvalSuite",
     "EvidenceResult",
     "FactForLabeling",

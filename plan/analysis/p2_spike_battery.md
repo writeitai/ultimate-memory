@@ -47,6 +47,41 @@ for an unrelated reason. The numbers below are from a local run at
 Both are exactly what a spike battery exists to catch: the semantics were right,
 the plan shapes were production incidents waiting for the first real corpus.
 
+## Query-shape findings from WP-4.3 (recorded here, canaries in the battery)
+
+Building the `graph` primitive surfaced two further engine constraints that
+prior knowledge would get wrong — both bind how every Cypher we write must
+be shaped:
+
+3. **A NULL parameter cannot participate in a typed comparison.** Binding
+   `$valid_at = None` and writing `($valid_at IS NULL OR r.valid_from <= $valid_at)`
+   fails with `Binder exception: Type Mismatch: Cannot compare types TIMESTAMP
+   and BOOL` — the engine infers an unbound/None parameter's type as BOOL. The
+   "pass NULL and let the guard short-circuit" idiom (correct in SQL) is
+   therefore unavailable. **Rule: compose temporal predicates conditionally in
+   the caller and bind only the parameters the query actually references.**
+4. **A plain variable-length match ENUMERATES paths — use `SHORTEST` for
+   reachability.** `MATCH (a)-[r:RELATES* 1..30]-(b)` on a cyclic graph
+   never returns: the engine enumerates every distinct path, which explodes
+   combinatorially even on a seven-node toy corpus (observed: 100 % CPU,
+   no result). `SHORTEST` yields ONE result per reachable node in BFS time
+   — which is exactly what a distance-ranked neighborhood is. **Rule:
+   `SHORTEST` is load-bearing for neighborhood queries, not an
+   optimization**; a plain variable-length match is only safe with a tiny
+   bound on an acyclic shape.
+5. **`COPY … FROM` maps Parquet columns POSITIONALLY, never by name.**
+   A rel table's Parquet must be: the two endpoints, then every rel
+   property **in DDL declaration order**. Column *names* are ignored, so a
+   reordered export silently loads values into the wrong properties (found
+   here: `relation_id` receiving an endpoint id, subject/object swapped —
+   caught only because a direction proof asserted the stored semantics).
+   **Rule: the export's column tuple and the DDL are one contract; keep
+   them adjacent and assert a round-trip.**
+6. **List comprehensions over path elements are unsupported.**
+   `[x IN nodes(p) | x.name]` fails with `Variable x is not in scope`.
+   **Rule: return `nodes(p)` / `rels(p)` directly** (they yield full property
+   maps) or use `properties(rels(p), 'predicate')`; read the maps client-side.
+
 ## Transport decision (confirmed)
 
 **Postgres `v_graph_*` views → Parquet export → multi-threaded `COPY` into a fresh
