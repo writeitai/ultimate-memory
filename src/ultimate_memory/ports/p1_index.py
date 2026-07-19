@@ -17,6 +17,16 @@ class ChunkIndexPort(Protocol):
         """Insert or replace rows by chunk_id; re-runs are idempotent."""
         ...
 
+    def chunk_vectors(
+        self, *, deployment_id: str, chunk_ids: tuple[str, ...]
+    ) -> dict[str, tuple[float, ...]]:
+        """Stored vectors for the requested ids (absent ids are omitted).
+
+        The D56 embedding-reuse read: an unchanged chunk in a new version
+        copies its predecessor's vector instead of re-embedding.
+        """
+        ...
+
 
 @runtime_checkable
 class ClaimIndexPort(Protocol):

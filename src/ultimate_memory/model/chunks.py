@@ -97,10 +97,27 @@ class ChunkForEmbedding(BaseModel):
     ordinal: int = Field(ge=0)
     char_start: int = Field(ge=0)
     char_end: int = Field(ge=0)
+    chunk_content_hash: str
+    extraction_input_hash: str
     section_role: str
     section_path: str
     context_prefix: str | None
     prefixer_version: str | None
+
+
+class CarryForwardSource(BaseModel):
+    """A prior version's chunk whose LLM-derived context is carried forward.
+
+    D56/A3: for an unchanged chunk (same content hash within the lineage) the
+    stored prefix and embedding are REUSED, never regenerated — LLM output is
+    non-deterministic, so regenerating would both pay again and produce
+    different bytes.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    chunk_id: UUID
+    context_prefix: str
 
 
 class EmbeddingUpdate(BaseModel):

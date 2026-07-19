@@ -41,6 +41,23 @@ class LanceChunkIndex:
         ]
         self._upsert(table=_CHUNK_TABLE, key="chunk_id", payload=payload)
 
+    def chunk_vectors(
+        self, *, deployment_id: str, chunk_ids: tuple[str, ...]
+    ) -> dict[str, tuple[float, ...]]:
+        """Stored vectors for the requested ids (absent ids are omitted)."""
+        deployment_id = str(UUID(deployment_id))
+        if not chunk_ids or _CHUNK_TABLE not in self._connection.table_names():
+            return {}
+        ids = ", ".join(f"'{UUID(item)}'" for item in chunk_ids)
+        rows = (
+            self._connection.open_table(_CHUNK_TABLE)
+            .search()
+            .where(f"deployment_id = '{deployment_id}' AND chunk_id IN ({ids})")
+            .limit(len(chunk_ids))
+            .to_list()
+        )
+        return {row["chunk_id"]: tuple(row["vector"]) for row in rows}
+
     def upsert_claims(self, *, rows: tuple[P1ClaimRow, ...]) -> None:
         """Insert or replace claims-channel rows by claim_id; idempotent."""
         self._upsert(

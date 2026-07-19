@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.model import CarryForwardSource
 from ultimate_memory.model import ChunkForEmbedding
 from ultimate_memory.model import ChunkRecord
 from ultimate_memory.model import ChunkSource
@@ -94,6 +95,48 @@ class ChunkCatalog:
             )
         return tuple(ChunkForEmbedding.model_validate(dict(row)) for row in rows)
 
+    def carry_forward_sources(
+        self,
+        *,
+        deployment_id: UUID,
+        doc_id: UUID,
+        version_id: UUID,
+        prefixer_version: str,
+        embedding_version: str,
+    ) -> dict[str, CarryForwardSource]:
+        """Prior chunks of this lineage reusable by content hash (D56/A3).
+
+        For each content hash: the nearest STRICTLY EARLIER version's chunk
+        that already carries a stored prefix of the same prefixer generation
+        and an embedding of the same embedding generation — the carry-forward
+        source for an unchanged chunk in the new version. Earlier-only keeps
+        version ancestry honest (a queued v2 never adopts a fast v3's
+        context); duplicate identical chunks within one source version pick
+        deterministically (lowest ordinal), and prefix + vector always copy
+        from the SAME source row, so the indexed text and its vector agree.
+        """
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _SELECT_CARRY_FORWARD,
+                    {
+                        "deployment_id": deployment_id,
+                        "doc_id": doc_id,
+                        "version_id": version_id,
+                        "prefixer_version": prefixer_version,
+                        "embedding_version": embedding_version,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        return {
+            row["chunk_content_hash"]: CarryForwardSource(
+                chunk_id=row["chunk_id"], context_prefix=row["context_prefix"]
+            )
+            for row in rows
+        }
+
     def record_embeddings(self, *, updates: tuple[EmbeddingUpdate, ...]) -> None:
         """Write the embed stage's refs, prefixes, and version stamps back."""
         if not updates:
@@ -154,12 +197,31 @@ _SELECT_FOR_EMBEDDING = text(
     """
     SELECT c.chunk_id, c.doc_id, c.version_id, c.ordinal,
            c.char_start, c.char_end, c.context_prefix, c.prefixer_version,
+           c.chunk_content_hash, c.extraction_input_hash,
            s.role AS section_role, s.node_path AS section_path
     FROM chunks c
     JOIN document_sections s ON s.section_id = c.section_id
     WHERE c.representation_id = :representation_id
       AND c.chunker_version = :chunker_version
     ORDER BY c.ordinal
+    """
+)
+
+_SELECT_CARRY_FORWARD = text(
+    """
+    SELECT DISTINCT ON (c.chunk_content_hash)
+           c.chunk_content_hash, c.chunk_id, c.context_prefix
+    FROM chunks c
+    JOIN document_versions cv ON cv.version_id = c.version_id
+    WHERE c.deployment_id = :deployment_id
+      AND c.doc_id = :doc_id
+      AND cv.version_no < (SELECT version_no FROM document_versions
+                           WHERE version_id = :version_id)
+      AND c.context_prefix IS NOT NULL
+      AND c.prefixer_version = :prefixer_version
+      AND c.embedding_version = :embedding_version
+      AND c.embedding_ref IS NOT NULL
+    ORDER BY c.chunk_content_hash, cv.version_no DESC, c.ordinal
     """
 )
 

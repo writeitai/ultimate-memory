@@ -22,6 +22,7 @@ from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import extraction_input_hash
 from ultimate_memory.core import pack_blocks
 from ultimate_memory.model import Block
+from ultimate_memory.model import CarryForwardSource
 from ultimate_memory.model import ChunkForEmbedding
 from ultimate_memory.model import ChunkRecord
 from ultimate_memory.model import ChunkSource
@@ -159,7 +160,15 @@ class EmbedChunksHandler:
         self._chunker_version = chunker_version(params=params)
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Prefix, embed, and index every chunk of one document version."""
+        """Prefix, embed, and index every chunk of one document version.
+
+        The D56/A3 carry-forward runs here: an unchanged chunk (same content
+        hash as a prior version's chunk in this lineage) keeps that chunk's
+        stored prefix and copies its vector — the model is called only for
+        chunks the edit actually touched. LLM output is never regenerated
+        for unchanged regions: it is the cost being avoided, and its
+        non-determinism would make every derived byte drift.
+        """
         source = self._catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
@@ -172,17 +181,46 @@ class EmbedChunksHandler:
         document_md = self._artifact_store.read_bytes(
             key=ObjectKey(source.markdown_uri)
         ).decode("utf-8")
+        carry = self._catalog.carry_forward_sources(
+            deployment_id=work.deployment_id,
+            doc_id=source.doc_id,
+            version_id=source.version_id,
+            prefixer_version=E1_PREFIXER_VERSION,
+            embedding_version=self._settings.embedding_model,
+        )
+        carried_vectors = self._carried_vectors(work=work, chunks=chunks, carry=carry)
         prefixes = tuple(
-            self._context_prefix(source=source, chunk=chunk, document_md=document_md)
+            self._resolve_prefix(
+                source=source, chunk=chunk, document_md=document_md, carry=carry
+            )
             for chunk in chunks
         )
         texts = tuple(
             f"{prefix}\n\n{document_md[chunk.char_start : chunk.char_end]}"
             for prefix, chunk in zip(prefixes, chunks, strict=True)
         )
-        response = self._model_provider.embed(
-            request=EmbeddingRequest(model=self._settings.embedding_model, texts=texts)
+        fresh = tuple(
+            index
+            for index in range(len(chunks))
+            if chunks[index].chunk_id not in carried_vectors
         )
+        if fresh:
+            response = self._model_provider.embed(
+                request=EmbeddingRequest(
+                    model=self._settings.embedding_model,
+                    texts=tuple(texts[index] for index in fresh),
+                )
+            )
+            fresh_vectors = dict(
+                zip(
+                    (chunks[index].chunk_id for index in fresh),
+                    response.vectors,
+                    strict=True,
+                )
+            )
+        else:
+            fresh_vectors = {}
+        vectors = {**carried_vectors, **fresh_vectors}
         self._chunk_index.upsert_chunks(
             rows=tuple(
                 P1ChunkRow(
@@ -192,11 +230,9 @@ class EmbedChunksHandler:
                     version_id=chunk.version_id,
                     section_role=chunk.section_role,
                     text=text,
-                    vector=vector,
+                    vector=vectors[chunk.chunk_id],
                 )
-                for chunk, text, vector in zip(
-                    chunks, texts, response.vectors, strict=True
-                )
+                for chunk, text in zip(chunks, texts, strict=True)
             )
         )
         self._catalog.record_embeddings(
@@ -229,19 +265,57 @@ class EmbedChunksHandler:
             )
         )
 
-    def _context_prefix(
-        self, *, source: ChunkSource, chunk: ChunkForEmbedding, document_md: str
+    def _carried_vectors(
+        self,
+        *,
+        work: ClaimedWork,
+        chunks: tuple[ChunkForEmbedding, ...],
+        carry: dict[str, CarryForwardSource],
+    ) -> dict[UUID, tuple[float, ...]]:
+        """Copy prior versions' vectors for unchanged chunks (D56).
+
+        A carried chunk whose vector is missing from the index (pruned or
+        never landed) simply falls back to the fresh-embed path — reuse is
+        an economy, never a correctness dependency.
+        """
+        wanted = {
+            str(carry[chunk.chunk_content_hash].chunk_id): chunk.chunk_id
+            for chunk in chunks
+            if chunk.chunk_content_hash in carry
+        }
+        if not wanted:
+            return {}
+        stored = self._chunk_index.chunk_vectors(
+            deployment_id=str(work.deployment_id), chunk_ids=tuple(wanted)
+        )
+        return {
+            wanted[prior_id]: vector
+            for prior_id, vector in stored.items()
+            if prior_id in wanted
+        }
+
+    def _resolve_prefix(
+        self,
+        *,
+        source: ChunkSource,
+        chunk: ChunkForEmbedding,
+        document_md: str,
+        carry: dict[str, CarryForwardSource],
     ) -> str:
         """One chunk's "where this sits" sentence: replayed if already stored.
 
-        A retried attempt reuses the row's stored prefix (D7 replay) — the
-        model is re-called only when no prefix of this generation exists.
+        Resolution order (D7 replay, then D56 carry-forward, then the model):
+        the row's own stored prefix of this generation; a prior version's
+        stored prefix for the same content hash; only then a model call.
         """
         if (
             chunk.context_prefix is not None
             and chunk.prefixer_version == E1_PREFIXER_VERSION
         ):
             return chunk.context_prefix
+        carried = carry.get(chunk.chunk_content_hash)
+        if carried is not None:
+            return carried.context_prefix
         head = document_md[chunk.char_start : chunk.char_end][:400]
         prompt = _PREFIX_PROMPT_TEMPLATE.format(
             title=source.title or "untitled",

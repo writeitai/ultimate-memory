@@ -121,6 +121,8 @@ class ExtractClaimsHandler:
                 chunk_id=chunk.chunk_id, extractor_version=E2_EXTRACTOR_VERSION
             ):
                 continue  # replay: stored claims + decisions are the output (D7)
+            if self._reuse_prior_extraction(source=source, chunk=chunk):
+                continue  # D56: the prior version's claims are re-attached
             self._extract_chunk(
                 source=source, chunks=chunks, index=index, document_md=document_md
             )
@@ -141,6 +143,40 @@ class ExtractClaimsHandler:
                 ),
             )
         )
+
+    def _reuse_prior_extraction(
+        self, *, source: ChunkSource, chunk: ChunkForEmbedding
+    ) -> bool:
+        """The D56 chunk-grain reuse rung: re-attach instead of re-extract.
+
+        An unchanged ``extraction_input_hash`` within the lineage means some
+        already-extracted chunk read the exact same stable inputs — its
+        claims are re-attached to this version's chunk row (occurrence
+        links, F4) and no model is called. A prior extraction that found
+        nothing claim-worthy carries its terminal marker forward the same
+        way. Returns False when the lineage holds no extracted match.
+        """
+        prior = self._catalog.prior_extracted_chunk(
+            deployment_id=source.deployment_id,
+            doc_id=source.doc_id,
+            version_id=chunk.version_id,
+            extraction_input_hash=chunk.extraction_input_hash,
+        )
+        if prior is None:
+            return False
+        attached = self._catalog.attach_reused_claims(
+            deployment_id=source.deployment_id,
+            chunk_id=chunk.chunk_id,
+            prior_chunk_id=prior,
+        )
+        if attached == 0:
+            # the prior chunk carries no claims — a terminal no_info: carry
+            # the marker forward so replay stays closed for this chunk too
+            self._catalog.record_extraction(
+                claims=(),
+                decisions=(_empty_extraction_marker(source=source, chunk=chunk),),
+            )
+        return True
 
     def _extract_chunk(
         self,
