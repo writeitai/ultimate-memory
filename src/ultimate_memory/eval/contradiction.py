@@ -115,9 +115,14 @@ def run_contradiction_suite(
             tn += 1
     precision = tp / (tp + fp) if (tp + fp) else None
     recall = tp / (tp + fn) if (tp + fn) else None
+    # a one-sided golden set never passes (Codex review): both real
+    # contradictions AND real non-contradictions must be measured, or the
+    # gate cannot see false positives / false negatives at all.
     passed = (
         precision is not None
         and recall is not None
+        and (tp + fn) > 0
+        and (fp + tn) > 0
         and precision >= CONTRADICTION_PRECISION_FLOOR
         and recall >= CONTRADICTION_RECALL_FLOOR
     )

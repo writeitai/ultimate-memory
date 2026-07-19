@@ -106,6 +106,9 @@ class ObservationAdjudicator:
             connection.execute(
                 _LOCK_ENTITY, {"key": f"{deployment_id}:obs:{subject_entity_id}"}
             )
+            asserted_at = connection.execute(
+                _CLAIM_ASSERTED, {"claim_id": claim_id}
+            ).scalar_one_or_none()
             exact = connection.execute(
                 _EXACT_STATEMENT,
                 {
@@ -169,6 +172,10 @@ class ObservationAdjudicator:
                     related=None,
                     contradiction_group=None,
                 )
+            # top-k is ORDERING plus a bounded comparison set — the design's
+            # own consequence rule: a skipped far candidate costs at most a
+            # duplicate coexisting row, never a wrong supersede
+            # (observations §3 step 2).
             return self._adjudicate_residue(
                 connection=connection,
                 deployment_id=deployment_id,
@@ -176,6 +183,7 @@ class ObservationAdjudicator:
                 statement=statement,
                 claim_id=claim_id,
                 doc_id=doc_id,
+                asserted_at=asserted_at,
                 ranked=ranked[: self._settings.hub_top_k],
             )
 
@@ -196,6 +204,7 @@ class ObservationAdjudicator:
         statement: str,
         claim_id: UUID,
         doc_id: UUID,
+        asserted_at: object,
         ranked: list[tuple[dict[str, object], float]],
     ) -> UUID:
         """Ladder the similar candidates; apply the first decisive outcome."""
@@ -229,6 +238,27 @@ class ObservationAdjudicator:
                 )
                 return candidate_id
             if verdict.outcome is ObservationOutcome.SUPERSEDE:
+                if not (verdict.rationale or "").strip():
+                    # an undocumented cap is an INCOMPLETE comparison — the
+                    # binding contract coerces it to coexist (Codex review)
+                    return self._insert_new(
+                        connection=connection,
+                        deployment_id=deployment_id,
+                        subject_entity_id=subject_entity_id,
+                        statement=statement,
+                        claim_id=claim_id,
+                        doc_id=doc_id,
+                        valid_from=asserted_at,
+                        outcome="noop",
+                        method=method,
+                        confidence=verdict.confidence,
+                        features={
+                            **features,
+                            "reason": "supersede without rationale -> coexist",
+                        },
+                        related=candidate_id,
+                        contradiction_group=None,
+                    )
                 if verdict.confidence < self._settings.supersede_margin:
                     # THE BINDING CONTRACT: below the margin, never cap —
                     # coexist, and say why. The failure mode is a duplicate.
@@ -249,9 +279,16 @@ class ObservationAdjudicator:
                         related=candidate_id,
                         contradiction_group=None,
                     )
+                # the cap lands at the SUCCESSOR's valid_from (D43): the
+                # new testimony's asserted time, degraded to now() only for
+                # undated testimony — the slices tile without overlap.
                 capped = connection.execute(
                     _CAP_WINDOW,
-                    {"deployment_id": deployment_id, "observation_id": candidate_id},
+                    {
+                        "deployment_id": deployment_id,
+                        "observation_id": candidate_id,
+                        "boundary": asserted_at,
+                    },
                 ).rowcount
                 new_id = self._insert_new(
                     connection=connection,
@@ -260,6 +297,7 @@ class ObservationAdjudicator:
                     statement=statement,
                     claim_id=claim_id,
                     doc_id=doc_id,
+                    valid_from=asserted_at,
                     outcome="add",
                     method=method,
                     confidence=verdict.confidence,
@@ -367,8 +405,13 @@ class ObservationAdjudicator:
         features: dict[str, object],
         related: UUID | None,
         contradiction_group: UUID | None,
+        valid_from: object = None,
     ) -> UUID:
-        """Insert one observation + evidence + its adjudication row."""
+        """Insert one observation + evidence + its adjudication row.
+
+        `valid_from` is the D41 asserted validity when the testimony is
+        dated (the supersession boundary); NULL means unknown/always.
+        """
         observation_id = uuid4()
         connection.execute(
             _INSERT_OBSERVATION,
@@ -378,6 +421,7 @@ class ObservationAdjudicator:
                 "subject_entity_id": subject_entity_id,
                 "statement": statement,
                 "contradiction_group": contradiction_group,
+                "valid_from": valid_from,
                 "normalizer_version": OBSERVATION_ADJUDICATOR_VERSION,
             },
         )
@@ -475,6 +519,7 @@ _EXACT_STATEMENT = text(
       AND subject_entity_id = :subject_entity_id
       AND statement = :statement
       AND invalidated_at IS NULL
+      AND (valid_until IS NULL OR valid_until > now())
     """
 )
 
@@ -485,7 +530,6 @@ _BLOCK_ENTITY = text(
     WHERE deployment_id = :deployment_id
       AND subject_entity_id = :subject_entity_id
       AND invalidated_at IS NULL
-      AND (valid_until IS NULL OR valid_until > now())
     ORDER BY created_at
     """
 )
@@ -494,10 +538,10 @@ _INSERT_OBSERVATION = text(
     """
     INSERT INTO observations (
         observation_id, deployment_id, subject_entity_id, statement,
-        obs_label, contradiction_group, normalizer_version
+        obs_label, contradiction_group, valid_from, normalizer_version
     ) VALUES (
         :observation_id, :deployment_id, :subject_entity_id, :statement,
-        :statement, :contradiction_group, :normalizer_version
+        :statement, :contradiction_group, :valid_from, :normalizer_version
     )
     """
 )
@@ -505,9 +549,10 @@ _INSERT_OBSERVATION = text(
 _CAP_WINDOW = text(
     """
     UPDATE observations
-    SET valid_until = now(), updated_at = now()
+    SET valid_until = coalesce(:boundary, now()), updated_at = now()
     WHERE deployment_id = :deployment_id AND observation_id = :observation_id
-      AND (valid_until IS NULL OR valid_until > now())
+      AND (valid_until IS NULL
+           OR valid_until > coalesce(:boundary, now()))
     """
 )
 
@@ -558,3 +603,5 @@ _INSERT_ADJUDICATION = text(
     )
     """
 ).bindparams(bindparam("features", type_=JSON))
+
+_CLAIM_ASSERTED = text("SELECT asserted_at FROM claims WHERE claim_id = :claim_id")

@@ -142,13 +142,45 @@ def _entity(*, engine: Engine) -> UUID:
     return entity_id
 
 
-def _add(*, adjudicator: ObservationAdjudicator, entity: UUID, statement: str) -> UUID:
-    """One observation through the cascade with a fresh claim."""
+def _add(
+    *,
+    adjudicator: ObservationAdjudicator,
+    entity: UUID,
+    statement: str,
+    engine: Engine | None = None,
+    asserted_at: str | None = None,
+) -> UUID:
+    """One observation through the cascade with a fresh claim.
+
+    With `asserted_at`, a real dated claim row backs the testimony (the D41
+    seed the boundary math reads); without it, the testimony is undated.
+    """
+    claim_id = uuid4()
+    if asserted_at is not None and engine is not None:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO claims (claim_id, deployment_id, doc_id,"
+                    " chunk_id, claim_text, source_span, char_start, char_end,"
+                    " anchor_ok, window_membership_ok, extractor_version,"
+                    " asserted_at)"
+                    " VALUES (:c, :d, :doc, :ch, :s, :s, 0, 1, true, true,"
+                    " 'test', CAST(:a AS timestamptz))"
+                ),
+                {
+                    "c": claim_id,
+                    "d": _DEPLOYMENT_ID,
+                    "doc": uuid4(),
+                    "ch": uuid4(),
+                    "s": statement,
+                    "a": asserted_at,
+                },
+            )
     return adjudicator.add_observation(
         deployment_id=_DEPLOYMENT_ID,
         subject_entity_id=entity,
         statement=statement,
-        claim_id=uuid4(),
+        claim_id=claim_id,
         doc_id=uuid4(),
     )
 
@@ -251,8 +283,13 @@ def test_supersede_below_margin_is_coerced_to_coexist(database_engine: Engine) -
     the failure mode is a duplicate, never an overwrite."""
 
     def low_margin_router(prompt: str, type_name: str) -> dict[str, object]:
-        return {"outcome": "supersede", "confidence": 0.79}  # above the 0.75
-        # ladder floor (no frontier re-ask), below the 0.8 supersede margin
+        # above the 0.75 ladder floor (no frontier re-ask), below the 0.8
+        # supersede margin; rationale present so ONLY the margin coerces
+        return {
+            "outcome": "supersede",
+            "confidence": 0.79,
+            "rationale": "probably moved on",
+        }
 
     adjudicator, _ = _adjudicator(engine=database_engine, router=low_margin_router)
     acme = _entity(engine=database_engine)
@@ -325,13 +362,25 @@ def test_s9_headcount_as_of_mid_window(database_engine: Engine) -> None:
 
     adjudicator, provider = _adjudicator(engine=database_engine)
     acme = _entity(engine=database_engine)
-    _add(adjudicator=adjudicator, entity=acme, statement="Acme's headcount is 500")
-    _add(adjudicator=adjudicator, entity=acme, statement="Acme's headcount is 600")
+    _add(
+        adjudicator=adjudicator,
+        entity=acme,
+        statement="Acme's headcount is 500",
+        engine=database_engine,
+        asserted_at="2023-12-31+00",
+    )
+    _add(
+        adjudicator=adjudicator,
+        entity=acme,
+        statement="Acme's headcount is 600",
+        engine=database_engine,
+        asserted_at="2025-01-15+00",
+    )
     with database_engine.connect() as connection:
         cap = connection.execute(
             text("SELECT valid_until FROM observations WHERE valid_until IS NOT NULL")
         ).scalar_one()
-    mid_window = cap - timedelta(microseconds=1)  # just inside O1's window
+    mid_window = cap - timedelta(days=200)  # mid-2024: inside O1's window
 
     engine = QueryEngine(
         engine=database_engine,
@@ -344,4 +393,64 @@ def test_s9_headcount_as_of_mid_window(database_engine: Engine) -> None:
     era = engine.lookup_observations(
         deployment_id=_DEPLOYMENT_ID, entity_id=acme, valid_at=mid_window
     )
-    assert "Acme's headcount is 500" in {fact.label for fact in era.facts}
+    # EXACTLY the capped slice (Codex review): the successor's valid_from is
+    # the cap boundary, so 600 is not yet valid inside O1's window.
+    assert [fact.label for fact in era.facts] == ["Acme's headcount is 500"]
+
+
+def test_supersede_without_rationale_is_an_incomplete_comparison(
+    database_engine: Engine,
+) -> None:
+    """Codex review: an undocumented cap is refused — a supersede verdict
+    with no rationale coerces to coexist (no silent caps, ever)."""
+
+    def no_rationale_router(prompt: str, type_name: str) -> dict[str, object]:
+        return {"outcome": "supersede", "confidence": 0.95}
+
+    adjudicator, _ = _adjudicator(engine=database_engine, router=no_rationale_router)
+    acme = _entity(engine=database_engine)
+    _add(adjudicator=adjudicator, entity=acme, statement="Acme's headcount is 500")
+    second = _add(
+        adjudicator=adjudicator, entity=acme, statement="Acme's headcount is 600"
+    )
+    with database_engine.connect() as connection:
+        capped = connection.execute(
+            text("SELECT count(*) FROM observations WHERE valid_until IS NOT NULL")
+        ).scalar_one()
+        reason = connection.execute(
+            text(
+                "SELECT features->>'reason' FROM observation_adjudications"
+                " WHERE observation_id = :o"
+            ),
+            {"o": second},
+        ).scalar_one()
+    assert capped == 0
+    assert "without rationale" in str(reason)
+
+
+def test_one_sided_golden_set_never_passes_the_gate(database_engine: Engine) -> None:
+    """Codex review: a golden set with only positives (or only negatives)
+    cannot measure false positives — the gate blocks it."""
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO canary_cases (canary_id, deployment_id, suite,"
+                " description, input, expected) VALUES (:i, :d, 'contradiction',"
+                " 'only positive', CAST(:inp AS jsonb), CAST(:exp AS jsonb))"
+            ),
+            {
+                "i": uuid4(),
+                "d": _DEPLOYMENT_ID,
+                "inp": '{"existing": "Acme FY2023 revenue was $5M",'
+                ' "new": "Acme FY2023 revenue was $9M"}',
+                "exp": '{"contradiction": true}',
+            },
+        )
+    adjudicator, _ = _adjudicator(engine=database_engine)
+    report = run_contradiction_suite(
+        engine=database_engine,
+        adjudicator=adjudicator,
+        deployment_id=_DEPLOYMENT_ID,
+        component_version=OBSERVATION_ADJUDICATOR_VERSION,
+    )
+    assert not report["passed"]  # one-sided: unmeasurable, never approved
