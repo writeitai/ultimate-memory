@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import time
 from uuid import UUID
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
@@ -28,6 +29,7 @@ from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.model import SyntheticRootRecord
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import SyncCatalog
@@ -93,6 +95,7 @@ class _WatchRig:
         raw_store = LocalFSObjectStore(root=root / "raw")
         artifact_store = LocalFSObjectStore(root=root / "artifacts")
         catalog = DocumentCatalog(engine=engine)
+        self.catalog = catalog
         self.runner = SyncCycleRunner(
             catalog=SyncCatalog(engine=engine),
             ingestor=UploadIngestor(catalog=catalog, raw_store=raw_store),
@@ -124,12 +127,12 @@ class _WatchRig:
             registry=registry,
         )
 
-    def cycle(self):
-        """One recorded poll pass."""
+    def cycle(self, source: object = None):
+        """One recorded poll pass (optionally through a wrapped source)."""
         return self.runner.run_cycle(
             deployment_id=_DEPLOYMENT_ID,
             source_kind="watched_directory",
-            source=self.watcher,
+            source=source or self.watcher,  # type: ignore[arg-type]
         )
 
     def drain_e0(self) -> None:
@@ -220,6 +223,41 @@ def test_edit_becomes_a_new_version_of_the_same_lineage(rig: _WatchRig) -> None:
     assert mode == "living"  # the edit-in-place heuristic
     assert current == 2
 
+    # Codex review: a DELAYED completion of the older version (an out-of-order
+    # or replayed chain finish) must never drag the currency pointer back.
+    with rig.engine.connect() as connection:
+        stale = (
+            connection.execute(
+                text(
+                    "SELECT doc_id, version_id, current_representation_id"
+                    " FROM document_versions WHERE version_no = 1"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    rig.catalog.record_synthetic_root(
+        record=SyntheticRootRecord(
+            section_id=uuid4(),
+            deployment_id=_DEPLOYMENT_ID,
+            doc_id=stale["doc_id"],
+            version_id=stale["version_id"],
+            representation_id=stale["current_representation_id"],
+            block_count=1,
+            markdown_chars=10,
+            title="roster",
+            structurer_version="synthetic-root-1",
+        )
+    )
+    with rig.engine.connect() as connection:
+        still_current = connection.execute(
+            text(
+                "SELECT v.version_no FROM documents d"
+                " JOIN document_versions v ON v.version_id = d.current_version_id"
+            )
+        ).scalar_one()
+    assert still_current == 2  # the pointer only moves forward
+
 
 def test_debounce_coalesces_active_edits(rig: _WatchRig) -> None:
     """A freshly modified file waits out the quiet window."""
@@ -245,14 +283,184 @@ def test_source_deletion_tombstones_the_lineage(rig: _WatchRig) -> None:
     again = rig.cycle()
     assert again.deletions_observed == ()  # already tombstoned: no re-fire
     with rig.engine.connect() as connection:
-        deleted_at = connection.execute(
-            text("SELECT deleted_at FROM documents WHERE source_ref = 'gone.md'")
-        ).scalar_one()
+        tombstone = (
+            connection.execute(
+                text(
+                    "SELECT deleted_at, deleted_sync_cycle_id"
+                    " FROM documents WHERE source_ref = 'gone.md'"
+                )
+            )
+            .mappings()
+            .one()
+        )
         cycles = connection.execute(
             text(
                 "SELECT count(*) FROM connector_sync_cycles"
                 " WHERE completed_at IS NOT NULL"
             )
         ).scalar_one()
-    assert deleted_at is not None
+    assert tombstone["deleted_at"] is not None
+    # the deletion is stamped with the cycle that observed it (D55 barrier):
+    assert tombstone["deleted_sync_cycle_id"] == removal.cycle_id
     assert cycles >= 3  # every pass recorded and completed
+
+
+def test_recreated_source_resurrects_its_lineage(rig: _WatchRig) -> None:
+    """Codex review: delete-and-recreate must self-heal (D55) — the recreated
+    file is the SAME lineage, live again, not a permanently dead row that
+    gets refetched forever."""
+    rig.write(name="phoenix.md", content="first life\n", mtime_offset=-400.0)
+    rig.cycle()
+    (rig.source_dir / "phoenix.md").unlink()
+    rig.cycle()
+    rig.write(name="phoenix.md", content="second life\n", mtime_offset=-200.0)
+    revived = rig.cycle()
+    assert len(revived.ingested) == 1
+    with rig.engine.connect() as connection:
+        lineage = (
+            connection.execute(
+                text(
+                    "SELECT deleted_at, deleted_sync_cycle_id"
+                    " FROM documents WHERE source_ref = 'phoenix.md'"
+                )
+            )
+            .mappings()
+            .one()  # .one() also proves it stayed a single lineage
+        )
+        top_version = connection.execute(
+            text("SELECT max(version_no) FROM document_versions")
+        ).scalar_one()
+    assert lineage["deleted_at"] is None
+    assert lineage["deleted_sync_cycle_id"] is None
+    assert top_version == 2  # a new version on the resurrected lineage
+
+
+class _CountingSource:
+    """Wrap a watched source to count fetches (proving the no-fetch exits)."""
+
+    def __init__(self, inner: LocalDirectoryWatcher) -> None:
+        """Wrap the real watcher."""
+        self.inner = inner
+        self.fetches = 0
+
+    def poll(self, *, known):  # noqa: ANN001, ANN201 — port passthrough
+        """Delegate."""
+        return self.inner.poll(known=known)
+
+    def fetch(self, *, source_ref: str) -> bytes:
+        """Count, then delegate."""
+        self.fetches += 1
+        return self.inner.fetch(source_ref=source_ref)
+
+
+def test_revision_churn_with_same_bytes_fetches_once(rig: _WatchRig) -> None:
+    """Codex review: a touch (new revision, identical bytes) is fetched once —
+    the content-hash no-op advances the revision cursor, so later polls take
+    the no-fetch exit instead of refetching forever."""
+    counting = _CountingSource(rig.watcher)
+    rig.write(name="touched.md", content="stable words\n", mtime_offset=-400.0)
+    first = rig.cycle(source=counting)
+    assert len(first.ingested) == 1
+    assert counting.fetches == 1
+    rig.write(name="touched.md", content="stable words\n", mtime_offset=-200.0)
+    churn = rig.cycle(source=counting)
+    assert churn.unchanged == 1  # fetched, recognized as the same content
+    assert counting.fetches == 2
+    settled = rig.cycle(source=counting)
+    assert settled.unchanged == 1  # revision no-op: cursor advanced, no fetch
+    assert counting.fetches == 2
+
+
+def test_content_revert_becomes_a_new_forward_version(rig: _WatchRig) -> None:
+    """Codex review: content reverted A→B→A is a new observation — a third
+    version moving the lineage forward, never a silent fall-back to the old
+    version while the pointer serves stale content."""
+    for offset, content in ((-600.0, "state A\n"), (-400.0, "state B\n")):
+        rig.write(name="revert.md", content=content, mtime_offset=offset)
+        rig.cycle()
+        rig.drain_e0()
+    rig.write(name="revert.md", content="state A\n", mtime_offset=-200.0)
+    reverted = rig.cycle()
+    assert len(reverted.ingested) == 1
+    rig.drain_e0()
+    with rig.engine.connect() as connection:
+        rows = (
+            connection.execute(
+                text(
+                    "SELECT version_no, content_hash FROM document_versions"
+                    " ORDER BY version_no"
+                )
+            )
+            .mappings()
+            .all()
+        )
+        current = connection.execute(
+            text(
+                "SELECT v.version_no FROM documents d"
+                " JOIN document_versions v ON v.version_id = d.current_version_id"
+            )
+        ).scalar_one()
+    assert [row["version_no"] for row in rows] == [1, 2, 3]
+    assert rows[2]["content_hash"] == rows[0]["content_hash"]  # same object
+    assert current == 3
+
+
+class _FlakySource:
+    """Wrap a watched source so fetching one ref always fails."""
+
+    def __init__(self, inner: LocalDirectoryWatcher, *, poison: str) -> None:
+        """Wrap the real watcher; `poison` is the ref that fails."""
+        self.inner = inner
+        self.poison = poison
+
+    def poll(self, *, known):  # noqa: ANN001, ANN201 — port passthrough
+        """Delegate."""
+        return self.inner.poll(known=known)
+
+    def fetch(self, *, source_ref: str) -> bytes:
+        """Fail on the poisoned ref, delegate otherwise."""
+        if source_ref == self.poison:
+            raise ConnectionError("source went away mid-cycle")
+        return self.inner.fetch(source_ref=source_ref)
+
+
+def test_one_bad_item_does_not_strand_the_cycle(rig: _WatchRig) -> None:
+    """Codex review: a per-item failure is counted on the cycle row, the rest
+    of the pass lands, and the cycle still completes — an eternally open
+    cycle could never pass reconciliation's finalization barrier."""
+    rig.write(name="good.md", content="lands fine\n")
+    rig.write(name="bad.md", content="never fetched\n")
+    summary = rig.cycle(source=_FlakySource(rig.watcher, poison="bad.md"))
+    assert summary.failed == 1
+    assert len(summary.ingested) == 1
+    with rig.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT completed_at, failed_items FROM connector_sync_cycles"
+                    " WHERE cycle_id = :cycle_id"
+                ),
+                {"cycle_id": summary.cycle_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["completed_at"] is not None
+    assert row["failed_items"] == 1
+    # the poisoned file is not lost — a later healthy cycle picks it up:
+    healed = rig.cycle()
+    assert len(healed.ingested) == 1
+
+
+def test_symlinks_escaping_the_root_are_refused(rig: _WatchRig, tmp_path: Path) -> None:
+    """Codex review: a symlink pointing outside the watched root must neither
+    be polled nor fetchable — the watcher is not a read primitive for the
+    rest of the filesystem."""
+    outside = tmp_path / "outside-secret.md"
+    outside.write_text("not yours\n")
+    rig.write(name="honest.md", content="fine\n")
+    (rig.source_dir / "sneaky.md").symlink_to(outside)
+    summary = rig.cycle()
+    assert summary.observed == 1  # only honest.md; the escape was skipped
+    with pytest.raises(PermissionError):
+        rig.watcher.fetch(source_ref="../outside-secret.md")

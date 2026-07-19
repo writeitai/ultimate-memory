@@ -165,3 +165,4 @@ class SyncCycleSummary(BaseModel):
     unchanged: int = 0
     debounced: int = 0
     deletions_observed: tuple[UUID, ...] = ()  # lineage ids tombstoned
+    failed: int = 0  # items lost to per-item errors; the cycle is lossy

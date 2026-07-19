@@ -41,10 +41,15 @@ class DocumentCatalog:
     ) -> IngestedVersion:
         """Land one upload's rows and enqueue its convert work in one transaction.
 
-        Identical bytes re-ingested are the D55 content-hash no-op: the
-        existing version is returned with ``created=False`` and no new work is
-        created (the idempotent enqueue still runs, healing a crash that
-        committed rows without their work row).
+        Bytes identical to the lineage's LATEST version are the D55
+        content-hash no-op: that version is returned with ``created=False``,
+        no new work is created (the idempotent enqueue still runs, healing a
+        crash that committed rows without their work row), and the version's
+        source cursor advances to the newly observed revision — revision
+        churn without byte changes must not refetch forever. Bytes matching
+        only an OLDER version (content reverted A→B→A) are a new observation
+        and become a new version: the lineage moves forward, never silently
+        back to a stale current pointer.
         """
         with self._engine.begin() as connection:
             doc_id = _lineage_locked(connection=connection, record=record)
@@ -58,16 +63,16 @@ class DocumentCatalog:
                     "raw_uri": record.raw_uri,
                 },
             )
-            existing = connection.execute(
-                _SELECT_VERSION_BY_CONTENT,
-                {
-                    "deployment_id": record.deployment_id,
-                    "doc_id": doc_id,
-                    "content_hash": record.content_hash,
-                },
-            ).scalar_one_or_none()
-            created = existing is None
-            version_id = existing if existing is not None else uuid4()
+            latest = (
+                connection.execute(
+                    _SELECT_LATEST_VERSION,
+                    {"deployment_id": record.deployment_id, "doc_id": doc_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            created = latest is None or latest["content_hash"] != record.content_hash
+            version_id = uuid4() if created or latest is None else latest["version_id"]
             if created:
                 connection.execute(
                     _INSERT_VERSION,
@@ -79,6 +84,15 @@ class DocumentCatalog:
                         "source_modified_at": record.source_modified_at,
                         "source_version_ref": record.source_version_ref,
                         "sync_cycle_id": record.sync_cycle_id,
+                    },
+                )
+            elif record.source_version_ref is not None:
+                connection.execute(
+                    _ADVANCE_VERSION_CURSOR,
+                    {
+                        "version_id": version_id,
+                        "source_version_ref": record.source_version_ref,
+                        "source_modified_at": record.source_modified_at,
                     },
                 )
             enqueue_on(
@@ -196,8 +210,10 @@ class DocumentCatalog:
         whole. The walking skeleton's chain ends at structure; when the E1/E2
         stages land, this flip moves with the chain's end (D54's rule is
         "after conversion→E1→E2 completes"). Every statement is idempotent for
-        a retried attempt, and the pointer swap never overwrites a different
-        live representation.
+        a retried attempt, the pointer swap never overwrites a different
+        live representation, and the currency pointer only moves FORWARD by
+        version number — a delayed older version completing after a newer
+        one must not drag the lineage back to stale content.
         """
         with self._engine.begin() as connection:
             connection.execute(
@@ -244,7 +260,11 @@ def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
     """Create or lock the upload's lineage row; returns its doc_id.
 
     The insert-or-lock serializes concurrent ingests of one lineage so the
-    version-number assignment below it is race-free.
+    version-number assignment below it is race-free. An ingest is an
+    observation that the source EXISTS, so a tombstoned lineage re-observed
+    (delete-and-recreate, D55's self-healing case) is resurrected here —
+    otherwise the recreated file would attach versions to a dead lineage
+    that never resurfaces and gets refetched on every poll.
     """
     inserted = connection.execute(
         _INSERT_DOCUMENT,
@@ -260,7 +280,7 @@ def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
     ).scalar_one_or_none()
     if inserted is not None:
         return inserted
-    return connection.execute(
+    doc_id = connection.execute(
         _SELECT_DOCUMENT_LOCKED,
         {
             "deployment_id": record.deployment_id,
@@ -268,6 +288,8 @@ def _lineage_locked(*, connection: Connection, record: UploadRecord) -> UUID:
             "source_ref": record.source_ref,
         },
     ).scalar_one()
+    connection.execute(_RESURRECT_LINEAGE, {"doc_id": doc_id})
+    return doc_id
 
 
 _INSERT_DOCUMENT = text(
@@ -305,12 +327,29 @@ _INSERT_CONTENT_OBJECT = text(
     """
 )
 
-_SELECT_VERSION_BY_CONTENT = text(
+_SELECT_LATEST_VERSION = text(
     """
-    SELECT version_id FROM document_versions
-    WHERE deployment_id = :deployment_id
-      AND doc_id = :doc_id
-      AND content_hash = :content_hash
+    SELECT version_id, content_hash FROM document_versions
+    WHERE deployment_id = :deployment_id AND doc_id = :doc_id
+    ORDER BY version_no DESC
+    LIMIT 1
+    """
+)
+
+_ADVANCE_VERSION_CURSOR = text(
+    """
+    UPDATE document_versions
+    SET source_version_ref = :source_version_ref,
+        source_modified_at = :source_modified_at
+    WHERE version_id = :version_id
+    """
+)
+
+_RESURRECT_LINEAGE = text(
+    """
+    UPDATE documents
+    SET deleted_at = NULL, deleted_sync_cycle_id = NULL
+    WHERE doc_id = :doc_id AND deleted_at IS NOT NULL
     """
 )
 
@@ -436,9 +475,14 @@ _SELECT_EXISTING_REPRESENTATION = text(
 
 _MARK_LINEAGE_CURRENT = text(
     """
-    UPDATE documents
+    UPDATE documents d
     SET current_version_id = :version_id, last_observed_at = now()
-    WHERE doc_id = :doc_id
+    WHERE d.doc_id = :doc_id
+      AND (d.current_version_id IS NULL
+           OR (SELECT version_no FROM document_versions
+               WHERE version_id = d.current_version_id)
+              < (SELECT version_no FROM document_versions
+                 WHERE version_id = :version_id))
     """
 )
 

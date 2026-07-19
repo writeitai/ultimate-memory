@@ -34,17 +34,29 @@ class SyncCatalog:
             )
         return cycle_id
 
-    def complete_cycle(self, *, cycle_id: UUID, observed: int) -> None:
-        """The poll pass ended (finalization is reconciliation's job)."""
+    def complete_cycle(self, *, cycle_id: UUID, observed: int, failed: int) -> None:
+        """The poll pass ended (finalization is reconciliation's job).
+
+        ``failed`` counts items lost to per-item errors: a lossy cycle says
+        so on its own row, because reconciliation must never treat its
+        observation set as complete.
+        """
         with self._engine.begin() as connection:
             connection.execute(
-                _COMPLETE_CYCLE, {"cycle_id": cycle_id, "observed": observed}
+                _COMPLETE_CYCLE,
+                {"cycle_id": cycle_id, "observed": observed, "failed": failed},
             )
 
     def known_revisions(
         self, *, deployment_id: UUID, source_kind: str
     ) -> dict[str, str]:
-        """Each live lineage's last ingested revision (the no-fetch key)."""
+        """Each live lineage's last ingested revision (the no-fetch key).
+
+        The cursor is the LATEST version's source revision, not the current
+        pointer's: a just-ingested version whose chain is still running
+        already covers its revision — reading the currency pointer instead
+        would refetch the in-flight content on every poll.
+        """
         with self._engine.connect() as connection:
             rows = connection.execute(
                 _KNOWN_REVISIONS,
@@ -53,12 +65,14 @@ class SyncCatalog:
         return {source_ref: revision or "" for source_ref, revision in rows}
 
     def observe_deletion(
-        self, *, deployment_id: UUID, source_kind: str, source_ref: str
+        self, *, deployment_id: UUID, source_kind: str, source_ref: str, cycle_id: UUID
     ) -> UUID | None:
         """Tombstone a source-deleted lineage (loud, recorded, idempotent).
 
-        The downstream cascade (claims currency, fact closure per mode,
-        artifact removal) is the delete worker's job.
+        The tombstone is stamped with the observing cycle so reconciliation
+        can place the deletion inside its cycle barrier. The downstream
+        cascade (claims currency, fact closure per mode, artifact removal)
+        is the delete worker's job.
         """
         with self._engine.begin() as connection:
             return connection.execute(
@@ -67,6 +81,7 @@ class SyncCatalog:
                     "deployment_id": deployment_id,
                     "source_kind": source_kind,
                     "source_ref": source_ref,
+                    "cycle_id": cycle_id,
                 },
             ).scalar_one_or_none()
 
@@ -81,26 +96,29 @@ _OPEN_CYCLE = text(
 _COMPLETE_CYCLE = text(
     """
     UPDATE connector_sync_cycles
-    SET completed_at = now(), observed_lineages = :observed
+    SET completed_at = now(), observed_lineages = :observed,
+        failed_items = :failed
     WHERE cycle_id = :cycle_id
     """
 )
 
 _KNOWN_REVISIONS = text(
     """
-    SELECT d.source_ref, v.source_version_ref
+    SELECT DISTINCT ON (d.doc_id) d.source_ref, v.source_version_ref
     FROM documents d
-    LEFT JOIN document_versions v ON v.version_id = d.current_version_id
+    LEFT JOIN document_versions v ON v.doc_id = d.doc_id
     WHERE d.deployment_id = :deployment_id
       AND d.source_kind = :source_kind
       AND d.deleted_at IS NULL
       AND d.source_ref IS NOT NULL
+    ORDER BY d.doc_id, v.version_no DESC NULLS LAST
     """
 )
 
 _TOMBSTONE_LINEAGE = text(
     """
-    UPDATE documents SET deleted_at = now()
+    UPDATE documents
+    SET deleted_at = now(), deleted_sync_cycle_id = :cycle_id
     WHERE deployment_id = :deployment_id
       AND source_kind = :source_kind
       AND source_ref = :source_ref

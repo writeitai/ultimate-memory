@@ -25,12 +25,20 @@ class LocalDirectoryWatcher:
         self._root.mkdir(parents=True, exist_ok=True)
 
     def poll(self, *, known: Mapping[str, str]) -> tuple[SourceItem, ...]:
-        """Every current file, plus deletion markers for vanished refs."""
+        """Every current file, plus deletion markers for vanished refs.
+
+        Paths that resolve outside the root (symlinks pointing elsewhere)
+        are skipped: a writable watched directory must not become a lever
+        for ingesting arbitrary readable files into memory.
+        """
+        base = self._root.resolve()
         items: list[SourceItem] = []
         seen: set[str] = set()
         for path in sorted(self._root.rglob("*")):
             if not path.is_file() or path.suffix not in _MIME_BY_SUFFIX:
                 continue
+            if not path.resolve().is_relative_to(base):
+                continue  # a symlink escaping the root is not a watched file
             ref = path.relative_to(self._root).as_posix()
             seen.add(ref)
             stat = path.stat()
@@ -55,5 +63,8 @@ class LocalDirectoryWatcher:
         return tuple(items)
 
     def fetch(self, *, source_ref: str) -> bytes:
-        """The file's current bytes."""
-        return (self._root / source_ref).read_bytes()
+        """The file's current bytes; refs escaping the root are refused."""
+        path = (self._root / source_ref).resolve()
+        if not path.is_relative_to(self._root.resolve()):
+            raise PermissionError(f"{source_ref!r} escapes the watched root")
+        return path.read_bytes()
