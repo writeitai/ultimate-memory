@@ -11,7 +11,7 @@ feeds `entity_graph_metrics`.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-4.1 | **D44 spike battery first**: UUID PK smoke, ATTACH throughput, merge-recursion gate, as-of path perf, retention, NULL timestamps | questions #20a; p2 §5b; ladybug rulebooks (analysis) | Phase 3 | spike report | all six recorded; transport decision confirmed | planned |
+| WP-4.1 | **D44 spike battery first**: UUID PK smoke, ATTACH throughput, merge-recursion gate, as-of path perf, retention, NULL timestamps | questions #20a; p2 §5b; ladybug rulebooks (analysis) | Phase 3 | spike report | all six recorded; transport decision confirmed | done (PR #100; `plan/analysis/p2_spike_battery.md` — ATTACH dead on capability grounds, Parquet transport confirmed) |
 | WP-4.2 | `v_graph_*` views + rebuild worker (Parquet hop) + validation gate + snapshots + reader hot-swap | p2 §2, §5; schema §10.A; D7, D44 | WP-4.1 | P2 pipeline | rebuild on toy corpus; merge-redirect + keep-retracted tests | planned |
 | WP-4.3 | Graph retrieval: neighborhood/path primitives + as-of inline filters + graph-distance rerank | p2 §4, §6; retrieval §3 | WP-4.2 | `graph` primitive | S17–S22 green | planned |
 | WP-4.4 | Communities external pass + writeback | p2 §7; D11 | WP-4.2 | community job | assignments in PG; K rule-key kind usable | planned |
