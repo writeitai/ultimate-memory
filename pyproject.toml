@@ -45,6 +45,9 @@ dependencies = [
     "sqlalchemy>=2.0",
 ]
 
+[project.scripts]
+ugm = "ultimate_memory.surfaces.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/writeitai/ultimate-memory"
 Repository = "https://github.com/writeitai/ultimate-memory"

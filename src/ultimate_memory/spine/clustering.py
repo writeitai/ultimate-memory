@@ -317,37 +317,18 @@ class EntityClusterer:
         """Redirect each absorbed entity into the survivor, snapshot first."""
         events: list[UUID] = []
         for absorbed_id in proposal.absorbed_ids:
-            snapshot = _membership_snapshot(
+            merge_id = apply_merge(
                 connection=connection,
                 deployment_id=deployment_id,
-                entity_ids=(proposal.survivor_id, absorbed_id),
+                survivor_id=proposal.survivor_id,
+                absorbed_id=absorbed_id,
+                trigger_lemmas=[trigger_lemma],
+                evidence={"mean_distance": proposal.mean_distance},
+                blast_radius=proposal.blast_radius,
+                decided_by="auto",
             )
-            redirected = connection.execute(
-                _REDIRECT_ABSORBED,
-                {
-                    "deployment_id": deployment_id,
-                    "entity_id": absorbed_id,
-                    "survivor_id": proposal.survivor_id,
-                },
-            ).rowcount
-            if redirected != 1:
-                continue  # already merged here (piece agreement): no new event
-            merge_id = uuid4()
-            connection.execute(
-                _INSERT_MERGE_EVENT,
-                {
-                    "merge_id": merge_id,
-                    "deployment_id": deployment_id,
-                    "survivor_id": proposal.survivor_id,
-                    "absorbed_id": absorbed_id,
-                    "trigger_lemmas": [trigger_lemma],
-                    "evidence": {"mean_distance": proposal.mean_distance},
-                    "blast_radius": proposal.blast_radius,
-                    "snapshot": snapshot,
-                    "decided_by": "auto",
-                },
-            )
-            events.append(merge_id)
+            if merge_id is not None:
+                events.append(merge_id)
         return events
 
     def _queue_for_review(
@@ -375,6 +356,57 @@ class EntityClusterer:
                 "expected_impact": proposal.blast_radius * (1.0 - confidence),
             },
         )
+
+
+def apply_merge(
+    *,
+    connection: Connection,
+    deployment_id: UUID,
+    survivor_id: UUID,
+    absorbed_id: UUID,
+    trigger_lemmas: list[str],
+    evidence: dict[str, object],
+    blast_radius: int,
+    decided_by: str,
+) -> UUID | None:
+    """Perform one reversible merge on an open transaction (D21).
+
+    Snapshot first, redirect (rowcount-guarded: an already-merged entity
+    mints no duplicate event), then the append-only event. Shared by the
+    auto clusterer and human review verdicts — one mechanism, one audit
+    shape. Returns the merge id, or None if nothing was redirected.
+    """
+    snapshot = _membership_snapshot(
+        connection=connection,
+        deployment_id=deployment_id,
+        entity_ids=(survivor_id, absorbed_id),
+    )
+    redirected = connection.execute(
+        _REDIRECT_ABSORBED,
+        {
+            "deployment_id": deployment_id,
+            "entity_id": absorbed_id,
+            "survivor_id": survivor_id,
+        },
+    ).rowcount
+    if redirected != 1:
+        return None
+    merge_id = uuid4()
+    connection.execute(
+        _INSERT_MERGE_EVENT,
+        {
+            "merge_id": merge_id,
+            "deployment_id": deployment_id,
+            "survivor_id": survivor_id,
+            "absorbed_id": absorbed_id,
+            "trigger_lemmas": trigger_lemmas,
+            "evidence": evidence,
+            "blast_radius": blast_radius,
+            "snapshot": snapshot,
+            "decided_by": decided_by,
+        },
+    )
+    return merge_id
 
 
 def _hac_pieces(

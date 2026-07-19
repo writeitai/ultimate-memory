@@ -69,3 +69,22 @@ class ObservationVerdict(BaseModel):
     outcome: ObservationOutcome
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
     rationale: str | None = None
+
+
+class ReviewItem(BaseModel):
+    """One open review-queue item as the CLI lists it (D24)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    review_id: UUID
+    item_kind: str
+    candidate: dict[str, object]
+    blast_radius: int
+    confidence: float
+    expected_impact: float
+    status: str
+    created_at: UTCDateTime
+
+
+class ReviewDecisionError(Exception):
+    """A verdict that does not fit the item (wrong kind, closed, unknown)."""
