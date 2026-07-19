@@ -200,9 +200,7 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
             "query": {"type": "string", "required": True},
             "k": {"type": "integer", "required": False, "default": 10},
         },
-        chain=(
-            RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),
-        ),
+        chain=(RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),),
         output_grain=Grain.EVIDENCE,
         answer_intent=RecipeAnswerIntent.ASSERTION_HISTORY,
     ),
