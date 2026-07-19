@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from ultimate_memory.model.adjudication import TranscriptEntry
 from ultimate_memory.model.queue import UTCDateTime
 
 
@@ -86,6 +87,7 @@ class FactResult(BaseModel):
     label: str
     evidence_count: int
     validity: Validity
+    contradiction_group: UUID | None = None  # S23: co-members never silent
 
 
 class EvidenceResult(BaseModel):
@@ -121,10 +123,12 @@ class Envelope(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     grain: Grain
+    as_of_valid_at: UTCDateTime | None = None  # echo of the applied valid_at
     entities: tuple[EntityCandidate, ...] = ()
     facts: tuple[FactResult, ...] = ()
     evidence: tuple[EvidenceResult, ...] = ()
     sources: tuple[SourceRecord, ...] = ()
+    transcript: tuple["TranscriptEntry", ...] = ()  # S8: the audit surface
     freshness: Freshness
     dropped_by_hydration: int = 0
     negative: Negative | None = None

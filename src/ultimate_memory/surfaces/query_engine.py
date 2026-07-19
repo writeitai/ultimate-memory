@@ -25,6 +25,7 @@ from ultimate_memory.model import Grain
 from ultimate_memory.model import Negative
 from ultimate_memory.model import NegativeKind
 from ultimate_memory.model import SourceRecord
+from ultimate_memory.model import TranscriptEntry
 from ultimate_memory.model import Validity
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.p1_index import P1SearchPort
@@ -102,13 +103,18 @@ class QueryEngine:
         subject_entity_id: UUID | None = None,
         predicate: str | None = None,
         object_entity_id: UUID | None = None,
+        valid_at: datetime | None = None,
     ) -> Envelope:
-        """CURRENT relations matching the (s, p, o) pattern — fact grain (S1/S3).
+        """Relations matching the (s, p, o) pattern — fact grain (S1/S3/S9).
 
-        Current means both clocks: still believed (no invalidation) AND the
-        valid-time window covers now. An existing entity with no matching
-        live facts is `known_empty` (S39).
+        Without `valid_at`, current means both clocks: still believed AND the
+        valid-time window covers now. With `valid_at`, the window test moves
+        to that instant (the S9-class as-of read; belief stays live — the
+        believed_at axis arrives with its own parameter). The applied instant
+        is echoed in the envelope. An existing entity with no matching facts
+        is `known_empty` (S39).
         """
+        as_of = valid_at or datetime.now(tz=UTC)
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -118,6 +124,7 @@ class QueryEngine:
                         "subject_entity_id": subject_entity_id,
                         "predicate": predicate,
                         "object_entity_id": object_entity_id,
+                        "as_of": as_of,
                     },
                 )
                 .mappings()
@@ -126,6 +133,7 @@ class QueryEngine:
         facts = tuple(_fact_result(row=row, kind="relation") for row in rows)
         return Envelope(
             grain=Grain.FACT,
+            as_of_valid_at=valid_at,
             facts=facts,
             freshness=_freshness(),
             negative=None
@@ -272,6 +280,36 @@ class QueryEngine:
             freshness=_freshness(),
         )
 
+    def transcript_relation(
+        self, *, deployment_id: UUID, relation_id: UUID
+    ) -> Envelope:
+        """The S8 audit query: a relation's append-only decision history.
+
+        Reads never trigger anything; the transcript is returned newest-last
+        with each decision's rung, confidence, and features.
+        """
+        with self._engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    _RELATION_TRANSCRIPT,
+                    {"deployment_id": deployment_id, "relation_id": relation_id},
+                )
+                .mappings()
+                .all()
+            )
+        return Envelope(
+            grain=Grain.COMPOSITE,
+            transcript=tuple(TranscriptEntry.model_validate(dict(row)) for row in rows),
+            freshness=_freshness(),
+            negative=None
+            if rows
+            else Negative(
+                kind=NegativeKind.KNOWN_EMPTY,
+                explanation="no adjudication history for this relation",
+                workaround=None,
+            ),
+        )
+
     def _confirm_claims(
         self, *, deployment_id: UUID, claim_ids: tuple[UUID, ...]
     ) -> tuple[tuple[EvidenceResult, ...], int]:
@@ -337,11 +375,13 @@ def _freshness() -> Freshness:
 
 def _fact_result(*, row, kind: str) -> FactResult:  # noqa: ANN001
     """Build one fact-grain record from a hydrated spine row."""
+    mapping = dict(row)
     return FactResult(
         fact_id=row["fact_id"],
         kind=kind,
         label=row["label"],
         evidence_count=row["evidence_count"],
+        contradiction_group=mapping.get("contradiction_group"),
         validity=Validity(
             valid_from=row["valid_from"],
             valid_until=row["valid_until"],
@@ -382,12 +422,13 @@ _LOOKUP_RELATIONS = text(
     """
     SELECT relation_id AS fact_id,
            coalesce(fact_label, predicate) AS label,
-           evidence_count, valid_from, valid_until, ingested_at, invalidated_at
+           evidence_count, valid_from, valid_until, ingested_at, invalidated_at,
+           contradiction_group
     FROM relations
     WHERE deployment_id = :deployment_id
       AND invalidated_at IS NULL
-      AND (valid_from IS NULL OR valid_from <= now())
-      AND (valid_until IS NULL OR valid_until > now())
+      AND (valid_from IS NULL OR valid_from <= :as_of)
+      AND (valid_until IS NULL OR valid_until > :as_of)
       AND (CAST(:subject_entity_id AS uuid) IS NULL
            OR subject_entity_id = :subject_entity_id)
       AND (CAST(:predicate AS text) IS NULL OR predicate = :predicate)
@@ -468,5 +509,17 @@ _HYDRATE_SOURCES = text(
            ON r.representation_id = ch.representation_id
     WHERE e.relation_id = :relation_id
       AND e.stance = 'supports'
+    """
+)
+
+_RELATION_TRANSCRIPT = text(
+    """
+    SELECT outcome::text AS outcome, method::text AS method, confidence,
+           related_relation_id, decided_by::text AS decided_by,
+           decided_at, features
+    FROM relation_adjudications
+    WHERE deployment_id = :deployment_id
+      AND (relation_id = :relation_id OR related_relation_id = :relation_id)
+    ORDER BY decided_at, adjudication_id
     """
 )

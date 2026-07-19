@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.model import FactForLabeling
 from ultimate_memory.model import ObservationForEmbedding
 from ultimate_memory.model import OtherPredicateGrammarError
+from ultimate_memory.model import RelationUpsert
 
 OTHER_PREDICATE_GRAMMAR: Final = re.compile(r"other:[a-z][a-z0-9_]{1,40}")
 """The D5 escape-value grammar: short snake_case behind the other: prefix."""
@@ -43,7 +44,7 @@ class FactCatalog:
         claim_id: UUID,
         doc_id: UUID,
         normalizer_version: str,
-    ) -> UUID:
+    ) -> RelationUpsert:
         """Land one asserted fact: one relation row, evidence-once, recount.
 
         An existing believed relation for the (s, p, o) key is reused; the
@@ -91,7 +92,7 @@ class FactCatalog:
                 },
             )
             connection.execute(_RECOUNT_RELATION, {"relation_id": relation_id})
-        return relation_id
+        return RelationUpsert(relation_id=relation_id, created=existing is None)
 
     def upsert_observation(
         self,

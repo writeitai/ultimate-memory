@@ -1,5 +1,9 @@
 """Shared provider-boundary values with no dependency on other application layers."""
 
+from ultimate_memory.model.adjudication import RelationUpsert
+from ultimate_memory.model.adjudication import SupersessionOutcome
+from ultimate_memory.model.adjudication import SupersessionVerdict
+from ultimate_memory.model.adjudication import TranscriptEntry
 from ultimate_memory.model.auth import AuthenticatedContext
 from ultimate_memory.model.auth import PerimeterCredential
 from ultimate_memory.model.blocks import Block
@@ -199,6 +203,7 @@ __all__ = (
     "RegisterComponentVersionInput",
     "RegisterComponentVersionResult",
     "RelationCandidate",
+    "RelationUpsert",
     "RepresentationNotFoundError",
     "RepresentationRecord",
     "ResolutionCandidate",
@@ -213,9 +218,12 @@ __all__ = (
     "StructureSource",
     "StructuredResponseModel",
     "SuiteReport",
+    "SupersessionOutcome",
+    "SupersessionVerdict",
     "SyntheticRootRecord",
     "TelemetryAttribute",
     "TelemetryEvent",
+    "TranscriptEntry",
     "TypeThresholds",
     "UTCDateTime",
     "UnknownStageHandlerError",
