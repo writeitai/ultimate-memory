@@ -36,6 +36,7 @@ dependencies = [
     "alembic>=1.16",
     "fastapi>=0.139.2",
     "httpx>=0.28.1",
+    "ladybug>=0.18.2",
     "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",

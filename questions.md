@@ -139,7 +139,7 @@ Keep this current: when something here is decided, move it to a decision and pru
     params, FTS config, inline-write vs. rebuild path).
 20. **Cost / metering.** A stated requirement with no design (per-layer/per-deployment spend tracking
     + budget enforcement). Ties to #2.
-20a. **P2 projection (LadybugDB) — spikes to run before building the worker (D44,
+20a. **P2 projection (LadybugDB) — spikes: RUN, all six recorded (WP-4.1, `plan/analysis/p2_spike_battery.md`).** Headlines: UUID PK confirmed; ATTACH-direct is dead on capability grounds (the scanner cannot attach enum-bearing schemas — Parquet transport confirmed); inline as-of predicates bind parameters and compose with SHORTEST (30-hop cap recorded); NULL timestamps safe; D69 retention stands. Original charge (D44,
     `plan/analysis/ladybug_translation_research/SYNTHESIS.md` §6).** The translation is designed (the
     `v_graph_*` views, §10.A), but verify on the deployed engine: (a) **UUID-as-node-PK** smoke test
     (source-verified; confirm the packaged build; STRING fallback documented); (b) **ATTACH cross-DB scan
