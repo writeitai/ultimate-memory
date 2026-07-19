@@ -18,10 +18,11 @@ what it returns is rejected before it ever reaches a surface:
   `change_feed` ends on the delta, `audit` ends on a decision trail. These
   keep the MCP tool a caller sees honest about what it will get back.
 
-`fuse` and `rerank` are **grain-transparent**: they reorder, so their grain
-is whatever their inputs carry. A fact neighborhood reranked by graph distance
-is still fact; the linter resolves a transparent op's grain from the steps it
-consumes rather than pinning one.
+`fuse` produces an **evidence-grade ordering**, not the confirmed records
+themselves: its output is a ranking of candidate ids still to be hydrated
+(matching the `fuse` primitive's own grain), so a recipe that ends on a fuse
+is evidence, never fact. The op vocabulary the linter accepts is exactly the
+set the executor can run — a chain never lints only to fail at execution.
 """
 
 from dataclasses import dataclass
@@ -39,28 +40,31 @@ class RecipeLintError(Exception):
 class _OpSpec:
     """What a chain op produces, for the mechanical grain checks."""
 
-    grain: Grain | None  # None means grain-transparent (inherits from inputs)
-    validity_filtered: bool  # a live-fact primitive (the current_facts bar)
+    grain: Grain  # the D49 grain this op's envelope carries
+    validity_filtered: bool  # filters BOTH clocks to "now" (the current_facts bar)
     min_inputs: int = 0  # prior steps this op must consume
 
 
-# The op vocabulary a recipe chain may compose (retrieval §3). Grain-transparent
-# operators carry `grain=None` and inherit from the steps they fuse/rerank.
+# The op vocabulary a recipe chain may compose — exactly the set the executor
+# implements, so a lint-clean chain always runs. `validity_filtered` is the
+# strict current-instant test (both clocks): only the point-in-time lookups
+# qualify. `aggregate` is NOT one of them — its forms span history (timeline)
+# or count live-but-expired rows — so it can never sit in a `current_facts`
+# recipe. `fuse` returns an evidence-grade ranking (candidates to hydrate).
 _OPS: dict[str, _OpSpec] = {
     "lookup_relations": _OpSpec(Grain.FACT, validity_filtered=True),
     "lookup_observations": _OpSpec(Grain.FACT, validity_filtered=True),
-    "aggregate": _OpSpec(Grain.FACT, validity_filtered=True),
+    "aggregate": _OpSpec(Grain.FACT, validity_filtered=False),
     "search_claims": _OpSpec(Grain.EVIDENCE, validity_filtered=False),
     "hydrate_relation": _OpSpec(Grain.COMPOSITE, validity_filtered=False),
     "transcript": _OpSpec(Grain.COMPOSITE, validity_filtered=False),
     "delta": _OpSpec(Grain.COMPOSITE, validity_filtered=False),
     "pages_about": _OpSpec(Grain.COMPILED, validity_filtered=False),
-    "fuse": _OpSpec(None, validity_filtered=False, min_inputs=1),
-    "rerank": _OpSpec(None, validity_filtered=False, min_inputs=1),
+    "fuse": _OpSpec(Grain.EVIDENCE, validity_filtered=False, min_inputs=1),
 }
 
 KNOWN_OPS = frozenset(_OPS)
-"""The primitive ops a recipe chain may name (the executor implements each)."""
+"""The primitive ops a recipe chain may name — exactly the executor's set."""
 
 
 def lint_recipe(recipe: Recipe) -> None:
@@ -72,7 +76,7 @@ def lint_recipe(recipe: Recipe) -> None:
     violation; returns None when the recipe is well-formed.
     """
     _check_ops_and_inputs(recipe)
-    terminal_grain = _resolve_grain(recipe, len(recipe.chain) - 1)
+    terminal_grain = _OPS[recipe.chain[-1].op].grain
     if terminal_grain != recipe.output_grain:
         raise RecipeLintError(
             f"recipe {recipe.name!r} declares output_grain"
@@ -104,20 +108,6 @@ def _check_ops_and_inputs(recipe: Recipe) -> None:
                 )
 
 
-def _resolve_grain(recipe: Recipe, index: int) -> Grain:
-    """The grain a step produces — inherited through transparent operators."""
-    spec = _OPS[recipe.chain[index].op]
-    if spec.grain is not None:
-        return spec.grain
-    grains = {_resolve_grain(recipe, i) for i in recipe.chain[index].inputs}
-    if len(grains) != 1:
-        raise RecipeLintError(
-            f"recipe {recipe.name!r} step {index} ({recipe.chain[index].op})"
-            f" fuses inputs of differing grains {sorted(g.value for g in grains)}"
-        )
-    return next(iter(grains))
-
-
 def _check_intent(recipe: Recipe) -> None:
     """The answer_intent → chain-shape rules (the mechanical grain bar)."""
     intent = recipe.answer_intent
@@ -129,13 +119,12 @@ def _check_intent(recipe: Recipe) -> None:
             )
         for index, step in enumerate(recipe.chain):
             spec = _OPS[step.op]
-            if spec.grain is None:
-                continue  # a transparent op inherits its inputs' fact grain
             if not (spec.validity_filtered and spec.grain is Grain.FACT):
                 raise RecipeLintError(
                     f"recipe {recipe.name!r} answers current_facts but step"
                     f" {index} ({step.op}) is not a validity-filtered fact"
-                    " primitive — 'what holds now' never rides evidence (D41)"
+                    " primitive — 'what holds now' never rides evidence or a"
+                    " history-spanning aggregate (D41)"
                 )
     elif intent is RecipeAnswerIntent.ASSERTION_HISTORY:
         if recipe.output_grain is not Grain.EVIDENCE:

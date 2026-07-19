@@ -31,6 +31,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.core import KNOWN_OPS
 from ultimate_memory.core import lint_recipe
 from ultimate_memory.core import RecipeLintError
 from ultimate_memory.model import DeploymentBootstrapInput
@@ -43,6 +44,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import RecipeRegistry
 from ultimate_memory.spine import seed_canonical_recipes
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.surfaces import EXECUTABLE_OPS
 from ultimate_memory.surfaces import QueryEngine
 from ultimate_memory.surfaces import RecipeExecutor
 
@@ -398,3 +400,66 @@ def test_every_recipe_equals_its_hand_composed_chain(corpus: _Corpus) -> None:
         assert _payload(replayed) == _payload(expected), name
         # and the recipe returns the grain it declared
         assert replayed.grain.value == canonical[name].output_grain.value, name
+
+
+# --- regression proofs for the Codex review fixes --------------------------
+
+
+def test_linter_and_executor_op_sets_never_diverge() -> None:
+    """The invariant behind 'recipe ≡ chain': every op the linter accepts,
+    the executor can run — no chain lints clean only to fail at execution."""
+    assert KNOWN_OPS == EXECUTABLE_OPS
+
+
+def test_current_facts_cannot_ride_a_history_spanning_aggregate() -> None:
+    """`aggregate` is not a current-instant primitive (its forms span history
+    or count expired rows), so a current_facts recipe over it is rejected —
+    even though it ends fact-grain (Codex finding)."""
+    bad = Recipe(
+        name="aggregate_masquerading_as_current",
+        description="a current_facts recipe built on a timeline aggregate",
+        chain=(RecipeStep(op="aggregate", settings={"form": "timeline"}),),
+        output_grain=Grain.FACT,
+        answer_intent=RecipeAnswerIntent.CURRENT_FACTS,
+    )
+    with pytest.raises(RecipeLintError, match="current_facts"):
+        lint_recipe(bad)
+
+
+def test_a_fact_recipe_ending_on_fuse_is_rejected() -> None:
+    """A fuse yields an evidence-grade ranking, not confirmed facts — the
+    linter's grain now matches the executor's, so a fact recipe ending on a
+    fuse can never lint (Codex finding: linter/executor grain agreement)."""
+    bad = Recipe(
+        name="fused_facts",
+        description="declares fact but ends on a fuse (an evidence ranking)",
+        chain=(
+            RecipeStep(op="lookup_relations", bind={"subject_entity_id": "e"}),
+            RecipeStep(op="lookup_relations", bind={"subject_entity_id": "e"}),
+            RecipeStep(op="fuse", inputs=(0, 1)),
+        ),
+        output_grain=Grain.FACT,
+        answer_intent=RecipeAnswerIntent.CURRENT_FACTS,
+    )
+    with pytest.raises(RecipeLintError, match="fact.*evidence|evidence.*grain"):
+        lint_recipe(bad)
+
+
+def test_an_omitted_optional_argument_is_not_a_keyerror(corpus: _Corpus) -> None:
+    """A recipe run without an optional bound argument behaves exactly like
+    calling the primitive without it — the primitive's default applies, never
+    a KeyError (Codex finding on parameter binding)."""
+    engine = _query_engine(corpus)
+    executor = RecipeExecutor(query_engine=engine)
+    recipe = next(r for r in CANONICAL_RECIPES if r.name == "relation_current")
+    # 'predicate' is optional and omitted here
+    replayed = executor.execute(
+        deployment_id=_DEPLOYMENT_ID,
+        recipe=recipe,
+        arguments={"subject_entity_id": corpus.ids["Alice"]},
+    )
+    direct = engine.lookup_relations(
+        deployment_id=_DEPLOYMENT_ID, subject_entity_id=corpus.ids["Alice"]
+    )
+    assert _payload(replayed) == _payload(direct)
+    assert replayed.negative is None  # the relation is found, predicate unfiltered

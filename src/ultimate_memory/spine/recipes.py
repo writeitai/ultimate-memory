@@ -201,7 +201,7 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
             "k": {"type": "integer", "required": False, "default": 10},
         },
         chain=(
-            RecipeStep(op="search_claims", settings={"k": 10}, bind={"query": "query"}),
+            RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),
         ),
         output_grain=Grain.EVIDENCE,
         answer_intent=RecipeAnswerIntent.ASSERTION_HISTORY,
@@ -215,8 +215,8 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
             "k": {"type": "integer", "required": False, "default": 10},
         },
         chain=(
-            RecipeStep(op="search_claims", settings={"k": 10}, bind={"query": "query"}),
-            RecipeStep(op="search_claims", settings={"k": 10}, bind={"query": "query"}),
+            RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),
+            RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),
             RecipeStep(op="fuse", settings={"k": 60}, inputs=(0, 1)),
         ),
         output_grain=Grain.EVIDENCE,

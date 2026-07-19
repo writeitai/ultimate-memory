@@ -65,10 +65,17 @@ class RecipeExecutor:
         arguments: dict[str, object],
         rankings: list[list[UUID]],
     ) -> Envelope:
-        """Dispatch one chain step to its primitive with resolved keywords."""
+        """Dispatch one chain step to its primitive with resolved keywords.
+
+        A bound argument the caller omitted is simply not passed — the
+        primitive's own default applies, so an optional recipe parameter
+        (a missing `predicate`, say) behaves exactly as calling the
+        primitive without it, never a KeyError.
+        """
         kwargs: dict[str, Any] = dict(step.settings)
         for primitive_kw, argument_name in step.bind.items():
-            kwargs[primitive_kw] = arguments[argument_name]
+            if argument_name in arguments:
+                kwargs[primitive_kw] = arguments[argument_name]
         if step.op == "fuse":
             return self._engine.fuse(
                 rankings=[rankings[index] for index in step.inputs], **kwargs
@@ -172,3 +179,7 @@ _SINGLE_OP_HANDLERS = {
     "delta": _delta,
     "pages_about": _pages_about,
 }
+
+EXECUTABLE_OPS = frozenset(_SINGLE_OP_HANDLERS) | {"fuse"}
+"""Every op the executor can run. Kept equal to the linter's `KNOWN_OPS` (a
+test enforces it), so no chain ever lints clean only to fail at execution."""
