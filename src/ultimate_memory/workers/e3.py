@@ -31,6 +31,8 @@ from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
 from ultimate_memory.spine.fact_catalog import OTHER_PREDICATE_GRAMMAR
 from ultimate_memory.spine.resolver import CascadeResolver
+from ultimate_memory.spine.supersession import ADJUDICATOR_VERSION
+from ultimate_memory.spine.supersession import SupersessionAdjudicator
 from ultimate_memory.workers.base import HandlerOutcome
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
@@ -98,7 +100,10 @@ class NormalizeRelationsHandler:
         self._chunker_version = chunker_version
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Normalize one document version's claims into relations/observations."""
+        """Normalize one document version's claims into relations/observations.
+
+        Newly-created relations chain the supersession adjudicator (D3/D4)
+        alongside the P1 writers."""
         source = self._chunk_catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
@@ -116,10 +121,12 @@ class NormalizeRelationsHandler:
         prompt_lines = self._facts.predicate_prompt_lines(deployment_id=deployment_id)
         signatures = self._facts.predicate_signatures(deployment_id=deployment_id)
         type_parents = self._facts.entity_type_parents(deployment_id=deployment_id)
+        created_relations: list[str] = []
         for claim in claims:
             if self._registry.claim_already_normalized(claim_id=claim.claim_id):
                 continue  # replay: stored mentions/facts are the output (D7)
             self._normalize_claim(
+                created_relations=created_relations,
                 deployment_id=deployment_id,
                 claim=claim,
                 predicates=predicates,
@@ -129,6 +136,16 @@ class NormalizeRelationsHandler:
             )
         return HandlerOutcome(
             follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.ADJUDICATE_SUPERSESSION,
+                    component_version=ADJUDICATOR_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={**(work.payload or {}), "relation_ids": created_relations},
+                ),
                 EnqueueWork(
                     deployment_id=work.deployment_id,
                     target_kind=work.target_kind,
@@ -155,6 +172,7 @@ class NormalizeRelationsHandler:
     def _normalize_claim(
         self,
         *,
+        created_relations: list[str],
         deployment_id: UUID,
         claim: ClaimForNormalization,
         predicates: dict[str, str | None],
@@ -229,7 +247,7 @@ class NormalizeRelationsHandler:
                     claim.claim_id,
                 )
                 continue
-            self._facts.upsert_relation(
+            upserted = self._facts.upsert_relation(
                 deployment_id=deployment_id,
                 subject_entity_id=subject.entity_id,
                 predicate=relation.predicate,
@@ -238,6 +256,8 @@ class NormalizeRelationsHandler:
                 doc_id=claim.doc_id,
                 normalizer_version=E3_NORMALIZER_VERSION,
             )
+            if upserted.created:
+                created_relations.append(str(upserted.relation_id))
         for observation in response.observations:
             subject = self._resolver.resolve(
                 deployment_id=deployment_id, reference=observation.subject, claim=claim
@@ -298,3 +318,25 @@ def _payload_uuid(*, work: ClaimedWork, field: str) -> UUID:
             f"stage {work.stage} work {work.processing_id} carries no {field!r} payload"
         )
     return UUID(value)
+
+
+class AdjudicateSupersessionHandler:
+    """The adjudication stage: each newly-created relation through the cascade."""
+
+    def __init__(self, *, adjudicator: SupersessionAdjudicator) -> None:
+        """Bind the handler to the composed adjudicator."""
+        self._adjudicator = adjudicator
+
+    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+        """Adjudicate every relation the normalize stage created (idempotent)."""
+        payload = work.payload or {}
+        relation_ids = payload.get("relation_ids") or []
+        if not isinstance(relation_ids, list):
+            raise NonRetryableHandlerError(
+                f"work {work.processing_id} carries a malformed relation_ids payload"
+            )
+        for raw in relation_ids:
+            self._adjudicator.adjudicate_new_relation(
+                deployment_id=work.deployment_id, relation_id=UUID(str(raw))
+            )
+        return HandlerOutcome()

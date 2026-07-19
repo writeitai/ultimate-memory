@@ -19,6 +19,7 @@ from ultimate_memory.workers.e1 import E2_EXTRACTOR_VERSION
 from ultimate_memory.workers.e1 import EmbedChunksHandler
 from ultimate_memory.workers.e2 import E2Settings
 from ultimate_memory.workers.e2 import ExtractClaimsHandler
+from ultimate_memory.workers.e3 import AdjudicateSupersessionHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
@@ -29,6 +30,7 @@ from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 from ultimate_memory.workers.p1 import P1Settings
 
 __all__ = (
+    "AdjudicateSupersessionHandler",
     "ChunkHandler",
     "ConvertHandler",
     "E1Settings",

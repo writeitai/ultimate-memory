@@ -5,6 +5,7 @@ and returns the D49 envelope verbatim. The app is built per composed engine
 (profiles own composition); the surface itself never touches adapters.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -29,13 +30,22 @@ def build_api(*, engine: QueryEngine, deployment_id: UUID) -> FastAPI:
         subject_entity_id: UUID | None = None,
         predicate: str | None = None,
         object_entity_id: UUID | None = None,
+        valid_at: datetime | None = None,
     ) -> Envelope:
-        """Live relations matching an (s, p, o) pattern — fact grain (S1/S3)."""
+        """Relations matching an (s, p, o) pattern — current, or as-of (S9)."""
         return engine.lookup_relations(
             deployment_id=deployment_id,
             subject_entity_id=subject_entity_id,
             predicate=predicate,
             object_entity_id=object_entity_id,
+            valid_at=valid_at,
+        )
+
+    @app.get("/transcript/relation/{relation_id}", response_model=Envelope)
+    def transcript_relation(relation_id: UUID) -> Envelope:
+        """The S8 audit query: why the system believes what it believes."""
+        return engine.transcript_relation(
+            deployment_id=deployment_id, relation_id=relation_id
         )
 
     @app.get("/lookup/observations", response_model=Envelope)
