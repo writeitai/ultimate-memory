@@ -330,3 +330,82 @@ def test_non_change_prone_predicates_pass_the_novelty_gate(
             .one()
         )
     assert dict(row) == {"outcome": "add", "method": "novelty_gate"}
+
+
+def test_reoccurring_fact_gets_a_fresh_adjudicable_row(database_engine: Engine) -> None:
+    """Codex review: a claim matching a CLOSED (s,p,o) row starts a fresh
+    spell whose window opens at the re-occurrence boundary — Alice can
+    return to Acme and be current there again."""
+    facts = FactCatalog(engine=database_engine)
+    alice = _entity(engine=database_engine, name="Alice2")
+    acme = _entity(engine=database_engine, name="Acme2")
+    beta = _entity(engine=database_engine, name="Beta2")
+
+    first_spell = _relation(
+        engine=database_engine, facts=facts, subject=alice, object_=acme
+    )
+    move = _relation(engine=database_engine, facts=facts, subject=alice, object_=beta)
+    adjudicator, _ = _adjudicator(
+        engine=database_engine, verdict={"outcome": "supersede", "confidence": 0.9}
+    )
+    adjudicator.adjudicate_new_relation(deployment_id=_DEPLOYMENT_ID, relation_id=move)
+
+    returned = _relation(
+        engine=database_engine, facts=facts, subject=alice, object_=acme
+    )
+    assert returned != first_spell  # a NEW row, not the closed one
+    with database_engine.connect() as connection:
+        valid_from = connection.execute(
+            text("SELECT valid_from FROM relations WHERE relation_id = :r"),
+            {"r": returned},
+        ).scalar_one()
+    assert valid_from is not None  # the re-occurrence boundary
+
+    adjudicator.adjudicate_new_relation(
+        deployment_id=_DEPLOYMENT_ID, relation_id=returned
+    )
+    current = _query(engine=database_engine).lookup_relations(
+        deployment_id=_DEPLOYMENT_ID, subject_entity_id=alice
+    )
+    assert returned in {fact.fact_id for fact in current.facts}
+
+
+def test_same_object_after_redirect_is_the_exact_rung(database_engine: Engine) -> None:
+    """Codex review / D4: identical objects (redirects followed) are the
+    same fact — decided by the exact rung with ZERO model calls."""
+    facts = FactCatalog(engine=database_engine)
+    ivan = _entity(engine=database_engine, name="Ivan")
+    survivor = _entity(engine=database_engine, name="MegaCorp")
+    absorbed = _entity(engine=database_engine, name="Mega Corp Ltd")
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE entities SET status = 'merged', merged_into = :s"
+                " WHERE entity_id = :a"
+            ),
+            {"s": survivor, "a": absorbed},
+        )
+    _relation(engine=database_engine, facts=facts, subject=ivan, object_=absorbed)
+    second = _relation(
+        engine=database_engine, facts=facts, subject=ivan, object_=survivor
+    )
+    adjudicator, provider = _adjudicator(
+        engine=database_engine, verdict={"outcome": "supersede", "confidence": 0.99}
+    )
+    adjudicator.adjudicate_new_relation(
+        deployment_id=_DEPLOYMENT_ID, relation_id=second
+    )
+    assert provider.generated_prompts == []  # the exact rung: no LLM
+    with database_engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT outcome, method FROM relation_adjudications"
+                    " WHERE relation_id = :r"
+                ),
+                {"r": second},
+            )
+            .mappings()
+            .one()
+        )
+    assert dict(row) == {"outcome": "noop", "method": "exact"}

@@ -39,11 +39,14 @@ from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
 from ultimate_memory.spine import RESOLVER_VERSION
+from ultimate_memory.spine import SupersessionAdjudicator
+from ultimate_memory.spine import SupersessionSettings
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.surfaces import build_api
 from ultimate_memory.surfaces import QueryEngine
+from ultimate_memory.workers import AdjudicateSupersessionHandler
 from ultimate_memory.workers import ChunkHandler
 from ultimate_memory.workers import ConvertHandler
 from ultimate_memory.workers import E1Settings
@@ -109,6 +112,7 @@ _PAYLOADS: dict[str, dict[str, object]] = {
         ],
     },
     "FactLabelResponse": {"label": "Alice Novak works for Acme."},
+    "SupersessionVerdict": {"outcome": "coexist", "confidence": 0.9},
 }
 
 _TABLES = (
@@ -254,6 +258,16 @@ class _ApiRig:
             ),
         )
         registry.register(
+            stage=PipelineStage.ADJUDICATE_SUPERSESSION,
+            handler=AdjudicateSupersessionHandler(
+                adjudicator=SupersessionAdjudicator(
+                    engine=engine,
+                    model_provider=self.provider,
+                    settings=SupersessionSettings(),
+                )
+            ),
+        )
+        registry.register(
             stage=PipelineStage.EMBED_CLAIM,
             handler=EmbedClaimsHandler(
                 claim_catalog=claim_catalog,
@@ -303,6 +317,7 @@ class _ApiRig:
             PipelineStage.EMBED_CHUNK,
             PipelineStage.EXTRACT_CLAIMS,
             PipelineStage.NORMALIZE_RELATIONS,
+            PipelineStage.ADJUDICATE_SUPERSESSION,
             PipelineStage.EMBED_CLAIM,
             PipelineStage.LABEL_RELATION,
         ):

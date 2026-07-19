@@ -69,11 +69,19 @@ class FactCatalog:
             existing = connection.execute(_SELECT_RELATION, key).scalar_one_or_none()
             relation_id = existing if existing is not None else uuid4()
             if existing is None:
+                # a re-occurring fact (a prior CLOSED row exists) starts a
+                # fresh row whose window opens at the re-occurrence boundary,
+                # so the EXCLUDE constraint's non-overlap holds and the new
+                # spell is adjudicable (Codex review; D41 refines the time):
+                reoccurrence_boundary = connection.execute(
+                    _LATEST_CLOSED_UNTIL, key
+                ).scalar_one_or_none()
                 connection.execute(
                     _INSERT_RELATION,
                     {
                         **key,
                         "relation_id": relation_id,
+                        "valid_from": reoccurrence_boundary,
                         "normalizer_version": normalizer_version,
                     },
                 )
@@ -332,6 +340,7 @@ _SELECT_RELATION = text(
       AND predicate = :predicate
       AND object_entity_id = :object_entity_id
       AND invalidated_at IS NULL
+      AND (valid_until IS NULL OR valid_until > now())
     """
 )
 
@@ -339,10 +348,10 @@ _INSERT_RELATION = text(
     """
     INSERT INTO relations (
         relation_id, deployment_id, subject_entity_id, predicate,
-        object_entity_id, normalizer_version
+        object_entity_id, valid_from, normalizer_version
     ) VALUES (
         :relation_id, :deployment_id, :subject_entity_id, :predicate,
-        :object_entity_id, :normalizer_version
+        :object_entity_id, :valid_from, :normalizer_version
     )
     """
 )
@@ -546,5 +555,17 @@ _SELECT_PREDICATE_PROMPT = text(
     WHERE deployment_id = :deployment_id AND status = 'active'
       AND tier <> 'other'
     ORDER BY predicate
+    """
+)
+
+_LATEST_CLOSED_UNTIL = text(
+    """
+    SELECT max(valid_until) FROM relations
+    WHERE deployment_id = :deployment_id
+      AND subject_entity_id = :subject_entity_id
+      AND predicate = :predicate
+      AND object_entity_id = :object_entity_id
+      AND invalidated_at IS NULL
+      AND valid_until IS NOT NULL
     """
 )

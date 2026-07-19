@@ -85,10 +85,6 @@ class SupersessionAdjudicator:
         recorded atomically.
         """
         with self._engine.begin() as connection:
-            if self._already_adjudicated(
-                connection=connection, relation_id=relation_id
-            ):
-                return
             subject = (
                 connection.execute(
                     _LOAD_RELATION,
@@ -99,6 +95,20 @@ class SupersessionAdjudicator:
             )
             if subject is None or subject["invalidated_at"] is not None:
                 return  # gone or already retired: nothing to adjudicate
+            # serialize the whole (subject, predicate) block (Codex review):
+            # concurrent adjudications of one block could otherwise mint
+            # disjoint contradiction groups or double-close windows.
+            connection.execute(
+                _LOCK_BLOCK,
+                {
+                    "key": f"{deployment_id}:adjudicate"
+                    f":{subject['subject_entity_id']}:{subject['predicate']}"
+                },
+            )
+            if self._already_adjudicated(
+                connection=connection, relation_id=relation_id
+            ):
+                return
             if not subject["is_change_prone"]:
                 self._record(
                     connection=connection,
@@ -137,6 +147,27 @@ class SupersessionAdjudicator:
                 )
                 return
             for candidate in candidates:
+                if self._same_object_after_redirects(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    left=UUID(str(subject["object_entity_id"])),
+                    right=UUID(str(candidate["object_entity_id"])),
+                ):
+                    # the EXACT rung for relation-shaped facts: identical
+                    # objects (redirects followed) mean the same fact — noop,
+                    # zero LLM. Fuzzy/embedding rungs compare STATEMENTS and
+                    # bind in the observation adjudicator (WP-2.5, D4).
+                    self._record(
+                        connection=connection,
+                        deployment_id=deployment_id,
+                        relation_id=relation_id,
+                        related_relation_id=UUID(str(candidate["relation_id"])),
+                        outcome="noop",
+                        method="exact",
+                        confidence=1.0,
+                        features={"reason": "same object after redirects"},
+                    )
+                    continue
                 self._adjudicate_pair(
                     connection=connection,
                     deployment_id=deployment_id,
@@ -183,14 +214,29 @@ class SupersessionAdjudicator:
         if verdict.outcome is SupersessionOutcome.SUPERSEDE:
             # the boundary: the new testimony's assertion time, else now —
             # recorded so the closure is auditable (D3/D41 seeding refines it)
-            connection.execute(
+            closed = connection.execute(
                 _CLOSE_WINDOW,
                 {
                     "deployment_id": deployment_id,
                     "relation_id": old_relation_id,
                     "boundary_asserted": new["asserted_at"],
                 },
-            )
+            ).rowcount
+            if closed != 1:
+                # the transcript never claims a closure that did not occur
+                # (Codex review): the window was already at/inside the
+                # boundary — record the verdict as a no-change decision.
+                self._record(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    relation_id=old_relation_id,
+                    related_relation_id=new_relation_id,
+                    outcome="noop",
+                    method=method,
+                    confidence=verdict.confidence,
+                    features={**features, "reason": "window already closed"},
+                )
+                return
             self._record(
                 connection=connection,
                 deployment_id=deployment_id,
@@ -232,6 +278,19 @@ class SupersessionAdjudicator:
                 confidence=verdict.confidence,
                 features=features,
             )
+
+    def _same_object_after_redirects(
+        self, *, connection: Connection, deployment_id: UUID, left: UUID, right: UUID
+    ) -> bool:
+        """Whether two object entities are one after following merge redirects."""
+        if left == right:
+            return True
+        roots = connection.execute(
+            _SURVIVOR_ROOTS,
+            {"deployment_id": deployment_id, "entity_ids": [left, right]},
+        ).all()
+        resolved = {row[0]: row[1] for row in roots}
+        return resolved.get(left) == resolved.get(right)
 
     def _already_adjudicated(
         self, *, connection: Connection, relation_id: UUID
@@ -338,7 +397,8 @@ _CLOSE_WINDOW = text(
     UPDATE relations
     SET valid_until = coalesce(:boundary_asserted, now()), updated_at = now()
     WHERE deployment_id = :deployment_id AND relation_id = :relation_id
-      AND valid_until IS NULL
+      AND (valid_until IS NULL
+           OR valid_until > coalesce(:boundary_asserted, now()))
     """
 )
 
@@ -369,3 +429,21 @@ _INSERT_ADJUDICATION = text(
     )
     """
 ).bindparams(bindparam("features", type_=JSON))
+
+_LOCK_BLOCK = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+
+_SURVIVOR_ROOTS = text(
+    """
+    WITH RECURSIVE walk AS (
+        SELECT entity_id AS start, entity_id, status, merged_into
+        FROM entities
+        WHERE deployment_id = :deployment_id AND entity_id = ANY(:entity_ids)
+        UNION ALL
+        SELECT walk.start, e.entity_id, e.status, e.merged_into
+        FROM walk
+        JOIN entities e ON e.entity_id = walk.merged_into
+        WHERE walk.status = 'merged'
+    )
+    SELECT start, entity_id FROM walk WHERE status = 'active'
+    """
+)
