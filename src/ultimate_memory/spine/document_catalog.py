@@ -23,6 +23,8 @@ from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import RepresentationNotFoundError
 from ultimate_memory.model import RepresentationRecord
+from ultimate_memory.model import SectionTreeRecord
+from ultimate_memory.model import SnappedSection
 from ultimate_memory.model import StructureSource
 from ultimate_memory.model import SyntheticRootRecord
 from ultimate_memory.model import UploadRecord
@@ -202,40 +204,103 @@ class DocumentCatalog:
         return StructureSource.model_validate(dict(row))
 
     def record_synthetic_root(self, *, record: SyntheticRootRecord) -> None:
+        """Complete the E0 chain with the single full-span root (D39).
+
+        The degenerate section tree: one ``role=body`` root covering every
+        block — what a short document (or a degraded structurer) gets. An
+        empty document yields the empty range ``0..-1`` on the inclusive
+        block grid (D57) and a zero-width char span.
+        """
+        self.record_section_tree(
+            record=SectionTreeRecord(
+                deployment_id=record.deployment_id,
+                doc_id=record.doc_id,
+                version_id=record.version_id,
+                representation_id=record.representation_id,
+                sections=(
+                    SnappedSection(
+                        node_path="0",
+                        parent_path=None,
+                        title=record.title or "",
+                        role="body",
+                        block_start=0,
+                        block_end=record.block_count - 1,
+                        char_start=0,
+                        char_end=record.markdown_chars,
+                        summary="",
+                        ordinal=0,
+                    ),
+                ),
+                placement_path=None,
+                structurer_name="synthetic_root",
+                structurer_version=record.structurer_version,
+            )
+        )
+
+    def record_section_tree(self, *, record: SectionTreeRecord) -> None:
         """Complete the E0 chain for one representation in one transaction (D39/D54).
 
-        Inserts the full-span root section, marks the representation ready,
-        swaps the version's live-reading pointer, and moves the lineage's
-        current-version pointer — so currency flips only when the chain is
-        whole. The walking skeleton's chain ends at structure; when the E1/E2
-        stages land, this flip moves with the chain's end (D54's rule is
-        "after conversion→E1→E2 completes"). Every statement is idempotent for
-        a retried attempt, the pointer swap never overwrites a different
+        Inserts the section rows (root first, parents resolved by path),
+        marks the representation ready, swaps the version's live-reading
+        pointer, and moves the lineage's current-version pointer — so
+        currency flips only when the chain is whole. The walking skeleton's
+        chain ends at structure; when the E1/E2 stages land, this flip moves
+        with the chain's end (D54's rule is "after conversion→E1→E2
+        completes"). Every statement is idempotent for a retried attempt
+        (section rows conflict on ``(version_id, node_path)`` and keep their
+        first-written ids), the pointer swap never overwrites a different
         live representation, and the currency pointer only moves FORWARD by
         version number — a delayed older version completing after a newer
         one must not drag the lineage back to stale content.
         """
         with self._engine.begin() as connection:
-            connection.execute(
-                _INSERT_ROOT_SECTION,
-                {
-                    "section_id": record.section_id,
-                    "deployment_id": record.deployment_id,
-                    "doc_id": record.doc_id,
-                    "version_id": record.version_id,
-                    "representation_id": record.representation_id,
-                    # an empty document yields the empty range 0..-1 on the
-                    # inclusive block grid (D57) and a zero-width char span:
-                    "block_end": record.block_count - 1,
-                    "char_end": record.markdown_chars,
-                    "title": record.title,
-                    "structurer_version": record.structurer_version,
-                },
-            )
+            ids_by_path: dict[str, UUID] = {}
+            for section in record.sections:
+                parent_id = (
+                    ids_by_path.get(section.parent_path)
+                    if section.parent_path is not None
+                    else None
+                )
+                section_id = connection.execute(
+                    _INSERT_SECTION,
+                    {
+                        "section_id": uuid4(),
+                        "deployment_id": record.deployment_id,
+                        "doc_id": record.doc_id,
+                        "version_id": record.version_id,
+                        "representation_id": record.representation_id,
+                        "parent_section_id": parent_id,
+                        "node_path": section.node_path,
+                        "block_start": section.block_start,
+                        "block_end": section.block_end,
+                        "title": section.title or None,
+                        "role": section.role,
+                        "char_start": section.char_start,
+                        "char_end": section.char_end,
+                        "ordinal": section.ordinal,
+                        "summary": section.summary or None,
+                        "placement_path": (
+                            record.placement_path
+                            if section.parent_path is None
+                            else None
+                        ),
+                        "structurer_version": record.structurer_version,
+                    },
+                ).scalar_one_or_none()
+                if section_id is None:  # a retry: the first attempt's row won
+                    section_id = connection.execute(
+                        _SELECT_SECTION_BY_PATH,
+                        {
+                            "version_id": record.version_id,
+                            "node_path": section.node_path,
+                        },
+                    ).scalar_one()
+                ids_by_path[section.node_path] = section_id
             connection.execute(
                 _MARK_REPRESENTATION_READY,
                 {
                     "representation_id": record.representation_id,
+                    "structurer_name": record.structurer_name,
                     "structurer_version": record.structurer_version,
                 },
             )
@@ -406,7 +471,7 @@ _MARK_VERSION_STRUCTURING = text(
 _SELECT_STRUCTURE_SOURCE = text(
     """
     SELECT r.deployment_id, v.doc_id, r.version_id, r.representation_id,
-           r.blocks_uri, d.title
+           r.blocks_uri, r.markdown_uri, d.title
     FROM document_representations r
     JOIN document_versions v ON v.version_id = r.version_id
     JOIN documents d ON d.doc_id = v.doc_id
@@ -414,7 +479,7 @@ _SELECT_STRUCTURE_SOURCE = text(
     """
 )
 
-_INSERT_ROOT_SECTION = text(
+_INSERT_SECTION = text(
     """
     INSERT INTO document_sections (
         section_id, deployment_id, doc_id, version_id, representation_id,
@@ -423,18 +488,26 @@ _INSERT_ROOT_SECTION = text(
         summary, placement_path, structurer_version
     ) VALUES (
         :section_id, :deployment_id, :doc_id, :version_id, :representation_id,
-        NULL, '0', 0, :block_end,
-        :title, 'body', 0, :char_end, 0,
-        NULL, NULL, :structurer_version
+        :parent_section_id, :node_path, :block_start, :block_end,
+        :title, CAST(:role AS section_role), :char_start, :char_end, :ordinal,
+        :summary, :placement_path, :structurer_version
     )
     ON CONFLICT (version_id, node_path) DO NOTHING
+    RETURNING section_id
+    """
+)
+
+_SELECT_SECTION_BY_PATH = text(
+    """
+    SELECT section_id FROM document_sections
+    WHERE version_id = :version_id AND node_path = :node_path
     """
 )
 
 _MARK_REPRESENTATION_READY = text(
     """
     UPDATE document_representations
-    SET structurer_name = 'synthetic_root',
+    SET structurer_name = :structurer_name,
         structurer_version = :structurer_version,
         section_index_version = :structurer_version,
         status = 'ready'

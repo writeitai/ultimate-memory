@@ -120,7 +120,7 @@ as usual):
 | rename + CLA (`questions.md` §11a) | Phase 7 WP-7.7 (release), first outside PR | distinctive name + attorney clearance; CLA before external contributions |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
-| #7 PageIndex hosted vs self-hosted | Phase 3 (full structure route) | cost/privacy/rebuild trade |
+| #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |
 | #5 K3 "whose beliefs" | Phase 6 belief-tier WP only | configures the D47 tier |
 | #24 hard-delete end-to-end | Phase 7 | the cross-store forget design (P1/P2/P3 snapshots, backups) |
 | #1 corpus mix / #2 budget ceiling | Phase 7 sizing, Phase 8 cost baselines | owner-provided numbers |

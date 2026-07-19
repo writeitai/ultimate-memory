@@ -2298,3 +2298,31 @@ before any number locks.
 extractor seat; the phase-2/6 seats inherit the same principle and are gated by their own
 phases' measurements). Gate register and questions #4 updated; a deployment overrides any
 seat in its profile.
+
+## D71. The structure route is a port-configured LLM seat; no PageIndex service dependency
+
+**Decision.** The full D39 structure route runs entirely inside the library. The structurer
+is an ordinary model-provider port seat (D61/D70): a prompt over `document.md` asking for the
+PageIndex-style section tree (titles, roles, char spans, one-line summaries, nesting) plus
+the placement hint, with the deterministic snap (e1 §3) normalizing whatever comes back onto
+the block grid. **"PageIndex" names the output shape, not a dependency** — neither the hosted
+PageIndex API nor a vendored self-hosted deployment of the tool is part of the system. The
+seat defaults to the extraction tier (`openai/gpt-5.6-luna`) and is overridden per deployment
+like every other seat (`UGM_STRUCTURER_*`).
+
+**Context.** Gate #7 asked "hosted API or self-hosted?" — a cost/privacy/rebuild trade.
+Examined against the machinery that had accumulated since the question was posed, both
+options buy nothing: the snap already makes any LLM's proposal safe (a malformed tree
+degrades to a coarser partition, never a failure), so the *only* thing the external tool
+would contribute is the proposal itself — which any configured frontier/smart-tier model
+produces from the same prompt. The hosted API would move document content outside the
+deployment's configured providers (privacy regression, and a D60 boundary erosion); the
+self-hosted deployment would add an operational dependency the deployment must run, version,
+and secure, for no correctness gain.
+
+**Consequences.** Gate #7 is closed. Privacy: documents reach only the deployment's own
+model provider. Cost: the seat rides the same execution-class ladder as every stage (D52),
+and short documents skip the call entirely (the synthetic root serves them). Rebuild: every
+section row and `pageindex.json` sidecar carries `structurer_version`, so reprocessing is
+version-scoped like any component bump (D7/D12). Degradation is total: no provider, a short
+document, or a failed call all land the synthetic root — a document never fails structuring.

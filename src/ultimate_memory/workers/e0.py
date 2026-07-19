@@ -1,10 +1,18 @@
-"""The minimal E0 chain (D36): upload → ingest → convert → synthetic-root structure.
+"""The E0 chain (D36): upload → ingest → convert → structure.
 
 The upload connector performs ingest synchronously (bytes to the raw store,
 rows + convert work atomically through the catalog); convert and structure are
 queued stage handlers. Artifacts land ID-addressed in the artifacts store
 (`<doc_id>/<content_hash>/<representation_id>/…`, D37/D65); Postgres carries
 only the index.
+
+The structure stage runs the full D39 route when a model provider is
+composed: the structurer LLM proposes a section tree + placement hint from
+`document.md`, the deterministic snap (`core/section_snap.py`) normalizes it
+onto the block grid, and the tree lands as `document_sections` rows plus the
+`pageindex.json` sidecar. Every degradation path — no provider, a short
+document, a failed or malformed LLM call — falls back to the synthetic root:
+a document never fails structuring.
 """
 
 from datetime import datetime
@@ -17,22 +25,34 @@ from uuid import UUID
 from uuid import uuid4
 from uuid import uuid5
 
+from pydantic import Field
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
+
 from ultimate_memory.core import blockize
 from ultimate_memory.core import BLOCKIZER_VERSION
 from ultimate_memory.core import ConversionRouter
+from ultimate_memory.core import SECTION_ROLES
+from ultimate_memory.core import snap_sections
+from ultimate_memory.model import Block
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import ConversionError
 from ultimate_memory.model import DocumentUpload
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import IngestedVersion
+from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import ObjectAlreadyExistsError
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import RepresentationRecord
-from ultimate_memory.model import SyntheticRootRecord
+from ultimate_memory.model import SectionTreeRecord
+from ultimate_memory.model import SnappedSection
+from ultimate_memory.model import StructureResponse
+from ultimate_memory.model import StructureSource
 from ultimate_memory.model import UnroutableMimeError
 from ultimate_memory.model import UploadRecord
+from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.document_catalog import DocumentCatalog
 from ultimate_memory.workers.base import HandlerOutcome
@@ -41,8 +61,8 @@ from ultimate_memory.workers.e1 import E1_CHUNK_VERSION
 E0_CONVERT_VERSION: Final = "e0-convert-2026.07"
 """The convert sub-worker's component version (D12 idempotency key member)."""
 
-E0_STRUCTURE_VERSION: Final = "e0-structure-2026.07"
-"""The synthetic-root structurer's component version (D39)."""
+E0_STRUCTURE_VERSION: Final = "e0-structure-2026.07b:pageindex-snap-1"
+"""The structure stage's component version (D39): LLM route + snap algorithm."""
 
 UPLOAD_SOURCE_KIND: Final = "upload"
 """The one-shot upload connector's source kind (D55 lineage identity)."""
@@ -285,39 +305,102 @@ class ConvertHandler:
         )
 
 
-class StructureHandler:
-    """The structure stage, synthetic-root form (D39): every document gets a root.
+class StructurerSettings(BaseSettings):
+    """The full structure route's knobs (D39/D70 port defaults; D22 numbers).
 
-    Reads the representation's blocks.json for the full span, writes the
-    single `role=body` root section, and completes the chain — representation
-    ready, live-reading pointer set, lineage currency moved (D54).
+    The model seat follows the D70 principle — a per-deployment port
+    configuration, defaulting to the extraction tier. The thresholds are
+    starting points to be measured: a document below ``min_blocks_for_llm``
+    is served by the synthetic root alone (the LLM cannot improve a
+    three-paragraph note), and the prompt reads at most
+    ``max_prompt_chars`` of `document.md`.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="UGM_STRUCTURER_")
+
+    model: str = Field(default="openai/gpt-5.6-luna")
+    min_blocks_for_llm: int = Field(default=8, ge=1)
+    max_prompt_chars: int = Field(default=200_000, ge=1_000)
+
+
+_STRUCTURE_PROMPT: Final = """You are a document structurer. Read the document \
+and propose its hierarchical section tree (a table of contents with spans).
+
+Rules:
+- Return sections as a JSON tree: each node has "title", "role", \
+"char_start", "char_end", "summary" (one line), and "children" (nested nodes).
+- Character offsets index into EXACTLY the document text below (0-based; \
+char_end is exclusive). Top-level sections should cover the document in order.
+- "role" must be one of: {roles}.
+- Also return "placement": a proposed corpus path for this document, e.g. \
+"/finance/annual-reports/2023/" — where it would live in an ideal directory \
+tree of a whole document collection. Advisory only.
+- Do not invent sections a short flat document does not have; return an empty \
+"sections" list if the document has no internal structure worth naming.
+
+Document title: {title}
+
+DOCUMENT:
+{document}"""
+
+
+class StructureHandler:
+    """The structure stage (D39): the full PageIndex-style route, snap-guarded.
+
+    With a composed model provider and a long-enough document, the LLM
+    proposes the section tree and placement hint; the deterministic snap
+    normalizes it onto the block grid; rows + `pageindex.json` sidecar land
+    and the chain completes — representation ready, live-reading pointer
+    set, lineage currency moved (D54). Without a provider — or when the
+    call fails or returns nothing usable — the document gets the synthetic
+    root: structuring never fails a document.
     """
 
     def __init__(
-        self, *, catalog: DocumentCatalog, artifact_store: ObjectStorePort
+        self,
+        *,
+        catalog: DocumentCatalog,
+        artifact_store: ObjectStorePort,
+        model_provider: ModelProviderPort | None = None,
+        settings: StructurerSettings | None = None,
     ) -> None:
-        """Bind the handler to its catalog and the deployment's artifacts bucket."""
+        """Bind the handler to its catalog, artifacts bucket, and model seat."""
         self._catalog = catalog
         self._artifact_store = artifact_store
+        self._model_provider = model_provider
+        self._settings = settings or StructurerSettings()
 
     def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
-        """Give one representation its synthetic root and flip currency."""
+        """Structure one representation and flip currency."""
         source = self._catalog.structure_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
         blocks_doc = json.loads(
             self._artifact_store.read_bytes(key=ObjectKey(source.blocks_uri))
         )
-        self._catalog.record_synthetic_root(
-            record=SyntheticRootRecord(
-                section_id=uuid4(),
+        blocks = tuple(
+            Block.model_validate(payload) for payload in blocks_doc["blocks"]
+        )
+        response = self._propose(source=source, block_count=len(blocks))
+        proposed = response.sections if response is not None else ()
+        placement = (response.placement or None) if response is not None else None
+        sections = snap_sections(
+            proposed=proposed,
+            blocks=blocks,
+            title=source.title,
+            markdown_chars=blocks_doc["markdown_chars"],
+        )
+        structurer_name = "pageindex_llm" if len(sections) > 1 else "synthetic_root"
+        self._write_sidecar(source=source, sections=sections, placement=placement)
+        self._catalog.record_section_tree(
+            record=SectionTreeRecord(
                 deployment_id=source.deployment_id,
                 doc_id=source.doc_id,
                 version_id=source.version_id,
                 representation_id=source.representation_id,
-                block_count=blocks_doc["block_count"],
-                markdown_chars=blocks_doc["markdown_chars"],
-                title=source.title,
+                sections=sections,
+                placement_path=placement,
+                structurer_name=structurer_name,
                 structurer_version=E0_STRUCTURE_VERSION,
             )
         )
@@ -338,6 +421,53 @@ class StructureHandler:
                 ),
             )
         )
+
+    def _propose(
+        self, *, source: StructureSource, block_count: int
+    ) -> StructureResponse | None:
+        """Ask the structurer LLM for a tree; every failure degrades to None."""
+        if self._model_provider is None:
+            return None
+        if block_count < self._settings.min_blocks_for_llm:
+            return None  # a short document: the synthetic root serves it
+        markdown = self._artifact_store.read_bytes(
+            key=ObjectKey(source.markdown_uri)
+        ).decode("utf-8")
+        prompt = _STRUCTURE_PROMPT.format(
+            roles=", ".join(sorted(SECTION_ROLES)),
+            title=source.title or "(untitled)",
+            document=markdown[: self._settings.max_prompt_chars],
+        )
+        try:
+            return self._model_provider.generate(
+                request=ModelRequest(model=self._settings.model, prompt=prompt),
+                response_type=StructureResponse,
+            )
+        except Exception:  # noqa: BLE001 — a document never fails structuring
+            return None
+
+    def _write_sidecar(
+        self,
+        *,
+        source: StructureSource,
+        sections: tuple[SnappedSection, ...],
+        placement: str | None,
+    ) -> None:
+        """Write the reproducible `pageindex.json` next to `document.md` (D39)."""
+        sidecar_key = source.blocks_uri.rsplit("/", 1)[0] + "/pageindex.json"
+        payload = _json_bytes(
+            payload={
+                "structurer_version": E0_STRUCTURE_VERSION,
+                "placement": placement,
+                "sections": [section.model_dump(mode="json") for section in sections],
+            }
+        )
+        try:
+            self._artifact_store.write_bytes(
+                key=ObjectKey(sidecar_key), content=payload
+            )
+        except ObjectAlreadyExistsError:
+            pass  # a retried attempt replays; the first write is the truth
 
 
 def _payload_uuid(*, work: ClaimedWork, field: str) -> UUID:

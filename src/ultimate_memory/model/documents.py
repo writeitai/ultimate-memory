@@ -109,6 +109,7 @@ class StructureSource(BaseModel):
     version_id: UUID
     representation_id: UUID
     blocks_uri: str
+    markdown_uri: str
     title: str | None
 
 
@@ -122,7 +123,6 @@ class SyntheticRootRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    section_id: UUID
     deployment_id: UUID
     doc_id: UUID
     version_id: UUID

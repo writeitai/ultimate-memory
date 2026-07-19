@@ -9,6 +9,7 @@ from ultimate_memory.workers.e0 import ConvertHandler
 from ultimate_memory.workers.e0 import E0_CONVERT_VERSION
 from ultimate_memory.workers.e0 import E0_STRUCTURE_VERSION
 from ultimate_memory.workers.e0 import StructureHandler
+from ultimate_memory.workers.e0 import StructurerSettings
 from ultimate_memory.workers.e0 import UPLOAD_SOURCE_KIND
 from ultimate_memory.workers.e0 import UploadIngestor
 from ultimate_memory.workers.e1 import ChunkHandler
@@ -57,6 +58,7 @@ __all__ = (
     "RunResult",
     "StageHandler",
     "StructureHandler",
+    "StructurerSettings",
     "SyncCycleRunner",
     "SyncSettings",
     "UPLOAD_SOURCE_KIND",
