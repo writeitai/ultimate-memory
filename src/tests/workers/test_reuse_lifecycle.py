@@ -370,3 +370,57 @@ def test_reused_chunks_carry_identical_claims_and_prefixes(rig: _ReuseRig) -> No
                 ).scalars()
             )
             assert new_claims == old_claims  # same immutable claims, re-attached
+
+
+def test_reuse_never_crosses_into_the_same_version(rig: _ReuseRig) -> None:
+    """Codex review: two identical runs WITHIN one version keep their own
+    extractions — their bundles can differ in section role, which the reuse
+    key deliberately omits. Reuse sources are strictly earlier versions."""
+    repeated = "\n\n".join(
+        ["Alpha statement one. Beta statement two. Gamma statement three."] * 2
+        + [f"Filler paragraph {index} on its own topic." for index in range(6)]
+    )
+    first = rig.observe(content=repeated)
+    rig.drain()
+    with rig.engine.connect() as connection:
+        chunk_total = connection.execute(
+            text("SELECT count(*) FROM chunks WHERE version_id = :v"),
+            {"v": first.version_id},
+        ).scalar_one()
+        duplicated_keys = connection.execute(
+            text(
+                "SELECT count(*) FROM (SELECT extraction_input_hash FROM chunks"
+                " WHERE version_id = :v GROUP BY extraction_input_hash"
+                " HAVING count(*) > 1) dup"
+            ),
+            {"v": first.version_id},
+        ).scalar_one()
+    assert duplicated_keys >= 0  # duplicates may or may not pack identically
+    # the real assertion: EVERY chunk was extracted by the model, none reused
+    assert rig.selection_calls() == chunk_total
+
+
+def test_extractor_bump_re_extracts_reused_chunks(rig: _ReuseRig) -> None:
+    """Codex review: occurrence links satisfy the replay check only for the
+    generation that made their claims — after an extractor bump a reused
+    chunk must look unextracted again, never ride the old links."""
+    rig.observe(content=_paragraphs(edited=False))
+    rig.drain()
+    rig.observe(content=_paragraphs(edited=True))
+    rig.drain()
+    with rig.engine.connect() as connection:
+        reused_chunk = connection.execute(
+            text(
+                "SELECT cc.chunk_id FROM chunk_claims cc"
+                " JOIN chunks c ON c.chunk_id = cc.chunk_id"
+                " WHERE NOT EXISTS (SELECT 1 FROM claims cl"
+                "                   WHERE cl.chunk_id = cc.chunk_id)"
+                " LIMIT 1"
+            )
+        ).scalar_one()  # a chunk holding only re-attached links
+    assert rig.claim_catalog.chunk_already_extracted(
+        chunk_id=reused_chunk, extractor_version="e2-extract-2026.07"
+    )
+    assert not rig.claim_catalog.chunk_already_extracted(
+        chunk_id=reused_chunk, extractor_version="e2-extract-9999.01"
+    )

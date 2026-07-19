@@ -50,17 +50,20 @@ class ClaimCatalog:
         *,
         deployment_id: UUID,
         doc_id: UUID,
-        chunk_id: UUID,
+        version_id: UUID,
         extraction_input_hash: str,
     ) -> UUID | None:
         """The D56 reuse lookup: an already-extracted chunk with the same key.
 
         Searches the LINEAGE (extraction never reuses across documents —
         identical text in another document is that document's own testimony)
-        for a different chunk carrying the same ``extraction_input_hash``
-        that is already extracted. The key embeds the extractor and
-        structurer versions, so a match is by construction the same
-        generation reading the same stable inputs.
+        for a chunk of a STRICTLY EARLIER version carrying the same
+        ``extraction_input_hash`` that is already extracted. Earlier-only is
+        load-bearing twice over: version ancestry must never point at later
+        processing (a queued v2 must not adopt a fast v3's claims), and two
+        identical runs WITHIN one version keep their own extractions — their
+        bundles can differ in section role, which the key deliberately omits
+        (roles are LLM output). The nearest earlier version wins.
         """
         with self._engine.connect() as connection:
             return connection.execute(
@@ -68,7 +71,7 @@ class ClaimCatalog:
                 {
                     "deployment_id": deployment_id,
                     "doc_id": doc_id,
-                    "chunk_id": chunk_id,
+                    "version_id": version_id,
                     "extraction_input_hash": extraction_input_hash,
                 },
             ).scalar_one_or_none()
@@ -78,21 +81,29 @@ class ClaimCatalog:
     ) -> int:
         """Re-attach a prior chunk's claims to a new version's chunk (D56/F4).
 
-        Copies the occurrence rows — claim ids with their derivation labels
-        and locators — so one immutable claim attaches to every version-chunk
-        that carried it. Idempotent: already-attached claims are skipped.
-        Returns how many attachments this call created.
+        Copies the claim ids; the occurrence-grain fields (derivation kind,
+        evidence mode, locators) are stamped for THIS occurrence exactly as
+        a fresh extraction would stamp them — they describe the target
+        representation, never the source's (D65). Idempotent: an
+        already-attached claim is skipped. Returns how many claims the PRIOR
+        chunk carries — zero means the prior extraction was a terminal
+        no-info, regardless of whether this call inserted anything (a
+        retried attempt inserts nothing but the prior was not empty).
         """
         with self._engine.begin() as connection:
-            result = connection.execute(
-                _COPY_CHUNK_CLAIMS,
-                {
-                    "deployment_id": deployment_id,
-                    "chunk_id": chunk_id,
-                    "prior_chunk_id": prior_chunk_id,
-                },
-            )
-        return result.rowcount or 0
+            prior_links = connection.execute(
+                _COUNT_CHUNK_CLAIMS, {"chunk_id": prior_chunk_id}
+            ).scalar_one()
+            if prior_links:
+                connection.execute(
+                    _COPY_CHUNK_CLAIMS,
+                    {
+                        "deployment_id": deployment_id,
+                        "chunk_id": chunk_id,
+                        "prior_chunk_id": prior_chunk_id,
+                    },
+                )
+        return prior_links
 
     def claims_for_chunks(
         self, *, chunk_ids: tuple[UUID, ...]
@@ -175,8 +186,13 @@ _SELECT_EXTRACTED = text(
          + (SELECT count(*) FROM claim_extraction_decisions
             WHERE chunk_id = :chunk_id
               AND extractor_version = :extractor_version)
-         + (SELECT count(*) FROM chunk_claims
-            WHERE chunk_id = :chunk_id)
+         + (SELECT count(*) FROM chunk_claims cc
+            JOIN claims cl ON cl.claim_id = cc.claim_id
+            WHERE cc.chunk_id = :chunk_id
+              -- occurrence links satisfy the replay check only for the
+              -- generation that made their claims: an extractor bump must
+              -- re-extract, never ride an old generation's links (D7/D12)
+              AND cl.extractor_version = :extractor_version)
     """
 )
 
@@ -184,26 +200,30 @@ _SELECT_PRIOR_EXTRACTED = text(
     """
     SELECT c.chunk_id
     FROM chunks c
+    JOIN document_versions cv ON cv.version_id = c.version_id
     WHERE c.deployment_id = :deployment_id
       AND c.doc_id = :doc_id
-      AND c.chunk_id <> :chunk_id
       AND c.extraction_input_hash = :extraction_input_hash
+      AND cv.version_no < (SELECT version_no FROM document_versions
+                           WHERE version_id = :version_id)
       AND (EXISTS (SELECT 1 FROM chunk_claims x WHERE x.chunk_id = c.chunk_id)
            OR EXISTS (SELECT 1 FROM claim_extraction_decisions d
                       WHERE d.chunk_id = c.chunk_id))
-    ORDER BY c.created_at DESC
+    ORDER BY cv.version_no DESC, c.ordinal
     LIMIT 1
+    """
+)
+
+_COUNT_CHUNK_CLAIMS = text(
+    """
+    SELECT count(*) FROM chunk_claims WHERE chunk_id = :chunk_id
     """
 )
 
 _COPY_CHUNK_CLAIMS = text(
     """
-    INSERT INTO chunk_claims (
-        deployment_id, chunk_id, claim_id,
-        derivation_kind, evidence_mode, source_locators
-    )
-    SELECT :deployment_id, :chunk_id, prior.claim_id,
-           prior.derivation_kind, prior.evidence_mode, prior.source_locators
+    INSERT INTO chunk_claims (deployment_id, chunk_id, claim_id, derivation_kind)
+    SELECT :deployment_id, :chunk_id, prior.claim_id, 'passthrough'
     FROM chunk_claims prior
     WHERE prior.chunk_id = :prior_chunk_id
       AND NOT EXISTS (SELECT 1 FROM chunk_claims existing

@@ -159,7 +159,7 @@ class ExtractClaimsHandler:
         prior = self._catalog.prior_extracted_chunk(
             deployment_id=source.deployment_id,
             doc_id=source.doc_id,
-            chunk_id=chunk.chunk_id,
+            version_id=chunk.version_id,
             extraction_input_hash=chunk.extraction_input_hash,
         )
         if prior is None:
@@ -170,8 +170,8 @@ class ExtractClaimsHandler:
             prior_chunk_id=prior,
         )
         if attached == 0:
-            # the prior extraction was a terminal no_info: carry the marker
-            # forward so replay stays closed for this chunk too
+            # the prior chunk carries no claims — a terminal no_info: carry
+            # the marker forward so replay stays closed for this chunk too
             self._catalog.record_extraction(
                 claims=(),
                 decisions=(_empty_extraction_marker(source=source, chunk=chunk),),

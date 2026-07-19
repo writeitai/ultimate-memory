@@ -184,7 +184,7 @@ class EmbedChunksHandler:
         carry = self._catalog.carry_forward_sources(
             deployment_id=work.deployment_id,
             doc_id=source.doc_id,
-            representation_id=source.representation_id,
+            version_id=source.version_id,
             prefixer_version=E1_PREFIXER_VERSION,
             embedding_version=self._settings.embedding_model,
         )

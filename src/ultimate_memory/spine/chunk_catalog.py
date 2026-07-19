@@ -100,16 +100,20 @@ class ChunkCatalog:
         *,
         deployment_id: UUID,
         doc_id: UUID,
-        representation_id: UUID,
+        version_id: UUID,
         prefixer_version: str,
         embedding_version: str,
     ) -> dict[str, CarryForwardSource]:
         """Prior chunks of this lineage reusable by content hash (D56/A3).
 
-        For each content hash: the latest chunk of an EARLIER representation
+        For each content hash: the nearest STRICTLY EARLIER version's chunk
         that already carries a stored prefix of the same prefixer generation
         and an embedding of the same embedding generation — the carry-forward
-        source for an unchanged chunk in the new version.
+        source for an unchanged chunk in the new version. Earlier-only keeps
+        version ancestry honest (a queued v2 never adopts a fast v3's
+        context); duplicate identical chunks within one source version pick
+        deterministically (lowest ordinal), and prefix + vector always copy
+        from the SAME source row, so the indexed text and its vector agree.
         """
         with self._engine.connect() as connection:
             rows = (
@@ -118,7 +122,7 @@ class ChunkCatalog:
                     {
                         "deployment_id": deployment_id,
                         "doc_id": doc_id,
-                        "representation_id": representation_id,
+                        "version_id": version_id,
                         "prefixer_version": prefixer_version,
                         "embedding_version": embedding_version,
                     },
@@ -205,17 +209,19 @@ _SELECT_FOR_EMBEDDING = text(
 
 _SELECT_CARRY_FORWARD = text(
     """
-    SELECT DISTINCT ON (chunk_content_hash)
-           chunk_content_hash, chunk_id, context_prefix
-    FROM chunks
-    WHERE deployment_id = :deployment_id
-      AND doc_id = :doc_id
-      AND representation_id <> :representation_id
-      AND context_prefix IS NOT NULL
-      AND prefixer_version = :prefixer_version
-      AND embedding_version = :embedding_version
-      AND embedding_ref IS NOT NULL
-    ORDER BY chunk_content_hash, created_at DESC
+    SELECT DISTINCT ON (c.chunk_content_hash)
+           c.chunk_content_hash, c.chunk_id, c.context_prefix
+    FROM chunks c
+    JOIN document_versions cv ON cv.version_id = c.version_id
+    WHERE c.deployment_id = :deployment_id
+      AND c.doc_id = :doc_id
+      AND cv.version_no < (SELECT version_no FROM document_versions
+                           WHERE version_id = :version_id)
+      AND c.context_prefix IS NOT NULL
+      AND c.prefixer_version = :prefixer_version
+      AND c.embedding_version = :embedding_version
+      AND c.embedding_ref IS NOT NULL
+    ORDER BY c.chunk_content_hash, cv.version_no DESC, c.ordinal
     """
 )
 
