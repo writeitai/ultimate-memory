@@ -46,6 +46,20 @@ class ReviewQueue:
             )
         return tuple(ReviewItem.model_validate(dict(row)) for row in rows)
 
+    def has_open_support_withdrawn(self, *, fact_id: UUID) -> bool:
+        """Whether an undecided support_withdrawn flag already marks the fact.
+
+        The reconcile stage's retry guard: a replayed run must not stack a
+        second flag on a fact the first attempt already queued.
+        """
+        with self._engine.connect() as connection:
+            return (
+                connection.execute(
+                    _SELECT_OPEN_FLAG, {"fact_id": str(fact_id)}
+                ).scalar_one_or_none()
+                is not None
+            )
+
     def flag_support_withdrawn(
         self,
         *,
@@ -422,6 +436,16 @@ _SELECT_ITEM_LOCKED = text(
     FROM review_queue
     WHERE deployment_id = :deployment_id AND review_id = :review_id
     FOR UPDATE
+    """
+)
+
+_SELECT_OPEN_FLAG = text(
+    """
+    SELECT review_id FROM review_queue
+    WHERE item_kind = 'support_withdrawn'
+      AND status = 'pending'
+      AND candidate ->> 'fact_id' = :fact_id
+    LIMIT 1
     """
 )
 
