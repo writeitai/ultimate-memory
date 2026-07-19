@@ -221,6 +221,9 @@ class ReconcileHandler:
                         "reason": "reextracted",
                         "from_extractor_version": withdrawn.from_extractor_version,
                         "to_extractor_version": self._extractor_version,
+                        # the full superseding basis, for exact attribution
+                        # when a non-extractor coordinate caused the bump
+                        "to_chunker_version": self._chunker_version,
                     },
                 )
                 flagged.append(fact_id)

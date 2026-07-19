@@ -278,7 +278,11 @@ class ReviewQueue:
                     "fact_kind": fact_kind,
                     "fact_id": str(fact_id),
                 },
-                "expected": {"current_claim_id": str(claim_id)},
+                "expected": {
+                    "fact_kind": fact_kind,
+                    "fact_id": str(fact_id),
+                    "restored_claim_id": str(claim_id),
+                },
                 "review_id": str(review_id),
             },
         )

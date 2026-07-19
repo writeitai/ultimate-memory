@@ -65,5 +65,7 @@ class LifecycleReport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     passed: bool
+    quiescent: bool = True  # count/closure checks defer while mid-flight
     violations: dict[str, tuple[str, ...]] = {}
+    canary_failures: tuple[str, ...] = ()
     flag_rate_by_extractor: dict[str, dict[str, float]] = {}

@@ -858,7 +858,9 @@ def test_lifecycle_suite_passes_on_healthy_state_and_records_the_run(
         component_version="reconcile-2026.07",
     )
     assert report.passed
+    assert report.quiescent  # the chain is drained: full checks ran
     assert report.violations == {}
+    assert report.canary_failures == ()
     assert "e2-extract-2026.07" in report.flag_rate_by_extractor
     assert report.flag_rate_by_extractor["e2-extract-2026.07"]["flag_rate"] == 0.0
     recorded = rig.scalar("SELECT passed FROM eval_runs WHERE suite = 'lifecycle'")
@@ -933,6 +935,50 @@ def test_restore_support_plants_a_canary_the_pack_rechecks(rig: _LifecycleRig) -
         component_version="e2-extract-NEXT",
     )
     assert healthy.passed  # the restored claim is current: the guard holds
+
+    # a FIXED extractor re-derives the content as a NEW claim (immutability)
+    # and the restored one legitimately flips non-current — the canary
+    # guards the FACT's support, so it must still pass (Codex review):
+    successor = uuid4()
+    with rig.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO claims (claim_id, deployment_id, doc_id, chunk_id,"
+                " section_id, claim_text, source_span, char_start, char_end,"
+                " added_context, is_attributed, anchor_ok,"
+                " window_membership_ok, entailment_self_verdict, kept_flagged,"
+                " extractor_version)"
+                " SELECT :new_id, deployment_id, doc_id, chunk_id, section_id,"
+                " claim_text, source_span, char_start, char_end, added_context,"
+                " is_attributed, anchor_ok, window_membership_ok,"
+                " entailment_self_verdict, kept_flagged, 'e2-extract-NEXT'"
+                " FROM claims LIMIT 1"
+            ),
+            {"new_id": successor},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO relation_evidence (deployment_id, relation_id,"
+                " claim_id, doc_id, stance, normalizer_version)"
+                " SELECT deployment_id, relation_id, :new_id, doc_id, stance,"
+                " normalizer_version FROM relation_evidence"
+                " WHERE claim_id <> :new_id LIMIT 1"
+            ),
+            {"new_id": successor},
+        )
+        connection.execute(
+            text(
+                "UPDATE claims SET is_current_testimony = false"
+                " WHERE claim_id <> :new_id"
+            ),
+            {"new_id": successor},
+        )
+    rederived = harness.run_suite(
+        deployment_id=_DEPLOYMENT_ID,
+        suite=EvalSuite.LIFECYCLE,
+        component_version="e2-extract-NEXT",
+    )
+    assert rederived.passed  # the successor carries the fact: no false block
 
     with rig.engine.begin() as connection:  # a generation loses it again
         connection.execute(text("UPDATE claims SET is_current_testimony = false"))
