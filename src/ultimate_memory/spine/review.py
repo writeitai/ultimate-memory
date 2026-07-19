@@ -60,6 +60,13 @@ class ReviewQueue:
         the claim — no mechanical verdict is derivable."""
         review_id = uuid4()
         with self._engine.begin() as connection:
+            self._require_bound(
+                connection=connection,
+                deployment_id=deployment_id,
+                fact_kind=fact_kind,
+                fact_id=fact_id,
+                claim_id=claim_id,
+            )
             connection.execute(
                 _INSERT_REVIEW,
                 {
@@ -103,7 +110,10 @@ class ReviewQueue:
                 deployment_id=deployment_id,
                 review_id=review_id,
                 expected_kind="merge_cluster",
+                verdict=verdict,
             )
+            if item is None:
+                return ()  # idempotent retry of the same verdict
             events: tuple[UUID, ...] = ()
             if verdict == "merge":
                 candidate = _candidate(item=item)
@@ -122,16 +132,14 @@ class ReviewQueue:
                     for absorbed in list(candidate["absorbed_ids"])  # type: ignore[arg-type]
                 )
                 events = tuple(event for event in events if event is not None)
-            connection.execute(
-                _CLOSE_REVIEW,
-                {
-                    "review_id": review_id,
-                    "status": "accepted" if verdict == "merge" else "rejected",
-                    "verdict": verdict,
-                    "verdict_note": note,
-                    "assigned_to": reviewer,
-                    "result_decision_id": events[0] if events else None,
-                },
+            self._close(
+                connection=connection,
+                review_id=review_id,
+                status="accepted" if verdict == "merge" else "rejected",
+                verdict=verdict,
+                note=note,
+                reviewer=reviewer,
+                result_decision_id=events[0] if events else None,
             )
         return events
 
@@ -162,7 +170,10 @@ class ReviewQueue:
                 deployment_id=deployment_id,
                 review_id=review_id,
                 expected_kind="support_withdrawn",
+                verdict=verdict,
             )
+            if item is None:
+                return  # idempotent retry of the same verdict
             candidate = _candidate(item=item)
             fact_kind = str(candidate["fact_kind"])
             fact_id = UUID(str(candidate["fact_id"]))
@@ -185,16 +196,14 @@ class ReviewQueue:
                     claim_id=claim_id,
                     review_id=review_id,
                 )
-            connection.execute(
-                _CLOSE_REVIEW,
-                {
-                    "review_id": review_id,
-                    "status": "deferred" if verdict == "uncertain" else "accepted",
-                    "verdict": verdict,
-                    "verdict_note": note,
-                    "assigned_to": reviewer,
-                    "result_decision_id": None,
-                },
+            self._close(
+                connection=connection,
+                review_id=review_id,
+                status="deferred" if verdict == "uncertain" else "accepted",
+                verdict=verdict,
+                note=note,
+                reviewer=reviewer,
+                result_decision_id=None,
             )
 
     def _restore_support(
@@ -208,21 +217,61 @@ class ReviewQueue:
         review_id: UUID,
     ) -> None:
         """The restore path: currency event + claim flag + support recount."""
-        doc_id = connection.execute(_CLAIM_DOC, {"claim_id": claim_id}).scalar_one()
-        connection.execute(
-            _INSERT_CURRENCY_EVENT,
-            {
-                "event_id": uuid4(),
-                "deployment_id": deployment_id,
-                "claim_id": claim_id,
-                "doc_id": doc_id,
-                # a review decision is its own reconciliation run; stable per
-                # review so a retried verdict re-emits as a no-op (UNIQUE)
-                "reconciliation_id": review_id,
-            },
+        self._require_bound(
+            connection=connection,
+            deployment_id=deployment_id,
+            fact_kind=fact_kind,
+            fact_id=fact_id,
+            claim_id=claim_id,
         )
-        connection.execute(_RESTORE_CLAIM_CURRENCY, {"claim_id": claim_id})
+        doc_id = connection.execute(
+            _CLAIM_DOC, {"claim_id": claim_id, "deployment_id": deployment_id}
+        ).scalar_one()
+        already = connection.execute(
+            _CURRENCY_EVENT_EXISTS,
+            {"claim_id": claim_id, "reconciliation_id": review_id},
+        ).scalar_one()
+        if not already:  # review-keyed reconciliation: retries re-emit nothing
+            connection.execute(
+                _INSERT_CURRENCY_EVENT,
+                {
+                    "event_id": uuid4(),
+                    "deployment_id": deployment_id,
+                    "claim_id": claim_id,
+                    "doc_id": doc_id,
+                    "reconciliation_id": review_id,
+                },
+            )
+        connection.execute(
+            _RESTORE_CLAIM_CURRENCY,
+            {"claim_id": claim_id, "deployment_id": deployment_id},
+        )
         self._recount(connection=connection, fact_kind=fact_kind, fact_id=fact_id)
+
+    def _require_bound(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        fact_kind: str,
+        fact_id: UUID,
+        claim_id: UUID,
+    ) -> None:
+        """The claim and the fact must both belong to the deployment (D50):
+        a candidate carrying foreign ids writes nothing (Codex review)."""
+        claim_ok = connection.execute(
+            _CLAIM_BOUND, {"claim_id": claim_id, "deployment_id": deployment_id}
+        ).scalar_one()
+        fact_statement = (
+            _RELATION_BOUND if fact_kind == "relation" else _OBSERVATION_BOUND
+        )
+        fact_ok = connection.execute(
+            fact_statement, {"fact_id": fact_id, "deployment_id": deployment_id}
+        ).scalar_one()
+        if not (claim_ok and fact_ok):
+            raise ReviewDecisionError(
+                "the claim or fact does not belong to this deployment"
+            )
 
     def _invalidate_fact(
         self,
@@ -288,8 +337,14 @@ class ReviewQueue:
         deployment_id: UUID,
         review_id: UUID,
         expected_kind: str,
-    ) -> dict[str, object]:
-        """Lock one open item of the expected kind, or raise a typed error."""
+        verdict: str,
+    ) -> dict[str, object] | None:
+        """Lock one open item of the expected kind, or raise a typed error.
+
+        A retried IDENTICAL verdict on a closed item is an idempotent no-op
+        (returns None — a lost CLI response can safely re-send); a DIFFERENT
+        verdict on a closed item is refused.
+        """
         row = (
             connection.execute(
                 _SELECT_ITEM_LOCKED,
@@ -300,16 +355,53 @@ class ReviewQueue:
         )
         if row is None:
             raise ReviewDecisionError(f"review item {review_id} does not exist")
-        if row["status"] not in ("pending", "deferred"):
-            raise ReviewDecisionError(
-                f"review item {review_id} is already {row['status']}"
-            )
         if row["item_kind"] != expected_kind:
             raise ReviewDecisionError(
                 f"review item {review_id} is a {row['item_kind']}, "
                 f"not a {expected_kind}"
             )
+        if row["status"] not in ("pending", "deferred"):
+            if row["verdict"] == verdict:
+                return None  # idempotent retry
+            raise ReviewDecisionError(
+                f"review item {review_id} is already {row['status']} "
+                f"with verdict {row['verdict']!r}"
+            )
         return dict(row)
+
+    def _close(
+        self,
+        *,
+        connection: Connection,
+        review_id: UUID,
+        status: str,
+        verdict: str,
+        note: str | None,
+        reviewer: str,
+        result_decision_id: UUID | None,
+    ) -> None:
+        """Close (or defer) the item, APPENDING to the verdict history.
+
+        The history lives in the candidate payload, so a later terminal
+        verdict never erases an earlier deferral's rationale (append-only
+        provenance, D24).
+        """
+        connection.execute(
+            _CLOSE_REVIEW,
+            {
+                "review_id": review_id,
+                "status": status,
+                "verdict": verdict,
+                "verdict_note": note,
+                "assigned_to": reviewer,
+                "result_decision_id": result_decision_id,
+                "history_entry": {
+                    "verdict": verdict,
+                    "reviewer": reviewer,
+                    "note": note,
+                },
+            },
+        )
 
 
 _SELECT_PENDING = text(
@@ -326,7 +418,7 @@ _SELECT_PENDING = text(
 _SELECT_ITEM_LOCKED = text(
     """
     SELECT review_id, item_kind::text AS item_kind, candidate, blast_radius,
-           status::text AS status
+           status::text AS status, verdict::text AS verdict
     FROM review_queue
     WHERE deployment_id = :deployment_id AND review_id = :review_id
     FOR UPDATE
@@ -350,12 +442,52 @@ _CLOSE_REVIEW = text(
     UPDATE review_queue
     SET status = :status, verdict = :verdict, verdict_note = :verdict_note,
         assigned_to = :assigned_to, result_decision_id = :result_decision_id,
-        resolved_at = now()
+        resolved_at = now(),
+        candidate = jsonb_set(
+            candidate,
+            '{verdict_history}',
+            coalesce(candidate->'verdict_history', '[]'::jsonb)
+                || CAST(:history_entry AS jsonb),
+            true
+        )
     WHERE review_id = :review_id
+    """
+).bindparams(bindparam("history_entry", type_=JSON))
+
+_CLAIM_DOC = text(
+    """
+    SELECT doc_id FROM claims
+    WHERE claim_id = :claim_id AND deployment_id = :deployment_id
     """
 )
 
-_CLAIM_DOC = text("SELECT doc_id FROM claims WHERE claim_id = :claim_id")
+_CLAIM_BOUND = text(
+    """
+    SELECT count(*) > 0 FROM claims
+    WHERE claim_id = :claim_id AND deployment_id = :deployment_id
+    """
+)
+
+_RELATION_BOUND = text(
+    """
+    SELECT count(*) > 0 FROM relations
+    WHERE relation_id = :fact_id AND deployment_id = :deployment_id
+    """
+)
+
+_OBSERVATION_BOUND = text(
+    """
+    SELECT count(*) > 0 FROM observations
+    WHERE observation_id = :fact_id AND deployment_id = :deployment_id
+    """
+)
+
+_CURRENCY_EVENT_EXISTS = text(
+    """
+    SELECT count(*) > 0 FROM testimony_currency_events
+    WHERE claim_id = :claim_id AND reconciliation_id = :reconciliation_id
+    """
+)
 
 _INSERT_CURRENCY_EVENT = text(
     """
@@ -370,7 +502,10 @@ _INSERT_CURRENCY_EVENT = text(
 )
 
 _RESTORE_CLAIM_CURRENCY = text(
-    "UPDATE claims SET is_current_testimony = true WHERE claim_id = :claim_id"
+    """
+    UPDATE claims SET is_current_testimony = true
+    WHERE claim_id = :claim_id AND deployment_id = :deployment_id
+    """
 )
 
 _INVALIDATE_RELATION = text(
@@ -395,7 +530,7 @@ _INSERT_RELATION_ADJUDICATION = text(
         adjudication_id, deployment_id, relation_id, outcome, method,
         confidence, features, adjudicator_version, decided_by
     ) VALUES (
-        :adjudication_id, :deployment_id, :relation_id, 'noop', 'exact',
+        :adjudication_id, :deployment_id, :relation_id, 'invalidated', 'exact',
         1.0, :features, 'review-2026.07', 'human'
     )
     """
@@ -408,7 +543,7 @@ _INSERT_OBSERVATION_ADJUDICATION = text(
         confidence, triggering_claim_id, features, adjudicator_version,
         decided_by
     ) VALUES (
-        :adjudication_id, :deployment_id, :observation_id, 'noop', 'exact',
+        :adjudication_id, :deployment_id, :observation_id, 'invalidated', 'exact',
         1.0, :triggering_claim_id, :features, 'review-2026.07', 'human'
     )
     """

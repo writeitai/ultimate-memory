@@ -69,7 +69,7 @@ def _head_revision(*, database_url: str) -> str:
         engine.dispose()
 
 
-def test_revision_graph_is_one_structural_six_revision_chain() -> None:
+def test_revision_graph_is_one_linear_structural_chain() -> None:
     """Keep the migration graph linear and free of bootstrap/seed DML."""
     config = Config(str(_ROOT / "alembic.ini"))
     script = ScriptDirectory.from_config(config)
@@ -82,12 +82,13 @@ def test_revision_graph_is_one_structural_six_revision_chain() -> None:
         "p0_02_0004",
         "p0_02_0005",
         "p0_02_0006",
+        "p2_06_0007",
     )
     assert len(script.get_heads()) == 1
 
     migration_source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted(_VERSIONS.glob("p0_02_*.py"))
+        for path in sorted(_VERSIONS.glob("p*_*.py"))
     ).lower()
     assert "insert into" not in migration_source
     assert "bootstrap_deployment" not in migration_source
@@ -135,5 +136,5 @@ def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> N
     head_before_noop = _head_revision(database_url=database_url)
     command.upgrade(config=config, revision="head")
     head_after_noop = _head_revision(database_url=database_url)
-    assert head_before_noop == head_after_noop == "p0_02_0006"
+    assert head_before_noop == head_after_noop == "p2_06_0007"
     assert _inventory(database_url=database_url) == restored_inventory

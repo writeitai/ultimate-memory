@@ -210,7 +210,23 @@ def test_merge_verdict_performs_a_reversible_human_merge(
     assert review["assigned_to"] == "jiri"
     assert review["result_decision_id"] == merge_id
 
-    with pytest.raises(ReviewDecisionError):  # already decided
+    # a retried IDENTICAL verdict is an idempotent no-op (a lost CLI
+    # response can re-send); a DIFFERENT verdict is refused:
+    assert (
+        queue.decide_merge(
+            deployment_id=_DEPLOYMENT_ID,
+            review_id=review_id,
+            verdict="merge",
+            reviewer="jiri",
+        )
+        == ()
+    )
+    with database_engine.connect() as connection:
+        event_count = connection.execute(
+            text("SELECT count(*) FROM merge_events")
+        ).scalar_one()
+    assert event_count == 1  # the retry minted nothing
+    with pytest.raises(ReviewDecisionError):
         queue.decide_merge(
             deployment_id=_DEPLOYMENT_ID,
             review_id=review_id,
@@ -316,15 +332,23 @@ def test_invalidate_fact_retires_it_with_a_recorded_adjudication(
             text("SELECT invalidated_at FROM relations WHERE relation_id = :r"),
             {"r": relation},
         ).scalar_one()
-        adjudicated = connection.execute(
-            text(
-                "SELECT features->>'action' FROM relation_adjudications"
-                " WHERE relation_id = :r AND decided_by = 'human'"
-            ),
-            {"r": relation},
-        ).scalar_one()
+        adjudicated = (
+            connection.execute(
+                text(
+                    "SELECT outcome::text AS outcome, features->>'action' AS action"
+                    " FROM relation_adjudications"
+                    " WHERE relation_id = :r AND decided_by = 'human'"
+                ),
+                {"r": relation},
+            )
+            .mappings()
+            .one()
+        )
     assert invalidated is not None
-    assert adjudicated == "invalidate_fact"
+    # the ledger tells the truth on replay (Codex review): the outcome IS
+    # the invalidation, not a noop with a side note.
+    assert adjudicated["outcome"] == "invalidated"
+    assert adjudicated["action"] == "invalidate_fact"
 
 
 def test_uncertain_leaves_the_marker_standing(database_engine: Engine) -> None:
@@ -351,9 +375,20 @@ def test_uncertain_leaves_the_marker_standing(database_engine: Engine) -> None:
         deployment_id=_DEPLOYMENT_ID,
         review_id=review_id,
         verdict="invalidate_fact",
-        reviewer="jiri",
+        reviewer="ada",
     )
     assert queue.pending(deployment_id=_DEPLOYMENT_ID) == ()
+    # the deferral's provenance SURVIVES the terminal verdict (append-only):
+    with database_engine.connect() as connection:
+        history = connection.execute(
+            text(
+                "SELECT candidate->'verdict_history' FROM review_queue"
+                " WHERE review_id = :r"
+            ),
+            {"r": review_id},
+        ).scalar_one()
+    assert [entry["verdict"] for entry in history] == ["uncertain", "invalidate_fact"]
+    assert history[0]["reviewer"] == "jiri"
 
 
 def test_cli_lists_and_decides_through_the_same_paths(
@@ -388,3 +423,44 @@ def test_cli_lists_and_decides_through_the_same_paths(
     decided = json.loads(capsys.readouterr().out.strip())
     assert decided["verdict"] == "merge"
     assert len(decided["merge_events"]) == 1
+
+
+def test_foreign_ids_are_refused_at_flag_and_decide(database_engine: Engine) -> None:
+    """Codex review / D50: a candidate carrying ids from another deployment
+    writes nothing — bound-checked at flag time."""
+    queue = ReviewQueue(engine=database_engine)
+    with pytest.raises(ReviewDecisionError):
+        queue.flag_support_withdrawn(
+            deployment_id=_DEPLOYMENT_ID,
+            fact_kind="relation",
+            fact_id=uuid4(),  # not a relation of this deployment
+            claim_id=uuid4(),
+            diff={},
+        )
+
+
+def test_restore_retry_emits_no_second_currency_event(database_engine: Engine) -> None:
+    """Codex review: a retried restore_support verdict is a full no-op —
+    one currency event, review-keyed."""
+    relation, claim_id = _withdrawn_fact(engine=database_engine)
+    queue = ReviewQueue(engine=database_engine)
+    review_id = queue.flag_support_withdrawn(
+        deployment_id=_DEPLOYMENT_ID,
+        fact_kind="relation",
+        fact_id=relation,
+        claim_id=claim_id,
+        diff={},
+    )
+    for _ in range(2):  # the second call is the lost-response retry
+        queue.decide_support_withdrawn(
+            deployment_id=_DEPLOYMENT_ID,
+            review_id=review_id,
+            verdict="restore_support",
+            reviewer="jiri",
+        )
+    with database_engine.connect() as connection:
+        events = connection.execute(
+            text("SELECT count(*) FROM testimony_currency_events WHERE claim_id = :c"),
+            {"c": claim_id},
+        ).scalar_one()
+    assert events == 1
