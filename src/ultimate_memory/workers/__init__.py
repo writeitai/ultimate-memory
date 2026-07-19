@@ -29,6 +29,10 @@ from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import LabelFactsHandler
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 from ultimate_memory.workers.p1 import P1Settings
+from ultimate_memory.workers.p2 import GraphRebuildSettings
+from ultimate_memory.workers.p2 import GraphRebuildWorker
+from ultimate_memory.workers.p2 import GraphSnapshotReader
+from ultimate_memory.workers.p2 import SnapshotValidationError
 from ultimate_memory.workers.reconcile import CycleFinalizer
 from ultimate_memory.workers.reconcile import DeletionService
 from ultimate_memory.workers.reconcile import RECONCILE_VERSION
@@ -61,6 +65,10 @@ __all__ = (
     "HandlerRegistry",
     "RunResult",
     "StageHandler",
+    "GraphRebuildSettings",
+    "GraphRebuildWorker",
+    "GraphSnapshotReader",
+    "SnapshotValidationError",
     "CycleFinalizer",
     "DeletionService",
     "ReconcileHandler",
