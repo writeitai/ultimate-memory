@@ -196,3 +196,39 @@ def test_empty_section_packs_to_no_chunks() -> None:
         params=ChunkerParams(),
     )
     assert chunks == ()
+
+
+def test_parent_direct_content_is_packed_not_dropped() -> None:
+    """Codex review: blocks a parent owns directly — before its first child
+    and in gaps between children — must reach chunks, attributed to the
+    parent. A leaf-only walk silently dropped them from chunking, embedding,
+    and extraction."""
+    source, blocks = _document(paragraphs=9)
+    parent = SectionSpan(
+        section_id=uuid4(), node_path="0", role="body", block_start=0, block_end=8
+    )
+    early_child = SectionSpan(  # blocks 0..2 before it belong to the parent
+        section_id=uuid4(), node_path="0.0", role="methods", block_start=3, block_end=4
+    )
+    late_child = SectionSpan(  # blocks 5..6 between children: parent again
+        section_id=uuid4(), node_path="0.1", role="results", block_start=7, block_end=8
+    )
+    chunks = pack_blocks(
+        blocks=blocks,
+        sections=(parent, early_child, late_child),
+        document_md=source,
+        params=ChunkerParams(token_budget=10_000),
+    )
+    covered = sorted(
+        ordinal
+        for chunk in chunks
+        for ordinal in range(chunk.block_start, chunk.block_end + 1)
+    )
+    assert covered == list(range(9))  # every block exactly once
+    owners = {
+        (chunk.block_start, chunk.block_end): chunk.section_id for chunk in chunks
+    }
+    assert owners[(0, 2)] == parent.section_id  # leading run: parent-direct
+    assert owners[(3, 4)] == early_child.section_id
+    assert owners[(5, 6)] == parent.section_id  # gap run: parent-direct
+    assert owners[(7, 8)] == late_child.section_id

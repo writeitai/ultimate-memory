@@ -42,7 +42,9 @@ Keep this current: when something here is decided, move it to a decision and pru
    driver's cycle (D45); tied to the compile-cycle economics spike (`k_layers_design.md` §11).
 
 **Operations**
-7. **PageIndex: hosted API or self-hosted?** Affects cost, privacy, and the E0 rebuild story (D39).
+7. **PageIndex: hosted API or self-hosted? — resolved (D71): neither.** The structurer is a
+   port-configured LLM seat inside the library; the deterministic snap guards its output.
+   "PageIndex" names the output shape, not a dependency.
 8. **Security / access model — trust model decided; only deployment ops remain.** Decided
    (D50/D51): **content-level authorization and per-user scoping are library non-goals** — a
    deployment is one trust domain; isolation = separate deployments; perimeter security is

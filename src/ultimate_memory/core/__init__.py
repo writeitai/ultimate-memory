@@ -25,6 +25,8 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.section_snap import SECTION_ROLES
+from ultimate_memory.core.section_snap import snap_sections
 
 __all__ = (
     "BLOCKIZER_VERSION",
@@ -52,4 +54,6 @@ __all__ = (
     "block_hash",
     "blockize",
     "normalized_block_text",
+    "SECTION_ROLES",
+    "snap_sections",
 )

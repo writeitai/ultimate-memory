@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import time
 from uuid import UUID
-from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
@@ -238,7 +237,6 @@ def test_edit_becomes_a_new_version_of_the_same_lineage(rig: _WatchRig) -> None:
         )
     rig.catalog.record_synthetic_root(
         record=SyntheticRootRecord(
-            section_id=uuid4(),
             deployment_id=_DEPLOYMENT_ID,
             doc_id=stale["doc_id"],
             version_id=stale["version_id"],

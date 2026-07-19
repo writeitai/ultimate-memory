@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 
 from ultimate_memory.adapters import MarkitdownConverter
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
+from ultimate_memory.adapters.testing import FakeModelProvider
 from ultimate_memory.core import blockize
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import MarkdownPassthroughConverter
@@ -31,6 +32,8 @@ from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.model import SectionTreeRecord
+from ultimate_memory.model import SnappedSection
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import WorkLedger
@@ -40,6 +43,7 @@ from ultimate_memory.workers import ConvertHandler
 from ultimate_memory.workers import E0_CONVERT_VERSION
 from ultimate_memory.workers import HandlerRegistry
 from ultimate_memory.workers import StructureHandler
+from ultimate_memory.workers import StructurerSettings
 from ultimate_memory.workers import UploadIngestor
 from ultimate_memory.workers import Worker
 
@@ -374,7 +378,6 @@ def test_stale_structure_never_overwrites_the_live_representation(rig: _E0Rig) -
         )
     rig.catalog.record_synthetic_root(
         record=SyntheticRootRecord(
-            section_id=uuid4(),
             deployment_id=_DEPLOYMENT_ID,
             doc_id=ingested.doc_id,
             version_id=ingested.version_id,
@@ -419,3 +422,208 @@ def test_empty_document_gets_an_empty_root_span(rig: _E0Rig) -> None:
         "char_end": 0,
         "role": "body",
     }
+
+
+_STRUCTURED_SOURCE = "\n\n".join(
+    (
+        "# Field report",
+        "The survey covered twelve sites.",
+        "Each site was visited twice.",
+        "## Findings",
+        "Nine sites showed erosion.",
+        "Three sites were stable.",
+        "## Recommendations",
+        "Revisit eroded sites yearly.",
+        "Publish the dataset.",
+    )
+)
+
+
+def _structure_worker(rig: _E0Rig, provider: object) -> Worker:
+    """A worker whose structure stage runs the full LLM route."""
+    registry = HandlerRegistry()
+    registry.register(
+        stage=PipelineStage.STRUCTURE,
+        handler=StructureHandler(
+            catalog=rig.catalog,
+            artifact_store=rig.artifact_store,
+            model_provider=provider,  # type: ignore[arg-type]
+            settings=StructurerSettings(min_blocks_for_llm=3),
+        ),
+    )
+    return Worker(ledger=rig.ledger, registry=registry)
+
+
+def test_full_structure_route_persists_the_snapped_tree(rig: _E0Rig) -> None:
+    """WP-3.3: the LLM proposal lands as a snapped multi-section tree — rows
+    with parent links and sanitized roles, placement on the root, and the
+    pageindex.json sidecar next to document.md."""
+    findings = _STRUCTURED_SOURCE.index("## Findings")
+    recommendations = _STRUCTURED_SOURCE.index("## Recommendations")
+    provider = FakeModelProvider(
+        generate_payloads={
+            "StructureResponse": {
+                "placement": "/surveys/field-reports/",
+                "sections": [
+                    {
+                        "title": "Findings",
+                        "role": "results",
+                        "char_start": findings,
+                        "char_end": recommendations,
+                        "summary": "What the survey found.",
+                    },
+                    {
+                        "title": "Recommendations",
+                        "role": "ACTION_ITEMS",  # invented: must degrade to body
+                        "char_start": recommendations,
+                        "char_end": len(_STRUCTURED_SOURCE),
+                    },
+                ],
+            }
+        }
+    )
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="survey.md",
+            mime="text/markdown",
+            content=_STRUCTURED_SOURCE.encode("utf-8"),
+        ),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    worker = _structure_worker(rig, provider)
+    outcome = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.STRUCTURE,
+        lane=ProcessingLane.STEADY,
+    ).outcome
+    assert outcome is RunResultOutcome.SUCCEEDED
+
+    with rig.engine.connect() as connection:
+        sections = (
+            connection.execute(
+                text(
+                    "SELECT node_path, parent_section_id, section_id, title,"
+                    " role::text AS role, block_start, block_end, placement_path"
+                    " FROM document_sections WHERE version_id = :version_id"
+                    " ORDER BY ordinal"
+                ),
+                {"version_id": ingested.version_id},
+            )
+            .mappings()
+            .all()
+        )
+        structurer = connection.execute(
+            text(
+                "SELECT structurer_name FROM document_representations"
+                " WHERE version_id = :version_id"
+            ),
+            {"version_id": ingested.version_id},
+        ).scalar_one()
+    assert [row["node_path"] for row in sections] == ["0", "0.0", "0.1"]
+    root, first, second = sections
+    assert root["placement_path"] == "/surveys/field-reports/"
+    assert first["parent_section_id"] == root["section_id"]
+    assert second["parent_section_id"] == root["section_id"]
+    assert first["role"] == "results"
+    assert second["role"] == "body"  # the invented role degraded
+    assert first["block_end"] == second["block_start"] - 1  # tiled partition
+    assert structurer == "pageindex_llm"
+
+    representation = rig.row(
+        sql="SELECT blocks_uri FROM document_representations"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    sidecar_key = str(representation["blocks_uri"]).rsplit("/", 1)[0]
+    sidecar = json.loads(
+        rig.artifact_store.read_bytes(key=ObjectKey(f"{sidecar_key}/pageindex.json"))
+    )
+    assert sidecar["placement"] == "/surveys/field-reports/"
+    assert len(sidecar["sections"]) == 3
+
+
+def test_failed_structurer_degrades_to_the_synthetic_root(rig: _E0Rig) -> None:
+    """A dead model seat never fails a document — the root serves it."""
+
+    class _DeadProvider:
+        def generate(self, *, request: object, response_type: object) -> object:
+            raise ConnectionError("model gateway down")
+
+        def embed(self, *, request: object) -> object:
+            raise NotImplementedError
+
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="survey.md",
+            mime="text/markdown",
+            content=_STRUCTURED_SOURCE.encode("utf-8"),
+        ),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    worker = _structure_worker(rig, _DeadProvider())
+    outcome = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.STRUCTURE,
+        lane=ProcessingLane.STEADY,
+    ).outcome
+    assert outcome is RunResultOutcome.SUCCEEDED
+    section = rig.row(
+        sql="SELECT node_path, role::text AS role FROM document_sections"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    assert section == {"node_path": "0", "role": "body"}
+
+
+def test_retried_tree_write_returns_the_first_attempts_truth(rig: _E0Rig) -> None:
+    """Codex review: a retry whose (fresher) LLM proposal differs must not
+    win — rows keep the first tree, the catalog returns it, and the sidecar
+    is derived from that persisted truth."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="report.md",
+            mime="text/markdown",
+            content=_STRUCTURED_SOURCE.encode("utf-8"),
+        ),
+    )
+    assert rig.run(stage=PipelineStage.CONVERT) is RunResultOutcome.SUCCEEDED
+    representation = rig.row(
+        sql="SELECT representation_id FROM document_representations"
+        " WHERE version_id = :version_id",
+        params={"version_id": ingested.version_id},
+    )
+    representation_id = representation["representation_id"]
+
+    def _record(title: str) -> SectionTreeRecord:
+        return SectionTreeRecord(
+            deployment_id=_DEPLOYMENT_ID,
+            doc_id=ingested.doc_id,
+            version_id=ingested.version_id,
+            representation_id=representation_id,  # type: ignore[arg-type]
+            sections=(
+                SnappedSection(
+                    node_path="0",
+                    parent_path=None,
+                    title=title,
+                    role="body",
+                    block_start=0,
+                    block_end=8,
+                    char_start=0,
+                    char_end=len(_STRUCTURED_SOURCE),
+                    summary="",
+                    ordinal=0,
+                ),
+            ),
+            placement_path=f"/{title}/",
+            structurer_name="pageindex_llm",
+            structurer_version="test-structurer",
+        )
+
+    first = rig.catalog.record_section_tree(record=_record("first"))
+    retry = rig.catalog.record_section_tree(record=_record("second"))
+    assert first.sections[0].title == "first"
+    assert retry.sections[0].title == "first"  # the first attempt's row won
+    assert retry.placement_path == "/first/"
