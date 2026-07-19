@@ -87,8 +87,7 @@ def test_revision_graph_is_one_linear_structural_chain() -> None:
     assert len(script.get_heads()) == 1
 
     migration_source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(_VERSIONS.glob("p*_*.py"))
+        path.read_text(encoding="utf-8") for path in sorted(_VERSIONS.glob("p*_*.py"))
     ).lower()
     assert "insert into" not in migration_source
     assert "bootstrap_deployment" not in migration_source
