@@ -30,6 +30,7 @@ from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.entity_registry import EntityRegistry
 from ultimate_memory.spine.fact_catalog import FactCatalog
 from ultimate_memory.spine.fact_catalog import OTHER_PREDICATE_GRAMMAR
+from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.supersession import ADJUDICATOR_VERSION
 from ultimate_memory.spine.supersession import SupersessionAdjudicator
@@ -85,6 +86,7 @@ class NormalizeRelationsHandler:
         registry: EntityRegistry,
         resolver: CascadeResolver,
         facts: FactCatalog,
+        observation_adjudicator: ObservationAdjudicator,
         model_provider: ModelProviderPort,
         settings: E3Settings,
         chunker_version: str,
@@ -95,6 +97,7 @@ class NormalizeRelationsHandler:
         self._registry = registry
         self._resolver = resolver
         self._facts = facts
+        self._observation_adjudicator = observation_adjudicator
         self._model_provider = model_provider
         self._settings = settings
         self._chunker_version = chunker_version
@@ -262,13 +265,15 @@ class NormalizeRelationsHandler:
             subject = self._resolver.resolve(
                 deployment_id=deployment_id, reference=observation.subject, claim=claim
             )
-            self._facts.upsert_observation(
+            # the one write path for observations is the D43 adjudicator:
+            # block on the entity, gate cheaply, ladder the residue,
+            # fail safe to coexist (observations §3)
+            self._observation_adjudicator.add_observation(
                 deployment_id=deployment_id,
                 subject_entity_id=subject.entity_id,
                 statement=observation.statement,
                 claim_id=claim.claim_id,
                 doc_id=claim.doc_id,
-                normalizer_version=E3_NORMALIZER_VERSION,
             )
 
 

@@ -33,6 +33,8 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import ObservationAdjudicator
+from ultimate_memory.spine import ObservationSettings
 from ultimate_memory.spine import RESOLVER_VERSION
 from ultimate_memory.spine import SupersessionAdjudicator
 from ultimate_memory.spine import SupersessionSettings
@@ -189,6 +191,7 @@ class _E3Rig:
                 "NormalizationResponse": _NORMALIZATION_PAYLOAD,
                 "FactLabelResponse": {"label": "Alice Novak works for Acme."},
                 "SupersessionVerdict": {"outcome": "coexist", "confidence": 0.9},
+                "ObservationVerdict": {"outcome": "new", "confidence": 0.9},
             }
         )
         document_catalog = DocumentCatalog(engine=engine)
@@ -216,6 +219,11 @@ class _E3Rig:
                 frontier_model="openai/gpt-5.6-sol",
             ),
             facts=FactCatalog(engine=engine),
+            observation_adjudicator=ObservationAdjudicator(
+                engine=engine,
+                model_provider=self.provider,
+                settings=ObservationSettings(),
+            ),
             model_provider=self.provider,
             settings=E3Settings(),
             chunker_version=chunker_version(params=_PARAMS),
