@@ -24,6 +24,7 @@ from ultimate_memory.spine.review import ReviewQueue
 from ultimate_memory.spine.supersession import ADJUDICATOR_VERSION
 from ultimate_memory.spine.supersession import SupersessionAdjudicator
 from ultimate_memory.spine.supersession import SupersessionSettings
+from ultimate_memory.spine.sync import SyncCatalog
 from ultimate_memory.spine.work_ledger import WorkLedger
 from ultimate_memory.spine.work_ledger import WorkLedgerSettings
 
@@ -38,6 +39,7 @@ __all__ = (
     "CascadeResolver",
     "SupersessionAdjudicator",
     "SupersessionSettings",
+    "SyncCatalog",
     "FactCatalog",
     "OBSERVATION_ADJUDICATOR_VERSION",
     "ObservationAdjudicator",

@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from ultimate_memory.model.queue import UTCDateTime
+
 NonEmptyString = Annotated[str, Field(min_length=1)]
 
 
@@ -57,6 +59,10 @@ class UploadRecord(BaseModel):
     mime: NonEmptyString
     byte_size: int = Field(ge=0)
     raw_uri: NonEmptyString
+    versioning_mode: str = "snapshot"  # snapshot (fail-safe) | living (D55)
+    source_modified_at: UTCDateTime | None = None
+    source_version_ref: str | None = None
+    sync_cycle_id: UUID | None = None
 
 
 class ConvertSource(BaseModel):
@@ -133,3 +139,30 @@ class DocumentVersionNotFoundError(Exception):
 
 class RepresentationNotFoundError(Exception):
     """A stage referenced a document representation the spine does not know."""
+
+
+class SourceItem(BaseModel):
+    """One observation a watched source reports in a poll (lifecycle §2)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_ref: NonEmptyString  # connector-native stable id (path, file id)
+    revision: NonEmptyString  # revision/etag; unchanged revision = no fetch
+    modified_at: UTCDateTime
+    deleted: bool = False
+    filename: str = ""
+    mime: str = "text/markdown"
+
+
+class SyncCycleSummary(BaseModel):
+    """What one recorded sync cycle did (connector_sync_cycles, D55/F8)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    cycle_id: UUID
+    observed: int
+    ingested: tuple[UUID, ...] = ()  # version ids created this cycle
+    unchanged: int = 0
+    debounced: int = 0
+    deletions_observed: tuple[UUID, ...] = ()  # lineage ids tombstoned
+    failed: int = 0  # items lost to per-item errors; the cycle is lossy

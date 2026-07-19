@@ -28,6 +28,8 @@ from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import LabelFactsHandler
 from ultimate_memory.workers.p1 import P1_EMBED_CLAIMS_VERSION
 from ultimate_memory.workers.p1 import P1Settings
+from ultimate_memory.workers.sync import SyncCycleRunner
+from ultimate_memory.workers.sync import SyncSettings
 
 __all__ = (
     "AdjudicateSupersessionHandler",
@@ -55,6 +57,8 @@ __all__ = (
     "RunResult",
     "StageHandler",
     "StructureHandler",
+    "SyncCycleRunner",
+    "SyncSettings",
     "UPLOAD_SOURCE_KIND",
     "UploadIngestor",
     "Worker",

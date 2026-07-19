@@ -7,6 +7,7 @@ queued stage handlers. Artifacts land ID-addressed in the artifacts store
 only the index.
 """
 
+from datetime import datetime
 import hashlib
 import json
 from pathlib import PurePosixPath
@@ -83,6 +84,53 @@ class UploadIngestor:
                 mime=upload.mime,
                 byte_size=len(upload.content),
                 raw_uri=raw_uri,
+            ),
+            convert_component_version=E0_CONVERT_VERSION,
+        )
+
+    def ingest_observed(
+        self,
+        *,
+        deployment_id: UUID,
+        source_kind: str,
+        source_ref: str,
+        upload: DocumentUpload,
+        versioning_mode: str,
+        source_modified_at: datetime | None,
+        source_version_ref: str | None,
+        sync_cycle_id: UUID | None,
+    ) -> IngestedVersion:
+        """Ingest one WATCHED observation of a lineage (D55).
+
+        Identity is connector-native (source_kind, source_ref) — bytes
+        cannot identify a lineage (they change; that is the premise). A
+        changed file becomes a new VERSION of its lineage; identical bytes
+        are the content-hash no-op.
+        """
+        content_hash = hashlib.sha256(upload.content).hexdigest()
+        doc_id = uuid5(NAMESPACE_URL, f"ugm:{source_kind}:{deployment_id}:{source_ref}")
+        suffix = PurePosixPath(upload.filename).suffix
+        raw_uri = f"{doc_id}/{content_hash}/original{suffix}"
+        try:
+            self._raw_store.write_bytes(key=ObjectKey(raw_uri), content=upload.content)
+        except ObjectAlreadyExistsError:
+            pass
+        return self._catalog.record_upload(
+            record=UploadRecord(
+                deployment_id=deployment_id,
+                doc_id=doc_id,
+                source_kind=source_kind,
+                source_ref=source_ref,
+                source_uri=source_ref,
+                title=upload.title or PurePosixPath(upload.filename).stem,
+                content_hash=content_hash,
+                mime=upload.mime,
+                byte_size=len(upload.content),
+                raw_uri=raw_uri,
+                versioning_mode=versioning_mode,
+                source_modified_at=source_modified_at,
+                source_version_ref=source_version_ref,
+                sync_cycle_id=sync_cycle_id,
             ),
             convert_component_version=E0_CONVERT_VERSION,
         )
