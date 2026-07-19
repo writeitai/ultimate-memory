@@ -19,6 +19,9 @@ from ultimate_memory.spine.observation_adjudication import (
 from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
 from ultimate_memory.spine.observation_adjudication import ObservationSettings
 from ultimate_memory.spine.projection import ProjectionCatalog
+from ultimate_memory.spine.recipes import CANONICAL_RECIPES
+from ultimate_memory.spine.recipes import RecipeRegistry
+from ultimate_memory.spine.recipes import seed_canonical_recipes
 from ultimate_memory.spine.resolver import CascadeResolver
 from ultimate_memory.spine.resolver import RESOLVER_VERSION
 from ultimate_memory.spine.resolver import seed_resolver_version
@@ -49,6 +52,9 @@ __all__ = (
     "RESOLVER_VERSION",
     "LifecycleCatalog",
     "ProjectionCatalog",
+    "CANONICAL_RECIPES",
+    "RecipeRegistry",
+    "seed_canonical_recipes",
     "ReviewQueue",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",
