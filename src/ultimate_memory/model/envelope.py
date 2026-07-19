@@ -64,6 +64,8 @@ class Freshness(BaseModel):
     pg_live_ts: UTCDateTime
     p1_written_inline: bool = True  # the skeleton writes P1 inline; a real
     # write-lag horizon replaces this constant with measurement (retrieval §5)
+    p2_snapshot_version: str | None = None  # which graph snapshot answered
+    p2_snapshot_ts: UTCDateTime | None = None
 
 
 class EntityCandidate(BaseModel):
@@ -117,6 +119,63 @@ class SourceRecord(BaseModel):
     markdown_uri: str | None
 
 
+class GraphNode(BaseModel):
+    """One entity the traversal reached, with its hop distance."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    entity_id: UUID
+    name: str
+    type: str
+    hops: int = Field(ge=0)
+
+
+class GraphEdge(BaseModel):
+    """One traversed relation, carrying its bi-temporal state."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    relation_id: UUID
+    subject_id: UUID
+    object_id: UUID
+    predicate: str
+    fact: str | None
+    evidence_count: int
+    valid_from: UTCDateTime | None
+    valid_until: UTCDateTime | None
+    invalidated_at: UTCDateTime | None
+
+
+class GraphPath(BaseModel):
+    """One connection between two entities — a COMPOUND result.
+
+    A path revalidates as a unit (S17/S21): if hydration drops any edge,
+    the whole path drops, because a path with a hole is not a shorter
+    path — it is a different (and false) claim about connection.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    length: int = Field(ge=1)
+    nodes: tuple[GraphNode, ...] = Field(min_length=2)
+    edges: tuple[GraphEdge, ...] = Field(min_length=1)
+
+
+class Truncation(BaseModel):
+    """The explicit cap marker (S18/S49): no silent top-k ever.
+
+    ``estimated_total`` is what the traversal could see before the cap;
+    ``continuation`` carries the opaque cursor a follow-up call passes back.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    truncated: bool
+    returned: int = Field(ge=0)
+    estimated_total: int = Field(ge=0)
+    continuation: str | None = None
+
+
 class Envelope(BaseModel):
     """The minimal D49 envelope: results plus the answer's self-account."""
 
@@ -129,6 +188,10 @@ class Envelope(BaseModel):
     evidence: tuple[EvidenceResult, ...] = ()
     sources: tuple[SourceRecord, ...] = ()
     transcript: tuple["TranscriptEntry", ...] = ()  # S8: the audit surface
+    nodes: tuple[GraphNode, ...] = ()  # S18: neighborhood members
+    paths: tuple[GraphPath, ...] = ()  # S17/S21: compound connections
+    edges: tuple[GraphEdge, ...] = ()  # the traversed relations
     freshness: Freshness
+    truncation: Truncation | None = None  # S18/S49: caps are never silent
     dropped_by_hydration: int = 0
     negative: Negative | None = None

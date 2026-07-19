@@ -695,3 +695,60 @@ def test_spike_e_invalidated_edge_retention(
         f"\nSPIKE-E edges={total} invalidated={retained}"
         f" copy_s={copy_s:.3f} parquet_kb={parquet_kb:.0f}"
     )
+
+
+def test_spike_g_null_parameter_binding_limit(
+    graph_connection: ladybug.Connection,
+) -> None:
+    """WP-4.3 finding: a NULL parameter cannot participate in a typed
+    comparison — the engine infers it as BOOL. The SQL idiom "pass NULL and
+    let `$p IS NULL OR …` short-circuit" is therefore unavailable, and
+    temporal predicates must be composed conditionally. Asserted so a
+    version that fixes parameter typing flips this canary."""
+    conn = graph_connection
+    conn.execute("CREATE NODE TABLE E(eid INT64, PRIMARY KEY (eid))")
+    conn.execute("CREATE REL TABLE L(FROM E TO E, since TIMESTAMP)")
+    conn.execute("CREATE (:E {eid: 1}), (:E {eid: 2})")
+    conn.execute(
+        "MATCH (a:E {eid: 1}), (b:E {eid: 2})"
+        " CREATE (a)-[:L {since: TIMESTAMP('2020-01-01')}]->(b)"
+    )
+    bound = _scalar_int(
+        conn.execute(
+            "MATCH (a:E {eid: 1})-[r:L* 1..2 (r, n | WHERE r.since <= $t)]->(b:E)"
+            " RETURN count(*)",
+            {"t": datetime(2022, 1, 1)},
+        )
+    )
+    assert bound == 1  # a BOUND parameter works inside the inline predicate
+    with pytest.raises(RuntimeError, match="TIMESTAMP and BOOL"):
+        conn.execute(
+            "MATCH (a:E {eid: 1})-[r:L* 1..2"
+            " (r, n | WHERE $t IS NULL OR r.since <= $t)]->(b:E) RETURN count(*)",
+            {"t": None},
+        )
+
+
+def test_spike_h_path_element_comprehension_limit(
+    graph_connection: ladybug.Connection,
+) -> None:
+    """WP-4.3 finding: list comprehensions over path elements are
+    unsupported (`Variable x is not in scope`) — `nodes(p)`/`rels(p)` and
+    `properties(…)` are the supported projections."""
+    conn = graph_connection
+    conn.execute("CREATE NODE TABLE E(eid INT64, nm STRING, PRIMARY KEY (eid))")
+    conn.execute("CREATE REL TABLE L(FROM E TO E, pr STRING)")
+    conn.execute("CREATE (:E {eid: 1, nm: 'a'}), (:E {eid: 2, nm: 'b'})")
+    conn.execute("MATCH (a:E {eid: 1}), (b:E {eid: 2}) CREATE (a)-[:L {pr: 'x'}]->(b)")
+    with pytest.raises(RuntimeError, match="not in scope"):
+        conn.execute(
+            "MATCH p = (a:E {eid: 1})-[r:L* SHORTEST 1..3]-(b:E {eid: 2})"
+            " RETURN [x IN nodes(p) | x.nm]"
+        )
+    supported = _next_row(
+        conn.execute(
+            "MATCH p = (a:E {eid: 1})-[r:L* SHORTEST 1..3]-(b:E {eid: 2})"
+            " RETURN properties(nodes(p), 'nm')"
+        )
+    )
+    assert supported == [["a", "b"]]  # the supported projection form
