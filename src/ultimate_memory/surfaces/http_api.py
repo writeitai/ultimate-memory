@@ -23,6 +23,7 @@ from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import Header
 from fastapi import HTTPException
+from fastapi import Query
 from pydantic import SecretBytes
 
 from ultimate_memory.model import AuthenticatedContext
@@ -30,6 +31,7 @@ from ultimate_memory.model import Envelope
 from ultimate_memory.model import PerimeterCredential
 from ultimate_memory.ports.auth import AuthPerimeterPort
 from ultimate_memory.surfaces.query_engine import QueryEngine
+from ultimate_memory.surfaces.query_engine import RESOLVE_CONTEXT_LIMIT
 from ultimate_memory.surfaces.recipe_surface import InvalidArgumentError
 from ultimate_memory.surfaces.recipe_surface import MissingArgumentError
 from ultimate_memory.surfaces.recipe_surface import RecipeSurface
@@ -70,10 +72,19 @@ def build_api(
     )
 
     @app.get("/resolve", response_model=Envelope)
-    def resolve(name: str, entity_type: str | None = None) -> Envelope:
-        """Resolve a name to ranked current entities (T0; S1/S39)."""
+    def resolve(
+        name: str,
+        entity_type: str | None = None,
+        context_entity_ids: Annotated[
+            list[UUID] | None, Query(max_length=RESOLVE_CONTEXT_LIMIT)
+        ] = None,
+    ) -> Envelope:
+        """Resolve current entities, optionally ranked by focal context (S51)."""
         return engine.resolve(
-            deployment_id=deployment_id, name=name, entity_type=entity_type
+            deployment_id=deployment_id,
+            name=name,
+            entity_type=entity_type,
+            context_entity_ids=tuple(context_entity_ids or ()),
         )
 
     @app.get("/lookup/relations", response_model=Envelope)

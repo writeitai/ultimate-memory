@@ -14,15 +14,19 @@ from collections.abc import Iterator
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import UTC
+from itertools import batched
+from typing import Final
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy import TextClause
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine import RowMapping
 
 from ultimate_memory.core.ranking import DEFAULT_RRF_K
 from ultimate_memory.core.ranking import reciprocal_rank_fusion
 from ultimate_memory.core.ranking import rerank_by_signal
+from ultimate_memory.core.ranking import rerank_by_weighted_signals
 from ultimate_memory.model import AggregateBucket
 from ultimate_memory.model import AggregateReport
 from ultimate_memory.model import ChangeRecord
@@ -60,7 +64,15 @@ CONTRADICTION_COMEMBER_CAP = 25
 """How many co-members a contradiction block returns inline before it pages
 (S23). Typical groups are 2–3 sides, so the cap is rarely reached — but when
 it is, the block still carries group_id/returned/total/continuation, never a
-one-sided answer. A starting point to measure, not a committed constant."""
+one-sided answer. WP-5.6 measured this starting cap below its explicit 16 KiB
+inline-envelope budget; that budget is an operating target, not a protocol
+limit."""
+
+RESOLVE_CONTEXT_LIMIT: Final = 8
+"""Maximum focal entities in WP-5.6's bounded S51 context tie-break."""
+
+INTERACTIVE_HYDRATION_BATCH_SIZE: Final = 256
+"""Maximum ids in one WP-5.6-measured Postgres confirmation hop."""
 
 _RERANK_SIGNALS = {"graph_distance": True, "evidence_count": False}
 """The inspectable rerank signals and whether each sorts ascending: nearer
@@ -122,13 +134,26 @@ class QueryEngine:
         self._batch_engine = batch_engine or engine
 
     def resolve(
-        self, *, deployment_id: UUID, name: str, entity_type: str | None = None
+        self,
+        *,
+        deployment_id: UUID,
+        name: str,
+        entity_type: str | None = None,
+        context_entity_ids: tuple[UUID, ...] = (),
     ) -> Envelope:
         """Resolve a name to ranked current entities (T0 in the skeleton).
 
         Nothing resolving is the `unknown_entity` negative (S39) — the agent
         widens resolution or searches; it never gets a silent guess (S51).
+        Optional focal entities only reorder exact-name candidates by current
+        relation adjacency; every candidate remains visible, so context can
+        narrow ambiguity without becoming a silent identity verdict.
         """
+        context_entity_ids = tuple(dict.fromkeys(context_entity_ids))
+        if len(context_entity_ids) > RESOLVE_CONTEXT_LIMIT:
+            raise ValueError(
+                f"resolve context accepts at most {RESOLVE_CONTEXT_LIMIT} entities"
+            )
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -142,14 +167,38 @@ class QueryEngine:
                 .mappings()
                 .all()
             )
+            candidate_ids = tuple(row["entity_id"] for row in rows)
+            context_hits = (
+                {
+                    row["candidate_id"]: int(row["context_hits"])
+                    for row in connection.execute(
+                        _RESOLVE_CONTEXT_HITS,
+                        {
+                            "deployment_id": deployment_id,
+                            "candidate_ids": list(candidate_ids),
+                            "context_entity_ids": list(context_entity_ids),
+                        },
+                    ).mappings()
+                }
+                if candidate_ids and context_entity_ids
+                else {}
+            )
         candidates = tuple(
             EntityCandidate(
                 entity_id=row["entity_id"],
                 canonical_name=row["canonical_name"],
                 type=row["type"],
                 tier="T0",
+                context_hits=context_hits.get(row["entity_id"], 0),
             )
-            for row in rows
+            for row in sorted(
+                rows,
+                key=lambda row: (
+                    -context_hits.get(row["entity_id"], 0),
+                    str(row["canonical_name"]),
+                    row["entity_id"].bytes,
+                ),
+            )
         )
         return Envelope(
             grain=Grain.FACT,
@@ -456,9 +505,9 @@ class QueryEngine:
     def rerank(self, *, items: Sequence[RankedItem], signal: str) -> Envelope:
         """Reorder candidates by one inspectable signal (D9/S46/S48).
 
-        `graph_distance` and `evidence_count` are the shipped signals; each
-        item carries its own signal value, so the stage is inspectable, not
-        a black box. `cross_encoder` is a flagged capability that needs a
+        `graph_distance` and `evidence_count` are the direct signals;
+        `weighted_relevance` applies WP-5.6's measured normalized blend while
+        preserving every contribution on the item. `cross_encoder` needs a
         configured reranker port and is off by default — asking for it, or
         for any unknown signal, is a typed `boundary`, never a silent
         identity sort.
@@ -469,13 +518,22 @@ class QueryEngine:
                     "cross-encoder reranking needs a configured reranker port"
                     " and is off by default"
                 ),
-                workaround="use graph_distance or evidence_count",
+                workaround=(
+                    "use graph_distance, evidence_count, or weighted_relevance"
+                ),
+            )
+        if signal == "weighted_relevance":
+            ranked = rerank_by_weighted_signals(items=items)
+            return Envelope(
+                grain=Grain.EVIDENCE, ranking=ranked, freshness=_freshness()
             )
         ascending = _RERANK_SIGNALS.get(signal)
         if ascending is None:
             return self._rerank_boundary(
                 explanation=f"no rerank signal {signal!r}",
-                workaround="use graph_distance or evidence_count",
+                workaround=(
+                    "use graph_distance, evidence_count, or weighted_relevance"
+                ),
             )
         ranked = rerank_by_signal(items=items, signal=signal, ascending=ascending)
         return Envelope(grain=Grain.EVIDENCE, ranking=ranked, freshness=_freshness())
@@ -843,15 +901,21 @@ class QueryEngine:
         """The D48 confirmation hop for claim nominations, order-preserving."""
         if not claim_ids:
             return (), 0
-        with self._engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    _CONFIRM_CLAIMS,
-                    {"deployment_id": deployment_id, "claim_ids": list(claim_ids)},
+        rows: list[RowMapping] = []
+        # Multiple chunks are one answer, so they must observe one database
+        # snapshot rather than mixing currency states across round trips.
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            for batch in batched(claim_ids, INTERACTIVE_HYDRATION_BATCH_SIZE):
+                rows.extend(
+                    connection.execute(
+                        _CONFIRM_CLAIMS,
+                        {"deployment_id": deployment_id, "claim_ids": list(batch)},
+                    )
+                    .mappings()
+                    .all()
                 )
-                .mappings()
-                .all()
-            )
         confirmed = {row["claim_id"]: row for row in rows}
         results = tuple(
             EvidenceResult.model_validate(dict(confirmed[claim_id]))
@@ -871,20 +935,24 @@ class QueryEngine:
         """The D48 confirmation hop for observation nominations."""
         if not observation_ids:
             return (), 0
-        with self._engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    _CONFIRM_OBSERVATIONS,
-                    {
-                        "deployment_id": deployment_id,
-                        "entity_id": entity_id,
-                        "observation_ids": list(observation_ids),
-                        "as_of": as_of,
-                    },
+        rows: list[RowMapping] = []
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            for batch in batched(observation_ids, INTERACTIVE_HYDRATION_BATCH_SIZE):
+                rows.extend(
+                    connection.execute(
+                        _CONFIRM_OBSERVATIONS,
+                        {
+                            "deployment_id": deployment_id,
+                            "entity_id": entity_id,
+                            "observation_ids": list(batch),
+                            "as_of": as_of,
+                        },
+                    )
+                    .mappings()
+                    .all()
                 )
-                .mappings()
-                .all()
-            )
         confirmed = {row["fact_id"]: dict(row) for row in rows}
         results = tuple(
             confirmed[observation_id]
@@ -993,6 +1061,34 @@ _RESOLVE_T0 = text(
     FROM matched
     WHERE status = 'active'
       AND (CAST(:entity_type AS text) IS NULL OR type = :entity_type)
+    """
+)
+
+_RESOLVE_CONTEXT_HITS = text(
+    """
+    SELECT candidate_id, count(DISTINCT context_entity_id) AS context_hits
+    FROM (
+        SELECT subject_entity_id AS candidate_id,
+               object_entity_id AS context_entity_id
+        FROM relations
+        WHERE deployment_id = :deployment_id
+          AND subject_entity_id = ANY(:candidate_ids)
+          AND object_entity_id = ANY(:context_entity_ids)
+          AND invalidated_at IS NULL
+          AND (valid_from IS NULL OR valid_from <= now())
+          AND (valid_until IS NULL OR valid_until > now())
+        UNION ALL
+        SELECT object_entity_id AS candidate_id,
+               subject_entity_id AS context_entity_id
+        FROM relations
+        WHERE deployment_id = :deployment_id
+          AND object_entity_id = ANY(:candidate_ids)
+          AND subject_entity_id = ANY(:context_entity_ids)
+          AND invalidated_at IS NULL
+          AND (valid_from IS NULL OR valid_from <= now())
+          AND (valid_until IS NULL OR valid_until > now())
+    ) adjacent
+    GROUP BY candidate_id
     """
 )
 

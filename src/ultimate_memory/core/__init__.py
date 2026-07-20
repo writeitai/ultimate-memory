@@ -27,9 +27,12 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.ranking import DEFAULT_EVIDENCE_COUNT_WEIGHT
+from ultimate_memory.core.ranking import DEFAULT_GRAPH_DISTANCE_WEIGHT
 from ultimate_memory.core.ranking import DEFAULT_RRF_K
 from ultimate_memory.core.ranking import reciprocal_rank_fusion
 from ultimate_memory.core.ranking import rerank_by_signal
+from ultimate_memory.core.ranking import rerank_by_weighted_signals
 from ultimate_memory.core.recipe_linter import KNOWN_OPS
 from ultimate_memory.core.recipe_linter import lint_recipe
 from ultimate_memory.core.recipe_linter import RecipeLintError
@@ -69,6 +72,8 @@ __all__ = (
     "storage_class_for",
     "SECTION_ROLES",
     "snap_sections",
+    "DEFAULT_EVIDENCE_COUNT_WEIGHT",
+    "DEFAULT_GRAPH_DISTANCE_WEIGHT",
     "DEFAULT_RRF_K",
     "KNOWN_OPS",
     "RecipeLintError",
@@ -76,4 +81,5 @@ __all__ = (
     "reciprocal_rank_fusion",
     "render_consumption_skill",
     "rerank_by_signal",
+    "rerank_by_weighted_signals",
 )

@@ -1,9 +1,17 @@
 """The embedded-LanceDB P1 chunk index: one table of text + vectors (D8)."""
 
+import math
 from pathlib import Path
+from typing import cast
+from typing import Final
 from uuid import UUID
 
 import lancedb
+from lancedb.index import Bitmap
+from lancedb.index import BTree
+from lancedb.index import IvfFlat
+from lancedb.query import LanceVectorQueryBuilder
+from lancedb.table import Table
 
 from ultimate_memory.model import P1ChunkRow
 from ultimate_memory.model import P1ClaimRow
@@ -14,6 +22,14 @@ _CHUNK_TABLE = "chunks"
 _CLAIM_TABLE = "claims"
 _FACT_TABLE = "facts"
 _ENTITY_TABLE = "entities"
+
+LANCE_TARGET_PARTITION_ROWS: Final = 8_192
+"""WP-5.6 IVF_FLAT target: one vector partition per roughly 8k rows."""
+
+LANCE_NPROBES: Final = 20
+"""WP-5.6 query probe count for filtered ANN reads."""
+
+_MIN_VECTOR_INDEX_ROWS: Final = 256
 
 
 class LanceChunkIndex:
@@ -113,12 +129,17 @@ class LanceChunkIndex:
         if _CLAIM_TABLE not in self._connection.table_names():
             return ()
         query = (
-            self._connection.open_table(_CLAIM_TABLE)
-            .search(list(vector))
-            .where(
-                f"deployment_id = '{deployment_id}'"
-                + (" AND is_current_testimony" if current_only else "")
+            cast(
+                "LanceVectorQueryBuilder",
+                self._connection.open_table(_CLAIM_TABLE)
+                .search(list(vector))
+                .where(
+                    f"deployment_id = '{deployment_id}'"
+                    + (" AND is_current_testimony" if current_only else ""),
+                    prefilter=True,
+                ),
             )
+            .nprobes(LANCE_NPROBES)
             .limit(k)
         )
         return tuple(row["claim_id"] for row in query.to_list())
@@ -136,12 +157,50 @@ class LanceChunkIndex:
         if kind is not None:
             where += f" AND kind = '{kind}'"
         query = (
-            self._connection.open_table(_FACT_TABLE)
-            .search(list(vector))
-            .where(where)
+            cast(
+                "LanceVectorQueryBuilder",
+                self._connection.open_table(_FACT_TABLE)
+                .search(list(vector))
+                .where(where, prefilter=True),
+            )
+            .nprobes(LANCE_NPROBES)
             .limit(k)
         )
         return tuple(row["fact_id"] for row in query.to_list())
+
+    def build_search_indexes(self) -> None:
+        """Build the measured scalar + IVF_FLAT indexes after a bulk load.
+
+        This is explicit rather than hidden in every upsert: index construction
+        is a maintenance/backfill operation, while inline P1 writes must stay
+        cheap. Lance still searches unindexed tail fragments after the build.
+        """
+        available = set(self._connection.list_tables().tables or ())
+        if _CLAIM_TABLE in available:
+            claims = self._connection.open_table(_CLAIM_TABLE)
+            claims.create_index("deployment_id", config=BTree())
+            claims.create_index("is_current_testimony", config=Bitmap())
+            self._build_vector_index(table=claims)
+        if _FACT_TABLE in available:
+            facts = self._connection.open_table(_FACT_TABLE)
+            facts.create_index("deployment_id", config=BTree())
+            facts.create_index("kind", config=Bitmap())
+            self._build_vector_index(table=facts)
+
+    @staticmethod
+    def _build_vector_index(*, table: Table) -> None:
+        """Build one vector index when the table is large enough to train it."""
+        rows = table.count_rows()
+        if rows < _MIN_VECTOR_INDEX_ROWS:
+            return
+        table.create_index(
+            "vector",
+            config=IvfFlat(
+                distance_type="l2",
+                num_partitions=max(1, math.ceil(rows / LANCE_TARGET_PARTITION_ROWS)),
+                target_partition_size=LANCE_TARGET_PARTITION_ROWS,
+            ),
+        )
 
     def upsert_entities(self, *, rows: tuple[P1EntityRow, ...]) -> None:
         """Insert or replace entity-profile rows by entity_id; idempotent."""

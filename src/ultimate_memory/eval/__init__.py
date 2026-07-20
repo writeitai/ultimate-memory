@@ -17,6 +17,8 @@ from ultimate_memory.eval.resolution import PRECISION_FLOOR
 from ultimate_memory.eval.resolution import RECALL_FLOOR
 from ultimate_memory.eval.resolution import run_resolution_suite
 from ultimate_memory.eval.resolution import seed_synthetic_golden_pairs
+from ultimate_memory.eval.retrieval_spikes import record_retrieval_spike_report
+from ultimate_memory.eval.retrieval_spikes import RETRIEVAL_SPIKE_VERSION
 from ultimate_memory.eval.skeleton import make_skeleton_evaluator
 from ultimate_memory.eval.skeleton import seed_skeleton_canaries
 from ultimate_memory.eval.skeleton import SKELETON_CANARIES
@@ -37,6 +39,8 @@ __all__ = (
     "EvalHarness",
     "PRECISION_FLOOR",
     "RECALL_FLOOR",
+    "record_retrieval_spike_report",
+    "RETRIEVAL_SPIKE_VERSION",
     "run_resolution_suite",
     "seed_synthetic_golden_pairs",
     "SKELETON_CANARIES",

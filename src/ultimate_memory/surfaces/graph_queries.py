@@ -49,8 +49,8 @@ MAX_ENGINE_HOPS: Final = 30
 """The engine's recursive upper bound (WP-4.1 spike d2). Requests above it
 are clamped and disclosed, never silently honored or failed."""
 
-DEFAULT_NEIGHBORHOOD_CAP: Final = 200
-"""How many neighbors one page returns before the truncation marker."""
+DEFAULT_NEIGHBORHOOD_CAP: Final = 500
+"""WP-5.6's measured neighbor page cap (under 64 KiB at the S49 hub)."""
 
 COUNT_CAP: Final = 10_000
 """How far the total-count probe walks before reporting an inexact total —
@@ -151,9 +151,10 @@ class GraphQueries:
             connection,
             f"{pattern} RETURN b.id, b.name, b.type, length(r) AS hops"
             " ORDER BY hops, b.name, b.id SKIP $offset LIMIT $fetch",  # noqa: S608
-            {**parameters, "offset": offset, "fetch": limit},
+            {**parameters, "offset": offset, "fetch": limit + 1},
             fresh=self._reconnect,
         )
+        page_rows = rows[:limit]
         nodes = tuple(
             GraphNode(
                 entity_id=cast("UUID", row[0]),
@@ -161,7 +162,7 @@ class GraphQueries:
                 type=cast("str", row[2]),
                 hops=cast("int", row[3]),
             )
-            for row in rows
+            for row in page_rows
         )
         if not nodes and offset == 0:
             return self._empty(
@@ -172,7 +173,13 @@ class GraphQueries:
                 valid_at=applied_valid_at,
                 believed_at=believed_at,
             )
-        more = offset + len(nodes) < total
+        # The bounded count probe is metadata, never the paging boundary.
+        # Fetching one extra row lets a 10^5-edge hub continue beyond
+        # COUNT_CAP without turning the total-count probe into an unbounded scan.
+        more = len(rows) > limit
+        estimated_total = (
+            total if exact else max(total, offset + len(nodes) + int(more))
+        )
         return Envelope(
             grain=Grain.FACT,
             as_of_valid_at=applied_valid_at,
@@ -180,9 +187,9 @@ class GraphQueries:
             nodes=nodes,
             freshness=self._freshness(),
             truncation=Truncation(
-                truncated=more or hops > MAX_ENGINE_HOPS or not exact,
+                truncated=more or hops > MAX_ENGINE_HOPS,
                 returned=len(nodes),
-                estimated_total=total,
+                estimated_total=estimated_total,
                 total_is_exact=exact,
                 continuation=(
                     self._encode_continuation(offset + len(nodes)) if more else None

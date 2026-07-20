@@ -149,6 +149,10 @@ from ultimate_memory.model.resolution import P1EntityRow
 from ultimate_memory.model.resolution import ResolutionCandidate
 from ultimate_memory.model.resolution import ResolverConfig
 from ultimate_memory.model.resolution import TypeThresholds
+from ultimate_memory.model.retrieval_spikes import RETRIEVAL_SPIKE_NAMES
+from ultimate_memory.model.retrieval_spikes import RetrievalSpikeMeasurement
+from ultimate_memory.model.retrieval_spikes import RetrievalSpikeName
+from ultimate_memory.model.retrieval_spikes import RetrievalSpikeReport
 from ultimate_memory.model.sections import PersistedSectionTree
 from ultimate_memory.model.sections import ProposedSection
 from ultimate_memory.model.sections import SectionTreeRecord
@@ -275,6 +279,10 @@ __all__ = (
     "ResolutionCandidate",
     "ResolvedEntity",
     "ResolverConfig",
+    "RETRIEVAL_SPIKE_NAMES",
+    "RetrievalSpikeMeasurement",
+    "RetrievalSpikeName",
+    "RetrievalSpikeReport",
     "ReviewDecisionError",
     "ReviewItem",
     "RunResultOutcome",
