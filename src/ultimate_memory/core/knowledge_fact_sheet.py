@@ -28,10 +28,13 @@ def render_knowledge_fact_sheet(
     snapshot: KnowledgeFactSheetSnapshot,
     compiled_at: UTCDateTime,
     citation_count: int,
+    candidate_count: int | None = None,
 ) -> KnowledgeRenderedFactSheet:
     """Render exact current relations, observation history, and open tensions."""
     if citation_count < 0:
         raise ValueError("citation_count must be non-negative")
+    if candidate_count is not None and candidate_count < 0:
+        raise ValueError("candidate_count must be non-negative")
     compiled_at = _UTC_ADAPTER.validate_python(compiled_at)
     current_relations = tuple(
         sorted(
@@ -116,9 +119,10 @@ def render_knowledge_fact_sheet(
     else:
         lines.append("_None._")
 
-    candidate_count = len(snapshot.input_snapshot.facts) + len(
-        snapshot.input_snapshot.claims
-    )
+    if candidate_count is None:
+        candidate_count = len(snapshot.input_snapshot.facts) + len(
+            snapshot.input_snapshot.claims
+        )
     lines.extend(
         (
             "",

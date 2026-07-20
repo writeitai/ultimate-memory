@@ -35,6 +35,7 @@ from ultimate_memory.model import KnowledgeArtifactHash
 from ultimate_memory.model import KnowledgeCandidateLayer
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeClaimFingerprint
+from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
@@ -51,6 +52,11 @@ from ultimate_memory.model import KnowledgeRuleKey
 from ultimate_memory.model import KnowledgeRuleKeyKind
 from ultimate_memory.model import KnowledgeRuleKind
 from ultimate_memory.model import KnowledgeRuleParams
+from ultimate_memory.model import KnowledgeWriterBundle
+from ultimate_memory.model import KnowledgeWriterClaim
+from ultimate_memory.model import KnowledgeWriterClaimGroup
+from ultimate_memory.model import KnowledgeWriterFactReference
+from ultimate_memory.model import KnowledgeWriterSuggestion
 from ultimate_memory.model import ManualRuleParams
 from ultimate_memory.model import PredicateBeatRuleParams
 from ultimate_memory.model import ScopeInterestsRuleParams
@@ -183,60 +189,39 @@ class KnowledgeControlPlane:
             isolation_level="REPEATABLE READ"
         ) as connection:
             with connection.begin():
-                artifact = (
-                    connection.execute(
-                        _SELECT_FACT_SHEET_ARTIFACT, {"artifact_id": artifact_id}
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
-                if artifact is None:
-                    raise KnowledgeCompilationError(
-                        "fact-sheet target is not an active/stale compiled artifact"
-                    )
-                evidence_as_of = connection.execute(
-                    _SELECT_TRANSACTION_TIMESTAMP
-                ).scalar_one()
-                input_snapshot = self._input_snapshot(
+                return self._fact_sheet_snapshot(
                     connection=connection,
                     artifact_id=artifact_id,
                     context=context,
                     child_summary_hashes=child_summary_hashes,
                 )
-                relation_ids = tuple(
-                    fact.fact_id
-                    for fact in input_snapshot.facts
-                    if fact.kind == "relation"
-                )
-                observation_ids = tuple(
-                    fact.fact_id
-                    for fact in input_snapshot.facts
-                    if fact.kind == "observation"
-                )
-                facts = (
-                    *self._fact_sheet_relations(
-                        connection=connection,
-                        deployment_id=artifact["deployment_id"],
-                        relation_ids=relation_ids,
-                    ),
-                    *self._fact_sheet_observations(
-                        connection=connection,
-                        deployment_id=artifact["deployment_id"],
-                        observation_ids=observation_ids,
-                    ),
-                )
-                expected = {(fact.kind, fact.fact_id) for fact in input_snapshot.facts}
-                hydrated = {(fact.kind, fact.fact_id) for fact in facts}
-                if hydrated != expected:
-                    raise KnowledgeCompilationError(
-                        "fact-sheet hydration does not match the rule candidate set"
-                    )
-                return KnowledgeFactSheetSnapshot(
+
+    def writer_bundle(
+        self,
+        *,
+        artifact_id: UUID,
+        context: KnowledgeCompileContext,
+        child_summary_hashes: tuple[str, ...] | None = None,
+    ) -> KnowledgeWriterBundle:
+        """Hydrate exact facts and current claim bodies in one repeatable read."""
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            with connection.begin():
+                fact_sheet = self._fact_sheet_snapshot(
+                    connection=connection,
                     artifact_id=artifact_id,
-                    deployment_id=artifact["deployment_id"],
-                    evidence_as_of=evidence_as_of,
-                    input_snapshot=input_snapshot,
-                    facts=facts,
+                    context=context,
+                    child_summary_hashes=child_summary_hashes,
+                )
+                claim_groups = self._writer_claim_groups(
+                    connection=connection, fact_sheet=fact_sheet
+                )
+                return KnowledgeWriterBundle(
+                    fact_sheet=fact_sheet,
+                    claim_groups=claim_groups,
+                    claim_candidate_count=len(fact_sheet.input_snapshot.claims),
+                    claims_cut_count=0,
                 )
 
     def artifact_hash(
@@ -432,6 +417,30 @@ class KnowledgeControlPlane:
                 ).scalars()
             )
 
+    def validate_citations(
+        self, *, deployment_id: UUID, citations: tuple[KnowledgeCitation, ...]
+    ) -> None:
+        """Reject unknown or cross-deployment writer citation targets before publish."""
+        with self._engine.connect() as connection:
+            self._validate_citations(
+                connection=connection,
+                deployment_id=deployment_id,
+                citations=_unique_citations(citations=citations),
+            )
+
+    def record_failed_compilation(
+        self, *, failure: KnowledgeCompilationFailure
+    ) -> None:
+        """Append one terminal writer failure without changing live page state."""
+        with self._engine.begin() as connection:
+            inserted = connection.execute(
+                _INSERT_FAILED_COMPILATION, failure.model_dump(mode="python")
+            ).scalar_one_or_none()
+            if inserted is None:
+                raise KnowledgeCompilationError(
+                    "failed compilation target is not an active/stale compiled artifact"
+                )
+
     def pending_cycles(
         self, *, deployment_id: UUID
     ) -> tuple[KnowledgePendingCycle, ...]:
@@ -454,7 +463,9 @@ class KnowledgeControlPlane:
                                 "inputs_hash",
                                 "candidate_count",
                                 "uncited_count",
+                                "claims_cut_count",
                                 "citations",
+                                "suggestions",
                                 "evidence_invalidated",
                                 "writer_version",
                                 "page_summary",
@@ -538,15 +549,26 @@ class KnowledgeControlPlane:
                     {
                         **compilation.model_dump(
                             mode="python",
-                            exclude={"citations", "page_summary", "content_hash"},
+                            exclude={
+                                "citations",
+                                "suggestions",
+                                "page_summary",
+                                "content_hash",
+                            },
                         ),
                         "cycle_id": cycle_id,
                         "citations": [
                             item.model_dump(mode="json") for item in citations
                         ],
+                        "suggestions": [
+                            item.model_dump(mode="json")
+                            for item in compilation.suggestions
+                        ],
                         "page_summary": compilation.page_summary,
                         "content_hash": compilation.content_hash,
-                        "cited_count": len(citations),
+                        "cited_count": (
+                            compilation.candidate_count - compilation.uncited_count
+                        ),
                         "evidence_added": len(current - prior),
                         "evidence_removed": len(prior - current),
                     },
@@ -606,18 +628,25 @@ class KnowledgeControlPlane:
                         for item in pending["citations"]
                     )
                 )
+                stored_suggestions = tuple(
+                    KnowledgeWriterSuggestion.model_validate(item)
+                    for item in pending["suggestions"]
+                )
                 if (
                     pending["deployment_id"] != compilation.deployment_id
                     or pending["artifact_id"] != compilation.artifact_id
                     or pending["inputs_hash"] != compilation.inputs_hash
                     or pending["writer_version"] != compilation.writer_version
                     or pending["candidate_count"] != compilation.candidate_count
-                    or pending["cited_count"] != len(citations)
+                    or pending["cited_count"]
+                    != compilation.candidate_count - compilation.uncited_count
                     or pending["uncited_count"] != compilation.uncited_count
+                    or pending["claims_cut_count"] != compilation.claims_cut_count
                     or pending["evidence_invalidated"]
                     != compilation.evidence_invalidated
                     or pending["page_summary"] != compilation.page_summary
                     or pending["content_hash"] != compilation.content_hash
+                    or stored_suggestions != compilation.suggestions
                     or tuple(
                         _citation_tuple(citation=item) for item in stored_citations
                     )
@@ -741,6 +770,167 @@ class KnowledgeControlPlane:
             shared_model_summary_hash=context.shared_model_summary_hash,
             writer_version=context.writer_version,
         )
+
+    def _fact_sheet_snapshot(
+        self,
+        *,
+        connection: Connection,
+        artifact_id: UUID,
+        context: KnowledgeCompileContext,
+        child_summary_hashes: tuple[str, ...] | None,
+    ) -> KnowledgeFactSheetSnapshot:
+        """Build the exact display-fact snapshot on an existing transaction."""
+        artifact = (
+            connection.execute(
+                _SELECT_FACT_SHEET_ARTIFACT, {"artifact_id": artifact_id}
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if artifact is None:
+            raise KnowledgeCompilationError(
+                "fact-sheet target is not an active/stale compiled artifact"
+            )
+        evidence_as_of = connection.execute(_SELECT_TRANSACTION_TIMESTAMP).scalar_one()
+        input_snapshot = self._input_snapshot(
+            connection=connection,
+            artifact_id=artifact_id,
+            context=context,
+            child_summary_hashes=child_summary_hashes,
+        )
+        relation_ids = tuple(
+            fact.fact_id for fact in input_snapshot.facts if fact.kind == "relation"
+        )
+        observation_ids = tuple(
+            fact.fact_id for fact in input_snapshot.facts if fact.kind == "observation"
+        )
+        facts = (
+            *self._fact_sheet_relations(
+                connection=connection,
+                deployment_id=artifact["deployment_id"],
+                relation_ids=relation_ids,
+            ),
+            *self._fact_sheet_observations(
+                connection=connection,
+                deployment_id=artifact["deployment_id"],
+                observation_ids=observation_ids,
+            ),
+        )
+        expected = {(fact.kind, fact.fact_id) for fact in input_snapshot.facts}
+        hydrated = {(fact.kind, fact.fact_id) for fact in facts}
+        if hydrated != expected:
+            raise KnowledgeCompilationError(
+                "fact-sheet hydration does not match the rule candidate set"
+            )
+        return KnowledgeFactSheetSnapshot(
+            artifact_id=artifact_id,
+            deployment_id=artifact["deployment_id"],
+            evidence_as_of=evidence_as_of,
+            input_snapshot=input_snapshot,
+            facts=facts,
+        )
+
+    def _writer_claim_groups(
+        self, *, connection: Connection, fact_sheet: KnowledgeFactSheetSnapshot
+    ) -> tuple[KnowledgeWriterClaimGroup, ...]:
+        """Hydrate every current claim row at each selected D54 coordinate."""
+        candidates = fact_sheet.input_snapshot.claims
+        if not candidates:
+            return ()
+        rows = tuple(
+            connection.execute(
+                _SELECT_WRITER_CLAIMS,
+                {
+                    "deployment_id": fact_sheet.deployment_id,
+                    "candidates": [item.model_dump(mode="json") for item in candidates],
+                },
+            ).mappings()
+        )
+        claim_ids = tuple(row["claim_id"] for row in rows)
+        references = self._writer_fact_references(
+            connection=connection,
+            deployment_id=fact_sheet.deployment_id,
+            facts=fact_sheet.facts,
+            claim_ids=claim_ids,
+        )
+        grouped: dict[tuple[UUID, str], list[KnowledgeWriterClaim]] = {}
+        for row in rows:
+            claim_id = row["claim_id"]
+            claim = KnowledgeWriterClaim.model_validate(
+                {**dict(row), "fact_references": references.get(claim_id, ())}
+            )
+            grouped.setdefault((claim.lineage_id, claim.chunk_content_hash), []).append(
+                claim
+            )
+        expected = {(item.lineage_id, item.chunk_content_hash) for item in candidates}
+        if set(grouped) != expected:
+            raise KnowledgeCompilationError(
+                "writer claim hydration does not match the D54 candidate set"
+            )
+        return tuple(
+            KnowledgeWriterClaimGroup(
+                lineage_id=lineage_id,
+                chunk_content_hash=chunk_hash,
+                claims=tuple(sorted(claims, key=lambda claim: str(claim.claim_id))),
+            )
+            for (lineage_id, chunk_hash), claims in sorted(
+                grouped.items(), key=lambda item: (str(item[0][0]), item[0][1])
+            )
+        )
+
+    def _writer_fact_references(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        facts: tuple[KnowledgeFactSheetFact, ...],
+        claim_ids: tuple[UUID, ...],
+    ) -> dict[UUID, tuple[KnowledgeWriterFactReference, ...]]:
+        """Attach selected facts to the candidate claims that evidence them."""
+        if not claim_ids:
+            return {}
+        rows: list[RowMapping] = []
+        relation_ids = tuple(fact.fact_id for fact in facts if fact.kind == "relation")
+        observation_ids = tuple(
+            fact.fact_id for fact in facts if fact.kind == "observation"
+        )
+        if relation_ids:
+            rows.extend(
+                connection.execute(
+                    _SELECT_WRITER_RELATION_REFERENCES,
+                    {
+                        "deployment_id": deployment_id,
+                        "fact_ids": list(relation_ids),
+                        "claim_ids": list(claim_ids),
+                    },
+                ).mappings()
+            )
+        if observation_ids:
+            rows.extend(
+                connection.execute(
+                    _SELECT_WRITER_OBSERVATION_REFERENCES,
+                    {
+                        "deployment_id": deployment_id,
+                        "fact_ids": list(observation_ids),
+                        "claim_ids": list(claim_ids),
+                    },
+                ).mappings()
+            )
+        grouped: dict[UUID, list[KnowledgeWriterFactReference]] = {}
+        for row in rows:
+            grouped.setdefault(row["claim_id"], []).append(
+                KnowledgeWriterFactReference.model_validate(
+                    {key: row[key] for key in ("kind", "fact_id", "stance")}
+                )
+            )
+        return {
+            claim_id: tuple(
+                sorted(
+                    items, key=lambda item: (item.kind, str(item.fact_id), item.stance)
+                )
+            )
+            for claim_id, items in grouped.items()
+        }
 
     def _fact_sheet_relations(
         self,
@@ -1737,6 +1927,59 @@ _SELECT_FACT_SHEET_OBSERVATIONS = text(
     """
 ).bindparams(bindparam("observation_ids", expanding=True))
 
+_SELECT_WRITER_CLAIMS = text(
+    """
+    WITH wanted AS (
+        SELECT *
+        FROM jsonb_to_recordset(CAST(:candidates AS jsonb))
+          AS item(lineage_id uuid, chunk_content_hash text)
+    )
+    SELECT c.claim_id, c.doc_id AS lineage_id, ch.chunk_content_hash,
+           c.claim_text, c.source_span,
+           COALESCE(NULLIF(btrim(d.title), ''), d.source_ref, d.doc_id::text)
+             AS document_title,
+           d.source_kind
+    FROM wanted w
+    JOIN claims c ON c.doc_id = w.lineage_id
+    JOIN chunks ch
+      ON ch.deployment_id = c.deployment_id AND ch.chunk_id = c.chunk_id
+     AND ch.chunk_content_hash = w.chunk_content_hash
+    JOIN documents d
+      ON d.deployment_id = c.deployment_id AND d.doc_id = c.doc_id
+    WHERE c.deployment_id = :deployment_id
+      AND c.is_current_testimony
+    ORDER BY c.doc_id, ch.chunk_content_hash, c.claim_id
+    """
+).bindparams(bindparam("candidates", type_=JSON))
+
+_SELECT_WRITER_RELATION_REFERENCES = text(
+    """
+    SELECT e.claim_id, 'relation' AS kind, e.relation_id AS fact_id,
+           e.stance::text AS stance
+    FROM relation_evidence e
+    WHERE e.deployment_id = :deployment_id
+      AND e.relation_id IN :fact_ids
+      AND e.claim_id IN :claim_ids
+    ORDER BY e.claim_id, e.relation_id, e.stance
+    """
+).bindparams(
+    bindparam("fact_ids", expanding=True), bindparam("claim_ids", expanding=True)
+)
+
+_SELECT_WRITER_OBSERVATION_REFERENCES = text(
+    """
+    SELECT e.claim_id, 'observation' AS kind, e.observation_id AS fact_id,
+           e.stance::text AS stance
+    FROM observation_evidence e
+    WHERE e.deployment_id = :deployment_id
+      AND e.observation_id IN :fact_ids
+      AND e.claim_id IN :claim_ids
+    ORDER BY e.claim_id, e.observation_id, e.stance
+    """
+).bindparams(
+    bindparam("fact_ids", expanding=True), bindparam("claim_ids", expanding=True)
+)
+
 _SELECT_ENTITY_RELATIONS = text(
     f"""
     SELECT {_FACT_COLUMNS_RELATION}
@@ -2128,25 +2371,46 @@ _INSERT_COMPILATION = text(
     """
     INSERT INTO knowledge_compilations (
         compilation_id, cycle_id, deployment_id, artifact_id, inputs_hash,
-        candidate_count, cited_count, uncited_count,
+        candidate_count, cited_count, uncited_count, claims_cut_count,
         evidence_added, evidence_removed, evidence_invalidated,
         writer_version, tokens, cost_usd, session_transcript_uri,
-        page_summary, content_hash, citations
+        page_summary, content_hash, citations, suggestions
     ) VALUES (
         :compilation_id, :cycle_id, :deployment_id, :artifact_id, :inputs_hash,
-        :candidate_count, :cited_count, :uncited_count,
+        :candidate_count, :cited_count, :uncited_count, :claims_cut_count,
         :evidence_added, :evidence_removed, :evidence_invalidated,
         :writer_version, :tokens, :cost_usd, :session_transcript_uri,
-        :page_summary, :content_hash, :citations
+        :page_summary, :content_hash, :citations, :suggestions
     )
     """
-).bindparams(bindparam("citations", type_=JSON))
+).bindparams(bindparam("citations", type_=JSON), bindparam("suggestions", type_=JSON))
+
+_INSERT_FAILED_COMPILATION = text(
+    """
+    INSERT INTO knowledge_compilations (
+        compilation_id, deployment_id, artifact_id, inputs_hash,
+        candidate_count, cited_count, uncited_count, claims_cut_count,
+        evidence_added, evidence_removed, evidence_invalidated,
+        writer_version, session_transcript_uri, failed_at, failure
+    )
+    SELECT :compilation_id, :deployment_id, :artifact_id, :inputs_hash,
+           :candidate_count, 0, :candidate_count, :claims_cut_count,
+           0, 0, 0, :writer_version, :session_transcript_uri, now(), :failure
+    FROM knowledge_artifacts
+    WHERE artifact_id = :artifact_id
+      AND deployment_id = :deployment_id
+      AND page_kind = 'compiled'
+      AND status IN ('active', 'stale')
+    RETURNING compilation_id
+    """
+)
 
 _SELECT_COMPILATION_STATE = text(
     """
     SELECT cycle_id, deployment_id, artifact_id, inputs_hash, writer_version,
-           candidate_count, cited_count, uncited_count, evidence_invalidated,
-           page_summary, content_hash, citations, git_commit, failed_at
+           candidate_count, cited_count, uncited_count, claims_cut_count,
+           evidence_invalidated, page_summary, content_hash, citations,
+           suggestions, git_commit, failed_at
     FROM knowledge_compilations
     WHERE compilation_id = :compilation_id
     FOR UPDATE
@@ -2174,7 +2438,7 @@ _STAMP_COMPILATION_COMMIT = text(
 _SELECT_COMPILE_ARTIFACTS = text(
     """
     SELECT artifact_id, deployment_id, scope_id, parent_artifact_id,
-           git_path, kind AS artifact_kind, page_summary,
+           git_path, curation_path, kind AS artifact_kind, page_summary,
            status = 'stale' AS stale
     FROM knowledge_artifacts
     WHERE deployment_id = :deployment_id
@@ -2196,8 +2460,9 @@ _SELECT_ARTIFACT_GIT_PATHS = text(
 _SELECT_PENDING_COMPILATIONS = text(
     """
     SELECT compilation_id, cycle_id, deployment_id, artifact_id, inputs_hash,
-           candidate_count, uncited_count, evidence_invalidated, writer_version,
-           page_summary, content_hash, citations, tokens, cost_usd,
+           candidate_count, uncited_count, claims_cut_count,
+           evidence_invalidated, writer_version,
+           page_summary, content_hash, citations, suggestions, tokens, cost_usd,
            session_transcript_uri
     FROM knowledge_compilations
     WHERE deployment_id = :deployment_id

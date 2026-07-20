@@ -267,7 +267,7 @@ EMPTY_AT_HEAD: Final = (
     "predicate_signatures",
     "predicates",
 )
-EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 24, "f": 106, "p": 57, "u": 27, "x": 1}
+EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 25, "f": 106, "p": 57, "u": 27, "x": 1}
 DECISION_OBJECTS: Final = {
     "D1": ("pipeline_component_versions",),
     "D2": ("claims", "relations", "relation_evidence"),

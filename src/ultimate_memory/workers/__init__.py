@@ -30,6 +30,12 @@ from ultimate_memory.workers.knowledge_driver import KnowledgeRoutingDriver
 from ultimate_memory.workers.knowledge_fact_sheet import KNOWLEDGE_FACT_SHEET_VERSION
 from ultimate_memory.workers.knowledge_fact_sheet import KnowledgeFactSheetCompileError
 from ultimate_memory.workers.knowledge_fact_sheet import KnowledgeFactSheetCompiler
+from ultimate_memory.workers.knowledge_writer import KNOWLEDGE_WRITER_VERSION
+from ultimate_memory.workers.knowledge_writer import KnowledgePageCompilerRouter
+from ultimate_memory.workers.knowledge_writer import KnowledgeProseCompiler
+from ultimate_memory.workers.knowledge_writer import KnowledgeWriterError
+from ultimate_memory.workers.knowledge_writer import KnowledgeWriterSession
+from ultimate_memory.workers.knowledge_writer import KnowledgeWriterSettings
 from ultimate_memory.workers.p1 import EmbedClaimsHandler
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import LabelFactsHandler
@@ -74,6 +80,12 @@ __all__ = (
     "KnowledgeFactSheetCompileError",
     "KnowledgeFactSheetCompiler",
     "KNOWLEDGE_FACT_SHEET_VERSION",
+    "KNOWLEDGE_WRITER_VERSION",
+    "KnowledgePageCompilerRouter",
+    "KnowledgeProseCompiler",
+    "KnowledgeWriterError",
+    "KnowledgeWriterSettings",
+    "KnowledgeWriterSession",
     "NormalizeRelationsHandler",
     "P1Settings",
     "P1_EMBED_CLAIMS_VERSION",
