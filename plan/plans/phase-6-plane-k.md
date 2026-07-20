@@ -11,7 +11,7 @@ commit) runs debounced end-to-end; dispatch invokes a demo subscriber with a del
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-6.1 | Control plane live: rules, rule keys, plan decisions, compilations (+ routing SQL) | k_layers §3, §5; schema §11; D45 | Phase 5 | driver: routing + staleness | inputs_hash property tests; stale-set exactness | planned |
+| WP-6.1 | Control plane live: rules, rule keys, plan decisions, compilations (+ routing SQL) | k_layers §3, §5; schema §11; D45 | Phase 5 | driver: routing + staleness | inputs_hash property tests; stale-set exactness | done (PR #112; all seven rules + exact D45/D54 manifests + two-phase compilation catalog) |
 | WP-6.2 | Driver commit loop: DAG order, single committer, validation, two-phase git | k_layers §3, §6 | WP-6.1 | driver | no-contention invariant; failure leaves consistent page | planned |
 | WP-6.3 | Fact-sheet band (deterministic render) + fact-sheet-only pages | k_layers §5 (two-band) | WP-6.1 | renderer | band = exact query results | planned |
 | WP-6.4 | Writers (prose band): bundle hydration, citations contract, page summaries, suggestions | k_layers §5–7; D46 | WP-6.3 | writer worker | citation validation; completeness canaries | planned |
