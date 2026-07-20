@@ -455,25 +455,45 @@ harness, never in production.
 - **No query-time writes or triggers** — reads are side-effect-free; all K/E triggering
   originates from writes (`k_layers_design.md` §5).
 
-## 13. Open spikes (measure before locking)
+## 13. Measured spike results
 
-1. **Lance filtered hybrid search at scale** — scalar-prefilter + vector performance on
-   10⁷–10⁸ relation/claim rows; index params per table.
-2. **Hub pagination limits** — page sizes and continuation-token mechanics against S49-class
-   entities (10⁴–10⁵ edges).
-3. **Rerank weights** — RRF constants, graph-distance and evidence-count weightings per
-   recipe, on the golden set (O6/D22).
-4. **Multi-hop as-of path-filter performance** — shared with D44's spike list; decides whether
-   heavy repeat as-of analytics get a materialized persistent as-of graph.
-5. **Envelope overhead** — measure the envelope's size/latency cost on hub answers, and pick
-   the guaranteed co-member inline cap value (§5 fixes the *shape* — inline-to-cap +
-   group_id/counts/continuation beyond it; the spike only sets the number).
-6. **Skill authoring + S58 protocol** — build the cold-agent test as a repeatable eval;
-   iterate the skill against real harnesses (Claude Code, Codex, OpenCode).
-7. **Cross-cloud hydration batching** — batch sizes/latency for the by-ID hop under
-   interactive load (relates to review F9's write-path twin).
-8. **`resolve` context ranking** — how much caller-provided focal-entity context improves
-   S51-class disambiguation, before considering anything heavier.
+The executable measurements and their machine-specific results are recorded in
+[`retrieval_spike_battery.md`](../analysis/retrieval_spike_battery.md). Their
+implementation consequences are:
+
+1. **Lance filtered hybrid search:** scalar prefilters run before ANN; claims and facts get
+   deployment B-trees, flag bitmaps, and explicit post-bulk-load IVF_FLAT indexes targeting
+   roughly 8,192 rows per partition with 20 query probes. The 10-million-row lower-bound run
+   stayed within the §10 starting budget; this machine-specific point is not presented as a
+   latency claim for every corpus up to 10⁸ rows. WP-7.1 owns the backfill-orchestration caller
+   for the explicit index build, and WP-7.2 validates its realized shape under load.
+2. **Hub pagination:** 500 neighbors fit below the battery's 64 KiB operational starting target
+   at the 100,000-edge S49 hub; 1,000 did not. A snapshot-bound offset cursor walked all 100,000
+   neighbors exactly once. The final machine-specific p95 was 310 ms, slightly above §10's
+   300 ms starting target, so this is not a latency proof and WP-7.3 retains load tuning. The
+   10,000-row count probe limits only total-count metadata, never reachability; 64 KiB is neither
+   a protocol limit nor an SLA.
+3. **Rerank weights:** retain the conventional RRF `k=60`; the small hand-labelled grid does not
+   distinguish it from the other tested k values. Use normalized graph-distance and
+   evidence-count bonuses of `0.10` each — the smallest tested nonzero pair on the broad
+   best-score plateau, including a canary with one misleading optional signal. D22 continues to
+   monitor relevance as the golden set grows instead of pretending these defaults are universal.
+4. **Multi-hop as-of path filtering:** closed by the WP-4.1 deployed-engine battery; inline
+   predicates bind and filter during traversal, with no persistent as-of graph justified.
+5. **Envelope overhead:** keep 25 contradiction co-members inline under the battery's 16 KiB
+   operational starting target; group id, counts, and continuation preserve completeness beyond
+   the cap. The target is neither a protocol limit nor an SLA.
+6. **Skill + S58:** closed by WP-5.5's deployment-rendered skill and repeatable cold-agent
+   acceptance harness.
+7. **Cross-cloud hydration batching:** chunk interactive by-ID confirmation at 256 ids. A narrow
+   indexed entity-id proxy was measured with eight concurrent clients; it is not the production
+   claim join or a full hydration envelope, and the 25 ms network hop is an explicit model input.
+   A surface regression proves that the real confirmation path preserves order and honesty across
+   batches. Backfill uses the separate batch resource class and is not governed by this cap.
+8. **`resolve` context ranking:** current relation-adjacency count raises the planted S51
+   top-1 result without hiding any ambiguous candidate. Accept at most eight de-duplicated focal
+   ids and expose each candidate's hit count; the planted evidence does not justify a heavier
+   ranker.
 
 ## References
 

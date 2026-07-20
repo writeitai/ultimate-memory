@@ -565,6 +565,34 @@ def test_rerank_by_graph_distance_is_ascending(corpus: _Corpus) -> None:
     assert [item.item_id for item in ranked.ranking] == [near, far]
 
 
+def test_weighted_rerank_keeps_rrf_primary_and_exposes_the_blend(
+    corpus: _Corpus,
+) -> None:
+    """WP-5.6's tuned blend is inspectable and can break a close RRF race."""
+    engine = _engine(corpus)
+    contextual, unsupported = uuid4(), uuid4()
+    items = [
+        RankedItem(
+            item_id=unsupported,
+            score=0.51,
+            signals={"graph_distance": 4, "evidence_count": 1},
+        ),
+        RankedItem(
+            item_id=contextual,
+            score=0.50,
+            signals={"graph_distance": 1, "evidence_count": 8},
+        ),
+    ]
+
+    ranked = engine.rerank(items=items, signal="weighted_relevance")
+
+    assert [item.item_id for item in ranked.ranking] == [contextual, unsupported]
+    assert ranked.ranking[0].signals["weighted_relevance"] == ranked.ranking[0].score
+    assert ranked.ranking[0].signals["rrf_score"] == 0.50
+    assert ranked.ranking[0].signals["graph_proximity_normalized"] == 1.0
+    assert ranked.ranking[0].signals["evidence_support_normalized"] == 1.0
+
+
 def test_rerank_cross_encoder_and_unknown_signals_are_boundaries(
     corpus: _Corpus,
 ) -> None:

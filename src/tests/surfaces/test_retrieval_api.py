@@ -8,6 +8,7 @@ against the live spine (D48), every answer carrying the D49 envelope.
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy import event
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -48,6 +50,7 @@ from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.surfaces import build_api
 from ultimate_memory.surfaces import QueryEngine
+import ultimate_memory.surfaces.query_engine as query_engine_module
 from ultimate_memory.workers import AdjudicateSupersessionHandler
 from ultimate_memory.workers import ChunkHandler
 from ultimate_memory.workers import ConvertHandler
@@ -410,13 +413,140 @@ def test_s39_negative_taxonomy_distinguishes_unknown_from_empty(rig: _ApiRig) ->
     assert empty["facts"] == []
 
 
-def test_search_claims_is_evidence_grain_with_drop_count_honesty(rig: _ApiRig) -> None:
+def test_s51_resolve_context_reranks_without_hiding_ambiguous_candidates(
+    rig: _ApiRig,
+) -> None:
+    """Distinct focal entities, not relation rows, drive the context tie-break."""
+    distractor = UUID("51000000-0000-0000-0000-000000000001")
+    contextual = UUID("51000000-0000-0000-0000-000000000002")
+    second_context = UUID("51000000-0000-0000-0000-000000000003")
+    acme = rig.client.get("/resolve", params={"name": "Acme"}).json()["entities"][0]
+    with rig.engine.begin() as connection:
+        for entity_id, canonical_name in (
+            (distractor, "John A"),
+            (contextual, "John B"),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO entities (entity_id, deployment_id, type,"
+                    " canonical_name, normalized_name)"
+                    " VALUES (:entity_id, :deployment_id, 'Person',"
+                    " :canonical_name, lower(:canonical_name))"
+                ),
+                {
+                    "entity_id": entity_id,
+                    "deployment_id": _DEPLOYMENT_ID,
+                    "canonical_name": canonical_name,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO aliases (alias_id, deployment_id, entity_id,"
+                    " alias_text, normalized_lemma, provenance)"
+                    " VALUES (:alias_id, :deployment_id, :entity_id,"
+                    " 'John', 'john', 'llm_canonical')"
+                ),
+                {
+                    "alias_id": uuid4(),
+                    "deployment_id": _DEPLOYMENT_ID,
+                    "entity_id": entity_id,
+                },
+            )
+        connection.execute(
+            text(
+                "INSERT INTO entities (entity_id, deployment_id, type,"
+                " canonical_name, normalized_name) VALUES"
+                " (:entity_id, :deployment_id, 'Organization',"
+                " 'Second context', 'second context')"
+            ),
+            {"entity_id": second_context, "deployment_id": _DEPLOYMENT_ID},
+        )
+        relation = text(
+            "INSERT INTO relations (relation_id, deployment_id,"
+            " subject_entity_id, predicate, object_entity_id,"
+            " normalizer_version) VALUES (:relation_id, :deployment_id,"
+            " :subject_id, :predicate, :object_id, 's51-spike')"
+        )
+        for subject_id, predicate, object_id in (
+            (contextual, "works_for", UUID(acme["entity_id"])),
+            (contextual, "works_for", second_context),
+            # Two relation rows to one focal entity still count as one hit.
+            (distractor, "works_for", UUID(acme["entity_id"])),
+            (distractor, "member_of", UUID(acme["entity_id"])),
+        ):
+            connection.execute(
+                relation,
+                {
+                    "relation_id": uuid4(),
+                    "deployment_id": _DEPLOYMENT_ID,
+                    "subject_id": subject_id,
+                    "predicate": predicate,
+                    "object_id": object_id,
+                },
+            )
+
+    baseline = rig.client.get("/resolve", params={"name": "John"}).json()
+    narrowed = rig.client.get(
+        "/resolve",
+        params=[
+            ("name", "John"),
+            ("context_entity_ids", acme["entity_id"]),
+            ("context_entity_ids", str(second_context)),
+        ],
+    ).json()
+
+    assert [row["entity_id"] for row in baseline["entities"]] == [
+        str(distractor),
+        str(contextual),
+    ]
+    assert [row["entity_id"] for row in narrowed["entities"]] == [
+        str(contextual),
+        str(distractor),
+    ]
+    assert narrowed["entities"][0]["context_hits"] == 2
+    assert narrowed["entities"][1]["context_hits"] == 1
+    assert len(narrowed["entities"]) == 2  # ranked ambiguity, never a guess
+
+    too_many = rig.client.get(
+        "/resolve",
+        params=[
+            ("name", "John"),
+            *(("context_entity_ids", str(uuid4())) for _ in range(9)),
+        ],
+    )
+    assert too_many.status_code == 422
+
+
+def test_search_claims_is_evidence_grain_with_drop_count_honesty(
+    rig: _ApiRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The D48 nominate-then-drop proof: a Lance-nominated claim whose spine row
     lost currency is dropped and counted — never served. Claims answers are
-    EVIDENCE grain, never current-fact."""
-    first = rig.client.get(
-        "/search/claims", params={"query": "Alice Novak employer", "k": 10}
-    ).json()
+    EVIDENCE grain, never current-fact. The first read also crosses an
+    artificially small batch boundary through the real confirmation path."""
+    monkeypatch.setattr(query_engine_module, "INTERACTIVE_HYDRATION_BATCH_SIZE", 1)
+    confirmation_calls = 0
+
+    def count_confirmation_calls(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        nonlocal confirmation_calls
+        if "FROM claims" in statement:
+            confirmation_calls += 1
+
+    event.listen(rig.engine, "before_cursor_execute", count_confirmation_calls)
+    try:
+        first = rig.client.get(
+            "/search/claims", params={"query": "Alice Novak employer", "k": 10}
+        ).json()
+    finally:
+        event.remove(rig.engine, "before_cursor_execute", count_confirmation_calls)
+    assert confirmation_calls == 2
     assert first["grain"] == "evidence"
     assert len(first["evidence"]) == 2
     assert first["dropped_by_hydration"] == 0

@@ -31,6 +31,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import ProjectionCatalog
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.surfaces import GraphQueries
+import ultimate_memory.surfaces.graph_queries as graph_queries_module
 from ultimate_memory.workers import GraphRebuildWorker
 from ultimate_memory.workers import GraphSnapshotReader
 
@@ -250,6 +251,33 @@ def test_s18_neighborhood_caps_are_explicit(graph: GraphQueries) -> None:
         continuation=page.truncation.continuation,
     )
     assert _names(nxt).isdisjoint(_names(page))  # pagination is stable
+
+
+def test_hub_paging_continues_beyond_the_bounded_count_probe(
+    graph: GraphQueries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WP-5.6: COUNT_CAP limits metadata cost, never result reachability."""
+    monkeypatch.setattr(graph_queries_module, "COUNT_CAP", 2)
+    expected = _names(graph.neighborhood(entity_id=graph.ids["Acme"], hops=2))  # type: ignore[attr-defined]
+    seen: set[str] = set()
+    continuation: str | None = None
+    while True:
+        page = graph.neighborhood(
+            entity_id=graph.ids["Acme"],  # type: ignore[attr-defined]
+            hops=2,
+            limit=1,
+            continuation=continuation,
+        )
+        seen.update(_names(page))
+        assert page.truncation is not None
+        assert page.truncation.estimated_total >= len(seen)
+        continuation = page.truncation.continuation
+        if continuation is None:
+            assert page.truncation.truncated is False
+            break
+
+    assert seen == expected
+    assert len(seen) > graph_queries_module.COUNT_CAP
 
 
 def test_s19_predicate_constrained_multi_hop(graph: GraphQueries) -> None:
