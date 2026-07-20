@@ -15,7 +15,10 @@ itself never touches adapters.
 """
 
 from datetime import datetime
+from datetime import timedelta
 from typing import Annotated
+from typing import Literal
+from typing import Protocol
 from uuid import UUID
 
 from fastapi import Body
@@ -27,16 +30,60 @@ from fastapi import Query
 from pydantic import SecretBytes
 
 from ultimate_memory.model import AuthenticatedContext
+from ultimate_memory.model import ConnectorCreate
+from ultimate_memory.model import ConnectorDescriptor
+from ultimate_memory.model import ConnectorNotFoundError
+from ultimate_memory.model import DocumentUpload
 from ultimate_memory.model import Envelope
+from ultimate_memory.model import IngestedVersion
 from ultimate_memory.model import PerimeterCredential
+from ultimate_memory.model import ToolDescriptor
 from ultimate_memory.ports.auth import AuthPerimeterPort
 from ultimate_memory.surfaces.query_engine import QueryEngine
 from ultimate_memory.surfaces.query_engine import RESOLVE_CONTEXT_LIMIT
 from ultimate_memory.surfaces.recipe_surface import InvalidArgumentError
 from ultimate_memory.surfaces.recipe_surface import MissingArgumentError
 from ultimate_memory.surfaces.recipe_surface import RecipeSurface
-from ultimate_memory.surfaces.recipe_surface import ToolDescriptor
 from ultimate_memory.surfaces.recipe_surface import UnknownRecipeError
+
+
+class IngestPort(Protocol):
+    """The E0 ingest operations the HTTP surface may expose."""
+
+    def ingest(
+        self, *, deployment_id: UUID, upload: DocumentUpload
+    ) -> IngestedVersion: ...
+
+    def ingest_observed(
+        self,
+        *,
+        deployment_id: UUID,
+        source_kind: str,
+        source_ref: str,
+        upload: DocumentUpload,
+        versioning_mode: str,
+        source_modified_at: datetime | None,
+        source_version_ref: str | None,
+        sync_cycle_id: UUID | None,
+    ) -> IngestedVersion: ...
+
+
+class ConnectorManagementPort(Protocol):
+    """Manage deployment-side connector configuration, never run it client-side."""
+
+    def connectors(self, *, deployment_id: UUID) -> tuple[ConnectorDescriptor, ...]: ...
+
+    def add(
+        self, *, deployment_id: UUID, connector: ConnectorCreate
+    ) -> ConnectorDescriptor: ...
+
+    def pause(
+        self, *, deployment_id: UUID, connector_id: UUID
+    ) -> ConnectorDescriptor: ...
+
+    def status(
+        self, *, deployment_id: UUID, connector_id: UUID
+    ) -> ConnectorDescriptor: ...
 
 
 def build_api(
@@ -45,13 +92,15 @@ def build_api(
     deployment_id: UUID,
     surface: RecipeSurface | None = None,
     auth: AuthPerimeterPort | None = None,
+    ingest: IngestPort | None = None,
+    connectors: ConnectorManagementPort | None = None,
 ) -> FastAPI:
     """Build one deployment's query API over a composed engine.
 
-    `surface` adds the registry-rendered recipe endpoints (`/recipes` and
-    `/recipe/{name}`); `auth` gates every endpoint on a perimeter credential
-    for this deployment. Both are optional — the primitives alone, open, are
-    the Phase-1 shape.
+    `surface` adds registry-rendered recipes; `ingest` exposes the E0 write
+    gate; `connectors` manages deployment-side connector configuration; and
+    `auth` gates every endpoint on one perimeter credential. Each capability
+    is explicitly composed; absent services do not pretend to exist.
     """
     if surface is not None and surface.deployment_id != deployment_id:
         raise ValueError(
@@ -136,6 +185,10 @@ def build_api(
 
     if surface is not None:
         _mount_recipes(app=app, surface=surface)
+    if ingest is not None:
+        _mount_ingest(app=app, ingest=ingest, deployment_id=deployment_id)
+    if connectors is not None:
+        _mount_connectors(app=app, connectors=connectors, deployment_id=deployment_id)
 
     return app
 
@@ -159,6 +212,95 @@ def _mount_recipes(*, app: FastAPI, surface: RecipeSurface) -> None:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except (MissingArgumentError, InvalidArgumentError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _mount_ingest(*, app: FastAPI, ingest: IngestPort, deployment_id: UUID) -> None:
+    """Add the D62 lineage-aware push surface over the E0 ingest gate."""
+
+    @app.post("/ingest", response_model=IngestedVersion)
+    def ingest_document(
+        content: Annotated[bytes, Body(media_type="application/octet-stream")],
+        filename: Annotated[str, Query(min_length=1)],
+        mime: Annotated[str, Query(min_length=1)],
+        title: str | None = None,
+        source_kind: Annotated[str | None, Query(min_length=1)] = None,
+        source_ref: Annotated[str | None, Query(min_length=1)] = None,
+        source_modified_at: datetime | None = None,
+        versioning_mode: Literal["snapshot", "living"] = "snapshot",
+        source_version_ref: str | None = None,
+    ) -> IngestedVersion:
+        """Push one file through E0, optionally as a stable lineage version."""
+        if (source_kind is None) != (source_ref is None):
+            raise HTTPException(
+                status_code=422,
+                detail="source_kind and source_ref must be supplied together",
+            )
+        if source_modified_at is not None and (
+            source_modified_at.tzinfo is None
+            or source_modified_at.utcoffset() != timedelta(0)
+        ):
+            raise HTTPException(
+                status_code=422, detail="source_modified_at must be timezone-aware UTC"
+            )
+        upload = DocumentUpload(
+            filename=filename, mime=mime, content=content, title=title
+        )
+        if source_kind is None or source_ref is None:
+            if (
+                source_modified_at is not None
+                or source_version_ref is not None
+                or versioning_mode != "snapshot"
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "source timestamps, revisions, and living mode require"
+                        " source_kind/source_ref"
+                    ),
+                )
+            return ingest.ingest(deployment_id=deployment_id, upload=upload)
+        return ingest.ingest_observed(
+            deployment_id=deployment_id,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            upload=upload,
+            versioning_mode=versioning_mode,
+            source_modified_at=source_modified_at,
+            source_version_ref=source_version_ref,
+            sync_cycle_id=None,
+        )
+
+
+def _mount_connectors(
+    *, app: FastAPI, connectors: ConnectorManagementPort, deployment_id: UUID
+) -> None:
+    """Add remote connector-management endpoints; execution stays server-side."""
+
+    @app.get("/connectors", response_model=list[ConnectorDescriptor])
+    def list_connectors() -> list[ConnectorDescriptor]:
+        return list(connectors.connectors(deployment_id=deployment_id))
+
+    @app.post("/connectors", response_model=ConnectorDescriptor)
+    def add_connector(connector: ConnectorCreate) -> ConnectorDescriptor:
+        return connectors.add(deployment_id=deployment_id, connector=connector)
+
+    @app.post("/connectors/{connector_id}/pause", response_model=ConnectorDescriptor)
+    def pause_connector(connector_id: UUID) -> ConnectorDescriptor:
+        try:
+            return connectors.pause(
+                deployment_id=deployment_id, connector_id=connector_id
+            )
+        except ConnectorNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/connectors/{connector_id}", response_model=ConnectorDescriptor)
+    def connector_status(connector_id: UUID) -> ConnectorDescriptor:
+        try:
+            return connectors.status(
+                deployment_id=deployment_id, connector_id=connector_id
+            )
+        except ConnectorNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 def _perimeter(*, auth: AuthPerimeterPort, deployment_id: UUID):  # noqa: ANN202

@@ -23,11 +23,9 @@ from datetime import UTC
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
-from pydantic import ConfigDict
-
 from ultimate_memory.model import Envelope
 from ultimate_memory.model import Recipe
+from ultimate_memory.model.client import ToolDescriptor
 from ultimate_memory.spine.recipes import RecipeRegistry
 from ultimate_memory.surfaces.recipe_executor import RecipeExecutor
 
@@ -42,24 +40,6 @@ class MissingArgumentError(Exception):
 
 class InvalidArgumentError(Exception):
     """An argument the caller supplied is the wrong type or not a parameter."""
-
-
-class ToolDescriptor(BaseModel):
-    """One recipe rendered as a callable tool (the MCP `tools/list` entry).
-
-    `input_schema` is a JSON-Schema object describing the recipe's typed
-    parameters — the same schema the MCP client validates against and the API
-    advertises. `output_grain` and `answer_intent` travel too, so a caller
-    can see what KIND of answer a tool returns before calling it (D49/D50).
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    name: str
-    description: str
-    input_schema: dict[str, object]
-    output_grain: str
-    answer_intent: str
 
 
 # How a recipe's declared parameter type renders into JSON Schema, and how a

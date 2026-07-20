@@ -1327,52 +1327,72 @@ name = "ultimate-memory"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.optional-dependencies]
+server = [
     { name = "alembic" },
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "ladybug" },
     { name = "lancedb" },
     { name = "markdown-it-py" },
     { name = "markitdown" },
     { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "sqlalchemy" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "alembic" },
+    { name = "fastapi" },
     { name = "import-linter" },
+    { name = "ladybug" },
+    { name = "lancedb" },
+    { name = "markdown-it-py" },
+    { name = "markitdown" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sqlalchemy" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.16" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.139.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "ladybug", marker = "extra == 'server'", specifier = ">=0.18.2" },
+    { name = "lancedb", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "markdown-it-py", marker = "extra == 'server'", specifier = ">=4.2.0" },
+    { name = "markitdown", marker = "extra == 'server'", specifier = ">=0.1.6" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'server'", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "pydantic-settings", specifier = ">=2.10" },
+    { name = "sqlalchemy", marker = "extra == 'server'", specifier = ">=2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
     { name = "alembic", specifier = ">=1.16" },
     { name = "fastapi", specifier = ">=0.139.2" },
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "import-linter", specifier = ">=2.13" },
     { name = "ladybug", specifier = ">=0.18.2" },
     { name = "lancedb", specifier = ">=0.34.0" },
     { name = "markdown-it-py", specifier = ">=4.2.0" },
     { name = "markitdown", specifier = ">=0.1.6" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pydantic", specifier = ">=2.11" },
-    { name = "pydantic-settings", specifier = ">=2.10" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "import-linter", specifier = ">=2.13" },
     { name = "pyright", specifier = ">=1.1" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.25" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.4" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
 ]
 
 [[package]]

@@ -67,7 +67,12 @@ registry's grain bar guarantees it).
 
 ## Transport
 
-This surface is the protocol logic — the `tools/list` and `tools/call`
-results, shaped as MCP expects. A deployment wraps it in a stdio (or SSE)
-JSON-RPC loop; the transport is deployment plumbing, kept separate so the tool
-rendering and dispatch stay a direct function of the registry.
+Run `ugm mcp` to start the dependency-light stdio JSON-RPC server. It reaches
+the deployment at `UGM_API_URL`, uses `UGM_API_AUTHORIZATION` when set, renders
+`tools/list` from `GET /recipes`, and proxies `tools/call` to
+`POST /recipe/{name}`. The server supports the MCP `initialize`, `tools/list`,
+and `tools/call` lifecycle; notifications produce no response.
+
+The recipe registry and execution remain deployment-side. The MCP process is
+therefore a client transport, not another server composition and not a second
+tool registry.

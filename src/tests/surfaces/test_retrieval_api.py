@@ -23,6 +23,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.client import MemoryClient
 from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
@@ -308,6 +309,7 @@ class _ApiRig:
                     embedding_model=P1Settings().embedding_model,
                 ),
                 deployment_id=_DEPLOYMENT_ID,
+                ingest=self.ingestor,
             )
         )
 
@@ -344,6 +346,72 @@ def rig(database_engine: Engine, tmp_path: Path) -> _ApiRig:
     built = _ApiRig(engine=database_engine, root=tmp_path)
     built.build_corpus()
     return built
+
+
+def test_push_ingest_preserves_stable_source_lineage(rig: _ApiRig) -> None:
+    """WP-5.7: a feeder can push changed bytes under one stable source ref.
+
+    The first observation creates the lineage, changed bytes append a version,
+    and replaying identical bytes is the D55 no-op. Every created version also
+    enters E0's processing ledger through the same UploadIngestor path.
+    """
+    client = MemoryClient(client=rig.client)
+    first = client.ingest(
+        b"first revision\n",
+        filename="stable.md",
+        mime="text/markdown",
+        source_kind="push-test",
+        source_ref="external/document-42",
+        source_version_ref="r1",
+    )
+    second = client.ingest(
+        b"second revision\n",
+        filename="stable.md",
+        mime="text/markdown",
+        source_kind="push-test",
+        source_ref="external/document-42",
+        source_version_ref="r2",
+    )
+    replay = client.ingest(
+        b"second revision\n",
+        filename="stable.md",
+        mime="text/markdown",
+        source_kind="push-test",
+        source_ref="external/document-42",
+        source_version_ref="r2",
+    )
+
+    assert first.created and second.created
+    assert first.doc_id == second.doc_id == replay.doc_id
+    assert first.version_id != second.version_id
+    assert replay.version_id == second.version_id
+    assert not replay.created
+    with rig.engine.connect() as connection:
+        versions = connection.execute(
+            text(
+                "SELECT count(*) FROM document_versions v"
+                " JOIN documents d ON d.doc_id = v.doc_id"
+                " WHERE d.deployment_id = :deployment_id"
+                " AND d.source_kind = 'push-test'"
+                " AND d.source_ref = 'external/document-42'"
+            ),
+            {"deployment_id": _DEPLOYMENT_ID},
+        ).scalar_one()
+        convert_work = connection.execute(
+            text(
+                "SELECT count(*) FROM processing_state"
+                " WHERE deployment_id = :deployment_id"
+                " AND target_kind = 'document_version' AND stage = 'convert'"
+                " AND target_id IN (:first, :second)"
+            ),
+            {
+                "deployment_id": _DEPLOYMENT_ID,
+                "first": first.version_id,
+                "second": second.version_id,
+            },
+        ).scalar_one()
+    assert versions == 2
+    assert convert_work == 2
 
 
 def test_s1_current_employer_via_resolve_and_lookup(rig: _ApiRig) -> None:

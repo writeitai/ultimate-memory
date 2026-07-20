@@ -38,6 +38,10 @@ from ultimate_memory.model.claims import OtherPredicateGrammarError
 from ultimate_memory.model.claims import SelectionCandidate
 from ultimate_memory.model.claims import SelectionResponse
 from ultimate_memory.model.claims import SelectionVerdict
+from ultimate_memory.model.client import ConnectorCreate
+from ultimate_memory.model.client import ConnectorDescriptor
+from ultimate_memory.model.client import ConnectorNotFoundError
+from ultimate_memory.model.client import ToolDescriptor
 from ultimate_memory.model.clustering import ClusterConfig
 from ultimate_memory.model.clustering import MergeProposal
 from ultimate_memory.model.clustering import NeighborhoodReport
@@ -190,6 +194,9 @@ __all__ = (
     "ComponentVersionError",
     "ComponentVersionNotFoundError",
     "ComponentVersionRecord",
+    "ConnectorCreate",
+    "ConnectorDescriptor",
+    "ConnectorNotFoundError",
     "ContextPrefix",
     "ConversionError",
     "ConversionResult",
@@ -311,6 +318,7 @@ __all__ = (
     "SyntheticRootRecord",
     "TelemetryAttribute",
     "TelemetryEvent",
+    "ToolDescriptor",
     "TranscriptEntry",
     "TypeThresholds",
     "UTCDateTime",
