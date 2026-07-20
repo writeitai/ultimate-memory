@@ -1,18 +1,51 @@
 export const metadata = {
   title: "CLI Reference",
   description:
-    "The ugm command-line surface: the review queue — listing open items and applying reversible verdicts.",
+    "The ugm command-line surface: query the memory (mirrors the API 1:1) and drive the review queue with reversible verdicts.",
 };
 
 # CLI Reference
 
 The `ugm` command ships with the library (`pip install` exposes the entry
-point). It connects to the deployment's PostgreSQL spine via
-`UGM_DATABASE_URL` (a SQLAlchemy/psycopg URL); the deployment id is always an
-explicit argument — one deployment is one trust domain.
+point). It has two groups: `ugm query`, which mirrors the HTTP API 1:1 so an
+agent can shell out, and `ugm review`, which drives the review queue. One
+deployment is one trust domain.
 
-> This page documents what exists on `main` today: the review queue. The full
-> query/ingest CLI arrives with the retrieval-surface phase.
+## `ugm query`
+
+The query CLI is an HTTP client of the running query API — it reaches it at
+`UGM_API_URL` (default `http://127.0.0.1:8000`). It carries no provider
+adapters; the composition lives in the API process. Because it renders the
+same recipe surface the API and MCP do, the three are always in lockstep.
+
+### `ugm query list`
+
+```bash
+ugm query list
+```
+
+Prints the deployment's recipe tool list — one JSON object per line, each with
+`name`, `description`, `input_schema`, `output_grain`, and `answer_intent`.
+This is exactly the API's `GET /recipes`.
+
+### `ugm query run`
+
+```bash
+ugm query run relation_current \
+  --arg subject_entity_id=<entity-uuid> \
+  --arg predicate=works_for
+```
+
+Runs one recipe by name over `key=value` arguments and prints the envelope as
+JSON. Arguments are coerced by the recipe's declared types. An unknown recipe
+or a missing required argument prints the API's error to stderr and exits
+nonzero.
+
+## `ugm review`
+
+The review commands connect directly to the deployment's PostgreSQL spine via
+`UGM_DATABASE_URL` (a SQLAlchemy/psycopg URL); the deployment id is an explicit
+argument.
 
 ## `ugm review list`
 

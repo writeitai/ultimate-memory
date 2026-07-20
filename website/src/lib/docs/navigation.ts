@@ -11,6 +11,15 @@ export const docsNavigation: NavItem[] = [
   { title: "Concepts", href: "/docs/concepts" },
   { title: "Architecture", href: "/docs/architecture" },
   { title: "Project Status", href: "/docs/project-status" },
+  {
+    title: "Reference",
+    href: "/docs/reference/api",
+    children: [
+      { title: "API Reference", href: "/docs/reference/api" },
+      { title: "CLI Reference", href: "/docs/reference/cli" },
+      { title: "MCP Reference", href: "/docs/reference/mcp" },
+    ],
+  },
 ];
 
 export function flattenNavigation(items: NavItem[]): NavItem[] {
