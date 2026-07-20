@@ -6,10 +6,11 @@ export const metadata = {
 
 # API Reference
 
-The query API is a thin, typed veneer over the deployment's read path. Every
-endpoint returns the same **envelope** — the answer plus a machine-readable
+The HTTP API is a thin, typed veneer over one deployment. Every query endpoint
+returns the same **envelope** — the answer plus a machine-readable
 account of itself (its grain, validity, freshness, and any typed "no"). No
-endpoint calls an LLM, and reads never trigger writes.
+query endpoint calls an LLM, and reads never trigger writes. An explicitly
+composed ingest capability is the sole client write path and always enters E0.
 
 Three things are true of every deployment's API:
 
@@ -70,6 +71,63 @@ curl -X POST "$UGM_API_URL/recipe/relation_current" \
 
 An unknown recipe is **404**; a missing required argument is **422**.
 
+## Client writes
+
+These endpoints exist only when the deployment composes the corresponding
+service. An absent capability is an ordinary **404**, never a client-side
+fallback that bypasses the deployment.
+
+### `POST /ingest`
+
+Sends raw bytes with `filename` and `mime` query parameters. The optional
+`source_kind` and `source_ref` parameters form one stable lineage identity and
+must be supplied together. `source_modified_at`, `source_version_ref`, and
+`versioning_mode=snapshot|living` carry the feeder's version metadata. Changed
+bytes under the same identity append a document version; identical bytes are
+an idempotent no-op.
+
+### Connector management
+
+| Method & path | Operation |
+| --- | --- |
+| `GET /connectors` | list deployment-side connectors |
+| `POST /connectors` | add typed connector configuration |
+| `GET /connectors/{connector_id}` | read current status |
+| `POST /connectors/{connector_id}/pause` | pause execution |
+
+Connector credentials remain deployment-side. The client may send a
+`credential_ref` naming an existing secret, but connector execution never
+moves into the client process. WP-5.7 defines this typed composition port; the
+deployment profile supplies the persistent manager.
+
+## Python SDK
+
+The base wheel exposes the synchronous typed client without PostgreSQL,
+worker, projection, or adapter dependencies:
+
+```python
+from pathlib import Path
+
+from ultimate_memory.client import MemoryClient
+
+with MemoryClient.from_settings() as memory:
+    tools = memory.recipes()
+    answer = memory.run_recipe(
+        name="relation_current",
+        arguments={"subject_entity_id": "…", "predicate": "works_for"},
+    )
+    landed = memory.ingest(
+        Path("project.md"),
+        source_kind="custom-feeder",
+        source_ref="workspace/project",
+        source_version_ref="revision-17",
+    )
+```
+
+The SDK also exposes typed `resolve`, `search_claims`, `hydrate_relation`, and
+connector-management methods. Network and non-success HTTP responses raise
+`MemoryApiError` with the status and deployment-provided detail.
+
 ## Primitives
 
 The primitives are available directly for callers that compose their own
@@ -113,6 +171,8 @@ perimeter is the deployment's infrastructure (network, IAM) to enforce.
 
 ## Configuration
 
-- `UGM_API_URL` — where clients (including `ugm query`) reach the API.
+- `UGM_API_URL` — where the SDK, CLI, and MCP client reach the API.
+- `UGM_API_AUTHORIZATION` — optional complete `Authorization` header value.
+- `UGM_API_TIMEOUT_SECONDS` — client request timeout (default 30 seconds).
 - The API process composes the query engine (search index, model provider) —
   the surface itself carries no provider adapters.

@@ -33,18 +33,27 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+]
+
+[project.optional-dependencies]
+server = [
     "alembic>=1.16",
     "fastapi>=0.139.2",
-    "httpx>=0.28.1",
     "ladybug>=0.18.2",
     "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",
     "psycopg[binary]>=3.2",
-    "pydantic>=2.11",
-    "pydantic-settings>=2.10",
     "sqlalchemy>=2.0",
 ]
+# The watched-directory connector uses only the standard library. Other
+# connector extras are added with their adapters, rather than speculatively.
+connectors-watched-directory = []
+# K ships as repository-native data in Phase 6; this names its install surface.
+k = []
 
 [project.scripts]
 ugm = "ultimate_memory.surfaces.cli:main"
@@ -56,12 +65,20 @@ Issues = "https://github.com/writeitai/ultimate-memory/issues"
 
 [dependency-groups]
 dev = [
+    "alembic>=1.16",
+    "fastapi>=0.139.2",
     "import-linter>=2.13",
+    "ladybug>=0.18.2",
+    "lancedb>=0.34.0",
+    "markdown-it-py>=4.2.0",
+    "markitdown>=0.1.6",
+    "psycopg[binary]>=3.2",
     "pyright>=1.1",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
     "ruff>=0.4",
+    "sqlalchemy>=2.0",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -1,22 +1,22 @@
 export const metadata = {
   title: "CLI Reference",
   description:
-    "The ugm command-line surface: query the memory (mirrors the API 1:1) and drive the review queue with reversible verdicts.",
+    "The client-first ugm command line: query, ingest, manage deployment connectors, serve MCP, and drive the optional local review queue.",
 };
 
 # CLI Reference
 
-The `ugm` command ships with the library (`pip install` exposes the entry
-point). It has two groups: `ugm query`, which mirrors the HTTP API 1:1 so an
-agent can shell out, and `ugm review`, which drives the review queue. One
-deployment is one trust domain.
+The `ugm` command ships in the dependency-light base wheel. Query, ingest,
+connector management, and MCP all talk to the deployment API at `UGM_API_URL`
+(default `http://127.0.0.1:8000`). Set `UGM_API_AUTHORIZATION` to the complete
+`Authorization` header value when the deployment has an auth perimeter. The
+CLI carries no provider adapters: connector execution and E0 processing stay
+in the deployment. One deployment is one trust domain.
 
 ## `ugm query`
 
-The query CLI is an HTTP client of the running query API — it reaches it at
-`UGM_API_URL` (default `http://127.0.0.1:8000`). It carries no provider
-adapters; the composition lives in the API process. Because it renders the
-same recipe surface the API and MCP do, the three are always in lockstep.
+Because query renders the same recipe surface the API and MCP do, all three
+are always in lockstep.
 
 ### `ugm query list`
 
@@ -41,11 +41,53 @@ JSON. Arguments are coerced by the recipe's declared types. An unknown recipe
 or a missing required argument prints the API's error to stderr and exits
 nonzero.
 
+## `ugm ingest`
+
+```bash
+ugm ingest ./notes/project.md \
+  --source-kind custom-feeder \
+  --source-ref workspace/project \
+  --source-version-ref revision-17 \
+  --source-modified-at 2026-07-20T10:30:00+00:00 \
+  --versioning-mode living
+```
+
+Pushes the file's bytes through the deployment's E0 ingress. `--mime` is
+optional when it can be inferred from the filename. `--source-kind` and
+`--source-ref` must be supplied together: reusing that pair for changed bytes
+creates a new immutable version of the same document lineage; replaying the
+same bytes is a no-op. Omit the pair for a one-shot upload lineage.
+
+## `ugm connectors`
+
+```bash
+ugm connectors add watched-directory \
+  --name notes \
+  --config path=/sources/notes \
+  --credential-ref deployment-secret://notes
+ugm connectors list
+ugm connectors status <connector-uuid>
+ugm connectors pause <connector-uuid>
+```
+
+These commands configure connectors on a deployment that composes connector
+management. They never execute a connector in the client process. A
+`--credential-ref` names a secret already held by the deployment; raw
+credentials are not connector configuration. This package layer defines the
+typed client/API composition port; a deployment must supply its persistent
+connector manager.
+
+## `ugm mcp`
+
+Runs the base wheel's MCP stdio server. It discovers recipes from the remote
+deployment and proxies `tools/call` to the same HTTP recipe endpoint used by
+`ugm query`.
+
 ## `ugm review`
 
-The review commands connect directly to the deployment's PostgreSQL spine via
-`UGM_DATABASE_URL` (a SQLAlchemy/psycopg URL); the deployment id is an explicit
-argument.
+The review commands require the `[server]` extra. They connect directly to the
+deployment's PostgreSQL spine via `UGM_DATABASE_URL` (a SQLAlchemy/psycopg
+URL); the deployment id is an explicit argument.
 
 ## `ugm review list`
 
