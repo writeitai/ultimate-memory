@@ -27,6 +27,11 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.knowledge_compile import knowledge_compile_order
+from ultimate_memory.core.knowledge_compile import KnowledgeCompileGraphError
+from ultimate_memory.core.knowledge_compile import KnowledgePageValidationError
+from ultimate_memory.core.knowledge_compile import validate_knowledge_page_output
+from ultimate_memory.core.knowledge_hashing import knowledge_content_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_inputs_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_summary_hash
 from ultimate_memory.core.ranking import DEFAULT_EVIDENCE_COUNT_WEIGHT
@@ -78,6 +83,10 @@ __all__ = (
     "DEFAULT_GRAPH_DISTANCE_WEIGHT",
     "DEFAULT_RRF_K",
     "KNOWN_OPS",
+    "KnowledgeCompileGraphError",
+    "KnowledgePageValidationError",
+    "knowledge_content_hash",
+    "knowledge_compile_order",
     "knowledge_inputs_hash",
     "knowledge_summary_hash",
     "RecipeLintError",
@@ -86,4 +95,5 @@ __all__ = (
     "render_consumption_skill",
     "rerank_by_signal",
     "rerank_by_weighted_signals",
+    "validate_knowledge_page_output",
 )

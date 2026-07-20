@@ -52,6 +52,11 @@ def knowledge_summary_hash(*, summary: str) -> str:
     return hashlib.sha256(summary.encode("utf-8")).hexdigest()
 
 
+def knowledge_content_hash(*, markdown: str) -> str:
+    """Hash the exact UTF-8 bytes of a compiled Markdown page."""
+    return hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+
+
 def _sorted_unique(*, values: list[JsonValue]) -> list[JsonValue]:
     """Sort JSON values canonically and remove set-union duplicates."""
     by_json = {

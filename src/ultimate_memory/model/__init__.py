@@ -119,15 +119,21 @@ from ultimate_memory.model.knowledge import KnowledgeArtifactHash
 from ultimate_memory.model.knowledge import KnowledgeCandidateLayer
 from ultimate_memory.model.knowledge import KnowledgeCitation
 from ultimate_memory.model.knowledge import KnowledgeClaimFingerprint
+from ultimate_memory.model.knowledge import KnowledgeCommitCycleResult
 from ultimate_memory.model.knowledge import KnowledgeCompilationWrite
+from ultimate_memory.model.knowledge import KnowledgeCompileArtifact
 from ultimate_memory.model.knowledge import KnowledgeCompileContext
 from ultimate_memory.model.knowledge import KnowledgeEvidenceDelta
 from ultimate_memory.model.knowledge import KnowledgeEvidenceRole
+from ultimate_memory.model.knowledge import KnowledgeEvidenceTarget
 from ultimate_memory.model.knowledge import KnowledgeFactFingerprint
 from ultimate_memory.model.knowledge import KnowledgeInputSnapshot
 from ultimate_memory.model.knowledge import KnowledgeLayer
+from ultimate_memory.model.knowledge import KnowledgePageCompileOutput
+from ultimate_memory.model.knowledge import KnowledgePageCompileRequest
 from ultimate_memory.model.knowledge import KnowledgePageKind
 from ultimate_memory.model.knowledge import KnowledgePageRuleCreate
+from ultimate_memory.model.knowledge import KnowledgePendingCycle
 from ultimate_memory.model.knowledge import KnowledgePlanAction
 from ultimate_memory.model.knowledge import KnowledgePlanDecisionCreate
 from ultimate_memory.model.knowledge import KnowledgePlanStatus
@@ -340,15 +346,21 @@ __all__ = (
     "KnowledgeCandidateLayer",
     "KnowledgeCitation",
     "KnowledgeClaimFingerprint",
+    "KnowledgeCommitCycleResult",
     "KnowledgeCompilationWrite",
+    "KnowledgeCompileArtifact",
     "KnowledgeCompileContext",
     "KnowledgeEvidenceDelta",
+    "KnowledgeEvidenceTarget",
     "KnowledgeEvidenceRole",
     "KnowledgeFactFingerprint",
     "KnowledgeInputSnapshot",
     "KnowledgeLayer",
     "KnowledgePageKind",
+    "KnowledgePageCompileOutput",
+    "KnowledgePageCompileRequest",
     "KnowledgePageRuleCreate",
+    "KnowledgePendingCycle",
     "KnowledgePlanAction",
     "KnowledgePlanDecisionCreate",
     "KnowledgePlanStatus",
