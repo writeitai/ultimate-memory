@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 from ultimate_memory.model.adjudication import TranscriptEntry
 from ultimate_memory.model.queue import UTCDateTime
@@ -28,11 +29,46 @@ class Grain(StrEnum):
 
 
 class NegativeKind(StrEnum):
-    """The fixed negative-answer taxonomy (S29/S39/S55)."""
+    """The fixed negative-answer taxonomy (S29/S39/S55).
+
+    Deliberately no `denied` kind: content-level authorization is a library
+    non-goal (retrieval §9), and hard-deleted (forgotten) content is
+    indistinguishable-from-never-existed (S55), so it surfaces as
+    `unknown_entity`/`known_empty`, never a distinct kind. Freezing the
+    taxonomy now is safe precisely because of these two omissions —
+    retrofitting a kind onto a deployed API breaks consumers.
+    """
 
     UNKNOWN_ENTITY = "unknown_entity"
     KNOWN_EMPTY = "known_empty"
     BOUNDARY = "boundary"
+
+
+class IdentityRegime(StrEnum):
+    """Which identity boundary answered a read (S61).
+
+    `current` (the default) follows today's aliases and merge redirects even
+    under a past `believed_at`; `as_of` means the identity boundary was
+    reconstructed as it stood at the queried instant (the transcript-based
+    `identity_as_of` recipe). The envelope always states which, so an audit
+    read can never silently mix today's identities with yesterday's beliefs.
+    """
+
+    CURRENT = "current"
+    AS_OF = "as_of"
+
+
+class FactSupport(StrEnum):
+    """Whether a fact still has current-testimony support (D54).
+
+    `current` is the normal state; `withdrawn` means every source that
+    asserted the fact has stopped (an open `support_withdrawn` review flag) —
+    the fact is *flagged, not vanished*, so an agent sees the ground moved
+    before planning against it. A withdrawn fact is still returned.
+    """
+
+    CURRENT = "current"
+    WITHDRAWN = "withdrawn"
 
 
 class Negative(BaseModel):
@@ -56,16 +92,44 @@ class Validity(BaseModel):
     invalidated_at: UTCDateTime | None
 
 
+class KFreshness(BaseModel):
+    """The compiled-grain honesty block (retrieval §5): a K page's timestamp.
+
+    A compiled answer is pre-paid synthesis *with a timestamp*, so any answer
+    that consumed a K page carries when it compiled, whether it is stale
+    (inputs changed since), and how many evidence-change flags are still open
+    against it — the reader-facing flag surface (k_layers spike 9). An agent
+    sees "this page has 3 unresolved flags" before planning against it (S34).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    compiled_at: UTCDateTime | None = None
+    stale: bool = False
+    open_flags: int = Field(default=0, ge=0)
+
+
 class Freshness(BaseModel):
-    """Per-source freshness stamps (S42): what lag the answer could carry."""
+    """Per-source freshness stamps (S42): what lag the answer could carry.
+
+    Each contributing channel also exposes its **`believed_at` horizon**: the
+    oldest system-time a query can reach before the channel can no longer
+    answer. `None` means unbounded — under D69 the hot P2 relation view keeps
+    every relation whose endpoints stay emitted, so P2's horizon is null.
+    Whenever a horizon is finite, a `believed_at` before it must return a
+    `boundary` (retrieval §3), never a silent truncation.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     pg_live_ts: UTCDateTime
     p1_written_inline: bool = True  # the skeleton writes P1 inline; a real
     # write-lag horizon replaces this constant with measurement (retrieval §5)
+    p1_believed_at_horizon: UTCDateTime | None = None  # None = unbounded
     p2_snapshot_version: str | None = None  # which graph snapshot answered
     p2_snapshot_ts: UTCDateTime | None = None
+    p2_believed_at_horizon: UTCDateTime | None = None  # None = unbounded (D69)
+    k: KFreshness | None = None  # present only when the answer consumed a K page
 
 
 class EntityCandidate(BaseModel):
@@ -79,6 +143,42 @@ class EntityCandidate(BaseModel):
     tier: str  # which resolution tier surfaced it (T0 in the skeleton)
 
 
+class CoMember(BaseModel):
+    """One other side of a contradiction, surfaced with the fact (S23).
+
+    A light record — enough to see the competing claim and hydrate it — so a
+    contradiction block can carry several sides without recursion.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fact_id: UUID
+    label: str
+    evidence_count: int
+    validity: Validity
+
+
+class Contradiction(BaseModel):
+    """The S23 contract block: a fact's live contradiction, never one-sided.
+
+    Returning one side of a live contradiction group without its others is a
+    contract violation, not a ranking choice ("contradictions are surfaced,
+    never silently resolved"). The bounded form: co-members come back INLINE
+    up to a guaranteed cap (typical groups are 2–3 sides — both FY2023
+    revenue figures together, each with its own evidence handle); beyond the
+    cap the block still always carries `group_id`, `returned`, `total`, and a
+    `continuation`. One-sided is never a valid answer.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    group_id: UUID
+    co_members: tuple[CoMember, ...] = ()
+    returned: int = Field(ge=0)
+    total: int = Field(ge=0)
+    continuation: str | None = None
+
+
 class FactResult(BaseModel):
     """One fact-grain record: a live relation or observation, hydrated."""
 
@@ -89,7 +189,9 @@ class FactResult(BaseModel):
     label: str
     evidence_count: int
     validity: Validity
-    contradiction_group: UUID | None = None  # S23: co-members never silent
+    contradiction_group: UUID | None = None  # the raw group id (S23)
+    contradiction: Contradiction | None = None  # the surfaced co-members (S23)
+    support: FactSupport = FactSupport.CURRENT  # D54: withdrawn is flagged, not gone
 
 
 class EvidenceResult(BaseModel):
@@ -285,14 +387,45 @@ class Truncation(BaseModel):
     continuation: str | None = None
 
 
+class EnvelopePart(BaseModel):
+    """One single-grain section of a composite answer (S47).
+
+    A mixed answer — S47's "everything Alice *said* about pricing, plus what
+    we *believe*" — is EXPLICITLY two-part, never blended: each part carries
+    its own grain and its own single-grain results, so the fact/evidence
+    discipline is never diluted. Single-grain answers skip `parts` and read
+    flat off the top-level fields.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    grain: Grain  # strictly single-grain: fact | evidence | compiled (S47)
+    label: str | None = None  # e.g. "said" vs "believed"
+    facts: tuple[FactResult, ...] = ()
+    evidence: tuple[EvidenceResult, ...] = ()
+    sources: tuple[SourceRecord, ...] = ()
+    nodes: tuple[GraphNode, ...] = ()
+    aggregate: AggregateReport | None = None
+    pages: tuple[PageRef, ...] = ()
+    truncation: Truncation | None = None
+
+
 class Envelope(BaseModel):
-    """The minimal D49 envelope: results plus the answer's self-account."""
+    """The D49 envelope: results plus the answer's machine-readable self-account.
+
+    A single-grain answer (the common case) reads flat: the top-level
+    `grain` and the matching result tuple. A `composite` answer sets
+    `grain = composite` and carries `parts[]`, each strictly single-grain
+    (S47) — so a caller never has to disentangle blended grains.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     grain: Grain
+    parts: tuple["EnvelopePart", ...] = ()  # S47: composite ⇒ read parts[]
     as_of_valid_at: UTCDateTime | None = None  # echo of the applied valid_at
     as_of_believed_at: UTCDateTime | None = None  # echo of the applied believed_at
+    identity_regime: IdentityRegime = IdentityRegime.CURRENT  # S61: which regime
     entities: tuple[EntityCandidate, ...] = ()
     facts: tuple[FactResult, ...] = ()
     evidence: tuple[EvidenceResult, ...] = ()
@@ -309,3 +442,18 @@ class Envelope(BaseModel):
     truncation: Truncation | None = None  # S18/S49: caps are never silent
     dropped_by_hydration: int = 0
     negative: Negative | None = None
+
+    @model_validator(mode="after")
+    def _parts_are_single_grain(self) -> "Envelope":
+        """Enforce the S47 discipline: parts belong only to a composite answer,
+        and every part is strictly single-grain — a mixed answer is explicitly
+        sectioned, never blended, and the sections are never themselves mixed."""
+        if self.parts:
+            if self.grain is not Grain.COMPOSITE:
+                raise ValueError("only a composite envelope carries parts[]")
+            for part in self.parts:
+                if part.grain is Grain.COMPOSITE:
+                    raise ValueError(
+                        "each part of a composite answer is single-grain (S47)"
+                    )
+        return self
