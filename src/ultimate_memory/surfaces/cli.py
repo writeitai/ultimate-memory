@@ -67,12 +67,24 @@ def _run_review(args: argparse.Namespace) -> int:
 
 
 def _run_query(args: argparse.Namespace) -> int:
-    """The `ugm query …` branch: an HTTP client of the running query API."""
-    base_url = load_api_client_settings().api_url
-    with httpx.Client(base_url=base_url) as client:
-        if args.query_command == "list":
-            return query_list(client=client)
-        return query_run(client=client, name=args.recipe, arg_pairs=args.arg)
+    """The `ugm query …` branch: an HTTP client of the running query API.
+
+    A connection failure (the API is not up, times out) is a controlled exit
+    code, never a traceback; an `Authorization` value in settings is sent so
+    the CLI works against an auth-perimeter deployment.
+    """
+    settings = load_api_client_settings()
+    headers = {}
+    if settings.api_authorization is not None:
+        headers["Authorization"] = settings.api_authorization.get_secret_value()
+    try:
+        with httpx.Client(base_url=settings.api_url, headers=headers) as client:
+            if args.query_command == "list":
+                return query_list(client=client)
+            return query_run(client=client, name=args.recipe, arg_pairs=args.arg)
+    except httpx.HTTPError as error:
+        print(f"error: could not reach the query API: {error}", file=sys.stderr)
+        return 1
 
 
 def query_list(*, client: httpx.Client) -> int:
@@ -102,17 +114,20 @@ def query_run(*, client: httpx.Client, name: str, arg_pairs: list[str]) -> int:
 def _split_arg(pair: str) -> tuple[str, str]:
     """Split one `key=value` argument, or raise a clear error."""
     key, separator, value = pair.partition("=")
-    if not separator:
+    if not separator or not key:
         raise ValueError(f"argument {pair!r} is not key=value")
     return key, value
 
 
 def _report_http_error(response: httpx.Response) -> int:
     """Print a query API error to stderr and return a nonzero exit code."""
+    detail = response.text
     try:
-        detail = response.json().get("detail", response.text)
+        body = response.json()
     except ValueError:
-        detail = response.text
+        body = None
+    if isinstance(body, dict) and "detail" in body:
+        detail = str(body["detail"])
     print(f"error: {response.status_code} {detail}", file=sys.stderr)
     return 1
 

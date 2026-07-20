@@ -30,6 +30,7 @@ from ultimate_memory.model import Envelope
 from ultimate_memory.model import PerimeterCredential
 from ultimate_memory.ports.auth import AuthPerimeterPort
 from ultimate_memory.surfaces.query_engine import QueryEngine
+from ultimate_memory.surfaces.recipe_surface import InvalidArgumentError
 from ultimate_memory.surfaces.recipe_surface import MissingArgumentError
 from ultimate_memory.surfaces.recipe_surface import RecipeSurface
 from ultimate_memory.surfaces.recipe_surface import ToolDescriptor
@@ -50,6 +51,11 @@ def build_api(
     for this deployment. Both are optional — the primitives alone, open, are
     the Phase-1 shape.
     """
+    if surface is not None and surface.deployment_id != deployment_id:
+        raise ValueError(
+            "the recipe surface and the API serve different deployments —"
+            " one deployment is one trust domain (D50)"
+        )
     dependencies = (
         [Depends(_perimeter(auth=auth, deployment_id=deployment_id))]
         if auth is not None
@@ -59,6 +65,7 @@ def build_api(
         title="ultimate-memory query API",
         docs_url=None,
         redoc_url=None,
+        openapi_url=None,  # a machine API; the schema endpoint is not gated, so off
         dependencies=dependencies,
     )
 
@@ -139,7 +146,7 @@ def _mount_recipes(*, app: FastAPI, surface: RecipeSurface) -> None:
             return surface.run(name=name, arguments=arguments)
         except UnknownRecipeError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        except MissingArgumentError as error:
+        except (MissingArgumentError, InvalidArgumentError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 
 

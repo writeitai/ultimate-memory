@@ -34,7 +34,11 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.testing import FakeModelProvider
 from ultimate_memory.model import AuthenticatedContext
 from ultimate_memory.model import DeploymentBootstrapInput
+from ultimate_memory.model import Grain
 from ultimate_memory.model import PerimeterCredential
+from ultimate_memory.model import Recipe
+from ultimate_memory.model import RecipeAnswerIntent
+from ultimate_memory.model import RecipeStep
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import RecipeRegistry
 from ultimate_memory.spine import seed_canonical_recipes
@@ -295,3 +299,112 @@ def test_the_auth_perimeter_gates_every_endpoint(deployment: _Deployment) -> Non
         client.get("/recipes", headers={"Authorization": "Bearer good"}).status_code
         == 200  # admitted
     )
+
+
+# --- regression proofs for the Codex review fixes --------------------------
+
+
+def test_invalid_and_unknown_arguments_are_typed_failures(
+    deployment: _Deployment,
+) -> None:
+    """A wrong-typed argument or a misspelled parameter is a 422 / MCP error,
+    never a 500 or a silently-broadened query (Codex findings)."""
+    bad_uuid = deployment.client.post(
+        "/recipe/relation_current", json={"subject_entity_id": "not-a-uuid"}
+    )
+    assert bad_uuid.status_code == 422
+
+    typo = deployment.client.post(
+        "/recipe/relation_current",
+        json={"subject_entity_id": str(deployment.alice), "predciate": "works_for"},
+    )
+    assert typo.status_code == 422  # a typo never silently broadens the query
+
+    mcp_bad = deployment.mcp.call_tool(
+        name="relation_current", arguments={"subject_entity_id": "not-a-uuid"}
+    )
+    assert mcp_bad["isError"] is True
+
+
+def test_the_api_and_surface_must_serve_one_deployment(deployment: _Deployment) -> None:
+    """Composing an API with a surface bound to a DIFFERENT deployment is
+    refused — one deployment is one trust domain (Codex finding)."""
+    mismatched = RecipeSurface(
+        registry=deployment.registry,
+        executor=RecipeExecutor(
+            query_engine=QueryEngine(
+                engine=deployment.engine,
+                search_index=_NullSearchIndex(),
+                model_provider=FakeModelProvider(generate_payloads={}),
+                embedding_model="toy",
+            )
+        ),
+        deployment_id=_OTHER_DEPLOYMENT,
+    )
+    with pytest.raises(ValueError, match="trust domain"):
+        build_api(
+            engine=QueryEngine(
+                engine=deployment.engine,
+                search_index=_NullSearchIndex(),
+                model_provider=FakeModelProvider(generate_payloads={}),
+                embedding_model="toy",
+            ),
+            deployment_id=_DEPLOYMENT_ID,
+            surface=mismatched,
+        )
+
+
+def test_the_tool_list_has_one_entry_per_name(deployment: _Deployment) -> None:
+    """Two active versions of a recipe render as ONE tool — the latest, whose
+    schema is the one that executes (Codex finding on the tool namespace)."""
+    deployment.registry.register(
+        deployment_id=_DEPLOYMENT_ID,
+        recipe=Recipe(
+            name="relation_current",
+            description="v2 — same shape, newer version",
+            parameters={"subject_entity_id": {"type": "uuid", "required": True}},
+            chain=(
+                RecipeStep(
+                    op="lookup_relations",
+                    bind={"subject_entity_id": "subject_entity_id"},
+                ),
+            ),
+            output_grain=Grain.FACT,
+            answer_intent=RecipeAnswerIntent.CURRENT_FACTS,
+            version=2,
+        ),
+    )
+    names = [descriptor.name for descriptor in deployment.surface.descriptors()]
+    assert names.count("relation_current") == 1
+    tool = next(
+        d for d in deployment.surface.descriptors() if d.name == "relation_current"
+    )
+    assert tool.description.startswith("v2")  # the latest version's schema
+    # and the schema forbids stray properties (a typo is a schema violation)
+    assert tool.input_schema["additionalProperties"] is False
+
+
+def test_the_cli_rejects_a_malformed_argument(deployment: _Deployment) -> None:
+    """`--arg` without `key=value`, or with an empty key, is a usage error
+    (exit 2), not a crash (Codex finding on _split_arg)."""
+    assert (
+        query_run(
+            client=deployment.client, name="relation_current", arg_pairs=["novalue"]
+        )
+        == 2
+    )
+    assert (
+        query_run(client=deployment.client, name="relation_current", arg_pairs=["=v"])
+        == 2
+    )
+
+
+def test_the_cli_reports_an_unreachable_api_as_an_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A query against an API that is not up is a controlled exit code, not a
+    traceback (Codex finding)."""
+    from ultimate_memory.surfaces import cli
+
+    monkeypatch.setenv("UGM_API_URL", "http://127.0.0.1:9")  # nothing listening
+    assert cli.main(["query", "list"]) == 1

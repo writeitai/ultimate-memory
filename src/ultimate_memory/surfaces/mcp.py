@@ -12,6 +12,7 @@ transport is plumbing, and keeping it out of here lets the rendering and
 dispatch be tested directly against the registry.
 """
 
+from ultimate_memory.surfaces.recipe_surface import InvalidArgumentError
 from ultimate_memory.surfaces.recipe_surface import MissingArgumentError
 from ultimate_memory.surfaces.recipe_surface import RecipeSurface
 from ultimate_memory.surfaces.recipe_surface import UnknownRecipeError
@@ -54,7 +55,11 @@ class RecipeMcpServer:
         """
         try:
             envelope = self._surface.run(name=name, arguments=arguments)
-        except (UnknownRecipeError, MissingArgumentError) as error:
+        except (
+            UnknownRecipeError,
+            MissingArgumentError,
+            InvalidArgumentError,
+        ) as error:
             return {"content": [{"type": "text", "text": str(error)}], "isError": True}
         return {
             "content": [{"type": "text", "text": envelope.model_dump_json()}],
