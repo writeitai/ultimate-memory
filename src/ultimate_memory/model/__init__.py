@@ -127,6 +127,8 @@ from ultimate_memory.model.knowledge import KnowledgeEvidenceDelta
 from ultimate_memory.model.knowledge import KnowledgeEvidenceRole
 from ultimate_memory.model.knowledge import KnowledgeEvidenceTarget
 from ultimate_memory.model.knowledge import KnowledgeFactFingerprint
+from ultimate_memory.model.knowledge import KnowledgeFactSheetFact
+from ultimate_memory.model.knowledge import KnowledgeFactSheetSnapshot
 from ultimate_memory.model.knowledge import KnowledgeInputSnapshot
 from ultimate_memory.model.knowledge import KnowledgeLayer
 from ultimate_memory.model.knowledge import KnowledgePageCompileOutput
@@ -138,6 +140,7 @@ from ultimate_memory.model.knowledge import KnowledgePlanAction
 from ultimate_memory.model.knowledge import KnowledgePlanDecisionCreate
 from ultimate_memory.model.knowledge import KnowledgePlanStatus
 from ultimate_memory.model.knowledge import KnowledgePlanTrigger
+from ultimate_memory.model.knowledge import KnowledgeRenderedFactSheet
 from ultimate_memory.model.knowledge import KnowledgeRuleConfiguration
 from ultimate_memory.model.knowledge import KnowledgeRuleKey
 from ultimate_memory.model.knowledge import KnowledgeRuleKeyKind
@@ -354,6 +357,8 @@ __all__ = (
     "KnowledgeEvidenceTarget",
     "KnowledgeEvidenceRole",
     "KnowledgeFactFingerprint",
+    "KnowledgeFactSheetFact",
+    "KnowledgeFactSheetSnapshot",
     "KnowledgeInputSnapshot",
     "KnowledgeLayer",
     "KnowledgePageKind",
@@ -370,6 +375,7 @@ __all__ = (
     "KnowledgeRuleKeyKind",
     "KnowledgeRuleKind",
     "KnowledgeRuleParams",
+    "KnowledgeRenderedFactSheet",
     "ManualRuleParams",
     "PredicateBeatRuleParams",
     "ReconciliationDelta",

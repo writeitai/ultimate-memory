@@ -251,7 +251,11 @@ def _run(
     """Run one cycle with no future curation exclusions."""
     return KnowledgeCommitDriver(
         control_plane=control or graph.control, git_remote=remote, compiler=compiler
-    ).run_cycle(deployment_id=_DEPLOYMENT_ID, exclusions_by_artifact={})
+    ).run_cycle(
+        deployment_id=_DEPLOYMENT_ID,
+        exclusions_by_artifact={},
+        curation_hashes_by_artifact={},
+    )
 
 
 def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) -> None:

@@ -444,6 +444,46 @@ class KnowledgeInputSnapshot(BaseModel):
     writer_version: str
 
 
+class KnowledgeFactSheetFact(BaseModel):
+    """One display-grade relation or observation selected by a page rule."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["relation", "observation"]
+    fact_id: UUID
+    label: str = Field(min_length=1)
+    valid_from: UTCDateTime | None = None
+    valid_until: UTCDateTime | None = None
+    ingested_at: UTCDateTime
+    invalidated_at: UTCDateTime | None = None
+    evidence_count: int = Field(ge=0)
+    contradict_count: int = Field(ge=0)
+    contradiction_group: UUID | None = None
+
+
+class KnowledgeFactSheetSnapshot(BaseModel):
+    """One repeatable-read rule result ready for deterministic rendering."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    artifact_id: UUID
+    deployment_id: UUID
+    evidence_as_of: UTCDateTime
+    input_snapshot: KnowledgeInputSnapshot
+    facts: tuple[KnowledgeFactSheetFact, ...]
+
+
+class KnowledgeRenderedFactSheet(BaseModel):
+    """Rendered band plus the exact counts used by deterministic summaries."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    markdown: str
+    current_relation_count: int = Field(ge=0)
+    observation_count: int = Field(ge=0)
+    contradiction_group_count: int = Field(ge=0)
+
+
 class KnowledgeCompileContext(BaseModel):
     """Git/model inputs supplied to the Postgres-owned manifest computation."""
 
@@ -492,6 +532,8 @@ class KnowledgePageCompileRequest(BaseModel):
     artifact: KnowledgeCompileArtifact
     child_summaries: dict[UUID, str] = Field(default_factory=dict)
     shared_model_summary: str | None = None
+    curation_hash: str | None = None
+    exclusions: tuple[KnowledgeEvidenceTarget, ...] = ()
 
 
 class KnowledgePageCompileOutput(BaseModel):
