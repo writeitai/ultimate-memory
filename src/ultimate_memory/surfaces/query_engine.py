@@ -358,9 +358,16 @@ class QueryEngine:
                 .mappings()
                 .all()
             )
+        # the audit hop discloses the same S23 contradiction and D54 support
+        # as a lookup — a contradicted relation is never hydrated one-sided
+        facts = self._enrich_facts(
+            deployment_id=deployment_id,
+            facts=(_fact_result(row=relation, kind="relation"),),
+            kind="relation",
+        )
         return Envelope(
             grain=Grain.COMPOSITE,
-            facts=(_fact_result(row=relation, kind="relation"),),
+            facts=facts,
             evidence=tuple(EvidenceResult.model_validate(dict(row)) for row in claims),
             sources=tuple(SourceRecord.model_validate(dict(row)) for row in sources),
             freshness=_freshness(),
@@ -1054,7 +1061,8 @@ _HYDRATE_RELATION = text(
     """
     SELECT relation_id AS fact_id,
            coalesce(fact_label, predicate) AS label,
-           evidence_count, valid_from, valid_until, ingested_at, invalidated_at
+           evidence_count, valid_from, valid_until, ingested_at, invalidated_at,
+           contradiction_group
     FROM relations
     WHERE deployment_id = :deployment_id AND relation_id = :relation_id
     """
@@ -1454,12 +1462,14 @@ _CONTRADICTION_MEMBERS = {
 _OPEN_SUPPORT_FLAGS = text(
     """
     -- a fact under an OPEN support_withdrawn review carries support=withdrawn
-    -- in the envelope (D54: flagged, not vanished)
+    -- in the envelope (D54: flagged, not vanished). "Open" is pending OR
+    -- deferred — an 'uncertain' verdict defers but leaves the flag standing,
+    -- matching review._SELECT_OPEN_FLAG and the lifecycle reconciler.
     SELECT (candidate ->> 'fact_id')::uuid AS fact_id
     FROM review_queue
     WHERE deployment_id = :deployment_id
       AND item_kind = 'support_withdrawn'
-      AND status = 'pending'
+      AND status IN ('pending', 'deferred')
       AND (candidate ->> 'fact_id') = ANY(:fact_ids)
     """
 )

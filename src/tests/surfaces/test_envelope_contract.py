@@ -327,6 +327,24 @@ def test_a_withdrawn_fact_is_flagged_not_hidden(corpus: _Corpus) -> None:
     assert all(fact.support is FactSupport.CURRENT for fact in unaffected.facts)
 
 
+def test_hydrate_also_discloses_contradiction_and_support(corpus: _Corpus) -> None:
+    """The audit hop discloses the same S23 contradiction and D54 support as a
+    lookup — a contradicted relation is never hydrated one-sided, and a
+    withdrawn one is flagged (Codex finding)."""
+    engine = _engine(corpus)
+    hydrated = engine.hydrate_relation(
+        deployment_id=_DEPLOYMENT_ID, relation_id=corpus.rel["for_acme"]
+    )
+    (fact,) = hydrated.facts
+    assert fact.contradiction is not None
+    assert fact.contradiction.co_members[0].fact_id == corpus.rel["for_contoso"]
+
+    withdrawn = engine.hydrate_relation(
+        deployment_id=_DEPLOYMENT_ID, relation_id=corpus.rel["bob_acme"]
+    )
+    assert withdrawn.facts[0].support is FactSupport.WITHDRAWN
+
+
 # --- S47: composite parts are single-grain ---------------------------------
 
 
@@ -384,10 +402,46 @@ def test_parts_require_a_composite_grain() -> None:
 
 def test_a_part_may_not_itself_be_composite() -> None:
     """Each part is strictly single-grain — no nested blending (S47)."""
-    nested = EnvelopePart(grain=Grain.COMPOSITE)
     with pytest.raises(ValidationError, match="single-grain"):
+        EnvelopePart(grain=Grain.COMPOSITE)
+
+
+def test_a_part_may_not_carry_another_grains_payload() -> None:
+    """A fact-grain part carrying evidence records is blended, not
+    single-grain — the discipline is enforced per part (Codex finding)."""
+    span = EvidenceResult(
+        claim_id=uuid4(),
+        doc_id=uuid4(),
+        chunk_id=uuid4(),
+        claim_text="x",
+        source_span="x",
+        char_start=0,
+        char_end=1,
+        is_attributed=True,
+        is_current_testimony=True,
+    )
+    with pytest.raises(ValidationError, match="another grain"):
+        EnvelopePart(grain=Grain.FACT, evidence=(span,))
+
+
+def test_a_composite_may_not_blend_parts_with_top_level_payload() -> None:
+    """A composite's data lives in parts[], never also blended into the
+    top-level result tuples (Codex finding)."""
+    fact = FactResult(
+        fact_id=uuid4(),
+        kind="relation",
+        label="Pricing is $10.",
+        evidence_count=1,
+        validity=Validity(
+            valid_from=None, valid_until=None, ingested_at=_NOW, invalidated_at=None
+        ),
+    )
+    with pytest.raises(ValidationError, match="blended"):
         Envelope(
-            grain=Grain.COMPOSITE, parts=(nested,), freshness=Freshness(pg_live_ts=_NOW)
+            grain=Grain.COMPOSITE,
+            parts=(EnvelopePart(grain=Grain.FACT, facts=(fact,)),),
+            facts=(fact,),  # also blended at the top — forbidden
+            freshness=Freshness(pg_live_ts=_NOW),
         )
 
 

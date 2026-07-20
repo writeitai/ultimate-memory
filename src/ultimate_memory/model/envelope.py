@@ -409,6 +409,39 @@ class EnvelopePart(BaseModel):
     pages: tuple[PageRef, ...] = ()
     truncation: Truncation | None = None
 
+    @model_validator(mode="after")
+    def _payload_matches_grain(self) -> "EnvelopePart":
+        """A part is strictly single-grain: it carries only the payload its
+        own grain owns — a fact part holds facts (and graph nodes / an
+        aggregate), an evidence part holds claims, a compiled part holds K
+        pages. Carrying another grain's payload, or being composite, is the
+        blending S47 forbids. `sources` (hydration handles) is cross-grain."""
+        if self.grain is Grain.COMPOSITE:
+            raise ValueError("a composite part is not single-grain (S47)")
+        owned = {
+            Grain.FACT: {"facts", "nodes", "aggregate"},
+            Grain.EVIDENCE: {"evidence"},
+            Grain.COMPILED: {"pages"},
+        }[self.grain]
+        populated = {
+            name
+            for name, value in (
+                ("facts", self.facts),
+                ("evidence", self.evidence),
+                ("nodes", self.nodes),
+                ("aggregate", self.aggregate),
+                ("pages", self.pages),
+            )
+            if value
+        }
+        stray = populated - owned
+        if stray:
+            raise ValueError(
+                f"a {self.grain.value}-grain part carries {sorted(stray)}"
+                " belonging to another grain (S47)"
+            )
+        return self
+
 
 class Envelope(BaseModel):
     """The D49 envelope: results plus the answer's machine-readable self-account.
@@ -444,16 +477,34 @@ class Envelope(BaseModel):
     negative: Negative | None = None
 
     @model_validator(mode="after")
-    def _parts_are_single_grain(self) -> "Envelope":
-        """Enforce the S47 discipline: parts belong only to a composite answer,
-        and every part is strictly single-grain — a mixed answer is explicitly
-        sectioned, never blended, and the sections are never themselves mixed."""
-        if self.parts:
-            if self.grain is not Grain.COMPOSITE:
-                raise ValueError("only a composite envelope carries parts[]")
-            for part in self.parts:
-                if part.grain is Grain.COMPOSITE:
-                    raise ValueError(
-                        "each part of a composite answer is single-grain (S47)"
-                    )
+    def _composite_uses_parts(self) -> "Envelope":
+        """Enforce the S47 discipline: `parts` belong only to a composite
+        answer, and a composite's data lives IN its parts, never blended into
+        the top-level result tuples. (Each part's own single-grain purity is
+        checked on `EnvelopePart`.) A flat compound answer with no parts —
+        hydrate's fact-with-evidence bundle — is untouched."""
+        if not self.parts:
+            return self
+        if self.grain is not Grain.COMPOSITE:
+            raise ValueError("only a composite envelope carries parts[]")
+        blended = self.aggregate is not None or any(
+            (
+                self.entities,
+                self.facts,
+                self.evidence,
+                self.sources,
+                self.transcript,
+                self.nodes,
+                self.paths,
+                self.edges,
+                self.ranking,
+                self.changes,
+                self.pages,
+            )
+        )
+        if blended:
+            raise ValueError(
+                "a composite answer's data lives in parts[], never blended"
+                " into the top-level result tuples (S47)"
+            )
         return self
