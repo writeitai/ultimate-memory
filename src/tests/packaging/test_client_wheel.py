@@ -92,7 +92,7 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
     )
     python = environment / "bin" / "python"
     subprocess.run(
-        ["uv", "pip", "install", "--python", str(python), "--offline", str(wheel)],
+        ["uv", "pip", "install", "--python", str(python), str(wheel)],
         check=True,
         capture_output=True,
         text=True,
