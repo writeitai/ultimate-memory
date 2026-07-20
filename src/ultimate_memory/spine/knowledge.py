@@ -7,8 +7,10 @@ they receive exact secondary SQL evaluation instead of invented key types.
 """
 
 from collections.abc import Iterable
+from collections.abc import Iterator
 from collections.abc import Mapping
 from collections.abc import Sequence
+from contextlib import contextmanager
 from uuid import UUID
 from uuid import uuid4
 
@@ -34,11 +36,13 @@ from ultimate_memory.model import KnowledgeCandidateLayer
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeClaimFingerprint
 from ultimate_memory.model import KnowledgeCompilationWrite
+from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeFactFingerprint
 from ultimate_memory.model import KnowledgeInputSnapshot
 from ultimate_memory.model import KnowledgePageRuleCreate
+from ultimate_memory.model import KnowledgePendingCycle
 from ultimate_memory.model import KnowledgePlanDecisionCreate
 from ultimate_memory.model import KnowledgeRuleConfiguration
 from ultimate_memory.model import KnowledgeRuleKey
@@ -59,6 +63,10 @@ class KnowledgeCompileContextMissingError(LookupError):
 
 class KnowledgeCompilationError(ValueError):
     """A compilation transcript violates the control-plane contract."""
+
+
+class KnowledgeCommitBusyError(RuntimeError):
+    """Another process already owns this deployment's K commit cycle."""
 
 
 class KnowledgeControlPlane:
@@ -309,6 +317,110 @@ class KnowledgeControlPlane:
                 ).scalar_one()
             )
 
+    @contextmanager
+    def commit_lease(self, *, deployment_id: UUID) -> Iterator[None]:
+        """Hold the deployment-scoped Postgres advisory lock for one K cycle."""
+        with self._engine.connect() as connection:
+            acquired = bool(
+                connection.execute(
+                    _TRY_COMMIT_LEASE, {"deployment_id": deployment_id}
+                ).scalar_one()
+            )
+            connection.commit()
+            if not acquired:
+                raise KnowledgeCommitBusyError(str(deployment_id))
+            try:
+                yield
+            finally:
+                released = bool(
+                    connection.execute(
+                        _RELEASE_COMMIT_LEASE, {"deployment_id": deployment_id}
+                    ).scalar_one()
+                )
+                connection.commit()
+                if not released:
+                    raise KnowledgeCompilationError("Plane-K commit lease was lost")
+
+    def compile_artifacts(
+        self, *, deployment_id: UUID
+    ) -> tuple[KnowledgeCompileArtifact, ...]:
+        """Return the deployment's schedulable compiled-page graph."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_COMPILE_ARTIFACTS, {"deployment_id": deployment_id}
+            ).mappings()
+            return tuple(
+                KnowledgeCompileArtifact.model_validate(dict(row)) for row in rows
+            )
+
+    def artifact_git_paths(self, *, deployment_id: UUID) -> tuple[str, ...]:
+        """Return every live artifact path accepted by internal-link validation."""
+        with self._engine.connect() as connection:
+            return tuple(
+                connection.execute(
+                    _SELECT_ARTIFACT_GIT_PATHS, {"deployment_id": deployment_id}
+                ).scalars()
+            )
+
+    def pending_cycles(
+        self, *, deployment_id: UUID
+    ) -> tuple[KnowledgePendingCycle, ...]:
+        """Rehydrate every unfailed, uncommitted cycle from durable finalize payloads."""
+        grouped: dict[UUID, list[KnowledgeCompilationWrite]] = {}
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_PENDING_COMPILATIONS, {"deployment_id": deployment_id}
+            ).mappings()
+            for row in rows:
+                cycle_id = row["cycle_id"]
+                grouped.setdefault(cycle_id, []).append(
+                    KnowledgeCompilationWrite.model_validate(
+                        {
+                            key: row[key]
+                            for key in (
+                                "compilation_id",
+                                "deployment_id",
+                                "artifact_id",
+                                "inputs_hash",
+                                "candidate_count",
+                                "uncited_count",
+                                "citations",
+                                "evidence_invalidated",
+                                "writer_version",
+                                "page_summary",
+                                "content_hash",
+                                "tokens",
+                                "cost_usd",
+                                "session_transcript_uri",
+                            )
+                        }
+                    )
+                )
+        return tuple(
+            KnowledgePendingCycle(
+                cycle_id=cycle_id,
+                deployment_id=deployment_id,
+                compilations=tuple(compilations),
+            )
+            for cycle_id, compilations in grouped.items()
+        )
+
+    def fail_pending_cycle(
+        self, *, deployment_id: UUID, cycle_id: UUID, failure: str
+    ) -> None:
+        """Record an unpublished or unverifiable cycle without changing live pages."""
+        if not failure:
+            raise KnowledgeCompilationError("pending-cycle failure must be non-empty")
+        with self._engine.begin() as connection:
+            connection.execute(
+                _FAIL_PENDING_CYCLE,
+                {
+                    "deployment_id": deployment_id,
+                    "cycle_id": cycle_id,
+                    "failure": failure,
+                },
+            )
+
     def record_pending_compilation(
         self, *, compilation: KnowledgeCompilationWrite
     ) -> None:
@@ -318,107 +430,195 @@ class KnowledgeControlPlane:
         committed page, citations, and artifact hash remain untouched so a
         failed push leaves the previous page internally consistent (D45 §6).
         """
-        citations = _unique_citations(citations=compilation.citations)
+        self.record_pending_compilations(
+            cycle_id=compilation.compilation_id, compilations=(compilation,)
+        )
+
+    def record_pending_compilations(
+        self, *, cycle_id: UUID, compilations: Sequence[KnowledgeCompilationWrite]
+    ) -> None:
+        """Record a complete publish batch atomically without changing live state."""
+        if not compilations:
+            raise KnowledgeCompilationError("pending cycle requires at least one page")
+        deployment_ids = {item.deployment_id for item in compilations}
+        artifact_ids = {item.artifact_id for item in compilations}
+        compilation_ids = {item.compilation_id for item in compilations}
+        if len(deployment_ids) != 1:
+            raise KnowledgeCompilationError("pending cycle crosses deployments")
+        if len(artifact_ids) != len(compilations):
+            raise KnowledgeCompilationError("pending cycle repeats an artifact")
+        if len(compilation_ids) != len(compilations):
+            raise KnowledgeCompilationError("pending cycle repeats a compilation ID")
         with self._engine.begin() as connection:
-            self._validate_citations(
-                connection=connection,
-                deployment_id=compilation.deployment_id,
-                citations=citations,
-            )
-            prior = set(
+            for compilation in compilations:
+                citations = _unique_citations(citations=compilation.citations)
+                self._validate_citations(
+                    connection=connection,
+                    deployment_id=compilation.deployment_id,
+                    citations=citations,
+                )
+                prior = set(
+                    connection.execute(
+                        _SELECT_CITATIONS, {"artifact_id": compilation.artifact_id}
+                    ).tuples()
+                )
+                current = {_citation_tuple(citation=item) for item in citations}
                 connection.execute(
-                    _SELECT_CITATIONS, {"artifact_id": compilation.artifact_id}
-                ).tuples()
-            )
-            current = {_citation_tuple(citation=citation) for citation in citations}
-            connection.execute(
-                _INSERT_COMPILATION,
-                {
-                    **compilation.model_dump(
-                        mode="python",
-                        exclude={"citations", "page_summary", "content_hash"},
-                    ),
-                    "cited_count": len(citations),
-                    "evidence_added": len(current - prior),
-                    "evidence_removed": len(prior - current),
-                },
-            )
+                    _INSERT_COMPILATION,
+                    {
+                        **compilation.model_dump(
+                            mode="python",
+                            exclude={"citations", "page_summary", "content_hash"},
+                        ),
+                        "cycle_id": cycle_id,
+                        "citations": [
+                            item.model_dump(mode="json") for item in citations
+                        ],
+                        "page_summary": compilation.page_summary,
+                        "content_hash": compilation.content_hash,
+                        "cited_count": len(citations),
+                        "evidence_added": len(current - prior),
+                        "evidence_removed": len(prior - current),
+                    },
+                )
 
     def commit_compilation(
         self, *, compilation: KnowledgeCompilationWrite, git_commit: str
     ) -> None:
         """Publish pending citations/artifact state after the git push succeeds."""
+        self.commit_compilations(compilations=(compilation,), git_commit=git_commit)
+
+    def commit_compilations(
+        self, *, compilations: Sequence[KnowledgeCompilationWrite], git_commit: str
+    ) -> None:
+        """Finalize every page in one published cycle atomically and idempotently."""
         if not git_commit:
             raise KnowledgeCompilationError("git commit must be non-empty")
-        citations = _unique_citations(citations=compilation.citations)
+        if not compilations:
+            raise KnowledgeCompilationError("commit cycle requires at least one page")
+        if len({item.compilation_id for item in compilations}) != len(compilations):
+            raise KnowledgeCompilationError("commit cycle repeats a compilation ID")
+        if len({item.artifact_id for item in compilations}) != len(compilations):
+            raise KnowledgeCompilationError("commit cycle repeats an artifact")
+        if len({item.deployment_id for item in compilations}) != 1:
+            raise KnowledgeCompilationError("commit cycle crosses deployments")
         with self._engine.begin() as connection:
-            pending = (
+            to_finalize: list[
+                tuple[KnowledgeCompilationWrite, tuple[KnowledgeCitation, ...]]
+            ] = []
+            cycle_ids: set[UUID] = set()
+            for compilation in compilations:
+                citations = _unique_citations(citations=compilation.citations)
+                pending = (
+                    connection.execute(
+                        _SELECT_COMPILATION_STATE,
+                        {"compilation_id": compilation.compilation_id},
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if pending is None:
+                    raise KnowledgeCompilationError(
+                        "pending compilation does not exist"
+                    )
+                cycle_ids.add(pending["cycle_id"])
+                if pending["git_commit"] is not None:
+                    if pending["git_commit"] == git_commit:
+                        continue
+                    raise KnowledgeCompilationError(
+                        "compilation is already bound to a different git commit"
+                    )
+                if pending["failed_at"] is not None:
+                    raise KnowledgeCompilationError("pending compilation was abandoned")
+                stored_citations = _unique_citations(
+                    citations=tuple(
+                        KnowledgeCitation.model_validate(item)
+                        for item in pending["citations"]
+                    )
+                )
+                if (
+                    pending["deployment_id"] != compilation.deployment_id
+                    or pending["artifact_id"] != compilation.artifact_id
+                    or pending["inputs_hash"] != compilation.inputs_hash
+                    or pending["writer_version"] != compilation.writer_version
+                    or pending["candidate_count"] != compilation.candidate_count
+                    or pending["cited_count"] != len(citations)
+                    or pending["uncited_count"] != compilation.uncited_count
+                    or pending["evidence_invalidated"]
+                    != compilation.evidence_invalidated
+                    or pending["page_summary"] != compilation.page_summary
+                    or pending["content_hash"] != compilation.content_hash
+                    or tuple(
+                        _citation_tuple(citation=item) for item in stored_citations
+                    )
+                    != tuple(_citation_tuple(citation=item) for item in citations)
+                ):
+                    raise KnowledgeCompilationError(
+                        "pending compilation does not match the finalize payload"
+                    )
+                self._validate_citations(
+                    connection=connection,
+                    deployment_id=compilation.deployment_id,
+                    citations=citations,
+                )
+                to_finalize.append((compilation, citations))
+
+            if len(cycle_ids) != 1:
+                raise KnowledgeCompilationError("commit payload crosses pending cycles")
+            cycle_id = next(iter(cycle_ids))
+            if cycle_id is not None:
+                stored_compilation_ids = set(
+                    connection.execute(
+                        _SELECT_CYCLE_COMPILATION_IDS,
+                        {
+                            "deployment_id": compilations[0].deployment_id,
+                            "cycle_id": cycle_id,
+                        },
+                    ).scalars()
+                )
+                requested_compilation_ids = {
+                    compilation.compilation_id for compilation in compilations
+                }
+                if stored_compilation_ids != requested_compilation_ids:
+                    raise KnowledgeCompilationError(
+                        "commit payload does not contain the complete pending cycle"
+                    )
+
+            for compilation, citations in to_finalize:
                 connection.execute(
-                    _SELECT_COMPILATION_STATE,
-                    {"compilation_id": compilation.compilation_id},
+                    _DELETE_CITATIONS, {"artifact_id": compilation.artifact_id}
                 )
-                .mappings()
-                .one_or_none()
-            )
-            if pending is None:
-                raise KnowledgeCompilationError("pending compilation does not exist")
-            if pending["git_commit"] is not None:
-                if pending["git_commit"] == git_commit:
-                    return
-                raise KnowledgeCompilationError(
-                    "compilation is already bound to a different git commit"
-                )
-            if (
-                pending["deployment_id"] != compilation.deployment_id
-                or pending["artifact_id"] != compilation.artifact_id
-                or pending["inputs_hash"] != compilation.inputs_hash
-                or pending["writer_version"] != compilation.writer_version
-                or pending["candidate_count"] != compilation.candidate_count
-                or pending["cited_count"] != len(citations)
-                or pending["uncited_count"] != compilation.uncited_count
-            ):
-                raise KnowledgeCompilationError(
-                    "pending compilation does not match the finalize payload"
-                )
-            self._validate_citations(
-                connection=connection,
-                deployment_id=compilation.deployment_id,
-                citations=citations,
-            )
-            connection.execute(
-                _DELETE_CITATIONS, {"artifact_id": compilation.artifact_id}
-            )
-            for citation in citations:
-                connection.execute(
-                    _INSERT_CITATION,
+                for citation in citations:
+                    connection.execute(
+                        _INSERT_CITATION,
+                        {
+                            "evidence_link_id": uuid4(),
+                            "deployment_id": compilation.deployment_id,
+                            "artifact_id": compilation.artifact_id,
+                            **citation.model_dump(mode="python"),
+                        },
+                    )
+                updated = connection.execute(
+                    _UPDATE_COMPILED_ARTIFACT,
                     {
-                        "evidence_link_id": uuid4(),
-                        "deployment_id": compilation.deployment_id,
                         "artifact_id": compilation.artifact_id,
-                        **citation.model_dump(mode="python"),
+                        "inputs_hash": compilation.inputs_hash,
+                        "writer_version": compilation.writer_version,
+                        "page_summary": compilation.page_summary,
+                        "content_hash": compilation.content_hash,
+                    },
+                ).scalar_one_or_none()
+                if updated is None:
+                    raise KnowledgeCompilationError(
+                        "compilation target is not an active/stale compiled artifact"
+                    )
+                connection.execute(
+                    _STAMP_COMPILATION_COMMIT,
+                    {
+                        "compilation_id": compilation.compilation_id,
+                        "git_commit": git_commit,
                     },
                 )
-            updated = connection.execute(
-                _UPDATE_COMPILED_ARTIFACT,
-                {
-                    "artifact_id": compilation.artifact_id,
-                    "inputs_hash": compilation.inputs_hash,
-                    "writer_version": compilation.writer_version,
-                    "page_summary": compilation.page_summary,
-                    "content_hash": compilation.content_hash,
-                },
-            ).scalar_one_or_none()
-            if updated is None:
-                raise KnowledgeCompilationError(
-                    "compilation target is not an active/stale compiled artifact"
-                )
-            connection.execute(
-                _STAMP_COMPILATION_COMMIT,
-                {
-                    "compilation_id": compilation.compilation_id,
-                    "git_commit": git_commit,
-                },
-            )
 
     def _input_snapshot(
         self,
@@ -1770,25 +1970,38 @@ _INSERT_CITATION = text(
 _INSERT_COMPILATION = text(
     """
     INSERT INTO knowledge_compilations (
-        compilation_id, deployment_id, artifact_id, inputs_hash,
+        compilation_id, cycle_id, deployment_id, artifact_id, inputs_hash,
         candidate_count, cited_count, uncited_count,
         evidence_added, evidence_removed, evidence_invalidated,
-        writer_version, tokens, cost_usd, session_transcript_uri
+        writer_version, tokens, cost_usd, session_transcript_uri,
+        page_summary, content_hash, citations
     ) VALUES (
-        :compilation_id, :deployment_id, :artifact_id, :inputs_hash,
+        :compilation_id, :cycle_id, :deployment_id, :artifact_id, :inputs_hash,
         :candidate_count, :cited_count, :uncited_count,
         :evidence_added, :evidence_removed, :evidence_invalidated,
-        :writer_version, :tokens, :cost_usd, :session_transcript_uri
+        :writer_version, :tokens, :cost_usd, :session_transcript_uri,
+        :page_summary, :content_hash, :citations
     )
     """
-)
+).bindparams(bindparam("citations", type_=JSON))
 
 _SELECT_COMPILATION_STATE = text(
     """
-    SELECT deployment_id, artifact_id, inputs_hash, writer_version,
-           candidate_count, cited_count, uncited_count, git_commit
+    SELECT cycle_id, deployment_id, artifact_id, inputs_hash, writer_version,
+           candidate_count, cited_count, uncited_count, evidence_invalidated,
+           page_summary, content_hash, citations, git_commit, failed_at
     FROM knowledge_compilations
     WHERE compilation_id = :compilation_id
+    FOR UPDATE
+    """
+)
+
+_SELECT_CYCLE_COMPILATION_IDS = text(
+    """
+    SELECT compilation_id
+    FROM knowledge_compilations
+    WHERE deployment_id = :deployment_id AND cycle_id = :cycle_id
+    ORDER BY compilation_id
     FOR UPDATE
     """
 )
@@ -1798,6 +2011,73 @@ _STAMP_COMPILATION_COMMIT = text(
     UPDATE knowledge_compilations
     SET git_commit = :git_commit
     WHERE compilation_id = :compilation_id AND git_commit IS NULL
+    """
+)
+
+_SELECT_COMPILE_ARTIFACTS = text(
+    """
+    SELECT artifact_id, deployment_id, scope_id, parent_artifact_id,
+           git_path, kind AS artifact_kind, page_summary,
+           status = 'stale' AS stale
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND page_kind = 'compiled'
+      AND status IN ('active', 'stale')
+    ORDER BY artifact_id
+    """
+)
+
+_SELECT_ARTIFACT_GIT_PATHS = text(
+    """
+    SELECT git_path
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id AND status <> 'tombstoned'
+    ORDER BY git_path
+    """
+)
+
+_SELECT_PENDING_COMPILATIONS = text(
+    """
+    SELECT compilation_id, cycle_id, deployment_id, artifact_id, inputs_hash,
+           candidate_count, uncited_count, evidence_invalidated, writer_version,
+           page_summary, content_hash, citations, tokens, cost_usd,
+           session_transcript_uri
+    FROM knowledge_compilations
+    WHERE deployment_id = :deployment_id
+      AND git_commit IS NULL
+      AND failed_at IS NULL
+      AND cycle_id IS NOT NULL
+      AND page_summary IS NOT NULL
+      AND content_hash IS NOT NULL
+      AND citations IS NOT NULL
+    ORDER BY compiled_at, artifact_id
+    """
+)
+
+_FAIL_PENDING_CYCLE = text(
+    """
+    UPDATE knowledge_compilations
+    SET failed_at = now(), failure = :failure
+    WHERE deployment_id = :deployment_id
+      AND cycle_id = :cycle_id
+      AND git_commit IS NULL
+      AND failed_at IS NULL
+    """
+)
+
+_TRY_COMMIT_LEASE = text(
+    """
+    SELECT pg_try_advisory_lock(
+        hashtextextended('k-commit:' || CAST(:deployment_id AS text), 0)
+    )
+    """
+)
+
+_RELEASE_COMMIT_LEASE = text(
+    """
+    SELECT pg_advisory_unlock(
+        hashtextextended('k-commit:' || CAST(:deployment_id AS text), 0)
+    )
     """
 )
 

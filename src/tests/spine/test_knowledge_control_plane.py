@@ -17,6 +17,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
 from ultimate_memory.core import knowledge_inputs_hash
+from ultimate_memory.core import knowledge_summary_hash
 from ultimate_memory.model import CommunityRuleParams
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocSetRuleParams
@@ -180,7 +181,7 @@ class _Corpus:
             citations=(),
             writer_version="writer-test",
             page_summary="A compiled test page.",
-            content_hash="content-test",
+            content_hash=knowledge_summary_hash(summary="content-test"),
         )
         self.control.record_pending_compilation(compilation=compilation)
         self.control.commit_compilation(
@@ -782,7 +783,7 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
         ),
         writer_version="writer-test",
         page_summary="First summary.",
-        content_hash="first-content",
+        content_hash=knowledge_summary_hash(summary="first-content"),
     )
     corpus.control.record_pending_compilation(compilation=first)
     corpus.control.commit_compilation(compilation=first, git_commit="commit-first")
@@ -795,7 +796,7 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
                 ),
             ),
             "page_summary": "Second summary.",
-            "content_hash": "second-content",
+            "content_hash": knowledge_summary_hash(summary="second-content"),
             "uncited_count": first.candidate_count,
         }
     )

@@ -1,6 +1,7 @@
 """Typed Plane-K control-plane values (D45)."""
 
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Annotated
 from typing import Literal
 from typing import TypeAlias
@@ -10,10 +11,13 @@ from pydantic import AfterValidator
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 from pydantic import JsonValue
 from pydantic import model_validator
 
 from ultimate_memory.model.queue import UTCDateTime
+
+SHA256: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 def _sorted_unique_strings(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -341,6 +345,29 @@ class KnowledgeCitation(BaseModel):
         return self
 
 
+class KnowledgeEvidenceTarget(BaseModel):
+    """One role-independent claim, relation, or document exclusion target."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    claim_id: UUID | None = None
+    relation_id: UUID | None = None
+    doc_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_exactly_one_target(self) -> "KnowledgeEvidenceTarget":
+        """Keep exclusions at the same exactly-one evidence grain as citations."""
+        if (
+            sum(
+                target is not None
+                for target in (self.claim_id, self.relation_id, self.doc_id)
+            )
+            != 1
+        ):
+            raise ValueError("evidence target requires exactly one ID")
+        return self
+
+
 class KnowledgeCompilationWrite(BaseModel):
     """Validated compile metadata to commit atomically to the control plane."""
 
@@ -349,14 +376,14 @@ class KnowledgeCompilationWrite(BaseModel):
     compilation_id: UUID
     deployment_id: UUID
     artifact_id: UUID
-    inputs_hash: str
+    inputs_hash: SHA256
     candidate_count: int = Field(ge=0)
     uncited_count: int = Field(ge=0)
     citations: tuple[KnowledgeCitation, ...]
     evidence_invalidated: int = Field(default=0, ge=0)
     writer_version: str
     page_summary: str
-    content_hash: str
+    content_hash: SHA256
     tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0)
     session_transcript_uri: str | None = None
@@ -425,6 +452,76 @@ class KnowledgeCompileContext(BaseModel):
     curation_hash: str | None = None
     shared_model_summary_hash: str | None = None
     writer_version: str
+
+
+class KnowledgeCompileArtifact(BaseModel):
+    """One compiled artifact as seen by the dependency scheduler."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    artifact_id: UUID
+    deployment_id: UUID
+    scope_id: UUID | None = None
+    parent_artifact_id: UUID | None = None
+    git_path: str
+    artifact_kind: str | None = None
+    page_summary: str | None = None
+    stale: bool
+
+    @field_validator("git_path")
+    @classmethod
+    def require_safe_markdown_path(cls, value: str) -> str:
+        """Keep driver-owned writes relative, normalized, and Markdown-only."""
+        path = PurePosixPath(value)
+        if (
+            not value
+            or path.is_absolute()
+            or ".." in path.parts
+            or str(path) != value
+            or path.suffix != ".md"
+        ):
+            raise ValueError("git_path must be a normalized relative Markdown path")
+        return value
+
+
+class KnowledgePageCompileRequest(BaseModel):
+    """Deterministic context passed to the future per-page compiler seam."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    artifact: KnowledgeCompileArtifact
+    child_summaries: dict[UUID, str] = Field(default_factory=dict)
+    shared_model_summary: str | None = None
+
+
+class KnowledgePageCompileOutput(BaseModel):
+    """Structured page output consumed and validated by the commit driver."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    compilation: KnowledgeCompilationWrite
+    markdown: str
+
+
+class KnowledgePendingCycle(BaseModel):
+    """One recoverable publish batch whose Postgres finalize step is pending."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    cycle_id: UUID
+    deployment_id: UUID
+    compilations: tuple[KnowledgeCompilationWrite, ...] = Field(min_length=1)
+
+
+class KnowledgeCommitCycleResult(BaseModel):
+    """Observable outcome of one locked checkout/compile/publish cycle."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    checkout_revision: str
+    published_revision: str | None = None
+    compiled_artifact_ids: tuple[UUID, ...] = ()
+    recovered_cycle_ids: tuple[UUID, ...] = ()
 
 
 class KnowledgeEvidenceDelta(BaseModel):

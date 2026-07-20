@@ -24,6 +24,8 @@ from ultimate_memory.workers.e3 import AdjudicateSupersessionHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
+from ultimate_memory.workers.knowledge_driver import KnowledgeCommitDriver
+from ultimate_memory.workers.knowledge_driver import KnowledgePageCompiler
 from ultimate_memory.workers.knowledge_driver import KnowledgeRoutingDriver
 from ultimate_memory.workers.p1 import EmbedClaimsHandler
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
@@ -64,6 +66,8 @@ __all__ = (
     "FACT_LABEL_VERSION",
     "LabelFactsHandler",
     "KnowledgeRoutingDriver",
+    "KnowledgeCommitDriver",
+    "KnowledgePageCompiler",
     "NormalizeRelationsHandler",
     "P1Settings",
     "P1_EMBED_CLAIMS_VERSION",

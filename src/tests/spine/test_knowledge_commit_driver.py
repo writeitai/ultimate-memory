@@ -1,0 +1,510 @@
+"""WP-6.2 acceptance: one locked K publish and crash-safe PG finalization."""
+
+from collections.abc import Iterator
+from collections.abc import Sequence
+from pathlib import Path
+from uuid import UUID
+from uuid import uuid4
+
+from alembic import command
+from alembic.config import Config
+from pydantic import ValidationError
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+from ultimate_memory.core import knowledge_content_hash
+from ultimate_memory.core import KnowledgePageValidationError
+from ultimate_memory.model import DeploymentBootstrapInput
+from ultimate_memory.model import KnowledgeArtifactCreate
+from ultimate_memory.model import KnowledgeCommitCycleResult
+from ultimate_memory.model import KnowledgeCompilationWrite
+from ultimate_memory.model import KnowledgeLayer
+from ultimate_memory.model import KnowledgePageCompileOutput
+from ultimate_memory.model import KnowledgePageCompileRequest
+from ultimate_memory.model import KnowledgePageKind
+from ultimate_memory.model import KRevision
+from ultimate_memory.spine import DeploymentBootstrapper
+from ultimate_memory.spine import KnowledgeCommitBusyError
+from ultimate_memory.spine import KnowledgeCompilationError
+from ultimate_memory.spine import KnowledgeControlPlane
+from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import KnowledgeCommitDriver
+
+_ROOT = Path(__file__).resolve().parents[3]
+_DEPLOYMENT_ID = UUID("62000000-0000-0000-0000-000000000002")
+
+
+@pytest.fixture(scope="module")
+def database_engine() -> Iterator[Engine]:
+    """Apply structural head and expose the accepted PostgreSQL engine."""
+    try:
+        database_url = load_database_settings().sqlalchemy_url()
+    except ValidationError:
+        pytest.skip("UGM_DATABASE_URL is required for real Plane-K proofs")
+    config = Config(str(_ROOT / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.downgrade(config=config, revision="base")
+    command.upgrade(config=config, revision="head")
+    engine = create_engine(database_url)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture()
+def graph(database_engine: Engine) -> "_CompileGraph":
+    """Give each proof one deployment and a stale model/child/parent/root graph."""
+    with database_engine.begin() as connection:
+        connection.execute(text("TRUNCATE TABLE deployments CASCADE"))
+    DeploymentBootstrapper(engine=database_engine).bootstrap_deployment(
+        deployment_input=DeploymentBootstrapInput(
+            deployment_id=_DEPLOYMENT_ID,
+            slug="k-commit",
+            name="K commit proofs",
+            default_language="en",
+            raw_bucket="mem://raw",
+            artifacts_bucket="mem://artifacts",
+            corpusfs_bucket="mem://corpusfs",
+            knowledge_repo_uri="mem://knowledge.git",
+        )
+    )
+    return _CompileGraph(engine=database_engine)
+
+
+class _CompileGraph:
+    """Compact four-page dependency graph with a shared scope model."""
+
+    def __init__(self, *, engine: Engine) -> None:
+        """Create stale artifacts while retaining an old consistent live version."""
+        self.engine = engine
+        self.control = KnowledgeControlPlane(engine=engine)
+        self.scope_id = uuid4()
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO scopes (scope_id, deployment_id, slug, name, git_path)"
+                    " VALUES (:scope, :deployment, 'work', 'Work', 'work')"
+                ),
+                {"scope": self.scope_id, "deployment": _DEPLOYMENT_ID},
+            )
+
+        self.model = self._page(git_path="work/model.md", kind="model_page")
+        self.root = self._page(git_path="_index.md", kind="summary")
+        self.parent = self._page(
+            git_path="work/parent.md", kind="summary", parent_artifact_id=self.root
+        )
+        self.child = self._page(
+            git_path="work/child.md", kind="profile", parent_artifact_id=self.parent
+        )
+        self.artifact_ids = (self.model, self.child, self.parent, self.root)
+        self.paths_by_id = {
+            self.model: "work/model.md",
+            self.root: "_index.md",
+            self.parent: "work/parent.md",
+            self.child: "work/child.md",
+        }
+        self.old_files = {path: f"# Old {path}\n" for path in self.paths_by_id.values()}
+        with engine.begin() as connection:
+            for artifact_id, git_path in self.paths_by_id.items():
+                old_markdown = self.old_files[git_path]
+                connection.execute(
+                    text(
+                        "UPDATE knowledge_artifacts"
+                        " SET status = 'stale', page_summary = :summary,"
+                        " content_hash = :content_hash, inputs_hash = :inputs_hash"
+                        " WHERE artifact_id = :artifact"
+                    ),
+                    {
+                        "artifact": artifact_id,
+                        "summary": f"old:{git_path}",
+                        "content_hash": knowledge_content_hash(markdown=old_markdown),
+                        "inputs_hash": "f" * 64,
+                    },
+                )
+
+    def _page(
+        self, *, git_path: str, kind: str, parent_artifact_id: UUID | None = None
+    ) -> UUID:
+        """Register one compiled page in FK-safe parent-before-child order."""
+        artifact_id = uuid4()
+        self.control.create_artifact(
+            artifact=KnowledgeArtifactCreate(
+                artifact_id=artifact_id,
+                deployment_id=_DEPLOYMENT_ID,
+                layer=KnowledgeLayer.K1,
+                page_kind=KnowledgePageKind.COMPILED,
+                scope_id=self.scope_id,
+                parent_artifact_id=parent_artifact_id,
+                git_path=git_path,
+                curation_path=f"{git_path}.curation.md",
+                artifact_kind=kind,
+                writer_version="writer-test",
+            )
+        )
+        return artifact_id
+
+
+class _GitRemote:
+    """In-memory remote whose checkout boundary uses real filesystem files."""
+
+    def __init__(self, *, files: dict[str, str]) -> None:
+        self.files = dict(files)
+        self.head = "head-0"
+        self.publish_calls = 0
+        self.fail_publish = False
+
+    def checkout(self, *, destination: Path) -> KRevision:
+        """Materialize the current remote revision into the disposable checkout."""
+        for git_path, body in self.files.items():
+            target = destination.joinpath(*git_path.split("/"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+        return KRevision(self.head)
+
+    def publish(self, *, worktree: Path) -> KRevision:
+        """Capture all Markdown files as one new revision or fail before mutation."""
+        self.publish_calls += 1
+        if self.fail_publish:
+            raise RuntimeError("simulated git push failure")
+        self.files = {
+            path.relative_to(worktree).as_posix(): path.read_text(encoding="utf-8")
+            for path in worktree.rglob("*.md")
+        }
+        self.head = f"head-{self.publish_calls}"
+        return KRevision(self.head)
+
+
+class _Compiler:
+    """Predictable one-page seam used to observe dependency context."""
+
+    def __init__(
+        self,
+        *,
+        broken_artifact_id: UUID | None = None,
+        unchanged_summary_ids: frozenset[UUID] = frozenset(),
+    ) -> None:
+        self.broken_artifact_id = broken_artifact_id
+        self.unchanged_summary_ids = unchanged_summary_ids
+        self.requests: list[KnowledgePageCompileRequest] = []
+
+    def compile_page(
+        self, *, request: KnowledgePageCompileRequest
+    ) -> KnowledgePageCompileOutput:
+        """Return a valid result, optionally with one intentionally broken link."""
+        self.requests.append(request)
+        artifact = request.artifact
+        markdown = f"# New {artifact.git_path}\n"
+        if artifact.artifact_id == self.broken_artifact_id:
+            markdown += "\n[Missing](missing.md)\n"
+        summary = (
+            artifact.page_summary
+            if artifact.artifact_id in self.unchanged_summary_ids
+            else f"new:{artifact.git_path}"
+        )
+        assert summary is not None
+        return KnowledgePageCompileOutput(
+            compilation=KnowledgeCompilationWrite(
+                compilation_id=uuid4(),
+                deployment_id=artifact.deployment_id,
+                artifact_id=artifact.artifact_id,
+                inputs_hash=knowledge_content_hash(
+                    markdown=f"inputs:{artifact.artifact_id}"
+                ),
+                candidate_count=0,
+                uncited_count=0,
+                citations=(),
+                writer_version="writer-test",
+                page_summary=summary,
+                content_hash=knowledge_content_hash(markdown=markdown),
+            ),
+            markdown=markdown,
+        )
+
+
+class _FailFirstFinalizeControlPlane(KnowledgeControlPlane):
+    """Simulate process death after publish and before PG finalization."""
+
+    def __init__(self, *, engine: Engine) -> None:
+        super().__init__(engine=engine)
+        self.fail_next_finalize = True
+
+    def commit_compilations(
+        self, *, compilations: Sequence[KnowledgeCompilationWrite], git_commit: str
+    ) -> None:
+        """Fail exactly once, then expose the real idempotent recovery method."""
+        if self.fail_next_finalize:
+            self.fail_next_finalize = False
+            raise RuntimeError("simulated post-publish process crash")
+        super().commit_compilations(compilations=compilations, git_commit=git_commit)
+
+
+def _run(
+    *,
+    graph: _CompileGraph,
+    remote: _GitRemote,
+    compiler: _Compiler,
+    control: KnowledgeControlPlane | None = None,
+) -> KnowledgeCommitCycleResult:
+    """Run one cycle with no future curation exclusions."""
+    return KnowledgeCommitDriver(
+        control_plane=control or graph.control, git_remote=remote, compiler=compiler
+    ).run_cycle(deployment_id=_DEPLOYMENT_ID, exclusions_by_artifact={})
+
+
+def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) -> None:
+    """Fresh summaries flow model→pages and child→parent inside one git commit."""
+    remote = _GitRemote(files=graph.old_files)
+    compiler = _Compiler()
+
+    result = _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert result.published_revision == "head-1"
+    assert result.compiled_artifact_ids == graph.artifact_ids
+    assert remote.publish_calls == 1
+    assert [request.artifact.artifact_id for request in compiler.requests] == list(
+        graph.artifact_ids
+    )
+    requests = {request.artifact.artifact_id: request for request in compiler.requests}
+    assert requests[graph.model].shared_model_summary is None
+    assert requests[graph.child].shared_model_summary == "new:work/model.md"
+    assert requests[graph.parent].child_summaries == {graph.child: "new:work/child.md"}
+    assert requests[graph.root].child_summaries == {graph.parent: "new:work/parent.md"}
+
+    with graph.engine.connect() as connection:
+        artifacts = connection.execute(
+            text(
+                "SELECT artifact_id, status::text AS status, page_summary"
+                " FROM knowledge_artifacts WHERE deployment_id = :deployment"
+            ),
+            {"deployment": _DEPLOYMENT_ID},
+        ).mappings()
+        transcripts = connection.execute(
+            text(
+                "SELECT cycle_id, git_commit FROM knowledge_compilations"
+                " WHERE deployment_id = :deployment"
+            ),
+            {"deployment": _DEPLOYMENT_ID},
+        ).mappings()
+        artifact_rows = {row["artifact_id"]: row for row in artifacts}
+        transcript_rows = list(transcripts)
+    assert all(row["status"] == "active" for row in artifact_rows.values())
+    assert all(row["page_summary"].startswith("new:") for row in artifact_rows.values())
+    assert len(transcript_rows) == 4
+    assert len({row["cycle_id"] for row in transcript_rows}) == 1
+    assert {row["git_commit"] for row in transcript_rows} == {"head-1"}
+
+
+def test_changed_child_summary_propagates_through_active_ancestors(
+    graph: _CompileGraph,
+) -> None:
+    """A child can stale its parent and root during, rather than after, the cycle."""
+    with graph.engine.begin() as connection:
+        connection.execute(text("UPDATE knowledge_artifacts SET status = 'active'"))
+        connection.execute(
+            text(
+                "UPDATE knowledge_artifacts SET status = 'stale'"
+                " WHERE artifact_id = :artifact"
+            ),
+            {"artifact": graph.child},
+        )
+    remote = _GitRemote(files=graph.old_files)
+    compiler = _Compiler()
+
+    result = _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert result.compiled_artifact_ids == (graph.child, graph.parent, graph.root)
+    assert [request.artifact.artifact_id for request in compiler.requests] == [
+        graph.child,
+        graph.parent,
+        graph.root,
+    ]
+    assert remote.publish_calls == 1
+
+
+def test_unchanged_child_summary_does_not_overcompile_active_ancestors(
+    graph: _CompileGraph,
+) -> None:
+    """Potential ancestors are skipped when their hash-visible child input is stable."""
+    with graph.engine.begin() as connection:
+        connection.execute(text("UPDATE knowledge_artifacts SET status = 'active'"))
+        connection.execute(
+            text(
+                "UPDATE knowledge_artifacts SET status = 'stale'"
+                " WHERE artifact_id = :artifact"
+            ),
+            {"artifact": graph.child},
+        )
+    remote = _GitRemote(files=graph.old_files)
+    compiler = _Compiler(unchanged_summary_ids=frozenset({graph.child}))
+
+    result = _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert result.compiled_artifact_ids == (graph.child,)
+    assert [request.artifact.artifact_id for request in compiler.requests] == [
+        graph.child
+    ]
+    assert remote.publish_calls == 1
+
+
+def test_validation_failure_never_writes_or_publishes(graph: _CompileGraph) -> None:
+    """One invalid page aborts the batch while the old remote and live state remain."""
+    remote = _GitRemote(files=graph.old_files)
+    compiler = _Compiler(broken_artifact_id=graph.child)
+
+    with pytest.raises(KnowledgePageValidationError, match="unresolved internal"):
+        _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert remote.publish_calls == 0
+    assert remote.files == graph.old_files
+    with graph.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM knowledge_compilations")
+            ).scalar_one()
+            == 0
+        )
+        statuses = set(
+            connection.execute(
+                text("SELECT status::text FROM knowledge_artifacts")
+            ).scalars()
+        )
+    assert statuses == {"stale"}
+
+
+def test_push_failure_keeps_old_live_page_and_durable_pending_cycle(
+    graph: _CompileGraph,
+) -> None:
+    """Pending transcript data never becomes live until git publish succeeds."""
+    remote = _GitRemote(files=graph.old_files)
+    remote.fail_publish = True
+
+    with pytest.raises(RuntimeError, match="git push failure"):
+        _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert remote.files == graph.old_files
+    with graph.engine.connect() as connection:
+        artifacts = list(
+            connection.execute(
+                text(
+                    "SELECT status::text AS status, page_summary"
+                    " FROM knowledge_artifacts"
+                )
+            ).mappings()
+        )
+        pending = list(
+            connection.execute(
+                text(
+                    "SELECT cycle_id, git_commit, page_summary, content_hash, citations"
+                    " FROM knowledge_compilations"
+                )
+            ).mappings()
+        )
+    assert all(row["status"] == "stale" for row in artifacts)
+    assert all(row["page_summary"].startswith("old:") for row in artifacts)
+    assert len(pending) == 4
+    assert len({row["cycle_id"] for row in pending}) == 1
+    assert all(row["git_commit"] is None for row in pending)
+    assert all(row["page_summary"] and row["content_hash"] for row in pending)
+    assert all(row["citations"] == [] for row in pending)
+
+
+def test_startup_recovers_published_cycle_without_second_publish(
+    graph: _CompileGraph,
+) -> None:
+    """Remote content hashes prove a post-publish cycle and finalize it exactly once."""
+    remote = _GitRemote(files=graph.old_files)
+    compiler = _Compiler()
+    control = _FailFirstFinalizeControlPlane(engine=graph.engine)
+
+    with pytest.raises(RuntimeError, match="post-publish process crash"):
+        _run(graph=graph, remote=remote, compiler=compiler, control=control)
+
+    assert remote.publish_calls == 1
+    with graph.engine.connect() as connection:
+        pending_cycle = connection.execute(
+            text("SELECT DISTINCT cycle_id FROM knowledge_compilations")
+        ).scalar_one()
+        assert set(
+            connection.execute(
+                text("SELECT status::text FROM knowledge_artifacts")
+            ).scalars()
+        ) == {"stale"}
+
+    result = _run(graph=graph, remote=remote, compiler=compiler, control=control)
+
+    assert result.published_revision is None
+    assert result.recovered_cycle_ids == (pending_cycle,)
+    assert remote.publish_calls == 1
+    assert len(compiler.requests) == 4
+    with graph.engine.connect() as connection:
+        assert set(
+            connection.execute(
+                text("SELECT status::text FROM knowledge_artifacts")
+            ).scalars()
+        ) == {"active"}
+        assert set(
+            connection.execute(
+                text("SELECT git_commit FROM knowledge_compilations")
+            ).scalars()
+        ) == {"head-1"}
+
+
+def test_finalize_rejects_partial_cycle_without_partial_live_state(
+    graph: _CompileGraph,
+) -> None:
+    """The control plane cannot finalize a subset of one recorded publish batch."""
+    compiler = _Compiler()
+    artifacts = {
+        artifact.artifact_id: artifact
+        for artifact in graph.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+    }
+    compilations = tuple(
+        compiler.compile_page(
+            request=KnowledgePageCompileRequest(artifact=artifacts[artifact_id])
+        ).compilation
+        for artifact_id in (graph.child, graph.parent)
+    )
+    cycle_id = uuid4()
+    graph.control.record_pending_compilations(
+        cycle_id=cycle_id, compilations=compilations
+    )
+
+    with pytest.raises(KnowledgeCompilationError, match="complete pending cycle"):
+        graph.control.commit_compilation(
+            compilation=compilations[0], git_commit="head-partial"
+        )
+
+    with graph.engine.connect() as connection:
+        assert set(
+            connection.execute(
+                text(
+                    "SELECT git_commit FROM knowledge_compilations"
+                    " WHERE cycle_id = :cycle"
+                ),
+                {"cycle": cycle_id},
+            ).scalars()
+        ) == {None}
+        assert set(
+            connection.execute(
+                text(
+                    "SELECT status::text FROM knowledge_artifacts"
+                    " WHERE artifact_id IN (:child, :parent)"
+                ),
+                {"child": graph.child, "parent": graph.parent},
+            ).scalars()
+        ) == {"stale"}
+
+
+def test_second_driver_cannot_enter_deployment_commit_cycle(
+    graph: _CompileGraph,
+) -> None:
+    """The session advisory lock enforces one automated committer per deployment."""
+    competing = KnowledgeControlPlane(engine=graph.engine)
+
+    with graph.control.commit_lease(deployment_id=_DEPLOYMENT_ID):
+        with pytest.raises(KnowledgeCommitBusyError):
+            with competing.commit_lease(deployment_id=_DEPLOYMENT_ID):
+                pytest.fail("competing driver unexpectedly acquired the commit lease")
