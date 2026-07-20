@@ -1,6 +1,7 @@
 """Agent-facing surfaces: the query API (API/CLI/MCP are the complete story)."""
 
 from ultimate_memory.surfaces.cli import main as cli_main
+from ultimate_memory.surfaces.consumption_skill import ConsumptionSkillSurface
 from ultimate_memory.surfaces.graph_queries import GraphQueries
 from ultimate_memory.surfaces.http_api import build_api
 from ultimate_memory.surfaces.mcp import RecipeMcpServer
@@ -16,6 +17,7 @@ from ultimate_memory.surfaces.recipe_surface import UnknownRecipeError
 
 __all__ = (
     "EXECUTABLE_OPS",
+    "ConsumptionSkillSurface",
     "GraphQueries",
     "InvalidArgumentError",
     "MissingArgumentError",

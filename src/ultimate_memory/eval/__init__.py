@@ -1,5 +1,9 @@
 """Evaluation package: the D22 harness and the golden suites."""
 
+from ultimate_memory.eval.consumption import make_retrieval_evaluator
+from ultimate_memory.eval.consumption import make_s58_evaluator
+from ultimate_memory.eval.consumption import S58_CANARIES
+from ultimate_memory.eval.consumption import seed_s58_canaries
 from ultimate_memory.eval.contradiction import CONTRADICTION_PRECISION_FLOOR
 from ultimate_memory.eval.contradiction import CONTRADICTION_RECALL_FLOOR
 from ultimate_memory.eval.contradiction import run_contradiction_suite
@@ -21,11 +25,15 @@ __all__ = (
     "CONTRADICTION_PRECISION_FLOOR",
     "CONTRADICTION_RECALL_FLOOR",
     "CaseEvaluator",
+    "make_retrieval_evaluator",
+    "make_s58_evaluator",
     "run_contradiction_suite",
     "flag_rate_by_extractor",
     "register_lifecycle_evaluator",
     "run_lifecycle_suite",
     "seed_contradiction_cases",
+    "seed_s58_canaries",
+    "S58_CANARIES",
     "EvalHarness",
     "PRECISION_FLOOR",
     "RECALL_FLOOR",

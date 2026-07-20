@@ -10,6 +10,7 @@ export const docsNavigation: NavItem[] = [
   { title: "Introduction", href: "/docs" },
   { title: "Concepts", href: "/docs/concepts" },
   { title: "Architecture", href: "/docs/architecture" },
+  { title: "Mounts and Skill", href: "/docs/mounts" },
   { title: "Project Status", href: "/docs/project-status" },
   {
     title: "Reference",

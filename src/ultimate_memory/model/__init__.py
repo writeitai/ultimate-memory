@@ -49,6 +49,12 @@ from ultimate_memory.model.component_version import ComponentVersionRecord
 from ultimate_memory.model.component_version import PipelineComponent
 from ultimate_memory.model.component_version import RegisterComponentVersionInput
 from ultimate_memory.model.component_version import RegisterComponentVersionResult
+from ultimate_memory.model.consumption import ConsumptionDeployment
+from ultimate_memory.model.consumption import ConsumptionRecipe
+from ultimate_memory.model.consumption import ConsumptionScope
+from ultimate_memory.model.consumption import ConsumptionSkillContext
+from ultimate_memory.model.consumption import RenderedConsumptionSkill
+from ultimate_memory.model.consumption import S58Answer
 from ultimate_memory.model.conversion import ConversionError
 from ultimate_memory.model.conversion import ConversionResult
 from ultimate_memory.model.conversion import UnroutableMimeError
@@ -183,6 +189,10 @@ __all__ = (
     "ContextPrefix",
     "ConversionError",
     "ConversionResult",
+    "ConsumptionDeployment",
+    "ConsumptionRecipe",
+    "ConsumptionScope",
+    "ConsumptionSkillContext",
     "ConvertSource",
     "CoreManifestConflictError",
     "DecisionRecord",
@@ -261,6 +271,7 @@ __all__ = (
     "RelationUpsert",
     "RepresentationNotFoundError",
     "RepresentationRecord",
+    "RenderedConsumptionSkill",
     "ResolutionCandidate",
     "ResolvedEntity",
     "ResolverConfig",
@@ -268,6 +279,7 @@ __all__ = (
     "ReviewItem",
     "RunResultOutcome",
     "ScanRow",
+    "S58Answer",
     "SectionSpan",
     "SelectionCandidate",
     "SelectionResponse",

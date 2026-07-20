@@ -12,6 +12,8 @@ from ultimate_memory.core.chunker import count_tokens
 from ultimate_memory.core.chunker import extraction_input_hash
 from ultimate_memory.core.chunker import is_anchor
 from ultimate_memory.core.chunker import pack_blocks
+from ultimate_memory.core.consumption_skill import CONSUMPTION_SKILL_VERSION
+from ultimate_memory.core.consumption_skill import render_consumption_skill
 from ultimate_memory.core.conversion import ConversionRouter
 from ultimate_memory.core.conversion import Converter
 from ultimate_memory.core.conversion import MarkdownPassthroughConverter
@@ -52,6 +54,7 @@ __all__ = (
     "PackPredicate",
     "WORK_PACK",
     "ConversionRouter",
+    "CONSUMPTION_SKILL_VERSION",
     "Converter",
     "CoreManifest",
     "EntityTypeDefinition",
@@ -71,5 +74,6 @@ __all__ = (
     "RecipeLintError",
     "lint_recipe",
     "reciprocal_rank_fusion",
+    "render_consumption_skill",
     "rerank_by_signal",
 )
