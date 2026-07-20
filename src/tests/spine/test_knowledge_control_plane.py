@@ -16,8 +16,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.core import knowledge_content_hash
 from ultimate_memory.core import knowledge_inputs_hash
 from ultimate_memory.core import knowledge_summary_hash
+from ultimate_memory.core import validate_knowledge_page_output
 from ultimate_memory.model import CommunityRuleParams
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocSetRuleParams
@@ -29,7 +31,9 @@ from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeEvidenceRole
+from ultimate_memory.model import KnowledgeEvidenceTarget
 from ultimate_memory.model import KnowledgeLayer
+from ultimate_memory.model import KnowledgePageCompileRequest
 from ultimate_memory.model import KnowledgePageKind
 from ultimate_memory.model import KnowledgePageRuleCreate
 from ultimate_memory.model import KnowledgePlanAction
@@ -43,6 +47,8 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import KnowledgeCompilationError
 from ultimate_memory.spine import KnowledgeControlPlane
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import KNOWLEDGE_FACT_SHEET_VERSION
+from ultimate_memory.workers import KnowledgeFactSheetCompiler
 from ultimate_memory.workers import KnowledgeRoutingDriver
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -120,6 +126,7 @@ class _Corpus:
         params: object,
         slug: str,
         page_kind: KnowledgePageKind = KnowledgePageKind.COMPILED,
+        artifact_kind: str | None = None,
     ) -> UUID:
         """Register one artifact and its typed, plan-authorized rule."""
         artifact_id = uuid4()
@@ -147,6 +154,7 @@ class _Corpus:
                     if page_kind is KnowledgePageKind.COMPILED
                     else None
                 ),
+                artifact_kind=artifact_kind,
                 writer_version=(
                     "writer-test" if page_kind is KnowledgePageKind.COMPILED else None
                 ),
@@ -753,6 +761,146 @@ def test_new_rule_immediately_stales_a_compiled_owner(corpus: _Corpus) -> None:
             {"a": page},
         ).scalar_one()
     assert status == "stale"
+
+
+def test_fact_sheet_compiler_renders_exact_rule_candidates(corpus: _Corpus) -> None:
+    """The zero-LLM page is the exact selected fact set with literal lifecycle."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="root-facts",
+        artifact_kind="fact_sheet",
+    )
+    contradiction_group = uuid4()
+    conflicting = (uuid4(), uuid4())
+    invalidated = uuid4()
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE relations SET fact_label = 'Root formerly worked for Acme',"
+                " valid_from = '2024-01-01+00', valid_until = '2025-01-01+00'"
+                " WHERE relation_id = :relation_id"
+            ),
+            {"relation_id": corpus.relations["root"]},
+        )
+        connection.execute(
+            text(
+                "UPDATE observations SET obs_label = 'Root was active',"
+                " valid_from = '2024-01-01+00', valid_until = '2025-01-01+00'"
+                " WHERE observation_id = :observation_id"
+            ),
+            {"observation_id": corpus.observations["root"]},
+        )
+        for observation_id, label in zip(
+            conflicting,
+            ("FY2025 revenue was EUR 5M", "FY2025 revenue was EUR 7M"),
+            strict=True,
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO observations (observation_id, deployment_id,"
+                    " subject_entity_id, statement, obs_label, valid_from,"
+                    " ingested_at, normalizer_version, evidence_count,"
+                    " contradict_count, contradiction_group) VALUES"
+                    " (:observation_id, :deployment_id, :entity_id, :label, :label,"
+                    " '2025-01-02+00', :ingested_at, 'normalizer-test', 1, 1,"
+                    " :contradiction_group)"
+                ),
+                {
+                    "observation_id": observation_id,
+                    "deployment_id": _DEPLOYMENT_ID,
+                    "entity_id": corpus.entities["root"],
+                    "label": label,
+                    "ingested_at": _NOW,
+                    "contradiction_group": contradiction_group,
+                },
+            )
+        connection.execute(
+            text(
+                "INSERT INTO observations (observation_id, deployment_id,"
+                " subject_entity_id, statement, ingested_at, invalidated_at,"
+                " normalizer_version, evidence_count) VALUES"
+                " (:observation_id, :deployment_id, :entity_id,"
+                " 'Retracted root estimate', :ingested_at, :ingested_at,"
+                " 'normalizer-test', 1)"
+            ),
+            {
+                "observation_id": invalidated,
+                "deployment_id": _DEPLOYMENT_ID,
+                "entity_id": corpus.entities["root"],
+                "ingested_at": _NOW,
+            },
+        )
+
+    context = KnowledgeCompileContext(
+        curation_hash="curation-fact-sheet", writer_version=KNOWLEDGE_FACT_SHEET_VERSION
+    )
+    snapshot = corpus.control.fact_sheet_snapshot(
+        artifact_id=page, context=context, child_summary_hashes=()
+    )
+    selected = {(fact.kind, fact.fact_id) for fact in snapshot.input_snapshot.facts}
+    hydrated = {(fact.kind, fact.fact_id) for fact in snapshot.facts}
+    assert hydrated == selected
+
+    artifact = next(
+        item
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+        if item.artifact_id == page
+    )
+    output = KnowledgeFactSheetCompiler(
+        control_plane=corpus.control, clock=lambda: _NOW
+    ).compile_page(
+        request=KnowledgePageCompileRequest(
+            artifact=artifact, curation_hash=context.curation_hash
+        )
+    )
+
+    assert output.compilation.inputs_hash == knowledge_inputs_hash(
+        snapshot=snapshot.input_snapshot
+    )
+    assert output.compilation.candidate_count == len(selected) + len(
+        snapshot.input_snapshot.claims
+    )
+    assert output.compilation.uncited_count == output.compilation.candidate_count
+    assert output.compilation.citations == ()
+    assert output.compilation.content_hash == knowledge_content_hash(
+        markdown=output.markdown
+    )
+    assert f"relation:{corpus.relations['part_of']}" in output.markdown
+    assert f"relation:{corpus.relations['root']}" not in output.markdown
+    assert "Root was active" in output.markdown
+    assert "| ended |" in output.markdown
+    assert "Retracted root estimate" in output.markdown
+    assert "| invalidated |" in output.markdown
+    assert f"`{contradiction_group}`" in output.markdown
+    assert all(str(observation_id) in output.markdown for observation_id in conflicting)
+    validate_knowledge_page_output(
+        artifact=artifact,
+        output=output,
+        known_git_paths=corpus.control.artifact_git_paths(deployment_id=_DEPLOYMENT_ID),
+        exclusions=(),
+    )
+
+    exclusion = KnowledgeEvidenceTarget(relation_id=corpus.relations["part_of"])
+    excluded_output = KnowledgeFactSheetCompiler(
+        control_plane=corpus.control, clock=lambda: _NOW
+    ).compile_page(
+        request=KnowledgePageCompileRequest(
+            artifact=artifact,
+            curation_hash=context.curation_hash,
+            exclusions=(exclusion,),
+        )
+    )
+    assert f"relation:{corpus.relations['part_of']}" not in excluded_output.markdown
+    assert (
+        excluded_output.compilation.candidate_count
+        == output.compilation.candidate_count
+    )
+    validate_knowledge_page_output(
+        artifact=artifact,
+        output=excluded_output,
+        known_git_paths=corpus.control.artifact_git_paths(deployment_id=_DEPLOYMENT_ID),
+        exclusions=(exclusion,),
+    )
 
 
 def test_compilation_replaces_binding_citations_and_records_deltas(

@@ -195,3 +195,20 @@ def test_page_validation_rejects_excluded_citation_and_hash_drift() -> None:
             known_git_paths=(artifact.git_path,),
             exclusions=(),
         )
+
+
+def test_page_validation_rejects_excluded_rendered_fact_reference() -> None:
+    """Fact-sheet evidence tokens receive the same exclusion gate as citations."""
+    artifact = _artifact(git_path="source.md")
+    relation_id = uuid4()
+    markdown = (
+        f"| fact | reference |\n|---|---|\n| Hidden | `relation:{relation_id}` |\n"
+    )
+
+    with pytest.raises(KnowledgePageValidationError, match="excluded evidence"):
+        validate_knowledge_page_output(
+            artifact=artifact,
+            output=_output(artifact=artifact, markdown=markdown),
+            known_git_paths=(artifact.git_path,),
+            exclusions=(KnowledgeEvidenceTarget(relation_id=relation_id),),
+        )

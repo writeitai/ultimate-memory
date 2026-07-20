@@ -31,6 +31,9 @@ from ultimate_memory.core.knowledge_compile import knowledge_compile_order
 from ultimate_memory.core.knowledge_compile import KnowledgeCompileGraphError
 from ultimate_memory.core.knowledge_compile import KnowledgePageValidationError
 from ultimate_memory.core.knowledge_compile import validate_knowledge_page_output
+from ultimate_memory.core.knowledge_fact_sheet import compose_knowledge_page
+from ultimate_memory.core.knowledge_fact_sheet import KnowledgeFactLifecycle
+from ultimate_memory.core.knowledge_fact_sheet import render_knowledge_fact_sheet
 from ultimate_memory.core.knowledge_hashing import knowledge_content_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_inputs_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_summary_hash
@@ -84,15 +87,18 @@ __all__ = (
     "DEFAULT_RRF_K",
     "KNOWN_OPS",
     "KnowledgeCompileGraphError",
+    "KnowledgeFactLifecycle",
     "KnowledgePageValidationError",
     "knowledge_content_hash",
     "knowledge_compile_order",
     "knowledge_inputs_hash",
     "knowledge_summary_hash",
+    "compose_knowledge_page",
     "RecipeLintError",
     "lint_recipe",
     "reciprocal_rank_fusion",
     "render_consumption_skill",
+    "render_knowledge_fact_sheet",
     "rerank_by_signal",
     "rerank_by_weighted_signals",
     "validate_knowledge_page_output",

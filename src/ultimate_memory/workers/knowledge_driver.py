@@ -93,6 +93,7 @@ class KnowledgeCommitDriver:
         *,
         deployment_id: UUID,
         exclusions_by_artifact: Mapping[UUID, Collection[KnowledgeEvidenceTarget]],
+        curation_hashes_by_artifact: Mapping[UUID, str | None],
     ) -> KnowledgeCommitCycleResult:
         """Recover prior work, compile stale pages, publish once, then finalize."""
         with self._control_plane.commit_lease(deployment_id=deployment_id):
@@ -121,6 +122,7 @@ class KnowledgeCommitDriver:
                     schedule=schedule,
                     known_paths=known_paths,
                     exclusions_by_artifact=exclusions_by_artifact,
+                    curation_hashes_by_artifact=curation_hashes_by_artifact,
                 )
                 for artifact, output in compiled:
                     _write_compiled_page(
@@ -181,6 +183,7 @@ class KnowledgeCommitDriver:
         schedule: tuple[KnowledgeCompileArtifact, ...],
         known_paths: Collection[str],
         exclusions_by_artifact: Mapping[UUID, Collection[KnowledgeEvidenceTarget]],
+        curation_hashes_by_artifact: Mapping[UUID, str | None],
     ) -> tuple[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput], ...]:
         """Invoke one-page compilers in order while carrying fresh summaries forward."""
         summaries = {
@@ -218,6 +221,7 @@ class KnowledgeCommitDriver:
                 for child in artifacts
                 if child.artifact_id in child_ids and child.artifact_id in summaries
             }
+            exclusions = tuple(exclusions_by_artifact.get(artifact.artifact_id, ()))
             output = self._compiler.compile_page(
                 request=KnowledgePageCompileRequest(
                     artifact=artifact,
@@ -227,13 +231,15 @@ class KnowledgeCommitDriver:
                         if artifact.artifact_kind == "model_page"
                         else model_summaries.get(artifact.scope_id)
                     ),
+                    curation_hash=curation_hashes_by_artifact.get(artifact.artifact_id),
+                    exclusions=exclusions,
                 )
             )
             validate_knowledge_page_output(
                 artifact=artifact,
                 output=output,
                 known_git_paths=known_paths,
-                exclusions=exclusions_by_artifact.get(artifact.artifact_id, ()),
+                exclusions=exclusions,
             )
             new_summary = output.compilation.page_summary
             if new_summary != artifact.page_summary:

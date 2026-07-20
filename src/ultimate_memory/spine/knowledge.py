@@ -40,6 +40,8 @@ from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeFactFingerprint
+from ultimate_memory.model import KnowledgeFactSheetFact
+from ultimate_memory.model import KnowledgeFactSheetSnapshot
 from ultimate_memory.model import KnowledgeInputSnapshot
 from ultimate_memory.model import KnowledgePageRuleCreate
 from ultimate_memory.model import KnowledgePendingCycle
@@ -168,6 +170,74 @@ class KnowledgeControlPlane:
             return self._input_snapshot(
                 connection=connection, artifact_id=artifact_id, context=context
             )
+
+    def fact_sheet_snapshot(
+        self,
+        *,
+        artifact_id: UUID,
+        context: KnowledgeCompileContext,
+        child_summary_hashes: tuple[str, ...] | None = None,
+    ) -> KnowledgeFactSheetSnapshot:
+        """Hydrate an artifact's exact rule-selected facts in one repeatable read."""
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            with connection.begin():
+                artifact = (
+                    connection.execute(
+                        _SELECT_FACT_SHEET_ARTIFACT, {"artifact_id": artifact_id}
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+                if artifact is None:
+                    raise KnowledgeCompilationError(
+                        "fact-sheet target is not an active/stale compiled artifact"
+                    )
+                evidence_as_of = connection.execute(
+                    _SELECT_TRANSACTION_TIMESTAMP
+                ).scalar_one()
+                input_snapshot = self._input_snapshot(
+                    connection=connection,
+                    artifact_id=artifact_id,
+                    context=context,
+                    child_summary_hashes=child_summary_hashes,
+                )
+                relation_ids = tuple(
+                    fact.fact_id
+                    for fact in input_snapshot.facts
+                    if fact.kind == "relation"
+                )
+                observation_ids = tuple(
+                    fact.fact_id
+                    for fact in input_snapshot.facts
+                    if fact.kind == "observation"
+                )
+                facts = (
+                    *self._fact_sheet_relations(
+                        connection=connection,
+                        deployment_id=artifact["deployment_id"],
+                        relation_ids=relation_ids,
+                    ),
+                    *self._fact_sheet_observations(
+                        connection=connection,
+                        deployment_id=artifact["deployment_id"],
+                        observation_ids=observation_ids,
+                    ),
+                )
+                expected = {(fact.kind, fact.fact_id) for fact in input_snapshot.facts}
+                hydrated = {(fact.kind, fact.fact_id) for fact in facts}
+                if hydrated != expected:
+                    raise KnowledgeCompilationError(
+                        "fact-sheet hydration does not match the rule candidate set"
+                    )
+                return KnowledgeFactSheetSnapshot(
+                    artifact_id=artifact_id,
+                    deployment_id=artifact["deployment_id"],
+                    evidence_as_of=evidence_as_of,
+                    input_snapshot=input_snapshot,
+                    facts=facts,
+                )
 
     def artifact_hash(
         self, *, artifact_id: UUID, context: KnowledgeCompileContext
@@ -626,6 +696,7 @@ class KnowledgeControlPlane:
         connection: Connection,
         artifact_id: UUID,
         context: KnowledgeCompileContext,
+        child_summary_hashes: tuple[str, ...] | None = None,
     ) -> KnowledgeInputSnapshot:
         """Assemble a manifest on an existing connection."""
         rule_rows = tuple(
@@ -651,11 +722,15 @@ class KnowledgeControlPlane:
                 facts[(fact.kind, fact.fact_id)] = fact
             for claim in rule_claims:
                 claims[(claim.lineage_id, claim.chunk_content_hash)] = claim
-        child_hashes = tuple(
-            knowledge_summary_hash(summary=summary)
-            for summary in connection.execute(
-                _SELECT_CHILD_SUMMARIES, {"artifact_id": artifact_id}
-            ).scalars()
+        child_hashes = (
+            tuple(
+                knowledge_summary_hash(summary=summary)
+                for summary in connection.execute(
+                    _SELECT_CHILD_SUMMARIES, {"artifact_id": artifact_id}
+                ).scalars()
+            )
+            if child_summary_hashes is None
+            else tuple(sorted(child_summary_hashes))
         )
         return KnowledgeInputSnapshot(
             facts=tuple(facts.values()),
@@ -666,6 +741,38 @@ class KnowledgeControlPlane:
             shared_model_summary_hash=context.shared_model_summary_hash,
             writer_version=context.writer_version,
         )
+
+    def _fact_sheet_relations(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        relation_ids: tuple[UUID, ...],
+    ) -> tuple[KnowledgeFactSheetFact, ...]:
+        """Hydrate exact relation candidates with stable display labels."""
+        if not relation_ids:
+            return ()
+        rows = connection.execute(
+            _SELECT_FACT_SHEET_RELATIONS,
+            {"deployment_id": deployment_id, "relation_ids": list(relation_ids)},
+        ).mappings()
+        return tuple(KnowledgeFactSheetFact.model_validate(dict(row)) for row in rows)
+
+    def _fact_sheet_observations(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        observation_ids: tuple[UUID, ...],
+    ) -> tuple[KnowledgeFactSheetFact, ...]:
+        """Hydrate exact observation candidates with stable display labels."""
+        if not observation_ids:
+            return ()
+        rows = connection.execute(
+            _SELECT_FACT_SHEET_OBSERVATIONS,
+            {"deployment_id": deployment_id, "observation_ids": list(observation_ids)},
+        ).mappings()
+        return tuple(KnowledgeFactSheetFact.model_validate(dict(row)) for row in rows)
 
     def _replace_rule_keys(
         self,
@@ -1516,6 +1623,18 @@ _SELECT_CHILD_SUMMARIES = text(
     """
 )
 
+_SELECT_FACT_SHEET_ARTIFACT = text(
+    """
+    SELECT deployment_id
+    FROM knowledge_artifacts
+    WHERE artifact_id = :artifact_id
+      AND page_kind = 'compiled'
+      AND status IN ('active', 'stale')
+    """
+)
+
+_SELECT_TRANSACTION_TIMESTAMP = text("SELECT transaction_timestamp()")
+
 _SELECT_ARTIFACT_HASH = text(
     """
     SELECT inputs_hash
@@ -1579,6 +1698,44 @@ _FACT_COLUMNS_OBSERVATION = """
     o.contradict_count,
     o.contradiction_group
 """
+
+_SELECT_FACT_SHEET_RELATIONS = text(
+    """
+    SELECT 'relation' AS kind,
+           r.relation_id AS fact_id,
+           COALESCE(
+               NULLIF(btrim(r.fact_label), ''),
+               subject.canonical_name || ' ' || replace(r.predicate, '_', ' ')
+                 || ' ' || object.canonical_name
+           ) AS label,
+           r.valid_from, r.valid_until, r.ingested_at, r.invalidated_at,
+           r.evidence_count, r.contradict_count, r.contradiction_group
+    FROM relations r
+    JOIN entities subject
+      ON subject.deployment_id = r.deployment_id
+     AND subject.entity_id = r.subject_entity_id
+    JOIN entities object
+      ON object.deployment_id = r.deployment_id
+     AND object.entity_id = r.object_entity_id
+    WHERE r.deployment_id = :deployment_id
+      AND r.relation_id IN :relation_ids
+    ORDER BY r.relation_id
+    """
+).bindparams(bindparam("relation_ids", expanding=True))
+
+_SELECT_FACT_SHEET_OBSERVATIONS = text(
+    """
+    SELECT 'observation' AS kind,
+           o.observation_id AS fact_id,
+           COALESCE(NULLIF(btrim(o.obs_label), ''), o.statement) AS label,
+           o.valid_from, o.valid_until, o.ingested_at, o.invalidated_at,
+           o.evidence_count, o.contradict_count, o.contradiction_group
+    FROM observations o
+    WHERE o.deployment_id = :deployment_id
+      AND o.observation_id IN :observation_ids
+    ORDER BY o.observation_id
+    """
+).bindparams(bindparam("observation_ids", expanding=True))
 
 _SELECT_ENTITY_RELATIONS = text(
     f"""

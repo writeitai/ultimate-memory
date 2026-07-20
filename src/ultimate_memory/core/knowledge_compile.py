@@ -138,10 +138,13 @@ def validate_knowledge_page_output(
     used = {
         _citation_target_key(citation=citation) for citation in compilation.citations
     }
+    used.update(
+        target for target in excluded if f"{target[0]}:{target[1]}" in output.markdown
+    )
     if overlap := excluded.intersection(used):
         rendered = ", ".join(f"{kind}:{value}" for kind, value in sorted(overlap))
         raise KnowledgePageValidationError(
-            f"compiled page cites excluded evidence: {rendered}"
+            f"compiled page uses excluded evidence: {rendered}"
         )
 
     unresolved = _unresolved_internal_links(
