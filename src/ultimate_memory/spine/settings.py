@@ -20,3 +20,16 @@ class DatabaseSettings(BaseSettings):
 def load_database_settings() -> DatabaseSettings:
     """Load database settings from their typed environment-backed source."""
     return DatabaseSettings.model_validate({})
+
+
+class ApiClientSettings(BaseSettings):
+    """Where the `ugm query` CLI reaches the running query API (UGM_API_URL)."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_", extra="ignore")
+
+    api_url: str = "http://127.0.0.1:8000"
+
+
+def load_api_client_settings() -> ApiClientSettings:
+    """Load the query-API client settings from their environment source."""
+    return ApiClientSettings.model_validate({})

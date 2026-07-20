@@ -1,0 +1,73 @@
+export const metadata = {
+  title: "MCP Reference",
+  description:
+    "The MCP surface: the tool list is the recipe registry, rendered verbatim, and every tool call runs a recipe and returns the envelope as JSON.",
+};
+
+# MCP Reference
+
+The MCP surface exposes the deployment's recipes as MCP tools. It is not a
+second, hand-maintained tool list — **the tool list _is_ the recipe
+registry**. Adding a query pattern is adding a registry row; the tool list
+updates with no code change, exactly as the API's `/recipes` and the CLI's
+`ugm query list` do. All three render the same surface.
+
+## `tools/list`
+
+Returns one tool per active recipe. Each tool carries its name, description,
+and a JSON-Schema `inputSchema` built from the recipe's typed parameters:
+
+```json
+{
+  "tools": [
+    {
+      "name": "relation_current",
+      "description": "Current relations matching a subject and optional predicate …",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "subject_entity_id": { "type": "string", "format": "uuid" },
+          "predicate": { "type": "string" }
+        },
+        "required": ["subject_entity_id"]
+      }
+    }
+  ]
+}
+```
+
+The `inputSchema` is the contract an MCP client validates arguments against
+before calling — the same schema the API advertises at `/recipes`.
+
+## `tools/call`
+
+Runs the named recipe over its arguments and returns the **envelope**
+serialized to JSON in one text content block:
+
+```json
+{
+  "content": [{ "type": "text", "text": "{ \"grain\": \"fact\", \"facts\": [ … ] }" }],
+  "isError": false
+}
+```
+
+A tool the registry has no active row for, or a call missing a required
+argument, is a protocol **error result** (`isError: true`) with the reason in
+the text block — never an exception across the wire. The client re-plans
+against a stated failure.
+
+## What the tools return
+
+Every tool returns the self-accounting envelope: the answer, its grain
+(`fact` / `evidence` / `compiled` / `composite`), its validity and freshness,
+and any typed negative. Because the grain travels with the answer, a client
+can tell a **current-fact** answer from **what a source asserted** — a recipe
+that answers "what holds now" can never be one that returns evidence (the
+registry's grain bar guarantees it).
+
+## Transport
+
+This surface is the protocol logic — the `tools/list` and `tools/call`
+results, shaped as MCP expects. A deployment wraps it in a stdio (or SSE)
+JSON-RPC loop; the transport is deployment plumbing, kept separate so the tool
+rendering and dispatch stay a direct function of the registry.

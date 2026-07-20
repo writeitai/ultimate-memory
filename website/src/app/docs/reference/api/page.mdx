@@ -1,0 +1,112 @@
+export const metadata = {
+  title: "API Reference",
+  description:
+    "The HTTP query API: the zero-LLM primitives and the registry-rendered recipes, each returning the self-accounting envelope, behind one auth perimeter.",
+};
+
+# API Reference
+
+The query API is a thin, typed veneer over the deployment's read path. Every
+endpoint returns the same **envelope** — the answer plus a machine-readable
+account of itself (its grain, validity, freshness, and any typed "no"). No
+endpoint calls an LLM, and reads never trigger writes.
+
+Three things are true of every deployment's API:
+
+- **The recipe endpoints render from the registry.** `GET /recipes` _is_ the
+  deployment's active recipe rows; the CLI and MCP surfaces render the same
+  set, so the three surfaces are always in lockstep.
+- **The API is the one enforcement point.** When a deployment configures an
+  auth perimeter, every endpoint is gated on a valid credential for _that_
+  deployment before any read runs — one deployment is one trust domain.
+- **Failures are typed.** A "no" is a structured negative in the envelope
+  (`unknown_entity`, `known_empty`, `boundary`); an unroutable request is an
+  ordinary HTTP status.
+
+## Recipes — the registry, rendered
+
+A recipe is a named, frozen composition of the primitives. The recipe surface
+is the recommended entry point: it is what the MCP tool list and the CLI also
+use.
+
+### `GET /recipes`
+
+Returns the deployment's active recipes as tool descriptors — the same list an
+MCP client discovers:
+
+```json
+[
+  {
+    "name": "relation_current",
+    "description": "Current relations matching a subject and optional predicate …",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "subject_entity_id": { "type": "string", "format": "uuid" },
+        "predicate": { "type": "string" }
+      },
+      "required": ["subject_entity_id"]
+    },
+    "output_grain": "fact",
+    "answer_intent": "current_facts"
+  }
+]
+```
+
+`output_grain` and `answer_intent` travel with each descriptor, so a caller
+knows what _kind_ of answer a recipe returns before calling it.
+
+### `POST /recipe/{name}`
+
+Runs one recipe by name over a JSON body of arguments and returns the
+envelope. Arguments are coerced to the types the primitives need (a uuid
+string to a UUID, an ISO-8601 string to an instant):
+
+```bash
+curl -X POST "$UGM_API_URL/recipe/relation_current" \
+  -H "content-type: application/json" \
+  -d '{"subject_entity_id": "…", "predicate": "works_for"}'
+```
+
+An unknown recipe is **404**; a missing required argument is **422**.
+
+## Primitives
+
+The primitives are available directly for callers that compose their own
+plans. Each returns the envelope.
+
+| Method & path | What it answers |
+| --- | --- |
+| `GET /resolve?name=&entity_type=` | resolve a name to ranked current entities (never a silent guess) |
+| `GET /lookup/relations?subject_entity_id=&predicate=&object_entity_id=&valid_at=` | relations matching an (s, p, o) pattern — current, or as-of a world-time instant |
+| `GET /lookup/observations?entity_id=&property_query=&k=` | live observations on one entity, semantic over statements |
+| `GET /search/claims?query=&k=` | semantic claim search — **evidence** grain, never a current-fact answer |
+| `GET /hydrate/relation/{relation_id}` | the audit chain: a relation → its evidence claims → source documents |
+| `GET /transcript/relation/{relation_id}` | the decision history: why the system believes what it believes |
+
+A relation returned by `lookup` or `hydrate` that sits in a live
+contradiction group always carries the other sides with it — a contradiction
+is surfaced, never silently resolved. A fact whose supporting testimony was
+withdrawn is returned flagged, not hidden.
+
+## The auth perimeter
+
+A deployment that configures an auth-perimeter provider gates the whole API on
+a credential passed in the `Authorization` header:
+
+```
+Authorization: <scheme> <value>
+```
+
+The credential is handed to the configured provider. A missing or failing
+credential is **401**; a credential authenticated to a _different_ deployment
+is **403**. Inside the perimeter it is one trust domain — there is no
+per-request, content-level authorization (isolation is achieved by running
+separate deployments). Without a configured provider the API is open, and the
+perimeter is the deployment's infrastructure (network, IAM) to enforce.
+
+## Configuration
+
+- `UGM_API_URL` — where clients (including `ugm query`) reach the API.
+- The API process composes the query engine (search index, model provider) —
+  the surface itself carries no provider adapters.
