@@ -14,6 +14,9 @@ from ultimate_memory.spine.extension_packs import install_pack
 from ultimate_memory.spine.extension_packs import PackAnchorError
 from ultimate_memory.spine.extension_packs import PackConflictError
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.knowledge import KnowledgeCompilationError
+from ultimate_memory.spine.knowledge import KnowledgeCompileContextMissingError
+from ultimate_memory.spine.knowledge import KnowledgeControlPlane
 from ultimate_memory.spine.lifecycle import LifecycleCatalog
 from ultimate_memory.spine.observation_adjudication import (
     OBSERVATION_ADJUDICATOR_VERSION,
@@ -53,6 +56,9 @@ __all__ = (
     "ObservationSettings",
     "RESOLVER_VERSION",
     "LifecycleCatalog",
+    "KnowledgeCompilationError",
+    "KnowledgeCompileContextMissingError",
+    "KnowledgeControlPlane",
     "ProjectionCatalog",
     "CANONICAL_RECIPES",
     "RecipeRegistry",
