@@ -26,11 +26,14 @@ from ultimate_memory.core.ranking import rerank_by_signal
 from ultimate_memory.model import AggregateBucket
 from ultimate_memory.model import AggregateReport
 from ultimate_memory.model import ChangeRecord
+from ultimate_memory.model import CoMember
+from ultimate_memory.model import Contradiction
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import EntityCandidate
 from ultimate_memory.model import Envelope
 from ultimate_memory.model import EvidenceResult
 from ultimate_memory.model import FactResult
+from ultimate_memory.model import FactSupport
 from ultimate_memory.model import Freshness
 from ultimate_memory.model import Grain
 from ultimate_memory.model import Negative
@@ -52,6 +55,12 @@ a starting point to measure, not a committed constant (retrieval §13)."""
 
 DEFAULT_SCAN_BATCH = 1_000
 """How many rows the batch `scan` cursor fetches per round-trip."""
+
+CONTRADICTION_COMEMBER_CAP = 25
+"""How many co-members a contradiction block returns inline before it pages
+(S23). Typical groups are 2–3 sides, so the cap is rarely reached — but when
+it is, the block still carries group_id/returned/total/continuation, never a
+one-sided answer. A starting point to measure, not a committed constant."""
 
 _RERANK_SIGNALS = {"graph_distance": True, "evidence_count": False}
 """The inspectable rerank signals and whether each sorts ascending: nearer
@@ -189,7 +198,11 @@ class QueryEngine:
                 .mappings()
                 .all()
             )
-        facts = tuple(_fact_result(row=row, kind="relation") for row in rows)
+        facts = self._enrich_facts(
+            deployment_id=deployment_id,
+            facts=tuple(_fact_result(row=row, kind="relation") for row in rows),
+            kind="relation",
+        )
         return Envelope(
             grain=Grain.FACT,
             as_of_valid_at=valid_at,
@@ -250,7 +263,11 @@ class QueryEngine:
                 observation_ids=tuple(UUID(item) for item in nominated),
                 as_of=as_of,
             )
-        facts = tuple(_fact_result(row=row, kind="observation") for row in rows)
+        facts = self._enrich_facts(
+            deployment_id=deployment_id,
+            facts=tuple(_fact_result(row=row, kind="observation") for row in rows),
+            kind="observation",
+        )
         return Envelope(
             grain=Grain.FACT,
             as_of_valid_at=valid_at,
@@ -341,9 +358,16 @@ class QueryEngine:
                 .mappings()
                 .all()
             )
+        # the audit hop discloses the same S23 contradiction and D54 support
+        # as a lookup — a contradicted relation is never hydrated one-sided
+        facts = self._enrich_facts(
+            deployment_id=deployment_id,
+            facts=(_fact_result(row=relation, kind="relation"),),
+            kind="relation",
+        )
         return Envelope(
             grain=Grain.COMPOSITE,
-            facts=(_fact_result(row=relation, kind="relation"),),
+            facts=facts,
             evidence=tuple(EvidenceResult.model_validate(dict(row)) for row in claims),
             sources=tuple(SourceRecord.model_validate(dict(row)) for row in sources),
             freshness=_freshness(),
@@ -729,6 +753,90 @@ class QueryEngine:
             ),
         )
 
+    def _enrich_facts(
+        self, *, deployment_id: UUID, facts: tuple[FactResult, ...], kind: str
+    ) -> tuple[FactResult, ...]:
+        """Attach the S23 contradiction block and the D54 support marker.
+
+        For every returned fact in a live contradiction group, the OTHER
+        live sides come back inline (bounded by the cap, with
+        group_id/returned/total/continuation) — one-sided is never a valid
+        answer. A fact under an open `support_withdrawn` review flag is
+        marked `withdrawn` (flagged, not vanished). Two bounded batch reads,
+        never one-per-fact.
+        """
+        if not facts:
+            return facts
+        groups = [
+            fact.contradiction_group
+            for fact in facts
+            if fact.contradiction_group is not None
+        ]
+        members_by_group: dict[UUID, list[dict[str, object]]] = {}
+        withdrawn: set[UUID] = set()
+        with self._engine.connect() as connection:
+            if groups:
+                for row in (
+                    connection.execute(
+                        _CONTRADICTION_MEMBERS[kind],
+                        {"deployment_id": deployment_id, "groups": groups},
+                    )
+                    .mappings()
+                    .all()
+                ):
+                    members_by_group.setdefault(row["contradiction_group"], []).append(
+                        dict(row)
+                    )
+            withdrawn = {
+                row["fact_id"]
+                for row in connection.execute(
+                    _OPEN_SUPPORT_FLAGS,
+                    {
+                        "deployment_id": deployment_id,
+                        "fact_ids": [str(fact.fact_id) for fact in facts],
+                    },
+                )
+                .mappings()
+                .all()
+            }
+        return tuple(
+            self._enrich_one(
+                fact=fact, members_by_group=members_by_group, withdrawn=withdrawn
+            )
+            for fact in facts
+        )
+
+    def _enrich_one(
+        self,
+        *,
+        fact: FactResult,
+        members_by_group: dict[UUID, list[dict[str, object]]],
+        withdrawn: set[UUID],
+    ) -> FactResult:
+        """One fact, with its contradiction block and support marker resolved."""
+        update: dict[str, object] = {}
+        if fact.fact_id in withdrawn:
+            update["support"] = FactSupport.WITHDRAWN
+        if fact.contradiction_group is not None:
+            others = [
+                member
+                for member in members_by_group.get(fact.contradiction_group, [])
+                if member["fact_id"] != fact.fact_id
+            ]
+            returned = others[:CONTRADICTION_COMEMBER_CAP]
+            update["contradiction"] = Contradiction(
+                group_id=fact.contradiction_group,
+                co_members=tuple(_co_member(member) for member in returned),
+                returned=len(returned),
+                total=len(others),
+                continuation=(
+                    str(returned[-1]["fact_id"])
+                    if len(returned) < len(others)
+                    else None
+                ),
+            )
+        return fact.model_copy(update=update) if update else fact
+
     def _confirm_claims(
         self, *, deployment_id: UUID, claim_ids: tuple[UUID, ...]
     ) -> tuple[tuple[EvidenceResult, ...], int]:
@@ -794,8 +902,38 @@ class QueryEngine:
 
 
 def _freshness() -> Freshness:
-    """The skeleton's freshness stamps: PG is live; P1 is written inline."""
+    """The skeleton's freshness stamps: PG is live; P1 is written inline.
+
+    The `believed_at` horizons are null (unbounded): Postgres holds full
+    belief history, and under D69 the hot P2 view keeps every relation whose
+    endpoints stay emitted. A channel that grows a real finite horizon fills
+    these in, and `believed_at_boundary` turns a query before it into a typed
+    boundary.
+    """
     return Freshness(pg_live_ts=datetime.now(tz=UTC))
+
+
+def believed_at_boundary(
+    *, believed_at: datetime | None, horizon: datetime | None
+) -> Negative | None:
+    """A typed boundary when a `believed_at` query predates a channel horizon.
+
+    Belief history is not infinite on every channel: if a channel reports a
+    finite `believed_at` horizon and the caller asks for an instant before
+    it, that is a stated capability limit (retrieval §3) — a `boundary` that
+    names the fallback, never a silently truncated answer. Null horizon
+    (unbounded) never triggers it.
+    """
+    if believed_at is None or horizon is None or believed_at >= horizon:
+        return None
+    return Negative(
+        kind=NegativeKind.BOUNDARY,
+        explanation=(
+            f"believed_at {believed_at.isoformat()} is before this channel's"
+            f" retention horizon {horizon.isoformat()}"
+        ),
+        workaround="query a later instant, or read Postgres belief history",
+    )
 
 
 def _fact_result(*, row, kind: str) -> FactResult:  # noqa: ANN001
@@ -812,6 +950,21 @@ def _fact_result(*, row, kind: str) -> FactResult:  # noqa: ANN001
             valid_until=row["valid_until"],
             ingested_at=row["ingested_at"],
             invalidated_at=row["invalidated_at"],
+        ),
+    )
+
+
+def _co_member(row: dict[str, object]) -> CoMember:
+    """Build one contradiction co-member record from a live spine row."""
+    return CoMember(
+        fact_id=row["fact_id"],  # type: ignore[arg-type]
+        label=row["label"],  # type: ignore[arg-type]
+        evidence_count=row["evidence_count"],  # type: ignore[arg-type]
+        validity=Validity(
+            valid_from=row["valid_from"],  # type: ignore[arg-type]
+            valid_until=row["valid_until"],  # type: ignore[arg-type]
+            ingested_at=row["ingested_at"],  # type: ignore[arg-type]
+            invalidated_at=row["invalidated_at"],  # type: ignore[arg-type]
         ),
     )
 
@@ -908,7 +1061,8 @@ _HYDRATE_RELATION = text(
     """
     SELECT relation_id AS fact_id,
            coalesce(fact_label, predicate) AS label,
-           evidence_count, valid_from, valid_until, ingested_at, invalidated_at
+           evidence_count, valid_from, valid_until, ingested_at, invalidated_at,
+           contradiction_group
     FROM relations
     WHERE deployment_id = :deployment_id AND relation_id = :relation_id
     """
@@ -1272,3 +1426,50 @@ _SCAN_EXPORTS = {
         """
     ),
 }
+
+
+_CONTRADICTION_MEMBERS_RELATIONS = text(
+    """
+    SELECT contradiction_group, relation_id AS fact_id,
+           coalesce(fact_label, predicate) AS label, evidence_count,
+           valid_from, valid_until, ingested_at, invalidated_at
+    FROM relations
+    WHERE deployment_id = :deployment_id
+      AND contradiction_group = ANY(:groups)
+      AND invalidated_at IS NULL
+    ORDER BY contradiction_group, ingested_at, relation_id
+    """
+)
+
+_CONTRADICTION_MEMBERS_OBSERVATIONS = text(
+    """
+    SELECT contradiction_group, observation_id AS fact_id,
+           statement AS label, evidence_count,
+           valid_from, valid_until, ingested_at, invalidated_at
+    FROM observations
+    WHERE deployment_id = :deployment_id
+      AND contradiction_group = ANY(:groups)
+      AND invalidated_at IS NULL
+    ORDER BY contradiction_group, ingested_at, observation_id
+    """
+)
+
+_CONTRADICTION_MEMBERS = {
+    "relation": _CONTRADICTION_MEMBERS_RELATIONS,
+    "observation": _CONTRADICTION_MEMBERS_OBSERVATIONS,
+}
+
+_OPEN_SUPPORT_FLAGS = text(
+    """
+    -- a fact under an OPEN support_withdrawn review carries support=withdrawn
+    -- in the envelope (D54: flagged, not vanished). "Open" is pending OR
+    -- deferred — an 'uncertain' verdict defers but leaves the flag standing,
+    -- matching review._SELECT_OPEN_FLAG and the lifecycle reconciler.
+    SELECT (candidate ->> 'fact_id')::uuid AS fact_id
+    FROM review_queue
+    WHERE deployment_id = :deployment_id
+      AND item_kind = 'support_withdrawn'
+      AND status IN ('pending', 'deferred')
+      AND (candidate ->> 'fact_id') = ANY(:fact_ids)
+    """
+)

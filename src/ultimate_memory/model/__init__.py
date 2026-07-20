@@ -71,15 +71,21 @@ from ultimate_memory.model.documents import UploadRecord
 from ultimate_memory.model.envelope import AggregateBucket
 from ultimate_memory.model.envelope import AggregateReport
 from ultimate_memory.model.envelope import ChangeRecord
+from ultimate_memory.model.envelope import CoMember
+from ultimate_memory.model.envelope import Contradiction
 from ultimate_memory.model.envelope import EntityCandidate
 from ultimate_memory.model.envelope import Envelope
+from ultimate_memory.model.envelope import EnvelopePart
 from ultimate_memory.model.envelope import EvidenceResult
 from ultimate_memory.model.envelope import FactResult
+from ultimate_memory.model.envelope import FactSupport
 from ultimate_memory.model.envelope import Freshness
 from ultimate_memory.model.envelope import Grain
 from ultimate_memory.model.envelope import GraphEdge
 from ultimate_memory.model.envelope import GraphNode
 from ultimate_memory.model.envelope import GraphPath
+from ultimate_memory.model.envelope import IdentityRegime
+from ultimate_memory.model.envelope import KFreshness
 from ultimate_memory.model.envelope import Negative
 from ultimate_memory.model.envelope import NegativeKind
 from ultimate_memory.model.envelope import PageRef
@@ -158,6 +164,8 @@ __all__ = (
     "CaseFailure",
     "CarryForwardSource",
     "ChangeRecord",
+    "CoMember",
+    "Contradiction",
     "ChunkForEmbedding",
     "ChunkRecord",
     "ChunkSource",
@@ -192,6 +200,7 @@ __all__ = (
     "EnqueueOutcome",
     "EnqueueWork",
     "EntityCandidate",
+    "EnvelopePart",
     "EntityRef",
     "Envelope",
     "GraphEdge",
@@ -203,8 +212,11 @@ __all__ = (
     "FactForLabeling",
     "FactLabelResponse",
     "FactResult",
+    "FactSupport",
     "Freshness",
     "Grain",
+    "IdentityRegime",
+    "KFreshness",
     "HandlerAlreadyRegisteredError",
     "IngestedVersion",
     "KRevision",
