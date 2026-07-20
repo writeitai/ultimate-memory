@@ -34,7 +34,7 @@
 | src/ultimate\_memory/eval/resolution.py                                                          |       47 |        1 |       10 |        1 |     96.5% |       153 |
 | src/ultimate\_memory/eval/skeleton.py                                                            |       73 |        7 |       26 |        7 |     85.9% |96, 105, 124, 147, 181, 184, 215 |
 | src/ultimate\_memory/llm/\_\_init\_\_.py                                                         |        0 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |      145 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/\_\_init\_\_.py                                                       |      151 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/adjudication.py                                                       |       29 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/auth.py                                                               |       10 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/blocks.py                                                             |       16 |        0 |        0 |        0 |    100.0% |           |
@@ -45,7 +45,7 @@
 | src/ultimate\_memory/model/conversion.py                                                         |        7 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/deployment.py                                                         |       16 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/documents.py                                                          |       43 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/model/envelope.py                                                           |       91 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/model/envelope.py                                                           |      148 |        0 |       10 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/evaluation.py                                                         |       26 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/git.py                                                                |        6 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/model/lifecycle.py                                                          |       15 |        0 |        0 |        0 |    100.0% |           |
@@ -102,16 +102,18 @@
 | src/ultimate\_memory/spine/recipes.py                                                            |       43 |        0 |        2 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/resolver.py                                                           |      171 |       10 |       42 |        9 |     91.1% |203, 205, 213-\>215, 221-225, 278, 288-289, 293, 580, 585 |
 | src/ultimate\_memory/spine/review.py                                                             |      120 |        7 |       30 |        7 |     90.7% |118, 178, 248-\>259, 345-349, 396, 398, 649 |
-| src/ultimate\_memory/spine/settings.py                                                           |        9 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/spine/settings.py                                                           |       15 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/supersession.py                                                       |       90 |        4 |       22 |        3 |     93.8% |97, 236-246, 294 |
 | src/ultimate\_memory/spine/sync.py                                                               |       26 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/spine/work\_ledger.py                                                       |      110 |        4 |       26 |        5 |     93.4% |111, 137, 141, 211, 311-\>315 |
-| src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |        8 |        0 |        0 |        0 |    100.0% |           |
-| src/ultimate\_memory/surfaces/cli.py                                                             |       52 |        7 |        8 |        2 |     85.0% |33-34, 96-106 |
+| src/ultimate\_memory/surfaces/\_\_init\_\_.py                                                    |       14 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/surfaces/cli.py                                                             |      110 |       20 |       24 |        6 |     79.1% |46-47, 79, 84, 94, 109, 124-132, 179-189 |
 | src/ultimate\_memory/surfaces/graph\_queries.py                                                  |      200 |       14 |       52 |       10 |     90.5% |105-106, 216-217, 231, 235, 301, 305, 402-403, 422, 537-\>542, 559-\>561, 670, 677, 683 |
-| src/ultimate\_memory/surfaces/http\_api.py                                                       |       26 |        1 |        0 |        0 |     96.2% |        47 |
-| src/ultimate\_memory/surfaces/query\_engine.py                                                   |      215 |        7 |       38 |        6 |     94.9% |81-82, 323, 485, 560-\>562, 563, 737, 765 |
+| src/ultimate\_memory/surfaces/http\_api.py                                                       |       70 |        1 |        8 |        0 |     98.7% |        98 |
+| src/ultimate\_memory/surfaces/mcp.py                                                             |       15 |        0 |        0 |        0 |    100.0% |           |
+| src/ultimate\_memory/surfaces/query\_engine.py                                                   |      252 |        7 |       50 |        6 |     95.7% |90-91, 340, 509, 584-\>586, 587, 845, 873 |
 | src/ultimate\_memory/surfaces/recipe\_executor.py                                                |       64 |        3 |       24 |        3 |     93.2% |85, 106, 108 |
+| src/ultimate\_memory/surfaces/recipe\_surface.py                                                 |       91 |       12 |       34 |        2 |     82.4% |82-88, 98-103, 189-\>191, 228 |
 | src/ultimate\_memory/workers/\_\_init\_\_.py                                                     |       46 |        0 |        0 |        0 |    100.0% |           |
 | src/ultimate\_memory/workers/base.py                                                             |       63 |        1 |        8 |        1 |     97.2% |        73 |
 | src/ultimate\_memory/workers/e0.py                                                               |      157 |        7 |       10 |        2 |     94.6% |226-230, 452, 489-490, 497 |
@@ -124,7 +126,7 @@
 | src/ultimate\_memory/workers/p3.py                                                               |      247 |        5 |       68 |        5 |     96.8% |122-127, 226-\>228, 333-\>335, 337-\>341, 564, 671 |
 | src/ultimate\_memory/workers/reconcile.py                                                        |      138 |        7 |       36 |       10 |     90.2% |113, 209, 214, 248-\>240, 250, 284, 285-\>290, 294, 367-\>378, 470 |
 | src/ultimate\_memory/workers/sync.py                                                             |       68 |        0 |       18 |        1 |     98.8% |  106-\>83 |
-| **TOTAL**                                                                                        | **6321** |  **257** | **1178** |  **196** | **93.8%** |           |
+| **TOTAL**                                                                                        | **6641** |  **282** | **1258** |  **202** | **93.6%** |           |
 
 
 ## Setup coverage badge
