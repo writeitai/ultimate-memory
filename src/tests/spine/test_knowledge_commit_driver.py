@@ -251,11 +251,7 @@ def _run(
     """Run one cycle with no future curation exclusions."""
     return KnowledgeCommitDriver(
         control_plane=control or graph.control, git_remote=remote, compiler=compiler
-    ).run_cycle(
-        deployment_id=_DEPLOYMENT_ID,
-        exclusions_by_artifact={},
-        curation_hashes_by_artifact={},
-    )
+    ).run_cycle(deployment_id=_DEPLOYMENT_ID, exclusions_by_artifact={})
 
 
 def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) -> None:
@@ -299,6 +295,26 @@ def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) ->
     assert len(transcript_rows) == 4
     assert len({row["cycle_id"] for row in transcript_rows}) == 1
     assert {row["git_commit"] for row in transcript_rows} == {"head-1"}
+
+
+def test_cycle_reads_prior_page_and_curation_sidecar_from_checkout(
+    graph: _CompileGraph,
+) -> None:
+    """Compiler context is bound to the exact repository revision held by the driver."""
+    curation_path = f"{graph.paths_by_id[graph.child]}.curation.md"
+    curation = "Keep the employment timeline concise.\n"
+    remote = _GitRemote(files={**graph.old_files, curation_path: curation})
+    compiler = _Compiler()
+
+    _run(graph=graph, remote=remote, compiler=compiler)
+
+    requests = {request.artifact.artifact_id: request for request in compiler.requests}
+    child_request = requests[graph.child]
+    assert child_request.previous_markdown == graph.old_files["work/child.md"]
+    assert child_request.curation_markdown == curation
+    assert child_request.curation_hash == knowledge_content_hash(markdown=curation)
+    assert requests[graph.parent].curation_markdown is None
+    assert requests[graph.parent].curation_hash is None
 
 
 def test_changed_child_summary_propagates_through_active_ancestors(
@@ -364,18 +380,52 @@ def test_validation_failure_never_writes_or_publishes(graph: _CompileGraph) -> N
     assert remote.publish_calls == 0
     assert remote.files == graph.old_files
     with graph.engine.connect() as connection:
-        assert (
+        failures = list(
             connection.execute(
-                text("SELECT count(*) FROM knowledge_compilations")
-            ).scalar_one()
-            == 0
+                text(
+                    "SELECT artifact_id, cycle_id, git_commit, failed_at, failure"
+                    " FROM knowledge_compilations"
+                )
+            ).mappings()
         )
         statuses = set(
             connection.execute(
                 text("SELECT status::text FROM knowledge_artifacts")
             ).scalars()
         )
+    assert len(failures) == 1
+    assert failures[0]["artifact_id"] == graph.child
+    assert failures[0]["cycle_id"] is None
+    assert failures[0]["git_commit"] is None
+    assert failures[0]["failed_at"] is not None
+    assert "KnowledgePageValidationError" in failures[0]["failure"]
     assert statuses == {"stale"}
+
+
+def test_validation_and_failure_ledger_errors_remain_visible_together(
+    graph: _CompileGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ledger outage cannot mask the page-validation error that aborted publish."""
+    remote = _GitRemote(files=graph.old_files)
+
+    def fail_ledger(*, failure: object) -> None:
+        raise RuntimeError("failure ledger unavailable")
+
+    monkeypatch.setattr(graph.control, "record_failed_compilation", fail_ledger)
+
+    with pytest.raises(ExceptionGroup) as captured:
+        _run(
+            graph=graph,
+            remote=remote,
+            compiler=_Compiler(broken_artifact_id=graph.child),
+        )
+
+    assert any(
+        isinstance(error, KnowledgePageValidationError)
+        for error in captured.value.exceptions
+    )
+    assert any(isinstance(error, RuntimeError) for error in captured.value.exceptions)
+    assert remote.publish_calls == 0
 
 
 def test_push_failure_keeps_old_live_page_and_durable_pending_cycle(

@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from datetime import datetime
 from datetime import UTC
+import json
 from pathlib import Path
 from uuid import UUID
 from uuid import uuid4
@@ -27,6 +28,7 @@ from ultimate_memory.model import EntityRuleParams
 from ultimate_memory.model import EntitySubtreeRuleParams
 from ultimate_memory.model import KnowledgeArtifactCreate
 from ultimate_memory.model import KnowledgeCitation
+from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeEvidenceDelta
@@ -40,8 +42,13 @@ from ultimate_memory.model import KnowledgePlanAction
 from ultimate_memory.model import KnowledgePlanDecisionCreate
 from ultimate_memory.model import KnowledgePlanStatus
 from ultimate_memory.model import KnowledgePlanTrigger
+from ultimate_memory.model import KnowledgeWriterSessionRequest
+from ultimate_memory.model import KnowledgeWriterSessionResult
+from ultimate_memory.model import KnowledgeWriterSuggestion
 from ultimate_memory.model import ManualRuleParams
+from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PredicateBeatRuleParams
+from ultimate_memory.model import PublishedMounts
 from ultimate_memory.model import ScopeInterestsRuleParams
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import KnowledgeCompilationError
@@ -49,7 +56,11 @@ from ultimate_memory.spine import KnowledgeControlPlane
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.workers import KNOWLEDGE_FACT_SHEET_VERSION
 from ultimate_memory.workers import KnowledgeFactSheetCompiler
+from ultimate_memory.workers import KnowledgePageCompilerRouter
+from ultimate_memory.workers import KnowledgeProseCompiler
 from ultimate_memory.workers import KnowledgeRoutingDriver
+from ultimate_memory.workers import KnowledgeWriterError
+from ultimate_memory.workers import KnowledgeWriterSettings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("61000000-0000-0000-0000-000000000001")
@@ -489,6 +500,93 @@ class _Corpus:
             )
 
 
+class _WriterSession:
+    """Deterministic stock-harness fake returning only raw declared files."""
+
+    def __init__(self, *, files: dict[str, str]) -> None:
+        self.files = files
+        self.requests: list[KnowledgeWriterSessionRequest] = []
+
+    def run_session(
+        self, *, request: KnowledgeWriterSessionRequest
+    ) -> KnowledgeWriterSessionResult:
+        """Record the sandbox request and return one complete raw transcript."""
+        self.requests.append(request)
+        return KnowledgeWriterSessionResult(
+            session_id=request.session_id,
+            exit_code=0,
+            output_files=self.files,
+            transcript='{"stdout":"writer trace","stderr":""}',
+            tokens=42,
+            cost_usd=0.125,
+        )
+
+
+class _TranscriptStore:
+    """Immutable in-memory store proving archive-before-parse ordering."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def read_bytes(self, *, key: ObjectKey) -> bytes:
+        """Return one previously archived session transcript."""
+        return self.objects[key.root]
+
+    def write_bytes(
+        self, *, key: ObjectKey, content: bytes, storage_class: str | None = None
+    ) -> None:
+        """Archive one immutable transcript object."""
+        if key.root in self.objects:
+            raise FileExistsError(key.root)
+        self.objects[key.root] = content
+
+
+class _MountPublisher:
+    """Return the exact four read-only memory locators for one deployment."""
+
+    def publish(self, *, deployment_id: UUID) -> PublishedMounts:
+        """Publish portable locators without granting writer-side mutations."""
+        return PublishedMounts(
+            deployment_id=deployment_id,
+            p3="mount://p3",
+            artifacts="mount://artifacts",
+            raw="mount://raw",
+            knowledge="mount://knowledge",
+            read_only=True,
+        )
+
+
+def _writer_settings() -> KnowledgeWriterSettings:
+    """Return explicit WP-6.4 settings with no hidden cap or model defaults."""
+    return KnowledgeWriterSettings(
+        model="writer-model-test",
+        timeout_seconds=60,
+        residue_claim_limit=5,
+        evidence_claims_per_fact=3,
+        transcript_prefix="k-writer-transcripts",
+    )
+
+
+def _writer_files(*, claim_id: UUID) -> dict[str, str]:
+    """Return a valid raw prose/citation/summary/suggestion output set."""
+    return {
+        "output/prose.md": "# Root\n\nRoot is an active project.\n",
+        "output/citations.json": json.dumps(
+            [{"role": "supports", "claim_id": str(claim_id)}]
+        ),
+        "output/summary.md": "Root is active. It works with Acme.",
+        "output/suggestions.json": json.dumps(
+            [
+                {
+                    "action": "split_page",
+                    "rationale": "A longer history may deserve its own page.",
+                    "payload": {"topic": "history"},
+                }
+            ]
+        ),
+    }
+
+
 def test_all_seven_rules_materialize_and_evaluate(corpus: _Corpus) -> None:
     """Every closed D45 rule kind has typed params and exact candidate SQL."""
     pages = {
@@ -903,6 +1001,303 @@ def test_fact_sheet_compiler_renders_exact_rule_candidates(corpus: _Corpus) -> N
     )
 
 
+def test_writer_bundle_hydrates_exact_d54_claims_and_selected_fact_edges(
+    corpus: _Corpus,
+) -> None:
+    """One repeatable read joins stable coordinates to current bodies and fact support."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]), slug="writer-bundle"
+    )
+    context = KnowledgeCompileContext(writer_version="writer-bundle-test")
+
+    bundle = corpus.control.writer_bundle(
+        artifact_id=page, context=context, child_summary_hashes=()
+    )
+
+    expected_coordinates = {
+        (item.lineage_id, item.chunk_content_hash)
+        for item in bundle.fact_sheet.input_snapshot.claims
+    }
+    hydrated_coordinates = {
+        (item.lineage_id, item.chunk_content_hash) for item in bundle.claim_groups
+    }
+    assert hydrated_coordinates == expected_coordinates
+    assert bundle.claim_candidate_count == len(expected_coordinates)
+    assert bundle.claims_cut_count == 0
+    drive_claim = next(
+        claim
+        for group in bundle.claim_groups
+        for claim in group.claims
+        if claim.claim_id == corpus.claims["drive"]
+    )
+    assert drive_claim.claim_text == "Root works for Acme."
+    assert {
+        (reference.kind, reference.fact_id, reference.stance)
+        for reference in drive_claim.fact_references
+    } == {
+        ("relation", corpus.relations["root"], "supports"),
+        ("observation", corpus.observations["root"], "supports"),
+    }
+
+
+def test_prose_compiler_archives_session_and_builds_mechanical_two_band_page(
+    corpus: _Corpus,
+) -> None:
+    """Accepted prose is composed with a generated fact band and mechanical ledger."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="writer-success",
+    )
+    artifact = next(
+        item
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+        if item.artifact_id == page
+    )
+    writer = _WriterSession(files=_writer_files(claim_id=corpus.claims["drive"]))
+    transcripts = _TranscriptStore()
+    compiler = KnowledgeProseCompiler(
+        control_plane=corpus.control,
+        writer_session=writer,
+        transcript_store=transcripts,
+        mount_publisher=_MountPublisher(),
+        settings=_writer_settings(),
+        clock=lambda: _NOW,
+    )
+
+    output = compiler.compile_page(
+        request=KnowledgePageCompileRequest(
+            artifact=artifact, previous_markdown="# Previous Root\n"
+        )
+    )
+
+    assert output.markdown.startswith("# Root\n\nRoot is an active project.")
+    assert "\n---\n## Fact sheet (generated)" in output.markdown
+    assert output.markdown.count("## Fact sheet (generated)") == 1
+    assert output.compilation.content_hash == knowledge_content_hash(
+        markdown=output.markdown
+    )
+    assert output.compilation.citations == (
+        KnowledgeCitation(
+            role=KnowledgeEvidenceRole.SUPPORTS, claim_id=corpus.claims["drive"]
+        ),
+    )
+    assert output.compilation.candidate_count > 0
+    assert 0 <= output.compilation.uncited_count < output.compilation.candidate_count
+    assert f"{output.compilation.candidate_count} candidates" in output.markdown
+    assert output.compilation.suggestions[0].action is KnowledgePlanAction.SPLIT_PAGE
+    assert output.compilation.tokens == 42
+    assert output.compilation.cost_usd == 0.125
+    transcript_uri = output.compilation.session_transcript_uri
+    assert transcript_uri is not None
+    assert (
+        transcripts.objects[transcript_uri] == b'{"stdout":"writer trace","stderr":""}'
+    )
+    assert len(writer.requests) == 1
+    request = writer.requests[0]
+    assert request.sandbox.network_access == "none"
+    assert request.sandbox.memory_access == "read_only"
+    assert request.sandbox.repository_write_access is False
+    assert request.input_files["context/previous_page.md"] == "# Previous Root\n"
+    assert set(request.mounts.model_fields_set) == {
+        "deployment_id",
+        "p3",
+        "artifacts",
+        "raw",
+        "knowledge",
+        "read_only",
+    }
+    validate_knowledge_page_output(
+        artifact=artifact,
+        output=output,
+        known_git_paths=corpus.control.artifact_git_paths(deployment_id=_DEPLOYMENT_ID),
+        exclusions=(),
+    )
+
+
+def test_malformed_writer_output_keeps_archived_transcript_and_failure_row(
+    corpus: _Corpus,
+) -> None:
+    """Parsing happens after transcript archival and rejection is durable in Postgres."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="writer-malformed",
+    )
+    artifact = next(
+        item
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+        if item.artifact_id == page
+    )
+    files = _writer_files(claim_id=corpus.claims["drive"])
+    files["output/citations.json"] = "{malformed"
+    writer = _WriterSession(files=files)
+    transcripts = _TranscriptStore()
+    compiler = KnowledgeProseCompiler(
+        control_plane=corpus.control,
+        writer_session=writer,
+        transcript_store=transcripts,
+        mount_publisher=_MountPublisher(),
+        settings=_writer_settings(),
+        clock=lambda: _NOW,
+    )
+
+    with pytest.raises(KnowledgeWriterError, match="JSON output"):
+        compiler.compile_page(request=KnowledgePageCompileRequest(artifact=artifact))
+
+    assert len(transcripts.objects) == 1
+    transcript_uri = next(iter(transcripts.objects))
+    with corpus.engine.connect() as connection:
+        failure = (
+            connection.execute(
+                text(
+                    "SELECT session_transcript_uri, failed_at, failure, git_commit"
+                    " FROM knowledge_compilations WHERE artifact_id = :a"
+                ),
+                {"a": page},
+            )
+            .mappings()
+            .one()
+        )
+    assert failure["session_transcript_uri"] == transcript_uri
+    assert failure["failed_at"] is not None
+    assert "KnowledgeWriterError" in failure["failure"]
+    assert failure["git_commit"] is None
+
+
+def test_writer_and_failure_ledger_errors_remain_visible_together(
+    corpus: _Corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ledger outage cannot replace the writer error that triggered its trace."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="writer-double-failure",
+    )
+    artifact = next(
+        item
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+        if item.artifact_id == page
+    )
+    files = _writer_files(claim_id=corpus.claims["drive"])
+    files["output/citations.json"] = "{malformed"
+    transcripts = _TranscriptStore()
+    compiler = KnowledgeProseCompiler(
+        control_plane=corpus.control,
+        writer_session=_WriterSession(files=files),
+        transcript_store=transcripts,
+        mount_publisher=_MountPublisher(),
+        settings=_writer_settings(),
+        clock=lambda: _NOW,
+    )
+
+    def fail_ledger(*, failure: KnowledgeCompilationFailure) -> None:
+        raise RuntimeError(f"ledger unavailable for {failure.compilation_id}")
+
+    monkeypatch.setattr(corpus.control, "record_failed_compilation", fail_ledger)
+
+    with pytest.raises(ExceptionGroup) as captured:
+        compiler.compile_page(request=KnowledgePageCompileRequest(artifact=artifact))
+
+    assert any(
+        isinstance(error, KnowledgeWriterError) for error in captured.value.exceptions
+    )
+    assert any(isinstance(error, RuntimeError) for error in captured.value.exceptions)
+    assert len(transcripts.objects) == 1
+
+
+def test_fact_sheet_router_skips_writer_session_entirely(corpus: _Corpus) -> None:
+    """Low-importance fact-sheet pages consume no writer session or transcript."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="writer-skip",
+        artifact_kind="fact_sheet",
+    )
+    artifact = next(
+        item
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+        if item.artifact_id == page
+    )
+    writer = _WriterSession(files={})
+    transcripts = _TranscriptStore()
+    prose = KnowledgeProseCompiler(
+        control_plane=corpus.control,
+        writer_session=writer,
+        transcript_store=transcripts,
+        mount_publisher=_MountPublisher(),
+        settings=_writer_settings(),
+        clock=lambda: _NOW,
+    )
+    router = KnowledgePageCompilerRouter(
+        fact_sheet_compiler=KnowledgeFactSheetCompiler(
+            control_plane=corpus.control, clock=lambda: _NOW
+        ),
+        prose_compiler=prose,
+    )
+
+    output = router.compile_page(request=KnowledgePageCompileRequest(artifact=artifact))
+
+    assert output.markdown.startswith("## Fact sheet (generated)")
+    assert writer.requests == []
+    assert transcripts.objects == {}
+
+
+def test_failed_compilation_is_durable_without_mutating_live_page(
+    corpus: _Corpus,
+) -> None:
+    """Rejected output leaves a terminal trace and no pending or live replacement."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="writer-failure",
+    )
+    context = KnowledgeCompileContext(writer_version="writer-failure-test")
+    snapshot = corpus.control.input_snapshot(artifact_id=page, context=context)
+    failure = KnowledgeCompilationFailure(
+        compilation_id=uuid4(),
+        deployment_id=_DEPLOYMENT_ID,
+        artifact_id=page,
+        inputs_hash=knowledge_inputs_hash(snapshot=snapshot),
+        candidate_count=len(snapshot.facts) + len(snapshot.claims),
+        claims_cut_count=2,
+        writer_version=context.writer_version,
+        failure="writer returned malformed citation JSON",
+        session_transcript_uri="transcripts/session.json",
+    )
+
+    corpus.control.record_failed_compilation(failure=failure)
+
+    with corpus.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT cycle_id, cited_count, uncited_count, claims_cut_count,"
+                    " session_transcript_uri, git_commit, failed_at, failure"
+                    " FROM knowledge_compilations WHERE compilation_id = :c"
+                ),
+                {"c": failure.compilation_id},
+            )
+            .mappings()
+            .one()
+        )
+        artifact = (
+            connection.execute(
+                text(
+                    "SELECT status::text AS status, inputs_hash, content_hash"
+                    " FROM knowledge_artifacts WHERE artifact_id = :a"
+                ),
+                {"a": page},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["cycle_id"] is None
+    assert row["cited_count"] == 0
+    assert row["uncited_count"] == failure.candidate_count
+    assert row["claims_cut_count"] == 2
+    assert row["session_transcript_uri"] == "transcripts/session.json"
+    assert row["git_commit"] is None
+    assert row["failed_at"] is not None
+    assert row["failure"] == failure.failure
+    assert artifact == {"status": "stale", "inputs_hash": None, "content_hash": None}
+
+
 def test_compilation_replaces_binding_citations_and_records_deltas(
     corpus: _Corpus,
 ) -> None:
@@ -945,7 +1340,15 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
             ),
             "page_summary": "Second summary.",
             "content_hash": knowledge_summary_hash(summary="second-content"),
-            "uncited_count": first.candidate_count,
+            "uncited_count": first.candidate_count - 1,
+            "claims_cut_count": 3,
+            "suggestions": (
+                KnowledgeWriterSuggestion(
+                    action=KnowledgePlanAction.SPLIT_PAGE,
+                    rationale="The page now spans two independent topics.",
+                    payload={"boundary": "timeline"},
+                ),
+            ),
         }
     )
     corpus.control.record_pending_compilation(compilation=second)
@@ -989,7 +1392,8 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
         transcript = (
             connection.execute(
                 text(
-                    "SELECT cited_count, uncited_count, evidence_added, evidence_removed"
+                    "SELECT cited_count, uncited_count, claims_cut_count, suggestions,"
+                    " evidence_added, evidence_removed"
                     " FROM knowledge_compilations WHERE compilation_id = :c"
                 ),
                 {"c": second.compilation_id},
@@ -1002,6 +1406,14 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
     ]
     assert transcript["cited_count"] == 1
     assert transcript["uncited_count"] == second.uncited_count
+    assert transcript["claims_cut_count"] == 3
+    assert transcript["suggestions"] == [
+        {
+            "action": "split_page",
+            "rationale": "The page now spans two independent topics.",
+            "payload": {"boundary": "timeline"},
+        }
+    ]
     assert transcript["evidence_added"] == 1
     assert transcript["evidence_removed"] == 2
 

@@ -37,6 +37,9 @@ from ultimate_memory.core.knowledge_fact_sheet import render_knowledge_fact_shee
 from ultimate_memory.core.knowledge_hashing import knowledge_content_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_inputs_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_summary_hash
+from ultimate_memory.core.knowledge_writer import cap_knowledge_writer_bundle
+from ultimate_memory.core.knowledge_writer import knowledge_writer_coverage
+from ultimate_memory.core.knowledge_writer import render_knowledge_writer_bundle
 from ultimate_memory.core.ranking import DEFAULT_EVIDENCE_COUNT_WEIGHT
 from ultimate_memory.core.ranking import DEFAULT_GRAPH_DISTANCE_WEIGHT
 from ultimate_memory.core.ranking import DEFAULT_RRF_K
@@ -99,6 +102,9 @@ __all__ = (
     "reciprocal_rank_fusion",
     "render_consumption_skill",
     "render_knowledge_fact_sheet",
+    "cap_knowledge_writer_bundle",
+    "knowledge_writer_coverage",
+    "render_knowledge_writer_bundle",
     "rerank_by_signal",
     "rerank_by_weighted_signals",
     "validate_knowledge_page_output",

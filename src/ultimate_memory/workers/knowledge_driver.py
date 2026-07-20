@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from pathlib import PurePosixPath
 from tempfile import TemporaryDirectory
+import traceback
 from typing import Protocol
 from uuid import UUID
 from uuid import uuid4
@@ -13,6 +14,7 @@ from ultimate_memory.core import knowledge_compile_order
 from ultimate_memory.core import knowledge_content_hash
 from ultimate_memory.core import validate_knowledge_page_output
 from ultimate_memory.model import KnowledgeCommitCycleResult
+from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeEvidenceDelta
@@ -93,7 +95,6 @@ class KnowledgeCommitDriver:
         *,
         deployment_id: UUID,
         exclusions_by_artifact: Mapping[UUID, Collection[KnowledgeEvidenceTarget]],
-        curation_hashes_by_artifact: Mapping[UUID, str | None],
     ) -> KnowledgeCommitCycleResult:
         """Recover prior work, compile stale pages, publish once, then finalize."""
         with self._control_plane.commit_lease(deployment_id=deployment_id):
@@ -121,8 +122,8 @@ class KnowledgeCommitDriver:
                     artifacts=artifacts,
                     schedule=schedule,
                     known_paths=known_paths,
+                    worktree=worktree,
                     exclusions_by_artifact=exclusions_by_artifact,
-                    curation_hashes_by_artifact=curation_hashes_by_artifact,
                 )
                 for artifact, output in compiled:
                     _write_compiled_page(
@@ -182,8 +183,8 @@ class KnowledgeCommitDriver:
         artifacts: tuple[KnowledgeCompileArtifact, ...],
         schedule: tuple[KnowledgeCompileArtifact, ...],
         known_paths: Collection[str],
+        worktree: Path,
         exclusions_by_artifact: Mapping[UUID, Collection[KnowledgeEvidenceTarget]],
-        curation_hashes_by_artifact: Mapping[UUID, str | None],
     ) -> tuple[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput], ...]:
         """Invoke one-page compilers in order while carrying fresh summaries forward."""
         summaries = {
@@ -222,6 +223,16 @@ class KnowledgeCommitDriver:
                 if child.artifact_id in child_ids and child.artifact_id in summaries
             }
             exclusions = tuple(exclusions_by_artifact.get(artifact.artifact_id, ()))
+            previous_markdown = _read_optional_compiler_input(
+                worktree=worktree, git_path=artifact.git_path
+            )
+            curation_markdown = (
+                None
+                if artifact.curation_path is None
+                else _read_optional_compiler_input(
+                    worktree=worktree, git_path=artifact.curation_path
+                )
+            )
             output = self._compiler.compile_page(
                 request=KnowledgePageCompileRequest(
                     artifact=artifact,
@@ -231,16 +242,50 @@ class KnowledgeCommitDriver:
                         if artifact.artifact_kind == "model_page"
                         else model_summaries.get(artifact.scope_id)
                     ),
-                    curation_hash=curation_hashes_by_artifact.get(artifact.artifact_id),
+                    curation_hash=(
+                        None
+                        if curation_markdown is None
+                        else knowledge_content_hash(markdown=curation_markdown)
+                    ),
+                    curation_markdown=curation_markdown,
+                    previous_markdown=previous_markdown,
                     exclusions=exclusions,
                 )
             )
-            validate_knowledge_page_output(
-                artifact=artifact,
-                output=output,
-                known_git_paths=known_paths,
-                exclusions=exclusions,
-            )
+            try:
+                validate_knowledge_page_output(
+                    artifact=artifact,
+                    output=output,
+                    known_git_paths=known_paths,
+                    exclusions=exclusions,
+                )
+                self._control_plane.validate_citations(
+                    deployment_id=artifact.deployment_id,
+                    citations=output.compilation.citations,
+                )
+            except Exception as error:
+                compilation = output.compilation
+                failure_trace = traceback.format_exc()
+                try:
+                    self._control_plane.record_failed_compilation(
+                        failure=KnowledgeCompilationFailure(
+                            compilation_id=compilation.compilation_id,
+                            deployment_id=compilation.deployment_id,
+                            artifact_id=compilation.artifact_id,
+                            inputs_hash=compilation.inputs_hash,
+                            candidate_count=compilation.candidate_count,
+                            claims_cut_count=compilation.claims_cut_count,
+                            writer_version=compilation.writer_version,
+                            failure=failure_trace,
+                            session_transcript_uri=compilation.session_transcript_uri,
+                        )
+                    )
+                except Exception as ledger_error:
+                    raise ExceptionGroup(
+                        "page validation and failure-ledger recording both failed",
+                        (error, ledger_error),
+                    ) from None
+                raise
             new_summary = output.compilation.page_summary
             if new_summary != artifact.page_summary:
                 changed_summaries.add(artifact.artifact_id)
@@ -286,6 +331,14 @@ def _write_compiled_page(*, worktree: Path, git_path: str, markdown: str) -> Non
     temporary = target.with_name(f".{target.name}.{uuid4()}.tmp")
     temporary.write_text(markdown, encoding="utf-8")
     temporary.replace(target)
+
+
+def _read_optional_compiler_input(*, worktree: Path, git_path: str) -> str | None:
+    """Read one repository-native compiler input without widening its path surface."""
+    target = _worktree_target(worktree=worktree, git_path=git_path)
+    if not target.is_file():
+        return None
+    return target.read_text(encoding="utf-8")
 
 
 def _worktree_target(*, worktree: Path, git_path: str) -> Path:

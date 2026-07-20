@@ -2153,8 +2153,10 @@ CREATE TABLE knowledge_compilations (
   artifact_id     uuid NOT NULL,               -- composite FK below
   inputs_hash     text NOT NULL,               -- the candidate snapshot this compile consumed (D45 idempotency)
   candidate_count int NOT NULL,                -- rule-matched evidence offered to the writer
-  cited_count     int NOT NULL,                -- evidence the writer used (→ knowledge_artifact_evidence)
+  cited_count     int NOT NULL,                -- offered fact/claim-coordinate candidates covered by accepted citations
   uncited_count   int NOT NULL,                -- offered but not used (auditable coverage gap)
+  claims_cut_count int NOT NULL DEFAULT 0 CHECK (claims_cut_count >= 0), -- D54 claim coordinates omitted by the settings-bound cap
+  suggestions     jsonb NOT NULL DEFAULT '[]'::jsonb, -- typed, inert planner suggestions returned by the writer
   evidence_added  int NOT NULL DEFAULT 0,      -- citation-set delta vs the previous compile
   evidence_removed int NOT NULL DEFAULT 0,
   evidence_invalidated int NOT NULL DEFAULT 0,

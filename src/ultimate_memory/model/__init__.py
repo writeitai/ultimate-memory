@@ -120,6 +120,7 @@ from ultimate_memory.model.knowledge import KnowledgeCandidateLayer
 from ultimate_memory.model.knowledge import KnowledgeCitation
 from ultimate_memory.model.knowledge import KnowledgeClaimFingerprint
 from ultimate_memory.model.knowledge import KnowledgeCommitCycleResult
+from ultimate_memory.model.knowledge import KnowledgeCompilationFailure
 from ultimate_memory.model.knowledge import KnowledgeCompilationWrite
 from ultimate_memory.model.knowledge import KnowledgeCompileArtifact
 from ultimate_memory.model.knowledge import KnowledgeCompileContext
@@ -146,6 +147,15 @@ from ultimate_memory.model.knowledge import KnowledgeRuleKey
 from ultimate_memory.model.knowledge import KnowledgeRuleKeyKind
 from ultimate_memory.model.knowledge import KnowledgeRuleKind
 from ultimate_memory.model.knowledge import KnowledgeRuleParams
+from ultimate_memory.model.knowledge import KnowledgeWriterBundle
+from ultimate_memory.model.knowledge import KnowledgeWriterClaim
+from ultimate_memory.model.knowledge import KnowledgeWriterClaimGroup
+from ultimate_memory.model.knowledge import KnowledgeWriterCoverage
+from ultimate_memory.model.knowledge import KnowledgeWriterFactReference
+from ultimate_memory.model.knowledge import KnowledgeWriterSandboxPolicy
+from ultimate_memory.model.knowledge import KnowledgeWriterSessionRequest
+from ultimate_memory.model.knowledge import KnowledgeWriterSessionResult
+from ultimate_memory.model.knowledge import KnowledgeWriterSuggestion
 from ultimate_memory.model.knowledge import ManualRuleParams
 from ultimate_memory.model.knowledge import PredicateBeatRuleParams
 from ultimate_memory.model.knowledge import ScopeInterestsRuleParams
@@ -350,6 +360,7 @@ __all__ = (
     "KnowledgeCitation",
     "KnowledgeClaimFingerprint",
     "KnowledgeCommitCycleResult",
+    "KnowledgeCompilationFailure",
     "KnowledgeCompilationWrite",
     "KnowledgeCompileArtifact",
     "KnowledgeCompileContext",
@@ -376,6 +387,15 @@ __all__ = (
     "KnowledgeRuleKind",
     "KnowledgeRuleParams",
     "KnowledgeRenderedFactSheet",
+    "KnowledgeWriterBundle",
+    "KnowledgeWriterClaim",
+    "KnowledgeWriterClaimGroup",
+    "KnowledgeWriterCoverage",
+    "KnowledgeWriterFactReference",
+    "KnowledgeWriterSandboxPolicy",
+    "KnowledgeWriterSessionRequest",
+    "KnowledgeWriterSessionResult",
+    "KnowledgeWriterSuggestion",
     "ManualRuleParams",
     "PredicateBeatRuleParams",
     "ReconciliationDelta",

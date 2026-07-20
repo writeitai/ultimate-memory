@@ -15,9 +15,16 @@ from pydantic import field_validator
 from pydantic import JsonValue
 from pydantic import model_validator
 
+from ultimate_memory.model.mounts import PublishedMounts
 from ultimate_memory.model.queue import UTCDateTime
 
 SHA256: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+KNOWLEDGE_WRITER_OUTPUT_PATHS = (
+    "output/prose.md",
+    "output/citations.json",
+    "output/summary.md",
+    "output/suggestions.json",
+)
 
 
 def _sorted_unique_strings(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -379,7 +386,9 @@ class KnowledgeCompilationWrite(BaseModel):
     inputs_hash: SHA256
     candidate_count: int = Field(ge=0)
     uncited_count: int = Field(ge=0)
+    claims_cut_count: int = Field(default=0, ge=0)
     citations: tuple[KnowledgeCitation, ...]
+    suggestions: tuple["KnowledgeWriterSuggestion", ...] = ()
     evidence_invalidated: int = Field(default=0, ge=0)
     writer_version: str
     page_summary: str
@@ -394,6 +403,22 @@ class KnowledgeCompilationWrite(BaseModel):
         if self.uncited_count > self.candidate_count:
             raise ValueError("uncited_count cannot exceed candidate_count")
         return self
+
+
+class KnowledgeCompilationFailure(BaseModel):
+    """One visible terminal writer attempt that never became publishable output."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    compilation_id: UUID
+    deployment_id: UUID
+    artifact_id: UUID
+    inputs_hash: SHA256
+    candidate_count: int = Field(ge=0)
+    claims_cut_count: int = Field(default=0, ge=0)
+    writer_version: str = Field(min_length=1)
+    failure: str = Field(min_length=1)
+    session_transcript_uri: str | None = None
 
 
 class KnowledgeFactFingerprint(BaseModel):
@@ -484,6 +509,158 @@ class KnowledgeRenderedFactSheet(BaseModel):
     contradiction_group_count: int = Field(ge=0)
 
 
+class KnowledgeWriterFactReference(BaseModel):
+    """One claim-to-fact evidence edge exposed inside a writer bundle."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["relation", "observation"]
+    fact_id: UUID
+    stance: Literal["supports", "contradicts"]
+
+
+class KnowledgeWriterClaim(BaseModel):
+    """One current claim body carrying its stable D54 candidate coordinate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    claim_id: UUID
+    lineage_id: UUID
+    chunk_content_hash: str = Field(min_length=1)
+    claim_text: str = Field(min_length=1)
+    source_span: str = Field(min_length=1)
+    document_title: str = Field(min_length=1)
+    source_kind: str = Field(min_length=1)
+    fact_references: tuple[KnowledgeWriterFactReference, ...] = ()
+
+
+class KnowledgeWriterClaimGroup(BaseModel):
+    """All current claims at one stable lineage-plus-chunk candidate coordinate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    lineage_id: UUID
+    chunk_content_hash: str = Field(min_length=1)
+    claims: tuple[KnowledgeWriterClaim, ...] = Field(min_length=1)
+
+
+class KnowledgeWriterBundle(BaseModel):
+    """Exact fact candidates plus the deterministic capped claim offering."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fact_sheet: KnowledgeFactSheetSnapshot
+    claim_groups: tuple[KnowledgeWriterClaimGroup, ...] = ()
+    claim_candidate_count: int = Field(ge=0)
+    claims_cut_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def require_honest_claim_cut(self) -> "KnowledgeWriterBundle":
+        """Make the capped bundle account for every rule-matched claim coordinate."""
+        if len(self.claim_groups) + self.claims_cut_count != self.claim_candidate_count:
+            raise ValueError("offered and cut claim counts must equal claim candidates")
+        return self
+
+
+class KnowledgeWriterCoverage(BaseModel):
+    """Mechanical offered/cited/uncited candidate accounting for one writer."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    candidate_count: int = Field(ge=0)
+    cited_candidate_count: int = Field(ge=0)
+    uncited_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def require_complete_partition(self) -> "KnowledgeWriterCoverage":
+        """Partition every offered candidate into cited or uncited exactly once."""
+        if self.cited_candidate_count + self.uncited_count != self.candidate_count:
+            raise ValueError("cited and uncited counts must partition candidates")
+        return self
+
+
+class KnowledgeWriterSuggestion(BaseModel):
+    """A writer-proposed planner input that WP-6.4 records but never applies."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    action: KnowledgePlanAction
+    rationale: str = Field(min_length=1)
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class KnowledgeWriterSandboxPolicy(BaseModel):
+    """The binding D52 limits applied to one stock-harness writer session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    network_access: Literal["none"] = "none"
+    memory_access: Literal["read_only"] = "read_only"
+    repository_write_access: Literal[False] = False
+    accepted_output_paths: tuple[str, ...] = KNOWLEDGE_WRITER_OUTPUT_PATHS
+
+    @field_validator("accepted_output_paths")
+    @classmethod
+    def require_declared_writer_outputs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Prevent runtime configuration from widening the accepted write surface."""
+        if value != KNOWLEDGE_WRITER_OUTPUT_PATHS:
+            raise ValueError("accepted writer output paths are fixed by contract")
+        return value
+
+
+class KnowledgeWriterSessionRequest(BaseModel):
+    """One isolated stock-harness invocation prepared by the prose compiler."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    session_id: UUID
+    model: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    timeout_seconds: int = Field(gt=0)
+    input_files: dict[str, str]
+    mounts: PublishedMounts
+    sandbox: KnowledgeWriterSandboxPolicy = Field(
+        default_factory=KnowledgeWriterSandboxPolicy
+    )
+
+    @field_validator("input_files")
+    @classmethod
+    def require_safe_input_paths(cls, value: dict[str, str]) -> dict[str, str]:
+        """Keep compiler-prepared inputs normalized and outside the output surface."""
+        for raw_path in value:
+            path = PurePosixPath(raw_path)
+            if (
+                not raw_path
+                or path.is_absolute()
+                or ".." in path.parts
+                or str(path) != raw_path
+                or raw_path.startswith("output/")
+            ):
+                raise ValueError("writer input path must be normalized and read-only")
+        return value
+
+
+class KnowledgeWriterSessionResult(BaseModel):
+    """Raw declared files and complete process transcript from one harness session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    session_id: UUID
+    exit_code: int | None
+    timed_out: bool = False
+    output_files: dict[str, str] = Field(default_factory=dict)
+    transcript: str = Field(min_length=1)
+    tokens: int | None = Field(default=None, ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_consistent_terminal_state(self) -> "KnowledgeWriterSessionResult":
+        """Distinguish a timeout from an ordinary process exit unambiguously."""
+        if self.timed_out == (self.exit_code is not None):
+            raise ValueError("timed-out sessions have no exit code; exited sessions do")
+        return self
+
+
 class KnowledgeCompileContext(BaseModel):
     """Git/model inputs supplied to the Postgres-owned manifest computation."""
 
@@ -504,14 +681,17 @@ class KnowledgeCompileArtifact(BaseModel):
     scope_id: UUID | None = None
     parent_artifact_id: UUID | None = None
     git_path: str
+    curation_path: str | None = None
     artifact_kind: str | None = None
     page_summary: str | None = None
     stale: bool
 
-    @field_validator("git_path")
+    @field_validator("git_path", "curation_path")
     @classmethod
-    def require_safe_markdown_path(cls, value: str) -> str:
+    def require_safe_markdown_path(cls, value: str | None) -> str | None:
         """Keep driver-owned writes relative, normalized, and Markdown-only."""
+        if value is None:
+            return None
         path = PurePosixPath(value)
         if (
             not value
@@ -533,6 +713,8 @@ class KnowledgePageCompileRequest(BaseModel):
     child_summaries: dict[UUID, str] = Field(default_factory=dict)
     shared_model_summary: str | None = None
     curation_hash: str | None = None
+    curation_markdown: str | None = None
+    previous_markdown: str | None = None
     exclusions: tuple[KnowledgeEvidenceTarget, ...] = ()
 
 
