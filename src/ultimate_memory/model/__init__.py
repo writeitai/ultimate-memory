@@ -110,6 +110,36 @@ from ultimate_memory.model.evaluation import EvalSuite
 from ultimate_memory.model.evaluation import LifecycleReport
 from ultimate_memory.model.evaluation import SuiteReport
 from ultimate_memory.model.git import KRevision
+from ultimate_memory.model.knowledge import CommunityRuleParams
+from ultimate_memory.model.knowledge import DocSetRuleParams
+from ultimate_memory.model.knowledge import EntityRuleParams
+from ultimate_memory.model.knowledge import EntitySubtreeRuleParams
+from ultimate_memory.model.knowledge import KnowledgeArtifactCreate
+from ultimate_memory.model.knowledge import KnowledgeArtifactHash
+from ultimate_memory.model.knowledge import KnowledgeCandidateLayer
+from ultimate_memory.model.knowledge import KnowledgeCitation
+from ultimate_memory.model.knowledge import KnowledgeClaimFingerprint
+from ultimate_memory.model.knowledge import KnowledgeCompilationWrite
+from ultimate_memory.model.knowledge import KnowledgeCompileContext
+from ultimate_memory.model.knowledge import KnowledgeEvidenceDelta
+from ultimate_memory.model.knowledge import KnowledgeEvidenceRole
+from ultimate_memory.model.knowledge import KnowledgeFactFingerprint
+from ultimate_memory.model.knowledge import KnowledgeInputSnapshot
+from ultimate_memory.model.knowledge import KnowledgeLayer
+from ultimate_memory.model.knowledge import KnowledgePageKind
+from ultimate_memory.model.knowledge import KnowledgePageRuleCreate
+from ultimate_memory.model.knowledge import KnowledgePlanAction
+from ultimate_memory.model.knowledge import KnowledgePlanDecisionCreate
+from ultimate_memory.model.knowledge import KnowledgePlanStatus
+from ultimate_memory.model.knowledge import KnowledgePlanTrigger
+from ultimate_memory.model.knowledge import KnowledgeRuleConfiguration
+from ultimate_memory.model.knowledge import KnowledgeRuleKey
+from ultimate_memory.model.knowledge import KnowledgeRuleKeyKind
+from ultimate_memory.model.knowledge import KnowledgeRuleKind
+from ultimate_memory.model.knowledge import KnowledgeRuleParams
+from ultimate_memory.model.knowledge import ManualRuleParams
+from ultimate_memory.model.knowledge import PredicateBeatRuleParams
+from ultimate_memory.model.knowledge import ScopeInterestsRuleParams
 from ultimate_memory.model.lifecycle import CurrencyTransition
 from ultimate_memory.model.lifecycle import ReconciliationDelta
 from ultimate_memory.model.model_provider import EmbeddingRequest
@@ -301,7 +331,37 @@ __all__ = (
     "SelectionVerdict",
     "LifecycleReport",
     "CurrencyTransition",
+    "CommunityRuleParams",
+    "DocSetRuleParams",
+    "EntityRuleParams",
+    "EntitySubtreeRuleParams",
+    "KnowledgeArtifactCreate",
+    "KnowledgeArtifactHash",
+    "KnowledgeCandidateLayer",
+    "KnowledgeCitation",
+    "KnowledgeClaimFingerprint",
+    "KnowledgeCompilationWrite",
+    "KnowledgeCompileContext",
+    "KnowledgeEvidenceDelta",
+    "KnowledgeEvidenceRole",
+    "KnowledgeFactFingerprint",
+    "KnowledgeInputSnapshot",
+    "KnowledgeLayer",
+    "KnowledgePageKind",
+    "KnowledgePageRuleCreate",
+    "KnowledgePlanAction",
+    "KnowledgePlanDecisionCreate",
+    "KnowledgePlanStatus",
+    "KnowledgePlanTrigger",
+    "KnowledgeRuleConfiguration",
+    "KnowledgeRuleKey",
+    "KnowledgeRuleKeyKind",
+    "KnowledgeRuleKind",
+    "KnowledgeRuleParams",
+    "ManualRuleParams",
+    "PredicateBeatRuleParams",
     "ReconciliationDelta",
+    "ScopeInterestsRuleParams",
     "PersistedSectionTree",
     "ProposedSection",
     "SectionTreeRecord",

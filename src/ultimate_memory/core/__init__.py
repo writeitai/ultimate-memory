@@ -27,6 +27,8 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.knowledge_hashing import knowledge_inputs_hash
+from ultimate_memory.core.knowledge_hashing import knowledge_summary_hash
 from ultimate_memory.core.ranking import DEFAULT_EVIDENCE_COUNT_WEIGHT
 from ultimate_memory.core.ranking import DEFAULT_GRAPH_DISTANCE_WEIGHT
 from ultimate_memory.core.ranking import DEFAULT_RRF_K
@@ -76,6 +78,8 @@ __all__ = (
     "DEFAULT_GRAPH_DISTANCE_WEIGHT",
     "DEFAULT_RRF_K",
     "KNOWN_OPS",
+    "knowledge_inputs_hash",
+    "knowledge_summary_hash",
     "RecipeLintError",
     "lint_recipe",
     "reciprocal_rank_fusion",

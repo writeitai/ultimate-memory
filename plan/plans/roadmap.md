@@ -100,8 +100,8 @@ needs to restate it:
 | 2 | Truth machinery | full ER cascade + registries + review queue; supersession; observation adjudication; thresholds measured | registries, e2_e3 §5, observations | done (exit criteria met 2026-07-19; PRs #88-#94 — see the phase file) |
 | 3 | Evidence lifecycle | lineages/versions, Drive connector + sync cycles, currency + counting + reconciliation, chunk reuse, deletion grains, full PageIndex route | evidence_lifecycle, e1 §7, e0 | done (exit criteria met 2026-07-19; PRs #95-#99 — see the phase file) |
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | done (exit criteria met 2026-07-19; PRs #100-#104 — see the phase file) |
-| 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | planned |
-| 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, belief tier | k_layers | planned |
+| 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | done (exit criteria met 2026-07-20; PRs #105–#111 — see the phase file) |
+| 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, belief tier | k_layers | in progress (WP-6.1: PR #112) |
 | 7 | Scale + ops | backfill lanes, load tests, hub cases, budgets, DLQ drills, observability, hard-delete end-to-end | orchestration, schema §12–13 | planned |
 | 8 | Competitive benchmarks | external benchmark harness, adapters, baselines (Mem0/Zep-class), capability benchmark, published methodology + results | D22 (internal) + `phase-8` survey | planned |
 
