@@ -437,6 +437,16 @@ def test_search_claims_is_evidence_grain_with_drop_count_honesty(rig: _ApiRig) -
     assert len(second["evidence"]) == 1
     assert second["dropped_by_hydration"] == 1  # the honest denominator
 
+    with rig.engine.begin() as connection:
+        connection.execute(text("UPDATE claims SET is_current_testimony = false"))
+    empty = rig.client.get(
+        "/search/claims", params={"query": "Alice Novak employer", "k": 10}
+    ).json()
+    assert empty["negative"]["workaround"] == (
+        "broaden the query or inspect the source artifacts"
+    )
+    assert "current_only" not in empty["negative"]["workaround"]
+
 
 def test_expired_valid_window_is_not_a_current_fact(rig: _ApiRig) -> None:
     """Codex review: current means BOTH clocks — a relation whose valid-time

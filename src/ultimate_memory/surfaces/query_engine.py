@@ -312,7 +312,7 @@ class QueryEngine:
             else Negative(
                 kind=NegativeKind.KNOWN_EMPTY,
                 explanation="no current-testimony claims match the query",
-                workaround="search chunks, or widen with current_only=false",
+                workaround="broaden the query or inspect the source artifacts",
             ),
         )
 
