@@ -2533,3 +2533,102 @@ def test_dispatch_worker_delivers_demo_payload_and_dead_letters_failures(
     assert failure[0] == "dead_letter"
     assert "RuntimeError: demo workflow unavailable" in failure[1]
     assert failure[2] == "failed"
+
+
+def test_inactive_subscription_terminates_batch_and_unblocks_reactivation(
+    corpus: _Corpus,
+) -> None:
+    """Pause-after-materialize cannot leave a zombie pending debounce batch."""
+    subscription_id = uuid4()
+    corpus.control.register_subscription(
+        subscription=KnowledgeSubscriptionCreate(
+            subscription_id=subscription_id,
+            deployment_id=_DEPLOYMENT_ID,
+            name="pausable-planner",
+            workflow_endpoint="demo://pausable-planner",
+            debounce_seconds=60,
+            created_by="worker-test",
+            rules=(PredicateBeatRuleParams(predicate="works_for"),),
+        )
+    )
+    first_dispatch_id = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+    ).dispatch_ids[0]
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE knowledge_dispatches"
+                " SET enqueued_at = now() - interval '2 minutes'"
+                " WHERE dispatch_id = :dispatch_id"
+            ),
+            {"dispatch_id": first_dispatch_id},
+        )
+    corpus.control.materialize_due_dispatches(
+        deployment_id=_DEPLOYMENT_ID, component_version="dispatch-pause-test"
+    )
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE knowledge_subscriptions SET status = 'paused'"
+                " WHERE subscription_id = :subscription_id"
+            ),
+            {"subscription_id": subscription_id},
+        )
+    registry = HandlerRegistry()
+    registry.register(
+        stage=PipelineStage.DISPATCH_KNOWLEDGE,
+        handler=KnowledgeDispatchHandler(
+            control_plane=corpus.control, dispatcher=_WorkflowDispatcher()
+        ),
+    )
+
+    rejected = Worker(
+        ledger=WorkLedger(
+            engine=corpus.engine,
+            settings=WorkLedgerSettings(retry_backoff_base_s=0, retry_backoff_max_s=0),
+        ),
+        registry=registry,
+    ).run_one(
+        deployment_id=_DEPLOYMENT_ID, stage=PipelineStage.DISPATCH_KNOWLEDGE, lane=None
+    )
+
+    assert rejected.outcome is RunResultOutcome.DEAD_LETTERED
+    with corpus.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT status::text FROM knowledge_dispatches"
+                    " WHERE dispatch_id = :dispatch_id"
+                ),
+                {"dispatch_id": first_dispatch_id},
+            ).scalar_one()
+            == "failed"
+        )
+        connection.execute(
+            text(
+                "UPDATE knowledge_subscriptions SET status = 'active'"
+                " WHERE subscription_id = :subscription_id"
+            ),
+            {"subscription_id": subscription_id},
+        )
+    second_dispatch_id = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+    ).dispatch_ids[0]
+    assert second_dispatch_id != first_dispatch_id
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE knowledge_dispatches"
+                " SET enqueued_at = now() - interval '2 minutes'"
+                " WHERE dispatch_id = :dispatch_id"
+            ),
+            {"dispatch_id": second_dispatch_id},
+        )
+    assert (
+        corpus.control.materialize_due_dispatches(
+            deployment_id=_DEPLOYMENT_ID, component_version="dispatch-pause-test"
+        )[0].dispatch_id
+        == second_dispatch_id
+    )

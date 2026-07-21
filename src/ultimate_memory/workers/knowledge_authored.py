@@ -15,7 +15,9 @@ from ultimate_memory.model import KnowledgeWorkflowDelivery
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingTarget
+from ultimate_memory.spine.knowledge import KnowledgeCompilationError
 from ultimate_memory.spine.knowledge import KnowledgeControlPlane
+from ultimate_memory.spine.knowledge import KnowledgeDispatchUnavailableError
 from ultimate_memory.workers.base import HandlerOutcome
 
 
@@ -50,6 +52,9 @@ class KnowledgeAuthoredSynchronizer:
             relative = target.relative_to(worktree)
             if ".git" in relative.parts:
                 continue
+            _require_safe_authored_target(
+                worktree=worktree, target=target, git_path=relative.as_posix()
+            )
             git_path = relative.as_posix()
             state = bodies.get(git_path)
             if git_path in curation_paths or (
@@ -102,7 +107,10 @@ class KnowledgeDispatchHandler:
             raise NonRetryableHandlerError(
                 "dispatch handler requires the knowledge_dispatch/dispatch_knowledge route"
             )
-        record = self._control_plane.begin_dispatch(dispatch_id=work.target_id)
+        try:
+            record = self._control_plane.begin_dispatch(dispatch_id=work.target_id)
+        except KnowledgeDispatchUnavailableError as error:
+            raise NonRetryableHandlerError(str(error)) from error
         if record.status is KnowledgeDispatchStatus.DONE:
             return HandlerOutcome()
         delivery = KnowledgeWorkflowDelivery(
@@ -123,3 +131,14 @@ class KnowledgeDispatchHandler:
             raise
         self._control_plane.complete_dispatch(dispatch_id=record.dispatch_id)
         return HandlerOutcome()
+
+
+def _require_safe_authored_target(
+    *, worktree: Path, target: Path, git_path: str
+) -> None:
+    """Reject symlinked or resolved Markdown paths outside the exact checkout."""
+    root = worktree.resolve()
+    if target.is_symlink() or not target.resolve().is_relative_to(root):
+        raise KnowledgeCompilationError(
+            f"authored page path escapes worktree: {git_path}"
+        )

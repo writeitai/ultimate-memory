@@ -18,6 +18,7 @@ from ultimate_memory.spine.knowledge import KnowledgeCommitBusyError
 from ultimate_memory.spine.knowledge import KnowledgeCompilationError
 from ultimate_memory.spine.knowledge import KnowledgeCompileContextMissingError
 from ultimate_memory.spine.knowledge import KnowledgeControlPlane
+from ultimate_memory.spine.knowledge import KnowledgeDispatchUnavailableError
 from ultimate_memory.spine.lifecycle import LifecycleCatalog
 from ultimate_memory.spine.observation_adjudication import (
     OBSERVATION_ADJUDICATOR_VERSION,
@@ -61,6 +62,7 @@ __all__ = (
     "KnowledgeCommitBusyError",
     "KnowledgeCompileContextMissingError",
     "KnowledgeControlPlane",
+    "KnowledgeDispatchUnavailableError",
     "ProjectionCatalog",
     "CANONICAL_RECIPES",
     "RecipeRegistry",

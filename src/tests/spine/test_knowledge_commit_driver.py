@@ -39,6 +39,7 @@ from ultimate_memory.spine import KnowledgeCommitBusyError
 from ultimate_memory.spine import KnowledgeCompilationError
 from ultimate_memory.spine import KnowledgeControlPlane
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import KnowledgeAuthoredSynchronizer
 from ultimate_memory.workers import KnowledgeCommitDriver
 from ultimate_memory.workers import KnowledgeCommitSettings
 
@@ -787,6 +788,36 @@ def test_malformed_authored_frontmatter_aborts_before_publish(
                     " WHERE git_path = :git_path"
                 ),
                 {"git_path": invalid_path},
+            ).scalar_one()
+            == 0
+        )
+
+
+def test_authored_sync_rejects_markdown_symlink_escape(
+    graph: _CompileGraph, tmp_path: Path
+) -> None:
+    """A committed symlink cannot register content read from outside the checkout."""
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside checkout\n", encoding="utf-8")
+    (worktree / "evil.md").symlink_to(outside)
+
+    with pytest.raises(KnowledgeCompilationError, match="escapes worktree"):
+        KnowledgeAuthoredSynchronizer(control_plane=graph.control).sync_checkout(
+            deployment_id=_DEPLOYMENT_ID,
+            worktree=worktree,
+            git_revision="symlink-revision",
+        )
+
+    with graph.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM knowledge_artifacts"
+                    " WHERE deployment_id = :deployment_id AND git_path = 'evil.md'"
+                ),
+                {"deployment_id": _DEPLOYMENT_ID},
             ).scalar_one()
             == 0
         )

@@ -126,6 +126,10 @@ class KnowledgeCommitBusyError(RuntimeError):
     """Another process already owns this deployment's K commit cycle."""
 
 
+class KnowledgeDispatchUnavailableError(RuntimeError):
+    """A materialized dispatch targets a paused or retired subscription."""
+
+
 class KnowledgeControlPlane:
     """Own the deterministic Plane-K state kept in Postgres."""
 
@@ -1212,6 +1216,7 @@ class KnowledgeControlPlane:
 
     def begin_dispatch(self, *, dispatch_id: UUID) -> KnowledgeDispatchRecord:
         """Claim the domain dispatch for a running generic-worker attempt."""
+        unavailable = False
         with self._engine.begin() as connection:
             row = (
                 connection.execute(
@@ -1222,11 +1227,17 @@ class KnowledgeControlPlane:
             )
             if row is None:
                 raise KnowledgeCompilationError("knowledge dispatch does not exist")
-            if row["subscription_status"] != "active":
-                raise KnowledgeCompilationError("knowledge subscription is not active")
-            if row["status"] != KnowledgeDispatchStatus.DONE.value:
+            if (
+                row["status"] != KnowledgeDispatchStatus.DONE.value
+                and row["subscription_status"] != "active"
+            ):
+                connection.execute(
+                    _REJECT_UNAVAILABLE_DISPATCH, {"dispatch_id": dispatch_id}
+                )
+                unavailable = True
+            elif row["status"] != KnowledgeDispatchStatus.DONE.value:
                 connection.execute(_MARK_DISPATCH_RUNNING, {"dispatch_id": dispatch_id})
-            return KnowledgeDispatchRecord(
+            record = KnowledgeDispatchRecord(
                 dispatch_id=dispatch_id,
                 deployment_id=row["deployment_id"],
                 subscription_id=row["subscription_id"],
@@ -1238,6 +1249,11 @@ class KnowledgeControlPlane:
                     else KnowledgeDispatchStatus.RUNNING
                 ),
             )
+        if unavailable:
+            raise KnowledgeDispatchUnavailableError(
+                "knowledge subscription is not active"
+            )
+        return record
 
     def complete_dispatch(self, *, dispatch_id: UUID) -> None:
         """Mirror successful external delivery in the append-only dispatch ledger."""
@@ -4381,6 +4397,14 @@ _MARK_DISPATCH_RUNNING = text(
     UPDATE knowledge_dispatches
     SET status = 'running'
     WHERE dispatch_id = :dispatch_id AND status IN ('pending', 'failed', 'running')
+    """
+)
+
+_REJECT_UNAVAILABLE_DISPATCH = text(
+    """
+    UPDATE knowledge_dispatches
+    SET status = 'failed'
+    WHERE dispatch_id = :dispatch_id AND status IN ('pending', 'running', 'failed')
     """
 )
 
