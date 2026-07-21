@@ -1,7 +1,7 @@
 schema_version: 1
 id: k_hard_forget_git_history
 type: harness_judge
-description: Hard-forget reaches the K git plane — history rewrite/squash for compiled pages that ever cited forgotten evidence, backup treatment, and authored-page redaction duty.
+description: Hard-forget reaches the K git plane — cited-history erasure, durable restore/import non-resurrection, and authored-page redaction duty.
 tags: [k, ops, D46, D55]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
@@ -14,9 +14,10 @@ instructions: |
      history) that ever cited the forgotten evidence, and rewrites/squashes that history so
      the content is not recoverable from the repo — current recompilation alone is not
      enough.
-  2. K repo backups are treated: the mechanism bounds or rewrites backup copies so
-     hard-forgotten content does not survive in a restorable backup beyond the documented
-     window.
+  2. The library persists the deletion state needed to reapply K history erasure after restore
+     or import, and its restore/import path proves forgotten content cannot become queryable
+     again. Provider backup schedules, rotation, and physical expiry are operator/cloud duties
+     under D60, not an OSS worker requirement.
   3. Authored pages that cite forgotten evidence get a redaction-duty flag routed to their
      owner (the system never rewrites human words itself — but it must not silently leave
      the reference either).

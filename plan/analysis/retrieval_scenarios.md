@@ -258,7 +258,9 @@ masquerade as the other (requirements §Retrieval, D41).
   browse — resurfaces its content; and *forgotten* is indistinguishable from *never existed*
   (deletion cascade §13; K git-history erasure). **This is the contract; its CI gate is
   inactive until the end-to-end deletion cascade (`questions.md` #24 — P1/P2/P3 snapshots,
-  backups) is designed** — a retrieval contract cannot enforce an unresolved lifecycle.
+  K history, and restore non-resurrection) is designed** — a retrieval contract cannot enforce
+  an unresolved lifecycle. Physical backup retention is operator/cloud policy under D60; the
+  library must make its restore behavior safe regardless.
 
 ## O. Identity lifecycle — merges, un-merges, identity as-of
 

@@ -400,11 +400,12 @@ heal on their next rebuild — nothing to delete in a projection.
 ### 8.2 Hard-forget (GDPR) — deterministic, checklist-shaped, with verification
 
 Everything in 8.1 **plus** erasing derived text: K git-history rewrite (`git filter-repo`
-scoped by the citation index to exactly the pages that ever cited the source, plus backup
-rotation), P1 vector purge (row deletes + compaction, or rebuild), and a final verification
-sweep that the content hash appears nowhere. Authored pages that cited the forgotten source get
-**redaction flags** — the system never rewrites an author's words, even to forget; that duty is
-the author's.
+scoped by the citation index to exactly the pages that ever cited the source), P1 vector purge
+(row deletes + compaction, or rebuild), the #24 design's active P2/P3 snapshot treatment, durable
+deletion state that restore/import must reapply, and a final verification sweep that the content
+hash appears nowhere. Physical backup schedules, rotation, and expiry are operator/cloud duties
+under D60. Authored pages that cited the forgotten source get **redaction flags** — the system
+never rewrites an author's words, even to forget; that duty is the author's.
 
 ### 8.3 Eval harness + canary CI — deterministic runner, LLM judges
 

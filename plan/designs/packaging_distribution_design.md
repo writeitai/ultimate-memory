@@ -199,8 +199,10 @@ ports and published extension points, keeping it portable off GCP too.
   optional `k-driver`. Mounts publish to a local directory tree. Dev loop: `docker compose up
   postgres minio` + run api/worker from source; pure-logic work needs no containers at all
   (`adapters/testing`).
-- **Reference profile** (GCP — the production shape and what the cloud runs): Cloud Run jobs
-  + Cloud Tasks, GCS + gcsfuse, per D61's table. Terraform/config templates live in-repo.
+- **Reference adapters** (GCP — the substrate implementations the cloud consumes): Cloud Run/
+  Cloud Tasks and GCS/gcsfuse adapters ship and are contract-tested here per D61. Production
+  provisioning, Terraform, topology, scaling, HA, backups, and monitoring live in
+  `ultimate-memory-cloud`, not in this library.
 - Profile choice is configuration consumed by `profiles/`; no code path branches on "am I on
   GCP" outside adapters.
 
@@ -218,9 +220,9 @@ ports and published extension points, keeping it portable off GCP too.
   exactly its **sources of truth** — the Postgres database (dump), the raw + artifacts
   buckets (object sync), and the K git repo (clone). Projections (P1/P2/P3) are *not*
   exported: they rebuild from the spine on import by the standard cycle. `ugm export` /
-  `ugm import` wrap those three + a manifest (versions, deployment id); this doubles as the
-  cloud↔self-host migration path in both directions (no lock-in — a D60 credibility
-  requirement).
+  `ugm import` wrap those three + a manifest (versions, deployment id, and the deletion/
+  non-resurrection state selected by the #24 design); this doubles as the cloud↔self-host
+  migration path in both directions (no lock-in — a D60 credibility requirement).
 
 ## 7. Decision interactions
 
@@ -240,10 +242,11 @@ ports and published extension points, keeping it portable off GCP too.
 1. **Stack-convention slots** *(owner-provided; gate WP-0.1)*: package manager, lint/format,
    CI provider, secrets handling. The layout and import-linter contracts above are bound.
 2. **pg-queue shell parameters**: fallback-poll interval, claim batch size, token-bucket
-   granularity — measure under Phase-7 load tests.
+   granularity — measure under Phase 7's fixed portable scale profiles.
 3. **Compose quickstart UX**: measure the cold-start-to-first-query time; it is a release
    gate (target: minutes).
-4. **Export/import round-trip drill**: self-host → export → import → projections rebuild →
+4. **Export/import round-trip drill** (after #24/WP-7.5): self-host → export → import →
+   projections rebuild → deletion state reapplied → forgotten-data non-resurrection canary +
    S-battery subset green; belongs in Phase 7's drills.
 5. **MCP server distribution**: whether the MCP server also ships as a standalone binary/uvx
    target for harnesses that don't want a Python env — decide with the first external users.

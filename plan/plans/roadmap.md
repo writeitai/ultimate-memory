@@ -102,7 +102,7 @@ needs to restate it:
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | done (exit criteria met 2026-07-19; PRs #100-#104 — see the phase file) |
 | 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | done (exit criteria met 2026-07-20; PRs #105–#111 — see the phase file) |
 | 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, K1 + K2 purpose scopes | k_layers | done (exit criteria met 2026-07-21; PRs #112–#117; former WP-6.7 removed by D73) |
-| 7 | Scale + ops | backfill lanes, load tests, hub cases, budgets, DLQ drills, observability, hard-delete end-to-end | orchestration, schema §12–13 | planned |
+| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, export/import | orchestration, packaging, schema §12–13 | planned |
 | 8 | Competitive benchmarks | external benchmark harness, adapters, baselines (Mem0/Zep-class), capability benchmark, published methodology + results | D22 (internal) + `phase-8` survey | planned |
 
 Sequencing calls already argued (see the phase files for the rest): **K after retrieval**
@@ -117,14 +117,17 @@ as usual):
 | Gate | Blocks | What must be decided |
 |---|---|---|
 | stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/ultimate-memory/pull/41); §3 maps every former slot to its exact repository evidence. |
-| rename + CLA (`questions.md` §11a) | Phase 7 WP-7.7 (release), first outside PR | distinctive name + attorney clearance; CLA before external contributions |
+| rename + CLA (`questions.md` §11a) | Phase 7 WP-7.6 (release), first outside PR | `remember.dev` mechanical rename + attorney clearance; CLA before external contributions |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |
 | #5 K3 "whose beliefs" (**resolved** → D73) | former Phase 6 WP-6.7 | closed by removing the shipped K3 tier; principles and stances are authored K2 content |
-| #24 hard-delete end-to-end | Phase 7 | the cross-store forget design (P1/P2/P3 snapshots, backups) |
-| #1 corpus mix / #2 budget ceiling | Phase 7 sizing, Phase 8 cost baselines | owner-provided numbers |
-| #9 Postgres HA / #10 observability stack | Phase 7 | ops choices |
+| #24 hard-delete end-to-end | Phase 7 WP-7.5 | active-store purge + portable non-resurrection contract; provider backup operation stays outside OSS per D60 |
+
+**D60 routing (not gates):** corpus mix, real budget ceilings, Postgres HA, observability
+backends, backup schedules, fleet capacity, and vendor-topology tuning are deployment/operator or
+`ultimate-memory-cloud` concerns. The OSS uses fixed scale profiles, configurable limits, typed
+telemetry, and provider contracts; none requires owner input to begin Phase 7 or Phase 8.
 
 **Spike gates** (measure-before-lock items; each design's spike section is authoritative —
 this maps them to the phase that must run them, at entry or inside):
@@ -138,7 +141,7 @@ this maps them to the phase that must run them, at entry or inside):
 | 4 | the D44 P2 spikes (UUID PK, ATTACH throughput, merge-recursion gate, as-of path perf, retention, NULL timestamps — questions #20a); placement quality + P3 cadence (e0 §8); storage-class routing (e0 §8.6) |
 | 5 | Lance filtered search at scale, hub pagination, rerank weights, envelope overhead, hydration batching, `resolve` context ranking, the S58 protocol (retrieval §13) |
 | 6 | rule-kind coverage, planner blast-radius bands, writer completeness eval, compile economics, git-history erasure (k_layers §11) |
-| 7 | D23 partition/index load test at ungated volume; cross-cloud write-path (F9); dispatch semantics (k_layers §11.7) |
+| 7 | D23 partition/index profiles at ungated volume; provider-neutral batching under injected latency; dispatch semantics (k_layers §11.7) |
 | 8 | benchmark landscape survey (the field moves; select at execution time — phase file WP-8.1) |
 
 ## 6. Work-package format (used by every phase file)

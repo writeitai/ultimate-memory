@@ -751,8 +751,10 @@ The deletion cascade (requirements; E0 §2) reaches plane K mechanically through
 - **Hard forget (GDPR)** additionally requires erasing the *text* the evidence produced. New
   compiled bodies regenerate clean, but **git history retains prior page versions** — so the
   K repo's hard-forget mechanism is a history-erasure step (rewrite/squash of the affected
-  paths' history, e.g. `git filter-repo`, plus the same treatment for the repo's backups),
-  scoped by the citation index to exactly the pages that ever cited the forgotten source.
+  paths' history, e.g. `git filter-repo`), scoped by the citation index to exactly the pages
+  that ever cited the forgotten source. The library records enough deletion state for restore
+  to reapply the erasure; backup schedules and physical expiry belong to the operator/cloud
+  under D60.
   Authored pages that cited it are flagged for the author to redact — the system must not
   rewrite an author's words, even to forget.
 
@@ -788,8 +790,9 @@ structurally (one committer, disjoint writes, DAG order).
    E2/E3 harness (`questions.md` #14) as one eval surface.
 4. Compile-cycle economics at scale (dirty-pages distribution per debounce window; hub-page
    budgets; shared-model-page recompile blast radius).
-5. Git-history erasure mechanics for hard-forget (filter-repo on a living repo + backup
-   rotation) — coordinates with the end-to-end forget item (`questions.md` #24).
+5. Git-history erasure + restore non-resurrection mechanics for hard-forget (filter-repo on a
+   living repo; provider backup rotation remains an operator/cloud concern under D60) —
+   coordinates with the end-to-end forget item (`questions.md` #24).
 6. **Future-state extraction** for migration-style scopes (§9): decision-language →
    `Decision` entities + future-dated D41 windows, and how planned flows normalize
    (future-dated `uses`/`depends_on` relations vs Decision-mediated) — measure on a corpus

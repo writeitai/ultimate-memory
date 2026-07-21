@@ -438,8 +438,9 @@ precision per **recipe × scenario class × corpus slice**, plus contract tests 
 non-negotiable CI: grain labels present and truthful; contradiction co-members always
 returned (S23); truncation always marked (S18/S49);
 forgotten ≡ never-existed (S55 — the *contract*; its CI gate activates only when the
-end-to-end deletion cascade, `questions.md` #24, is designed — retrieval CI cannot enforce an
-unresolved lifecycle); recipe-vs-primitive-chain equivalence (§4); and S58 as the
+end-to-end active-store cascade and restore non-resurrection behavior, `questions.md` #24, are
+designed — retrieval CI cannot enforce an unresolved lifecycle); recipe-vs-primitive-chain
+equivalence (§4); and S58 as the
 skill's acceptance test. Rerank weights (graph distance, evidence count) are tuned on the
 harness, never in production.
 
@@ -470,7 +471,8 @@ implementation consequences are:
 2. **Hub pagination:** 500 neighbors fit below the battery's 64 KiB operational starting target
    at the 100,000-edge S49 hub; 1,000 did not. A snapshot-bound offset cursor walked all 100,000
    neighbors exactly once. The final machine-specific p95 was 310 ms, slightly above §10's
-   300 ms starting target, so this is not a latency proof and WP-7.3 retains load tuning. The
+   300 ms starting target, so this is not a latency proof and WP-7.2 retains portable load
+   testing. The
    10,000-row count probe limits only total-count metadata, never reachability; 64 KiB is neither
    a protocol limit nor an SLA.
 3. **Rerank weights:** retain the conventional RRF `k=60`; the small hand-labelled grid does not
@@ -485,9 +487,11 @@ implementation consequences are:
    the cap. The target is neither a protocol limit nor an SLA.
 6. **Skill + S58:** closed by WP-5.5's deployment-rendered skill and repeatable cold-agent
    acceptance harness.
-7. **Cross-cloud hydration batching:** chunk interactive by-ID confirmation at 256 ids. A narrow
+7. **Remote hydration batching:** chunk interactive by-ID confirmation at 256 ids. A narrow
    indexed entity-id proxy was measured with eight concurrent clients; it is not the production
-   claim join or a full hydration envelope, and the 25 ms network hop is an explicit model input.
+   claim join or a full hydration envelope, and the 25 ms network hop is an explicit model input,
+   not a hosted-topology commitment. WP-7.2 keeps the bounded-round-trip invariant under portable
+   injected-latency profiles; provider-specific tuning belongs outside the library (D60).
    A surface regression proves that the real confirmation path preserves order and honesty across
    batches. Backfill uses the separate batch resource class and is not governed by this cap.
 8. **`resolve` context ranking:** current relation-adjacency count raises the planted S51

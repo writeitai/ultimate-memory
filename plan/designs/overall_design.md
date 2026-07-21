@@ -218,8 +218,9 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
   `k_layers_design.md` §10).
 - **Maintenance**: Lance compaction schedule; rebuild drills; semantic linter cadence;
   predicate-registry review.
-- **Observability**: pipeline tracing/metrics; DLQ inspection; per-stage throughput and
-  spend dashboards.
+- **Observability**: typed pipeline telemetry plus CLI/admin inspection of DLQ, per-stage
+  throughput, freshness, and spend; collection backends, dashboards, and alert routing belong to
+  the deployment operator/cloud (D60).
 
 ## 9. Per-layer designs (this directory)
 

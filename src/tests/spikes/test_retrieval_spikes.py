@@ -72,7 +72,7 @@ _DEPLOYMENT_ID = UUID("56000000-0000-0000-0000-000000000001")
 _VECTOR_DIMENSION = 8
 _HUB_PAGE_BUDGET_BYTES = 64 * 1024
 _ENVELOPE_INLINE_BUDGET_BYTES = 16 * 1024
-_MODELED_CROSS_CLOUD_RTT_MS = 25.0
+_MODELED_REMOTE_RTT_MS = 25.0
 _HYDRATION_CONCURRENT_CLIENTS = 8
 _HYDRATION_SAMPLES = 40
 
@@ -699,7 +699,7 @@ def _hydration_batching(*, engine: Engine) -> RetrievalSpikeMeasurement:
             )
         )
         modeled_total[str(batch_size)] = (
-            server_p95[str(batch_size)] + _MODELED_CROSS_CLOUD_RTT_MS
+            server_p95[str(batch_size)] + _MODELED_REMOTE_RTT_MS
         )
     observed_under_budget = tuple(
         batch_size
@@ -715,7 +715,7 @@ def _hydration_batching(*, engine: Engine) -> RetrievalSpikeMeasurement:
         metrics={
             "server_p95_ms_by_batch_at_8_clients": server_p95,
             "modeled_total_ms_by_batch": modeled_total,
-            "modeled_fixed_rtt_ms": _MODELED_CROSS_CLOUD_RTT_MS,
+            "modeled_fixed_rtt_ms": _MODELED_REMOTE_RTT_MS,
             "all_batches_returned_all_ids": all(complete.values()),
         },
         selected={
@@ -723,10 +723,10 @@ def _hydration_batching(*, engine: Engine) -> RetrievalSpikeMeasurement:
             "largest_observed_batch_under_300_ms": largest_observed_under_budget,
         },
         limitations=(
-            "Postgres execution is measured locally; 25 ms cross-cloud RTT is an explicit model input, not a measurement.",
+            "Postgres execution is measured locally; 25 ms remote RTT is an explicit model input, not a measurement.",
             "The 300 ms budget is the retrieval §10 starting point, not an SLA or CI timing gate.",
             "The measured operation is a narrow indexed entity-id proxy, not the production claim join or a full hydration envelope.",
-            "The interactive battery compares batches through 256 ids; larger backfill batches belong to WP-7.3 load tuning.",
+            "The interactive battery compares batches through 256 ids; larger backfill batches belong to WP-7.2 portable load testing.",
         ),
         passed=(
             all(complete.values())

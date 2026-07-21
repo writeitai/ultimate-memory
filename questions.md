@@ -16,10 +16,14 @@ Keep this current: when something here is decided, move it to a decision and pru
 ## 1. Open decisions (undecided — answers shape the design)
 
 **Scale & cost**
-1. **Document mix & arrival rate** — one-time backfill of millions vs. thousands/day steady state?
-   Drives worker sizing, rate limits, and the R9/D23 scale numbers (currently modeled, not measured).
-2. **Monthly LLM/embedding budget ceiling** — the cheap-first cascades (D4, D17) and extraction
-   spend should be tuned against a real number.
+1. ~~**Document mix & arrival rate**~~ **ROUTED OUT OF OSS DESIGN (D60).** Corpus shape and
+   arrival rate are deployment capacity inputs, not library architecture. Phase 7 uses fixed,
+   reproducible synthetic profiles to test the D23 scale shape; the cloud/operator sizes real
+   workers and rate limits from its own workload.
+2. ~~**Monthly LLM/embedding budget ceiling**~~ **ROUTED OUT OF OSS DESIGN (D60).** The library
+   ships metering and configurable budget parking; a real monetary ceiling is deployment policy.
+   Tests use explicit fixture limits, and benchmark runs report observed cost without requiring
+   an owner budget first.
 3. ~~**Embedding model + dimension**~~ **RESOLVED (D63)** — the embedder is per-deployment
    port configuration (D61); shipped default `qwen/qwen3-embedding-8b` via the OpenRouter
    adapter (self-hosted open weights = second adapter). Conventional model → the E1
@@ -37,25 +41,29 @@ Keep this current: when something here is decided, move it to a decision and pru
    or organizational principles are authored pages in a K2 purpose scope; compiled K2 pages may
    provide cited support or suggestions but never promote a stance automatically. E3 remains the
    system's current fact state. No numeric stance score is inferred.
-6. **K1/K2 freshness window** — the debounce cadence (minutes? hours? daily?) for the compile
-   driver's cycle (D45); tied to the compile-cycle economics spike (`k_layers_design.md` §11).
+6. **K1/K2 freshness window — measurement/configuration, not an owner gate.** The compile-cycle
+   economics spike (`k_layers_design.md` §11) selects a shipped starting value; deployments may
+   configure it. No hosted workload forecast blocks the library.
 
 **Operations**
 7. **PageIndex: hosted API or self-hosted? — resolved (D71): neither.** The structurer is a
    port-configured LLM seat inside the library; the deterministic snap guards its output.
    "PageIndex" names the output shape, not a dependency.
-8. **Security / access model — trust model decided; only deployment ops remain.** Decided
+8. **Security / access model — trust model decided; deployment ops routed out of OSS design.** Decided
    (D50/D51): **content-level authorization and per-user scoping are library non-goals** — a
    deployment is one trust domain; isolation = separate deployments; perimeter security is
-   deployment infrastructure; the raw mount requires data-access audit logging. Remaining
-   (ops, not design): per-deployment IAM layout and key management, API perimeter auth
-   mechanics (keys/OAuth vs. trusted-infra), audit-log review cadence.
-9. **Postgres HA appetite** — single Hetzner box + PITR, or a replica? Acceptable spine downtime?
-10. **Observability stack** — OpenTelemetry + Grafana vs. GCP-native; decide before the first worker.
-11. **Backfill / reprocessing orchestration.** E0 artifacts and extraction are version-stamped
-    (`converter_version`, `structurer_version`, extractor version) and embeddings can migrate
-    (overall §6) — but there is no explicit plan for *how* a version bump reprocesses: version-filter
-    queries, queue shape + throttling, partial-rebuild ordering, and rollback.
+   deployment infrastructure; the raw mount requires data-access audit logging. IAM layout, key
+   management, hosted perimeter mechanics, and audit-review cadence belong to the operator/cloud.
+9. ~~**Postgres HA appetite**~~ **ROUTED OUT OF OSS DESIGN (D60).** Replicas, failover, acceptable
+   downtime, and PITR operation belong to the deployment operator/cloud. The library owns schema,
+   migrations, portable export, and restore-safe correctness contracts.
+10. ~~**Observability stack**~~ **RESOLVED AT THE LIBRARY BOUNDARY (D60/D61).** OSS emits typed
+    telemetry through the telemetry port and exposes durable state through agent/admin surfaces.
+    Grafana, GCP-native monitoring, retention, alert routing, and dashboards are operator/cloud
+    choices.
+11. ~~**Backfill / reprocessing orchestration design**~~ **RESOLVED (D52/D67;
+    `orchestration_design.md` §2–§4).** Phase 7 WP-7.1 implements the existing version-filtered
+    seeder, separate lane, throttling, resumability, and rollback/replay semantics.
 11a. **OSS governance & release readiness (D60/D61).** Must be settled before outside
     contributions / public release. Conclusions so far (2026-07-08 comparables + name check; full
     detail in the cloud repo's split analysis, `04_licensing_naming_findings.md`):
@@ -138,8 +146,9 @@ Keep this current: when something here is decided, move it to a decision and pru
     is **resolved by D63** (conventional default → the prefix stage exists; #3).
 19. **P1 search indexes.** Referenced everywhere, never a dedicated design (what's embedded, index
     params, FTS config, inline-write vs. rebuild path).
-20. **Cost / metering.** A stated requirement with no design (per-layer/per-deployment spend tracking
-    + budget enforcement). Ties to #2.
+20. ~~**Cost / metering design**~~ **RESOLVED (`orchestration_design.md` §4; schema §2).** Phase 7
+    implements per-stage/lane accounting and configurable park-never-drop enforcement. A hosted
+    spend dashboard and real currency ceiling are deliberately outside the OSS design (D60).
 20a. **P2 projection (LadybugDB) — spikes: RUN, all six recorded (WP-4.1, `plan/analysis/p2_spike_battery.md`).** Headlines: UUID PK confirmed; ATTACH-direct is dead on capability grounds (the scanner cannot attach enum-bearing schemas — Parquet transport confirmed); inline as-of predicates bind parameters and compose with SHORTEST (30-hop cap recorded); NULL timestamps safe; D69 retention stands. Original charge (D44,
     `plan/analysis/ladybug_translation_research/SYNTHESIS.md` §6).** The translation is designed (the
     `v_graph_*` views, §10.A), but verify on the deployed engine: (a) **UUID-as-node-PK** smoke test
@@ -169,8 +178,11 @@ Keep this current: when something here is decided, move it to a decision and pru
     **K side is now mechanical** (D45/D46: citation reverse-lookup → compiled pages recompile
     without the evidence, authored pages get author-redaction flags; residual: **K-repo
     git-history erasure**, named in `k_layers_design.md` §10). Still open: reaching the immutable
-    **P2/P3 snapshots**, the **P1/Lance** indexes, **PITR/backups**, and coordinating the whole
-    cascade. Requirement is "every derived layer" (requirements §Deletion cascade).
+    **P2/P3 snapshots**, the **P1/Lance** indexes, coordinating the active-store cascade, and a
+    portable purge record that prevents restore from resurrecting forgotten data. The library
+    owns that contract and its adapter hooks; physical backup schedules/expiry are operator/cloud
+    responsibilities (D60). Requirement remains "every derived layer" (requirements §Deletion
+    cascade).
 
 ## 5. Concrete inconsistencies to fix
 
@@ -228,4 +240,5 @@ Keep this current: when something here is decided, move it to a decision and pru
   (`registries_design.md` §1): separate deployments = separate Postgres instances + entity spaces.
 - **Raw/artifact deletion** (was "hard-delete requirements") → **E0 §2** (deletes raw + artifacts +
   Postgres rows + K tombstone). *Not* fully resolved — the end-to-end cascade across P1/P2/P3
-  snapshots, backups, and K markdown is still open (#24 / O4).
+  snapshots and K markdown plus restore non-resurrection is still open (#24 / O4). Physical
+  backup scheduling/expiry is operator/cloud scope under D60.
