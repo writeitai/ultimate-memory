@@ -257,6 +257,34 @@ class LanceChunkIndex:
                 table=table, key=key, deployment_id=deployment_id, ids=ids
             )
 
+    def verify_rows_purged(
+        self,
+        *,
+        deployment_id: UUID,
+        chunk_ids: tuple[UUID, ...],
+        claim_ids: tuple[UUID, ...],
+        fact_ids: tuple[UUID, ...],
+        entity_ids: tuple[UUID, ...],
+    ) -> None:
+        """Prove no nominated UUID remains in its deployment-scoped P1 table."""
+        remaining: dict[str, int] = {}
+        for table, key, ids in (
+            (_CHUNK_TABLE, "chunk_id", chunk_ids),
+            (_CLAIM_TABLE, "claim_id", claim_ids),
+            (_FACT_TABLE, "fact_id", fact_ids),
+            (_ENTITY_TABLE, "entity_id", entity_ids),
+        ):
+            if not ids or table not in self._connection.table_names():
+                continue
+            rendered_ids = ", ".join(f"'{item}'" for item in ids)
+            count = self._connection.open_table(table).count_rows(
+                f"deployment_id = '{deployment_id}' AND {key} IN ({rendered_ids})"
+            )
+            if count:
+                remaining[table] = count
+        if remaining:
+            raise RuntimeError(f"P1 purge verification found rows: {remaining!r}")
+
     def table_count(self, *, table: str) -> int:
         """Total rows in one P1 table (0 before its first write)."""
         if table not in self._connection.table_names():

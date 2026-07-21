@@ -407,6 +407,16 @@ def cascade_lineage_removal(
 ) -> ReconciliationDelta:
     """The uniform lineage-removal cascade (§8): currency → recount → close."""
     transitions = catalog.stale_for_deletion(deployment_id=deployment_id, doc_id=doc_id)
+    recorded = catalog.recorded_transitions(reconciliation_id=reconciliation_id)
+    seen = {(item.claim_id, item.reason, item.became_current) for item in transitions}
+    transitions = (
+        *transitions,
+        *(
+            item
+            for item in recorded
+            if (item.claim_id, item.reason, item.became_current) not in seen
+        ),
+    )
     return _cascade(
         catalog=catalog,
         deployment_id=deployment_id,

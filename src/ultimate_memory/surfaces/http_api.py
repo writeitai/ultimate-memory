@@ -35,6 +35,7 @@ from ultimate_memory.model import ConnectorDescriptor
 from ultimate_memory.model import ConnectorNotFoundError
 from ultimate_memory.model import DocumentUpload
 from ultimate_memory.model import Envelope
+from ultimate_memory.model import ForgetInProgressError
 from ultimate_memory.model import IngestedVersion
 from ultimate_memory.model import PerimeterCredential
 from ultimate_memory.model import ToolDescriptor
@@ -86,10 +87,28 @@ class ConnectorManagementPort(Protocol):
     ) -> ConnectorDescriptor: ...
 
 
+class AdmissionPort(Protocol):
+    """The deployment-wide fail-closed check applied before public traffic."""
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        """Raise ``ForgetInProgressError`` while D74 admission is closed."""
+        ...
+
+
+class ReadinessPort(Protocol):
+    """The mandatory restore replay completed before an API begins serving."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        """Re-honor every portable forget manifest or raise fail-closed."""
+        ...
+
+
 def build_api(
     *,
     engine: QueryEngine,
     deployment_id: UUID,
+    admission: AdmissionPort,
+    readiness: ReadinessPort,
     surface: RecipeSurface | None = None,
     auth: AuthPerimeterPort | None = None,
     ingest: IngestPort | None = None,
@@ -107,11 +126,15 @@ def build_api(
             "the recipe surface and the API serve different deployments —"
             " one deployment is one trust domain (D50)"
         )
-    dependencies = (
-        [Depends(_perimeter(auth=auth, deployment_id=deployment_id))]
-        if auth is not None
-        else []
-    )
+    readiness.ensure_ready(deployment_id=deployment_id)
+    dependencies = [
+        *(
+            [Depends(_perimeter(auth=auth, deployment_id=deployment_id))]
+            if auth is not None
+            else []
+        ),
+        Depends(_admission(admission=admission, deployment_id=deployment_id)),
+    ]
     app = FastAPI(
         title="ultimate-memory query API",
         docs_url=None,
@@ -335,5 +358,20 @@ def _perimeter(*, auth: AuthPerimeterPort, deployment_id: UUID):  # noqa: ANN202
                 status_code=403, detail="credential is for another deployment"
             )
         return context
+
+    return dependency
+
+
+def _admission(*, admission: AdmissionPort, deployment_id: UUID):  # noqa: ANN202
+    """Return the deployment-wide D74 traffic dependency."""
+
+    def dependency() -> None:
+        """Map a closed fail-safe barrier to one stable HTTP negative."""
+        try:
+            admission.assert_available(deployment_id=deployment_id)
+        except ForgetInProgressError as error:
+            raise HTTPException(
+                status_code=503, detail={"code": "forget_in_progress"}
+            ) from error
 
     return dependency

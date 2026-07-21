@@ -37,6 +37,11 @@ _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("46000000-0000-0000-0000-000000000001")
 
 
+class _OpenAdmission:
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        return None
+
+
 @pytest.fixture(scope="module")
 def database_engine() -> Iterator[Engine]:
     """Apply structural head and expose the accepted PostgreSQL engine."""
@@ -91,7 +96,10 @@ def test_the_corpus_view_serves_only_published_snapshots(
     catalog = ProjectionCatalog(engine=deployment)
     corpusfs_store = LocalFSObjectStore(root=tmp_path / "corpusfs")
     publisher = LocalMountPublisher(
-        root=tmp_path / "mounts", catalog=catalog, corpusfs_store=corpusfs_store
+        root=tmp_path / "mounts",
+        catalog=catalog,
+        corpusfs_store=corpusfs_store,
+        admission=_OpenAdmission(),
     )
     before = publisher.publish(deployment_id=_DEPLOYMENT_ID)
     corpus = Path(before.p3)
@@ -115,7 +123,10 @@ def test_the_mount_swaps_whole_trees(deployment: Engine, tmp_path: Path) -> None
     corpusfs_store = LocalFSObjectStore(root=tmp_path / "corpusfs")
     builder = CorpusFsBuilder(catalog=catalog, snapshot_store=corpusfs_store)
     publisher = LocalMountPublisher(
-        root=tmp_path / "mounts", catalog=catalog, corpusfs_store=corpusfs_store
+        root=tmp_path / "mounts",
+        catalog=catalog,
+        corpusfs_store=corpusfs_store,
+        admission=_OpenAdmission(),
     )
     builder.build(deployment_id=_DEPLOYMENT_ID)
     first = publisher.publish(deployment_id=_DEPLOYMENT_ID)
@@ -152,7 +163,10 @@ def test_raw_is_off_the_navigation_path(deployment: Engine, tmp_path: Path) -> N
         deployment_id=_DEPLOYMENT_ID
     )
     mounts = LocalMountPublisher(
-        root=tmp_path / "mounts", catalog=catalog, corpusfs_store=corpusfs_store
+        root=tmp_path / "mounts",
+        catalog=catalog,
+        corpusfs_store=corpusfs_store,
+        admission=_OpenAdmission(),
     ).publish(deployment_id=_DEPLOYMENT_ID)
     browsable = [
         path.read_text(encoding="utf-8") for path in Path(mounts.p3).rglob("*.md")
@@ -223,6 +237,7 @@ def test_views_point_at_the_real_stores(deployment: Engine, tmp_path: Path) -> N
         corpusfs_store=LocalFSObjectStore(root=tmp_path / "corpusfs"),
         artifacts_root=artifacts,
         raw_root=raw,
+        admission=_OpenAdmission(),
     ).publish(deployment_id=_DEPLOYMENT_ID)
     assert (Path(mounts.artifacts) / "doc" / "document.md").read_bytes() == b"# Body"
     assert (Path(mounts.raw) / "doc" / "original.pdf").exists()

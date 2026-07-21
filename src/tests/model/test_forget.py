@@ -53,6 +53,8 @@ def test_manifest_is_content_free_frozen_and_exactly_versioned() -> None:
         "content_hashes",
         "chunk_ids",
         "claim_ids",
+        "mention_ids",
+        "resolved_entity_ids",
         "fact_ids",
         "entity_ids",
         "object_keys",
@@ -98,6 +100,9 @@ def test_manifest_record_and_redaction_failure_preserve_exact_progress() -> None
     """Keep coarse lifecycle state and blocking K paths typed at the boundary."""
     manifest = _manifest()
     record = ForgetManifestRecord(
+        forget_id=manifest.forget_id,
+        deployment_id=manifest.deployment_id,
+        doc_id=manifest.doc_id,
         manifest=manifest,
         manifest_hash=manifest.sha256(),
         status=ForgetManifestStatus.ACCEPTED,

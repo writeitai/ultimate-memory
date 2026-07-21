@@ -1,6 +1,7 @@
 """Proofs for the local-FS object store and local mount publisher (WP-0.4a)."""
 
 from pathlib import Path
+from uuid import UUID
 from uuid import uuid4
 
 import pytest
@@ -12,6 +13,11 @@ from ultimate_memory.adapters.selfhost import ObjectKeyEscapesRootError
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.ports.mounts import MountPublisherPort
 from ultimate_memory.ports.object_store import ObjectStorePort
+
+
+class _OpenAdmission:
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        return None
 
 
 def test_object_store_round_trip_and_immutability(tmp_path: Path) -> None:
@@ -36,7 +42,9 @@ def test_object_store_refuses_keys_that_escape_the_root(tmp_path: Path) -> None:
 
 def test_mount_publisher_creates_the_four_views(tmp_path: Path) -> None:
     """Publishing yields exactly the P3, artifacts, raw, and knowledge views."""
-    publisher: MountPublisherPort = LocalMountPublisher(root=tmp_path / "mounts")
+    publisher: MountPublisherPort = LocalMountPublisher(
+        root=tmp_path / "mounts", admission=_OpenAdmission()
+    )
     assert isinstance(publisher, MountPublisherPort)
     deployment_id = uuid4()
 

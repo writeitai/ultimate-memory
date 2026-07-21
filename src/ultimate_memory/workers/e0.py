@@ -20,6 +20,7 @@ import hashlib
 import json
 from pathlib import PurePosixPath
 from typing import Final
+from typing import Protocol
 from uuid import NAMESPACE_URL
 from uuid import UUID
 from uuid import uuid4
@@ -72,6 +73,21 @@ UPLOAD_SOURCE_KIND: Final = "upload"
 """The one-shot upload connector's source kind (D55 lineage identity)."""
 
 
+class IngestAdmission(Protocol):
+    """The one D74 check required before an ingest writes any bytes."""
+
+    def guard_ingest(
+        self,
+        *,
+        deployment_id: UUID,
+        source_kind: str,
+        source_ref: str,
+        content_hash: str,
+    ) -> None:
+        """Raise when admission is closed or the identity was forgotten."""
+        ...
+
+
 class UploadIngestor:
     """The upload connector's ingest: bytes to the raw store, rows + work to the spine.
 
@@ -81,10 +97,17 @@ class UploadIngestor:
     the raw object be written before any row exists.
     """
 
-    def __init__(self, *, catalog: DocumentCatalog, raw_store: ObjectStorePort) -> None:
+    def __init__(
+        self,
+        *,
+        catalog: DocumentCatalog,
+        raw_store: ObjectStorePort,
+        admission: IngestAdmission,
+    ) -> None:
         """Bind the connector to the catalog and the deployment's raw bucket."""
         self._catalog = catalog
         self._raw_store = raw_store
+        self._admission = admission
 
     def ingest(
         self,
@@ -95,6 +118,12 @@ class UploadIngestor:
     ) -> IngestedVersion:
         """Ingest one uploaded file and enqueue its convert work."""
         content_hash = hashlib.sha256(upload.content).hexdigest()
+        self._guard_ingest(
+            deployment_id=deployment_id,
+            source_kind=UPLOAD_SOURCE_KIND,
+            source_ref=content_hash,
+            content_hash=content_hash,
+        )
         doc_id = uuid5(NAMESPACE_URL, f"ugm:upload:{deployment_id}:{content_hash}")
         suffix = PurePosixPath(upload.filename).suffix
         raw_uri = f"{doc_id}/{content_hash}/original{suffix}"
@@ -146,6 +175,12 @@ class UploadIngestor:
         are the content-hash no-op.
         """
         content_hash = hashlib.sha256(upload.content).hexdigest()
+        self._guard_ingest(
+            deployment_id=deployment_id,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            content_hash=content_hash,
+        )
         doc_id = uuid5(NAMESPACE_URL, f"ugm:{source_kind}:{deployment_id}:{source_ref}")
         suffix = PurePosixPath(upload.filename).suffix
         raw_uri = f"{doc_id}/{content_hash}/original{suffix}"
@@ -178,6 +213,22 @@ class UploadIngestor:
             ),
             convert_component_version=E0_CONVERT_VERSION,
             lane=lane,
+        )
+
+    def _guard_ingest(
+        self,
+        *,
+        deployment_id: UUID,
+        source_kind: str,
+        source_ref: str,
+        content_hash: str,
+    ) -> None:
+        """Check D74 before writing forgotten bytes back into the raw store."""
+        self._admission.guard_ingest(
+            deployment_id=deployment_id,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            content_hash=content_hash,
         )
 
 

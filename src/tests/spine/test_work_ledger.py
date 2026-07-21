@@ -19,10 +19,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from ultimate_memory.adapters.testing import RecordingTaskQueue
+from ultimate_memory.core import source_identity_hash
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import CostBudget
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import EnqueueWork
+from ultimate_memory.model import ForgetInProgressError
+from ultimate_memory.model import ForgottenSourceError
 from ultimate_memory.model import LaneRouteError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
@@ -33,6 +36,7 @@ from ultimate_memory.model import UnknownStageHandlerError
 from ultimate_memory.model import WorkNotRunningError
 from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.spine import DeploymentBootstrapper
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
@@ -568,3 +572,107 @@ def test_scheduled_retry_is_announced_through_the_queue_port(
     (announcement,) = recorder.announcements
     assert announcement.processing_id == enqueued.processing_id
     assert announcement.route_snapshot.stage is PipelineStage.EXTRACT_CLAIMS
+
+
+def test_active_forget_blocks_ordinary_claims_but_authorizes_its_worker(
+    ledger: WorkLedger, database_engine: Engine
+) -> None:
+    """Apply the D74 barrier without deadlocking the unlaned coordinator."""
+    ordinary = ledger.enqueue(work=_work())
+    forget_id = uuid4()
+    hard_forget = ledger.enqueue(
+        work=EnqueueWork(
+            deployment_id=_DEPLOYMENT_ID,
+            target_kind=ProcessingTarget.DOCUMENT,
+            target_id=uuid4(),
+            stage=PipelineStage.HARD_FORGET,
+            component_version="hard-forget-v1",
+            content_hash="a" * 64,
+            lane=None,
+        )
+    )
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO forget_manifests (
+                    forget_id, deployment_id, doc_id, schema_version, status
+                ) VALUES (:forget_id, :deployment_id, :doc_id, 1, 'preparing')
+                """
+            ),
+            {
+                "forget_id": forget_id,
+                "deployment_id": _DEPLOYMENT_ID,
+                "doc_id": uuid4(),
+            },
+        )
+
+    with pytest.raises(ForgetInProgressError):
+        ledger.claim_one(
+            deployment_id=_DEPLOYMENT_ID,
+            stage=PipelineStage.EXTRACT_CLAIMS,
+            lane=ProcessingLane.STEADY,
+        )
+    claimed = ledger.claim_one(
+        deployment_id=_DEPLOYMENT_ID, stage=PipelineStage.HARD_FORGET, lane=None
+    )
+
+    assert ordinary.created is True
+    assert isinstance(claimed, ClaimedWork)
+    assert claimed.processing_id == hard_forget.processing_id
+
+
+def test_completed_manifest_is_an_irreversible_exact_ingest_guard(
+    database_engine: Engine,
+) -> None:
+    """Reject both source identity and raw hash while admitting unrelated input."""
+    forgotten_content_hash = "b" * 64
+    forgotten_identity_hash = source_identity_hash(
+        deployment_id=_DEPLOYMENT_ID, source_kind="drive", source_ref="file-1"
+    )
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO forget_manifests (
+                    forget_id, deployment_id, doc_id, schema_version,
+                    manifest_hash, manifest, source_identity_hash, content_hashes,
+                    status, accepted_at, completed_at
+                ) VALUES (
+                    :forget_id, :deployment_id, :doc_id, 1,
+                    :manifest_hash, '{}'::jsonb, :source_identity_hash,
+                    ARRAY[:content_hash], 'complete', now(), now()
+                )
+                """
+            ),
+            {
+                "forget_id": uuid4(),
+                "deployment_id": _DEPLOYMENT_ID,
+                "doc_id": uuid4(),
+                "manifest_hash": "a" * 64,
+                "source_identity_hash": forgotten_identity_hash,
+                "content_hash": forgotten_content_hash,
+            },
+        )
+    catalog = ForgetCatalog(engine=database_engine)
+
+    with pytest.raises(ForgottenSourceError):
+        catalog.guard_ingest(
+            deployment_id=_DEPLOYMENT_ID,
+            source_kind="drive",
+            source_ref="file-1",
+            content_hash="c" * 64,
+        )
+    with pytest.raises(ForgottenSourceError):
+        catalog.guard_ingest(
+            deployment_id=_DEPLOYMENT_ID,
+            source_kind="drive",
+            source_ref="different-file",
+            content_hash=forgotten_content_hash,
+        )
+    catalog.guard_ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        source_kind="drive",
+        source_ref="different-file",
+        content_hash="c" * 64,
+    )

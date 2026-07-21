@@ -17,6 +17,7 @@ from ultimate_memory.spine.extension_packs import install_pack
 from ultimate_memory.spine.extension_packs import PackAnchorError
 from ultimate_memory.spine.extension_packs import PackConflictError
 from ultimate_memory.spine.fact_catalog import FactCatalog
+from ultimate_memory.spine.forget import ForgetCatalog
 from ultimate_memory.spine.knowledge import KnowledgeCommitBusyError
 from ultimate_memory.spine.knowledge import KnowledgeCompilationError
 from ultimate_memory.spine.knowledge import KnowledgeCompileContextMissingError
@@ -62,6 +63,7 @@ __all__ = (
     "SupersessionSettings",
     "SyncCatalog",
     "FactCatalog",
+    "ForgetCatalog",
     "OBSERVATION_ADJUDICATOR_VERSION",
     "ObservationAdjudicator",
     "ObservationSettings",

@@ -34,6 +34,7 @@ import os
 from pathlib import Path
 import shutil
 from typing import Final
+from typing import Protocol
 from uuid import UUID
 from uuid import uuid4
 
@@ -54,6 +55,14 @@ class RawAccessDenied(Exception):
     """An unattributed raw read was refused (originals are audited)."""
 
 
+class MountAdmission(Protocol):
+    """The composition-owned barrier checked before publishing serving paths."""
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        """Raise while D74 keeps the deployment fail-closed."""
+        ...
+
+
 class LocalMountPublisher:
     """Publish the P3, artifact, raw, and Plane-K views as local trees."""
 
@@ -66,6 +75,7 @@ class LocalMountPublisher:
         artifacts_root: Path | None = None,
         raw_root: Path | None = None,
         knowledge_root: Path | None = None,
+        admission: MountAdmission,
     ) -> None:
         """Bind the publisher to its mount root, the P3 source, and the stores.
 
@@ -80,9 +90,11 @@ class LocalMountPublisher:
         self._artifacts_root = artifacts_root
         self._raw_root = raw_root
         self._knowledge_root = knowledge_root
+        self._admission = admission
 
     def publish(self, *, deployment_id: UUID) -> PublishedMounts:
         """Publish and return the exact four read-only deployment views."""
+        self._admission.assert_available(deployment_id=deployment_id)
         base = self._root / str(deployment_id)
         base.mkdir(parents=True, exist_ok=True)
         corpus = base / "p3"

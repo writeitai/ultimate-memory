@@ -31,6 +31,7 @@ from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import SyntheticRootRecord
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import SyncCatalog
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
@@ -97,7 +98,11 @@ class _WatchRig:
         self.catalog = catalog
         self.runner = SyncCycleRunner(
             catalog=SyncCatalog(engine=engine),
-            ingestor=UploadIngestor(catalog=catalog, raw_store=raw_store),
+            ingestor=UploadIngestor(
+                catalog=catalog,
+                raw_store=raw_store,
+                admission=ForgetCatalog(engine=engine),
+            ),
             settings=SyncSettings(debounce_quiet_seconds=0.0),
         )
         registry = HandlerRegistry()

@@ -7,6 +7,7 @@ against the live spine (D48), every answer carrying the D49 envelope.
 
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import Mock
 from uuid import UUID
 from uuid import uuid4
 
@@ -41,6 +42,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import ObservationAdjudicator
 from ultimate_memory.spine import ObservationSettings
 from ultimate_memory.spine import RESOLVER_VERSION
@@ -195,7 +197,11 @@ class _ApiRig:
                 retry_backoff_base_s=0.0, retry_backoff_max_s=0.0
             ),
         )
-        self.ingestor = UploadIngestor(catalog=document_catalog, raw_store=raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=document_catalog,
+            raw_store=raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         generation = chunker_version(params=_PARAMS)
         registry = HandlerRegistry()
         registry.register(
@@ -309,6 +315,8 @@ class _ApiRig:
                     embedding_model=P1Settings().embedding_model,
                 ),
                 deployment_id=_DEPLOYMENT_ID,
+                admission=Mock(),
+                readiness=Mock(),
                 ingest=self.ingestor,
             )
         )

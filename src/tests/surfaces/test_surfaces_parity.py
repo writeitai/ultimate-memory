@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import cast
+from unittest.mock import Mock
 from uuid import UUID
 from uuid import uuid4
 
@@ -157,7 +158,11 @@ class _Deployment:
         )
         self.mcp = RecipeMcpServer(surface=self.surface)
         self.app = build_api(
-            engine=query_engine, deployment_id=_DEPLOYMENT_ID, surface=self.surface
+            engine=query_engine,
+            deployment_id=_DEPLOYMENT_ID,
+            admission=Mock(),
+            readiness=Mock(),
+            surface=self.surface,
         )
         self.client = TestClient(self.app)
 
@@ -282,6 +287,8 @@ def test_the_auth_perimeter_gates_every_endpoint(deployment: _Deployment) -> Non
             embedding_model="toy",
         ),
         deployment_id=_DEPLOYMENT_ID,
+        admission=Mock(),
+        readiness=Mock(),
         surface=deployment.surface,
         auth=_FakeAuth(),
     )
@@ -350,6 +357,8 @@ def test_the_api_and_surface_must_serve_one_deployment(deployment: _Deployment) 
                 embedding_model="toy",
             ),
             deployment_id=_DEPLOYMENT_ID,
+            admission=Mock(),
+            readiness=Mock(),
             surface=mismatched,
         )
 

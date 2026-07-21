@@ -157,7 +157,11 @@ table or deletion-specific scheduler is added.
    the lineage. Shared facts and entities survive only when independently supported; exclusive
    observations are removed/scrubbed and exclusive entities remain non-readable retired handles
    with their names/aliases/profile text cleared. The content-free forget row, IDs, hashes, currency
-   transition facts, and aggregate counts may remain.
+   transition facts, and aggregate counts may remain. Entity-resolution audit payloads associated
+   with any entity resolved from the lineage are content-cleared while their IDs and structural
+   edges remain. The generic-identifier cache, planner audit transcripts, and legacy eval/golden
+   fixtures have no reliable lineage provenance, so a rare forget conservatively clears those
+   deployment-wide rather than guessing; they are derived/control/test data and can be rebuilt.
 3. **Raw and artifact objects.** `ObjectPurgePort` deletes every manifest raw, artifact, asset, and
    transcript key/prefix. A deduplicated content object is deleted only when no other live lineage
    references it; otherwise the other lineage remains the lawful owner of that identical byte
@@ -175,12 +179,19 @@ table or deletion-specific scheduler is added.
    of an affected path rather than risking residual source text. Authored/curation preflight makes
    this mechanical; the library never rewrites their prose. Archived writer/planner transcripts in
    the manifest are object-store payloads and were deleted in stage 3.
+
+   The v1 PostgreSQL citation table represents current bindings and cannot prove that a page never
+   cited the lineage in older Git history. Rather than add a second historical-citation ledger,
+   hard-forget conservatively nominates every registered K artifact and archived K transcript in
+   the deployment. Sanitized current files are re-added unchanged, but their prior path history is
+   discarded. This is an intentional correctness-first cost of the rare irreversible operation.
 7. **Verify and reopen.** Production verification proves every manifest ID, hash, key/prefix, old
    projection version, P1 row, and forbidden K reference is absent from its declared active store;
-   PostgreSQL has no remaining source-bearing payload owned only by the lineage; and public lookup
-   by the forgotten IDs returns the ordinary never-existed negative. The planted unique token and
-   five-channel envelope equality are test-fixture assertions, not production inputs. Only then is
-   the manifest marked complete and the deployment barrier opened.
+   PostgreSQL has no remaining nominated source-bearing payload. Those mechanical store checks make
+   public lookup by the forgotten IDs return the ordinary never-existed negative; the handler does
+   not self-call a serving surface as a second verifier. The planted unique token and five-channel
+   envelope equality are test-fixture assertions, not production inputs. Only then is the manifest
+   marked complete and the deployment barrier opened.
 
 If any adapter throws or verification fails, the original exception remains visible, the work row
 retries/dead-letters normally, and the barrier remains closed. There is no partial-success response.
@@ -227,12 +238,17 @@ store without this replay gate.
   redaction a prerequisite instead of leaving a half-complete operation.
 - No claim that immutable projections purge "for free." A clean rebuild changes the pointer;
   explicit deletion removes the old bytes and local serving copies.
+- No second K citation-history ledger solely for erasure. V1 conservatively rewrites registered K
+  paths because current citation bindings cannot establish historical non-citation.
 
 ## 7. WP-7.5 acceptance
 
-The deterministic test plants a unique token in one lineage and independently supported control
-facts, exercises every retrieval channel, creates P1 rows, multiple P2/P3 snapshots, compiled and
-authored K citations, object artifacts, and archived transcripts, then:
+The deterministic S55 gate is intentionally compositional rather than one monolithic fixture: a
+real-PostgreSQL catalog canary proves inventory/scrub/residual SQL, a real self-host canary proves
+filesystem/Lance/projection/Git purge and independent restore re-honor, and a small coordinator
+canary proves ordering, fail-closed behavior, and never-existed envelope equality. They share the
+same typed manifest and handler contracts. This keeps each failure attributable while together
+planting a unique token in one lineage and independently supported control facts and proving:
 
 1. proves authored/curation preflight blocks before acceptance;
 2. redacts those owner-controlled files and completes hard-forget;

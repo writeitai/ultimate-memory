@@ -44,6 +44,8 @@ class ForgetManifest(BaseModel):
     content_hashes: tuple[Sha256, ...] = ()
     chunk_ids: tuple[UUID, ...] = ()
     claim_ids: tuple[UUID, ...] = ()
+    mention_ids: tuple[UUID, ...] = ()
+    resolved_entity_ids: tuple[UUID, ...] = ()
     fact_ids: tuple[UUID, ...] = ()
     entity_ids: tuple[UUID, ...] = ()
     object_keys: tuple[ObjectKey, ...] = ()
@@ -57,6 +59,8 @@ class ForgetManifest(BaseModel):
             "content_hashes",
             "chunk_ids",
             "claim_ids",
+            "mention_ids",
+            "resolved_entity_ids",
             "fact_ids",
             "entity_ids",
             "object_keys",
@@ -87,6 +91,9 @@ class ForgetManifestRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    forget_id: UUID
+    deployment_id: UUID
+    doc_id: UUID
     manifest: ForgetManifest | None
     manifest_hash: Sha256 | None
     status: ForgetManifestStatus
@@ -112,6 +119,10 @@ class ForgetManifestNotFoundError(ForgetError):
     """The requested deployment-owned forget manifest does not exist."""
 
 
+class ForgetTargetNotFoundError(ForgetError):
+    """The requested deployment does not own the target document lineage."""
+
+
 class ForgetRedactionRequiredError(ForgetError):
     """Owner-controlled K paths still cite the target and must be redacted first."""
 
@@ -119,6 +130,10 @@ class ForgetRedactionRequiredError(ForgetError):
         """Retain the exact sorted blocking repository paths for the caller."""
         super().__init__("owner redaction is required before hard-forget acceptance")
         self.paths = paths
+
+
+class ForgottenSourceError(ForgetError):
+    """An ingest matched an irreversible source-identity or content guard."""
 
 
 def _sort_value(*, value: object) -> str:

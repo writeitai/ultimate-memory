@@ -269,6 +269,33 @@ class ProjectionCatalog:
             ).rowcount
         return (metrics or 0) + (communities or 0)
 
+    def purge_snapshot_prefixes(
+        self, *, deployment_id: UUID, prefixes: tuple[str, ...]
+    ) -> int:
+        """Delete exact old registry rows after their clean replacements publish."""
+        if not prefixes:
+            return 0
+        with self._engine.begin() as connection:
+            deleted = connection.execute(
+                _PURGE_SNAPSHOT_PREFIXES,
+                {"deployment_id": deployment_id, "prefixes": list(prefixes)},
+            ).rowcount
+        return deleted or 0
+
+    def snapshot_prefixes_exist(
+        self, *, deployment_id: UUID, prefixes: tuple[str, ...]
+    ) -> bool:
+        """Return whether any manifest-nominated registry pointer remains."""
+        if not prefixes:
+            return False
+        with self._engine.connect() as connection:
+            return bool(
+                connection.execute(
+                    _SNAPSHOT_PREFIXES_EXIST,
+                    {"deployment_id": deployment_id, "prefixes": list(prefixes)},
+                ).scalar_one()
+            )
+
     def refresh_entity_degrees(self, *, deployment_id: UUID) -> None:
         """Copy degree from the PUBLISHED snapshot into `entities` (blast radius).
 
@@ -593,6 +620,23 @@ _SELECT_WATERMARK = text(
 _LOCK_PUBLISH = text(
     """
     SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))
+    """
+)
+
+_PURGE_SNAPSHOT_PREFIXES = text(
+    """
+    DELETE FROM projection_snapshots
+    WHERE deployment_id = :deployment_id
+      AND gcs_uri = ANY(:prefixes)
+    """
+)
+
+_SNAPSHOT_PREFIXES_EXIST = text(
+    """
+    SELECT EXISTS (
+        SELECT 1 FROM projection_snapshots
+        WHERE deployment_id = :deployment_id AND gcs_uri = ANY(:prefixes)
+    )
     """
 )
 

@@ -47,7 +47,23 @@ class RecordingPurgeAdapter:
     ) -> None:
         pass
 
+    def verify_objects_purged(
+        self, *, keys: tuple[ObjectKey, ...], prefixes: tuple[ObjectKey, ...]
+    ) -> None:
+        pass
+
     def purge_rows(
+        self,
+        *,
+        deployment_id: UUID,
+        chunk_ids: tuple[UUID, ...],
+        claim_ids: tuple[UUID, ...],
+        fact_ids: tuple[UUID, ...],
+        entity_ids: tuple[UUID, ...],
+    ) -> None:
+        pass
+
+    def verify_rows_purged(
         self,
         *,
         deployment_id: UUID,
@@ -63,10 +79,25 @@ class RecordingPurgeAdapter:
     ) -> None:
         pass
 
+    def verify_projections_purged(
+        self, *, deployment_id: UUID, prefixes: tuple[ObjectKey, ...]
+    ) -> None:
+        pass
+
     def purge_artifacts(
         self, *, deployment_id: UUID, forget_id: UUID, artifact_ids: tuple[UUID, ...]
     ) -> None:
         pass
+
+    def verify_artifacts_purged(
+        self, *, deployment_id: UUID, forget_id: UUID, artifact_ids: tuple[UUID, ...]
+    ) -> None:
+        pass
+
+    def blocking_redaction_paths(
+        self, *, deployment_id: UUID, doc_id: UUID
+    ) -> tuple[str, ...]:
+        return ()
 
 
 _manifest_assignment: ForgetManifestPort = RecordingForgetStore()
@@ -85,10 +116,20 @@ def test_d74_protocols_are_runtime_checkable_and_capability_sized() -> None:
     assert isinstance(_k_assignment, KGitPurgePort)
 
     assert _public_operations(ForgetManifestPort) == {"append", "manifests"}
-    assert _public_operations(ObjectPurgePort) == {"purge_objects"}
-    assert _public_operations(P1PurgePort) == {"purge_rows"}
-    assert _public_operations(ProjectionPurgePort) == {"purge_projections"}
-    assert _public_operations(KGitPurgePort) == {"purge_artifacts"}
+    assert _public_operations(ObjectPurgePort) == {
+        "purge_objects",
+        "verify_objects_purged",
+    }
+    assert _public_operations(P1PurgePort) == {"purge_rows", "verify_rows_purged"}
+    assert _public_operations(ProjectionPurgePort) == {
+        "purge_projections",
+        "verify_projections_purged",
+    }
+    assert _public_operations(KGitPurgePort) == {
+        "blocking_redaction_paths",
+        "purge_artifacts",
+        "verify_artifacts_purged",
+    }
 
 
 def _public_operations(protocol: type[object]) -> set[str]:

@@ -24,6 +24,13 @@ from ultimate_memory.workers.e3 import AdjudicateSupersessionHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
+from ultimate_memory.workers.forget import ForgetKnowledgeRebuilder
+from ultimate_memory.workers.forget import ForgetProjectionRebuilder
+from ultimate_memory.workers.forget import HardForgetHandler
+from ultimate_memory.workers.forget import HardForgetReadiness
+from ultimate_memory.workers.forget import HardForgetService
+from ultimate_memory.workers.forget import KnowledgeCycleForgetRebuilder
+from ultimate_memory.workers.forget import ProjectionPairForgetRebuilder
 from ultimate_memory.workers.knowledge_authored import KnowledgeAuthoredSynchronizer
 from ultimate_memory.workers.knowledge_authored import KnowledgeDispatchHandler
 from ultimate_memory.workers.knowledge_authored import KnowledgeWorkflowDispatcher
@@ -114,6 +121,13 @@ __all__ = (
     "E0_STRUCTURE_VERSION",
     "HandlerOutcome",
     "HandlerRegistry",
+    "ForgetKnowledgeRebuilder",
+    "ForgetProjectionRebuilder",
+    "HardForgetHandler",
+    "HardForgetReadiness",
+    "HardForgetService",
+    "KnowledgeCycleForgetRebuilder",
+    "ProjectionPairForgetRebuilder",
     "RunResult",
     "StageHandler",
     "CorpusFsBuilder",
