@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from ultimate_memory.core import knowledge_content_hash
+from ultimate_memory.core import KnowledgeAuthoredDeclarationError
 from ultimate_memory.core import KnowledgePageValidationError
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import KnowledgeArtifactCreate
@@ -38,6 +39,7 @@ from ultimate_memory.spine import KnowledgeCommitBusyError
 from ultimate_memory.spine import KnowledgeCompilationError
 from ultimate_memory.spine import KnowledgeControlPlane
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import KnowledgeAuthoredSynchronizer
 from ultimate_memory.workers import KnowledgeCommitDriver
 from ultimate_memory.workers import KnowledgeCommitSettings
 
@@ -721,6 +723,104 @@ def test_driver_quarantines_direct_body_drift_before_compilation(
         )
     assert artifact_status == "quarantined"
     assert quarantine == {"proposed_sidecar_entry": direct_edit, "status": "proposed"}
+
+
+def test_driver_registers_and_resyncs_authored_checkout_files(
+    graph: _CompileGraph,
+) -> None:
+    """Committed Markdown enters through the authored door and is never rewritten."""
+    authored_path = "decisions/ordering.md"
+    authored_markdown = (
+        "---\nwatch:\n  - page:work/child\n---\n"
+        "# Ordering decision\n\nKeep this human-owned body.\n"
+    )
+    remote = _GitRemote(files={**graph.old_files, authored_path: authored_markdown})
+
+    first = _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert len(first.registered_authored_artifact_ids) == 1
+    authored_id = first.registered_authored_artifact_ids[0]
+    assert remote.files[authored_path] == authored_markdown
+    with graph.engine.connect() as connection:
+        artifact = connection.execute(
+            text(
+                "SELECT page_kind::text, content_hash FROM knowledge_artifacts"
+                " WHERE artifact_id = :artifact_id"
+            ),
+            {"artifact_id": authored_id},
+        ).one()
+        watched_id = connection.execute(
+            text(
+                "SELECT watched_artifact_id FROM knowledge_page_watches"
+                " WHERE watcher_artifact_id = :artifact_id"
+            ),
+            {"artifact_id": authored_id},
+        ).scalar_one()
+    assert artifact == ("authored", knowledge_content_hash(markdown=authored_markdown))
+    assert watched_id == graph.child
+
+    second = _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert second.registered_authored_artifact_ids == ()
+    assert second.synced_authored_artifact_ids == (authored_id,)
+    assert second.published_revision is None
+    assert remote.files[authored_path] == authored_markdown
+
+
+def test_malformed_authored_frontmatter_aborts_before_publish(
+    graph: _CompileGraph,
+) -> None:
+    """A visible declaration error cannot partially register or publish the cycle."""
+    invalid_path = "decisions/invalid.md"
+    remote = _GitRemote(
+        files={**graph.old_files, invalid_path: '---\nwatch: ["entity:oops"]\n'}
+    )
+
+    with pytest.raises(KnowledgeAuthoredDeclarationError, match="closing delimiter"):
+        _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert remote.publish_calls == 0
+    with graph.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM knowledge_artifacts"
+                    " WHERE git_path = :git_path"
+                ),
+                {"git_path": invalid_path},
+            ).scalar_one()
+            == 0
+        )
+
+
+def test_authored_sync_rejects_markdown_symlink_escape(
+    graph: _CompileGraph, tmp_path: Path
+) -> None:
+    """A committed symlink cannot register content read from outside the checkout."""
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside checkout\n", encoding="utf-8")
+    (worktree / "evil.md").symlink_to(outside)
+
+    with pytest.raises(KnowledgeCompilationError, match="escapes worktree"):
+        KnowledgeAuthoredSynchronizer(control_plane=graph.control).sync_checkout(
+            deployment_id=_DEPLOYMENT_ID,
+            worktree=worktree,
+            git_revision="symlink-revision",
+        )
+
+    with graph.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM knowledge_artifacts"
+                    " WHERE deployment_id = :deployment_id AND git_path = 'evil.md'"
+                ),
+                {"deployment_id": _DEPLOYMENT_ID},
+            ).scalar_one()
+            == 0
+        )
 
 
 def test_driver_reconciles_move_and_stamps_its_single_git_revision(

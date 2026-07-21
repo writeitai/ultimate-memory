@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
+from hashlib import sha256
 from uuid import UUID
 from uuid import uuid4
 
@@ -28,17 +29,26 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.sql.elements import TextClause
 
+from ultimate_memory.core import authored_declaration_is_empty
+from ultimate_memory.core import knowledge_citation_reference
 from ultimate_memory.core import knowledge_inputs_hash
 from ultimate_memory.core import knowledge_summary_hash
 from ultimate_memory.core import route_knowledge_plan
 from ultimate_memory.model import CommunityRuleParams
 from ultimate_memory.model import DocSetRuleParams
+from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import EntityRuleParams
 from ultimate_memory.model import EntitySubtreeRuleParams
 from ultimate_memory.model import KnowledgeAdjustRuleProposal
 from ultimate_memory.model import KnowledgeArtifactCreate
 from ultimate_memory.model import KnowledgeArtifactHash
+from ultimate_memory.model import KnowledgeArtifactPathState
 from ultimate_memory.model import KnowledgeArtifactStatus
+from ultimate_memory.model import KnowledgeAuthoredPageSync
+from ultimate_memory.model import KnowledgeAuthoredPageSyncResult
+from ultimate_memory.model import KnowledgeAuthoredReviewPayload
+from ultimate_memory.model import KnowledgeAuthoredReviewReason
+from ultimate_memory.model import KnowledgeAuthoredReviewState
 from ultimate_memory.model import KnowledgeCandidateLayer
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeClaimFingerprint
@@ -49,6 +59,9 @@ from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeCompiledContentState
 from ultimate_memory.model import KnowledgeConvertKindProposal
 from ultimate_memory.model import KnowledgeCreatePageProposal
+from ultimate_memory.model import KnowledgeDispatchMaterialization
+from ultimate_memory.model import KnowledgeDispatchRecord
+from ultimate_memory.model import KnowledgeDispatchStatus
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeFactFingerprint
 from ultimate_memory.model import KnowledgeFactSheetFact
@@ -56,6 +69,7 @@ from ultimate_memory.model import KnowledgeFactSheetSnapshot
 from ultimate_memory.model import KnowledgeInputSnapshot
 from ultimate_memory.model import KnowledgeMergePagesProposal
 from ultimate_memory.model import KnowledgeMovePageProposal
+from ultimate_memory.model import KnowledgeNotificationResult
 from ultimate_memory.model import KnowledgeOrphanAggregate
 from ultimate_memory.model import KnowledgePageKind
 from ultimate_memory.model import KnowledgePageRuleCreate
@@ -81,14 +95,19 @@ from ultimate_memory.model import KnowledgeRuleKeyKind
 from ultimate_memory.model import KnowledgeRuleKind
 from ultimate_memory.model import KnowledgeRuleParams
 from ultimate_memory.model import KnowledgeSplitPageProposal
+from ultimate_memory.model import KnowledgeSubscriptionCreate
 from ultimate_memory.model import KnowledgeWriterBundle
 from ultimate_memory.model import KnowledgeWriterClaim
 from ultimate_memory.model import KnowledgeWriterClaimGroup
 from ultimate_memory.model import KnowledgeWriterFactReference
 from ultimate_memory.model import KnowledgeWriterSuggestion
 from ultimate_memory.model import ManualRuleParams
+from ultimate_memory.model import merge_authored_review_payloads
+from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import PredicateBeatRuleParams
+from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import ScopeInterestsRuleParams
+from ultimate_memory.spine.work_ledger import enqueue_on
 
 _RULE_ADAPTER = TypeAdapter(KnowledgeRuleParams)
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
@@ -105,6 +124,10 @@ class KnowledgeCompilationError(ValueError):
 
 class KnowledgeCommitBusyError(RuntimeError):
     """Another process already owns this deployment's K commit cycle."""
+
+
+class KnowledgeDispatchUnavailableError(RuntimeError):
+    """A materialized dispatch targets a paused or retired subscription."""
 
 
 class KnowledgeControlPlane:
@@ -875,6 +898,381 @@ class KnowledgeControlPlane:
                 ).scalars()
             )
 
+    def artifact_path_states(
+        self, *, deployment_id: UUID
+    ) -> tuple[KnowledgeArtifactPathState, ...]:
+        """Return body and curation paths used to classify checkout Markdown files."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_ARTIFACT_PATH_STATES, {"deployment_id": deployment_id}
+            ).mappings()
+            return tuple(
+                KnowledgeArtifactPathState.model_validate(dict(row)) for row in rows
+            )
+
+    def sync_authored_page(
+        self, *, sync: KnowledgeAuthoredPageSync
+    ) -> KnowledgeAuthoredPageSyncResult:
+        """Atomically register/sync one authored body and its declared ground."""
+        observed_hash = sha256(sync.markdown.encode("utf-8")).hexdigest()
+        if observed_hash != sync.content_hash:
+            raise KnowledgeCompilationError(
+                "authored content hash does not match the supplied Markdown"
+            )
+        with self._engine.begin() as connection:
+            artifact = (
+                connection.execute(
+                    _SELECT_ARTIFACT_BY_PATH_FOR_UPDATE,
+                    {"deployment_id": sync.deployment_id, "git_path": sync.git_path},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            registered = artifact is None
+            if registered:
+                artifact_id = uuid4()
+                connection.execute(
+                    _INSERT_AUTHORED_ARTIFACT,
+                    {
+                        "artifact_id": artifact_id,
+                        "deployment_id": sync.deployment_id,
+                        "layer": sync.layer.value,
+                        "git_path": sync.git_path,
+                    },
+                )
+                prior_hash = None
+            else:
+                if (
+                    artifact["page_kind"] != KnowledgePageKind.AUTHORED.value
+                    or artifact["status"] == KnowledgeArtifactStatus.TOMBSTONED.value
+                ):
+                    raise KnowledgeCompilationError(
+                        "authored sync path is owned by a non-live compiled artifact"
+                    )
+                artifact_id = artifact["artifact_id"]
+                prior_hash = artifact["content_hash"]
+            content_changed = prior_hash != sync.content_hash
+            declaration = sync.declaration
+            if declaration.citations is not None:
+                self._validate_citations(
+                    connection=connection,
+                    deployment_id=sync.deployment_id,
+                    citations=declaration.citations,
+                )
+                self._replace_authored_citations(
+                    connection=connection,
+                    deployment_id=sync.deployment_id,
+                    artifact_id=artifact_id,
+                    citations=declaration.citations,
+                )
+            if declaration.watch_rules is not None:
+                self._replace_authored_rules(
+                    connection=connection,
+                    deployment_id=sync.deployment_id,
+                    artifact_id=artifact_id,
+                    git_revision=sync.git_revision,
+                    rules=declaration.watch_rules,
+                )
+            if declaration.watched_page_paths is not None:
+                watched_ids = self._resolve_watched_paths(
+                    connection=connection,
+                    deployment_id=sync.deployment_id,
+                    paths=declaration.watched_page_paths,
+                )
+                connection.execute(
+                    _DELETE_ARTIFACT_PAGE_WATCHES, {"artifact_id": artifact_id}
+                )
+                for watched_id in watched_ids:
+                    connection.execute(
+                        _INSERT_ARTIFACT_PAGE_WATCH,
+                        {
+                            "watch_id": uuid4(),
+                            "deployment_id": sync.deployment_id,
+                            "watcher_artifact_id": artifact_id,
+                            "watched_artifact_id": watched_id,
+                        },
+                    )
+            if content_changed:
+                connection.execute(
+                    _RESOLVE_AUTHORED_FLAGS, {"artifact_id": artifact_id}
+                )
+            counts = (
+                connection.execute(
+                    _SELECT_AUTHORED_DECLARATION_COUNTS, {"artifact_id": artifact_id}
+                )
+                .mappings()
+                .one()
+            )
+            lint_flagged = authored_declaration_is_empty(
+                citation_count=int(counts["citation_count"]),
+                watch_rule_count=int(counts["watch_rule_count"]),
+                page_watch_count=int(counts["page_watch_count"]),
+            )
+            if lint_flagged:
+                self._upsert_authored_flag(
+                    connection=connection,
+                    deployment_id=sync.deployment_id,
+                    artifact_id=artifact_id,
+                    payload=KnowledgeAuthoredReviewPayload(
+                        reasons=(KnowledgeAuthoredReviewReason.DECLARATION_MISSING,)
+                    ),
+                )
+            else:
+                self._resolve_declaration_lint(
+                    connection=connection, artifact_id=artifact_id
+                )
+            connection.execute(
+                _UPDATE_AUTHORED_CONTENT_HASH,
+                {"artifact_id": artifact_id, "content_hash": sync.content_hash},
+            )
+        return KnowledgeAuthoredPageSyncResult(
+            artifact_id=artifact_id,
+            registered=registered,
+            content_changed=content_changed,
+            lint_flagged=lint_flagged,
+        )
+
+    def register_subscription(
+        self, *, subscription: KnowledgeSubscriptionCreate
+    ) -> None:
+        """Register one endpoint with its rule/page-watch union atomically."""
+        if not subscription.rules and not subscription.watched_page_paths:
+            raise KnowledgeCompilationError(
+                "knowledge subscription requires at least one rule or page watch"
+            )
+        with self._engine.begin() as connection:
+            connection.execute(
+                _INSERT_SUBSCRIPTION,
+                subscription.model_dump(
+                    mode="python", exclude={"rules", "watched_page_paths"}
+                ),
+            )
+            for params in subscription.rules:
+                rule_id = uuid4()
+                connection.execute(
+                    _INSERT_SUBSCRIPTION_RULE,
+                    {
+                        "rule_id": rule_id,
+                        "deployment_id": subscription.deployment_id,
+                        "subscription_id": subscription.subscription_id,
+                        "rule_kind": params.kind.value,
+                        "params": _stored_params(params=params),
+                    },
+                )
+                self._replace_rule_keys(
+                    connection=connection,
+                    deployment_id=subscription.deployment_id,
+                    rule_id=rule_id,
+                    params=params,
+                )
+            watched_ids = self._resolve_watched_paths(
+                connection=connection,
+                deployment_id=subscription.deployment_id,
+                paths=subscription.watched_page_paths,
+            )
+            for watched_id in watched_ids:
+                connection.execute(
+                    _INSERT_SUBSCRIPTION_PAGE_WATCH,
+                    {
+                        "watch_id": uuid4(),
+                        "deployment_id": subscription.deployment_id,
+                        "subscription_id": subscription.subscription_id,
+                        "watched_artifact_id": watched_id,
+                    },
+                )
+
+    def route_notifications(
+        self,
+        *,
+        deployment_id: UUID,
+        delta: KnowledgeEvidenceDelta,
+        tombstone: bool = False,
+    ) -> KnowledgeNotificationResult:
+        """Route one evidence delta exactly to authored flags and subscriber batches."""
+        derived_kinds: list[KnowledgeRuleKind] = []
+        if delta.community_ids:
+            derived_kinds.append(KnowledgeRuleKind.COMMUNITY)
+        if delta.relation_ids and self._delta_contains_part_of(
+            deployment_id=deployment_id, relation_ids=delta.relation_ids
+        ):
+            derived_kinds.append(KnowledgeRuleKind.ENTITY_SUBTREE)
+        if derived_kinds:
+            self.rematerialize_derived_rule_keys(
+                deployment_id=deployment_id, kinds=tuple(derived_kinds)
+            )
+        reason = (
+            KnowledgeAuthoredReviewReason.TOMBSTONE
+            if tombstone
+            else KnowledgeAuthoredReviewReason.EVIDENCE_CHANGED
+        )
+        payload = KnowledgeAuthoredReviewPayload(
+            reasons=(reason,), delta=delta, redaction_required=tombstone
+        )
+        with self._engine.begin() as connection:
+            candidate_rules = self._notification_candidate_rules(
+                connection=connection, deployment_id=deployment_id, delta=delta
+            )
+            authored_ids = self._authored_citation_artifacts(
+                connection=connection, deployment_id=deployment_id, delta=delta
+            )
+            subscription_ids: set[UUID] = set()
+            for row in candidate_rules:
+                if not self._rule_matches_delta(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    params=_parse_rule(row=row),
+                    delta=delta,
+                ):
+                    continue
+                if row["artifact_id"] is not None:
+                    authored_ids.add(row["artifact_id"])
+                else:
+                    subscription_ids.add(row["subscription_id"])
+            for artifact_id in authored_ids:
+                self._upsert_authored_flag(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    artifact_id=artifact_id,
+                    payload=payload,
+                )
+            dispatch_ids = tuple(
+                self._upsert_dispatch(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    subscription_id=subscription_id,
+                    payload=payload,
+                )
+                for subscription_id in sorted(subscription_ids, key=str)
+            )
+        return KnowledgeNotificationResult(
+            authored_artifact_ids=tuple(sorted(authored_ids, key=str)),
+            dispatch_ids=dispatch_ids,
+        )
+
+    def authored_review_state(
+        self, *, artifact_id: UUID
+    ) -> KnowledgeAuthoredReviewState:
+        """Return every unresolved review payload visible to authored-page readers."""
+        with self._engine.connect() as connection:
+            rows = tuple(
+                connection.execute(
+                    _SELECT_AUTHORED_REVIEW_STATE, {"artifact_id": artifact_id}
+                ).mappings()
+            )
+        payloads = tuple(
+            KnowledgeAuthoredReviewPayload.model_validate(row["payload"])
+            for row in rows
+        )
+        return KnowledgeAuthoredReviewState(
+            artifact_id=artifact_id,
+            open_flag_count=len(payloads),
+            redaction_required=any(item.redaction_required for item in payloads),
+            payloads=payloads,
+        )
+
+    def materialize_due_dispatches(
+        self, *, deployment_id: UUID, component_version: str
+    ) -> tuple[KnowledgeDispatchMaterialization, ...]:
+        """Materialize due subscriber batches onto the generic unlaned D67 worker."""
+        if not component_version:
+            raise KnowledgeCompilationError(
+                "dispatch component version must be non-empty"
+            )
+        materialized: list[KnowledgeDispatchMaterialization] = []
+        with self._engine.begin() as connection:
+            rows = tuple(
+                connection.execute(
+                    _SELECT_DUE_DISPATCHES_FOR_UPDATE, {"deployment_id": deployment_id}
+                ).mappings()
+            )
+            for row in rows:
+                dispatch_id = row["dispatch_id"]
+                content_hash = sha256(
+                    KnowledgeAuthoredReviewPayload.model_validate(row["payload"])
+                    .model_dump_json()
+                    .encode("utf-8")
+                ).hexdigest()
+                outcome = enqueue_on(
+                    connection=connection,
+                    work=EnqueueWork(
+                        deployment_id=deployment_id,
+                        target_kind=ProcessingTarget.KNOWLEDGE_DISPATCH,
+                        target_id=dispatch_id,
+                        stage=PipelineStage.DISPATCH_KNOWLEDGE,
+                        component_version=component_version,
+                        content_hash=content_hash,
+                        lane=None,
+                        payload={"dispatch_id": str(dispatch_id)},
+                    ),
+                )
+                materialized.append(
+                    KnowledgeDispatchMaterialization(
+                        dispatch_id=dispatch_id,
+                        processing_id=outcome.processing_id,
+                        created=outcome.created,
+                    )
+                )
+        return tuple(materialized)
+
+    def begin_dispatch(self, *, dispatch_id: UUID) -> KnowledgeDispatchRecord:
+        """Claim the domain dispatch for a running generic-worker attempt."""
+        unavailable = False
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    _SELECT_DISPATCH_FOR_UPDATE, {"dispatch_id": dispatch_id}
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise KnowledgeCompilationError("knowledge dispatch does not exist")
+            if (
+                row["status"] != KnowledgeDispatchStatus.DONE.value
+                and row["subscription_status"] != "active"
+            ):
+                connection.execute(
+                    _REJECT_UNAVAILABLE_DISPATCH, {"dispatch_id": dispatch_id}
+                )
+                unavailable = True
+            elif row["status"] != KnowledgeDispatchStatus.DONE.value:
+                connection.execute(_MARK_DISPATCH_RUNNING, {"dispatch_id": dispatch_id})
+            record = KnowledgeDispatchRecord(
+                dispatch_id=dispatch_id,
+                deployment_id=row["deployment_id"],
+                subscription_id=row["subscription_id"],
+                workflow_endpoint=row["workflow_endpoint"],
+                payload=KnowledgeAuthoredReviewPayload.model_validate(row["payload"]),
+                status=(
+                    KnowledgeDispatchStatus.DONE
+                    if row["status"] == KnowledgeDispatchStatus.DONE.value
+                    else KnowledgeDispatchStatus.RUNNING
+                ),
+            )
+        if unavailable:
+            raise KnowledgeDispatchUnavailableError(
+                "knowledge subscription is not active"
+            )
+        return record
+
+    def complete_dispatch(self, *, dispatch_id: UUID) -> None:
+        """Mirror successful external delivery in the append-only dispatch ledger."""
+        with self._engine.begin() as connection:
+            updated = connection.execute(
+                _COMPLETE_DISPATCH, {"dispatch_id": dispatch_id}
+            ).rowcount
+            if updated == 0:
+                raise KnowledgeCompilationError("knowledge dispatch is not running")
+
+    def fail_dispatch(self, *, dispatch_id: UUID) -> None:
+        """Mirror a visible failed delivery attempt while D67 owns retry details."""
+        with self._engine.begin() as connection:
+            updated = connection.execute(
+                _FAIL_DISPATCH, {"dispatch_id": dispatch_id}
+            ).rowcount
+            if updated == 0:
+                raise KnowledgeCompilationError("knowledge dispatch is not running")
+
     def compiled_content_states(
         self, *, deployment_id: UUID
     ) -> tuple[KnowledgeCompiledContentState, ...]:
@@ -1226,6 +1624,20 @@ class KnowledgeControlPlane:
                     )
 
             for compilation, citations in to_finalize:
+                prior_citations = tuple(
+                    KnowledgeCitation(
+                        role=row[0],
+                        claim_lineage_id=row[1],
+                        claim_chunk_content_hash=row[2],
+                        relation_id=row[3],
+                        doc_id=row[4],
+                    )
+                    for row in connection.execute(
+                        _SELECT_CITATIONS, {"artifact_id": compilation.artifact_id}
+                    ).tuples()
+                )
+                prior_set = set(prior_citations)
+                current_set = set(citations)
                 connection.execute(
                     _DELETE_CITATIONS, {"artifact_id": compilation.artifact_id}
                 )
@@ -1260,6 +1672,418 @@ class KnowledgeControlPlane:
                         "git_commit": git_commit,
                     },
                 )
+                self._notify_page_watchers(
+                    connection=connection,
+                    deployment_id=compilation.deployment_id,
+                    watched_artifact_id=compilation.artifact_id,
+                    citations_added=tuple(
+                        knowledge_citation_reference(citation=citation)
+                        for citation in sorted(
+                            current_set.difference(prior_set),
+                            key=lambda item: _citation_tuple(citation=item),
+                        )
+                    ),
+                    citations_removed=tuple(
+                        knowledge_citation_reference(citation=citation)
+                        for citation in sorted(
+                            prior_set.difference(current_set),
+                            key=lambda item: _citation_tuple(citation=item),
+                        )
+                    ),
+                    evidence_invalidated=compilation.evidence_invalidated,
+                )
+
+    def _replace_authored_citations(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        artifact_id: UUID,
+        citations: tuple[KnowledgeCitation, ...],
+    ) -> None:
+        """Replace frontmatter-owned citations inside the authored sync transaction."""
+        connection.execute(_DELETE_CITATIONS, {"artifact_id": artifact_id})
+        for citation in citations:
+            connection.execute(
+                _INSERT_CITATION,
+                {
+                    "evidence_link_id": uuid4(),
+                    "deployment_id": deployment_id,
+                    "artifact_id": artifact_id,
+                    **citation.model_dump(mode="python"),
+                },
+            )
+
+    def _replace_authored_rules(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        artifact_id: UUID,
+        git_revision: str,
+        rules: tuple[KnowledgeRuleParams, ...],
+    ) -> None:
+        """Replace authored watch rules with a human-origin structure transcript."""
+        self._retire_rules(connection=connection, artifact_id=artifact_id)
+        if not rules:
+            return
+        decision_id = uuid4()
+        proposal = KnowledgeAdjustRuleProposal(
+            artifact_id=artifact_id,
+            rules=rules,
+            rationale="synced from authored page frontmatter",
+            confidence=Decimal("1"),
+        )
+        connection.execute(
+            _INSERT_AUTHORED_RULE_DECISION,
+            {
+                "decision_id": decision_id,
+                "deployment_id": deployment_id,
+                "payload": proposal.model_dump(mode="json"),
+                "application_commit": git_revision,
+            },
+        )
+        for params in rules:
+            rule_id = uuid4()
+            connection.execute(
+                _INSERT_PAGE_RULE,
+                {
+                    "rule_id": rule_id,
+                    "deployment_id": deployment_id,
+                    "artifact_id": artifact_id,
+                    "plan_decision_id": decision_id,
+                    "rule_kind": params.kind.value,
+                    "params": _stored_params(params=params),
+                },
+            )
+            self._replace_rule_keys(
+                connection=connection,
+                deployment_id=deployment_id,
+                rule_id=rule_id,
+                params=params,
+            )
+
+    def _resolve_watched_paths(
+        self, *, connection: Connection, deployment_id: UUID, paths: tuple[str, ...]
+    ) -> tuple[UUID, ...]:
+        """Resolve exact live compiled page-watch paths or reject the declaration."""
+        if not paths:
+            return ()
+        resolved = {
+            path: artifact_id
+            for path, artifact_id in connection.execute(
+                _SELECT_WATCHED_PATHS,
+                {"deployment_id": deployment_id, "paths": list(paths)},
+            ).tuples()
+        }
+        missing = set(paths).difference(resolved)
+        if missing:
+            raise KnowledgeCompilationError(
+                f"page watch targets no live compiled artifact: {sorted(missing)!r}"
+            )
+        return tuple(resolved[path] for path in paths)
+
+    def _notification_candidate_rules(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        delta: KnowledgeEvidenceDelta,
+    ) -> tuple[RowMapping, ...]:
+        """Narrow notification rules through their inverted keys before exact matching."""
+        rules: dict[UUID, RowMapping] = {}
+        for key in self._delta_keys(
+            connection=connection, deployment_id=deployment_id, delta=delta
+        ):
+            for row in connection.execute(
+                _SELECT_NOTIFICATION_RULES_FOR_KEY,
+                {
+                    "deployment_id": deployment_id,
+                    "key_kind": key.kind.value,
+                    "key_value": key.value,
+                },
+            ).mappings():
+                rules[row["rule_id"]] = row
+        for row in connection.execute(
+            _SELECT_NOTIFICATION_FALLBACK_RULES, {"deployment_id": deployment_id}
+        ).mappings():
+            rules[row["rule_id"]] = row
+        return tuple(rules[key] for key in sorted(rules, key=str))
+
+    def _rule_matches_delta(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        params: KnowledgeRuleParams,
+        delta: KnowledgeEvidenceDelta,
+    ) -> bool:
+        """Apply the rule's full secondary filters to one narrowed evidence delta."""
+        if isinstance(params, CommunityRuleParams) and params.community_id in set(
+            delta.community_ids
+        ):
+            return True
+        if isinstance(params, ManualRuleParams) and (
+            set(params.relation_ids).intersection(delta.relation_ids)
+            or set(params.observation_ids).intersection(delta.observation_ids)
+            or set(params.claim_ids).intersection(delta.claim_ids)
+            or set(params.doc_ids).intersection(delta.doc_ids)
+        ):
+            return True
+        facts, claims = self._candidates_for_rule(
+            connection=connection, deployment_id=deployment_id, params=params
+        )
+        changed_facts = {
+            *(("relation", value) for value in delta.relation_ids),
+            *(("observation", value) for value in delta.observation_ids),
+        }
+        changed_facts.update(
+            (fact.kind, fact.fact_id)
+            for fact in self._facts_for_claim_ids(
+                connection=connection,
+                deployment_id=deployment_id,
+                claim_ids=delta.claim_ids,
+            )
+        )
+        changed_claims = {
+            (claim.lineage_id, claim.chunk_content_hash)
+            for claim in self._claims_for_ids(
+                connection=connection,
+                deployment_id=deployment_id,
+                claim_ids=delta.claim_ids,
+            )
+        }
+        if delta.doc_ids:
+            doc_facts, doc_claims = self._document_candidates(
+                connection=connection,
+                deployment_id=deployment_id,
+                doc_ids=delta.doc_ids,
+            )
+            changed_facts.update((fact.kind, fact.fact_id) for fact in doc_facts)
+            changed_claims.update(
+                (claim.lineage_id, claim.chunk_content_hash) for claim in doc_claims
+            )
+        return bool(
+            {(fact.kind, fact.fact_id) for fact in facts}.intersection(changed_facts)
+            or {
+                (claim.lineage_id, claim.chunk_content_hash) for claim in claims
+            }.intersection(changed_claims)
+        )
+
+    def _authored_citation_artifacts(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        delta: KnowledgeEvidenceDelta,
+    ) -> set[UUID]:
+        """Find live authored pages whose declared citation coordinates changed."""
+        artifact_ids: set[UUID] = set()
+        if delta.claim_ids:
+            artifact_ids.update(
+                connection.execute(
+                    _SELECT_AUTHORED_CITATIONS_FOR_CLAIMS,
+                    {
+                        "deployment_id": deployment_id,
+                        "claim_ids": list(delta.claim_ids),
+                    },
+                ).scalars()
+            )
+        for column, values in (
+            ("relation_id", delta.relation_ids),
+            ("doc_id", delta.doc_ids),
+        ):
+            if values:
+                artifact_ids.update(
+                    connection.execute(
+                        _authored_citation_lookup(column=column),
+                        {"deployment_id": deployment_id, "evidence_ids": list(values)},
+                    ).scalars()
+                )
+        return artifact_ids
+
+    def _upsert_authored_flag(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        artifact_id: UUID,
+        payload: KnowledgeAuthoredReviewPayload,
+    ) -> UUID:
+        """Merge one standing authored-review flag while holding the owner lock."""
+        connection.execute(_LOCK_ARTIFACT, {"artifact_id": artifact_id}).one()
+        row = (
+            connection.execute(
+                _SELECT_OPEN_AUTHORED_FLAG_FOR_UPDATE,
+                {"deployment_id": deployment_id, "artifact_id": artifact_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            refresh_id = uuid4()
+            connection.execute(
+                _INSERT_AUTHORED_FLAG,
+                {
+                    "refresh_id": refresh_id,
+                    "deployment_id": deployment_id,
+                    "artifact_id": artifact_id,
+                    "payload": payload.model_dump(mode="json"),
+                },
+            )
+            return refresh_id
+        merged = merge_authored_review_payloads(
+            left=KnowledgeAuthoredReviewPayload.model_validate(row["payload"]),
+            right=payload,
+        )
+        connection.execute(
+            _UPDATE_AUTHORED_FLAG,
+            {
+                "refresh_id": row["refresh_id"],
+                "payload": merged.model_dump(mode="json"),
+            },
+        )
+        return row["refresh_id"]
+
+    def _resolve_declaration_lint(
+        self, *, connection: Connection, artifact_id: UUID
+    ) -> None:
+        """Remove only the declaration-lint reason from a possibly merged open flag."""
+        row = (
+            connection.execute(
+                _SELECT_OPEN_AUTHORED_FLAG_BY_ARTIFACT_FOR_UPDATE,
+                {"artifact_id": artifact_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            return
+        payload = KnowledgeAuthoredReviewPayload.model_validate(row["payload"])
+        reasons = tuple(
+            reason
+            for reason in payload.reasons
+            if reason is not KnowledgeAuthoredReviewReason.DECLARATION_MISSING
+        )
+        if not reasons:
+            connection.execute(
+                _RESOLVE_AUTHORED_FLAG, {"refresh_id": row["refresh_id"]}
+            )
+            return
+        connection.execute(
+            _UPDATE_AUTHORED_FLAG,
+            {
+                "refresh_id": row["refresh_id"],
+                "payload": payload.model_copy(update={"reasons": reasons}).model_dump(
+                    mode="json"
+                ),
+            },
+        )
+
+    def _upsert_dispatch(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        subscription_id: UUID,
+        payload: KnowledgeAuthoredReviewPayload,
+    ) -> UUID:
+        """Merge one subscription's still-debouncing pending dispatch batch."""
+        connection.execute(
+            _LOCK_SUBSCRIPTION, {"subscription_id": subscription_id}
+        ).one()
+        row = (
+            connection.execute(
+                _SELECT_PENDING_DISPATCH_FOR_UPDATE,
+                {"deployment_id": deployment_id, "subscription_id": subscription_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            dispatch_id = uuid4()
+            connection.execute(
+                _INSERT_DISPATCH,
+                {
+                    "dispatch_id": dispatch_id,
+                    "deployment_id": deployment_id,
+                    "subscription_id": subscription_id,
+                    "payload": payload.model_dump(mode="json"),
+                },
+            )
+            return dispatch_id
+        merged = merge_authored_review_payloads(
+            left=KnowledgeAuthoredReviewPayload.model_validate(row["payload"]),
+            right=payload,
+        )
+        connection.execute(
+            _UPDATE_PENDING_DISPATCH,
+            {
+                "dispatch_id": row["dispatch_id"],
+                "payload": merged.model_dump(mode="json"),
+            },
+        )
+        return row["dispatch_id"]
+
+    def _notify_page_watchers(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        watched_artifact_id: UUID,
+        citations_added: tuple[str, ...],
+        citations_removed: tuple[str, ...],
+        evidence_invalidated: int,
+    ) -> None:
+        """Route one committed compilation's exact citation delta to page watchers."""
+        rows = tuple(
+            connection.execute(
+                _SELECT_PAGE_WATCHERS,
+                {
+                    "deployment_id": deployment_id,
+                    "watched_artifact_id": watched_artifact_id,
+                },
+            ).mappings()
+        )
+        if not rows:
+            return
+        payload = KnowledgeAuthoredReviewPayload(
+            reasons=(KnowledgeAuthoredReviewReason.PAGE_RECOMPILED,),
+            page_refs=(str(rows[0]["watched_git_path"]),),
+            citations_added=citations_added,
+            citations_removed=citations_removed,
+            evidence_invalidated=evidence_invalidated,
+        )
+        authored_ids = sorted(
+            {
+                row["watcher_artifact_id"]
+                for row in rows
+                if row["watcher_artifact_id"] is not None
+            },
+            key=str,
+        )
+        subscription_ids = sorted(
+            {
+                row["subscription_id"]
+                for row in rows
+                if row["subscription_id"] is not None
+            },
+            key=str,
+        )
+        for artifact_id in authored_ids:
+            self._upsert_authored_flag(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=artifact_id,
+                payload=payload,
+            )
+        for subscription_id in subscription_ids:
+            self._upsert_dispatch(
+                connection=connection,
+                deployment_id=deployment_id,
+                subscription_id=subscription_id,
+                payload=payload,
+            )
 
     def _validate_proposal_scope(
         self,
@@ -2779,6 +3603,26 @@ def _citation_lookup(*, column: str) -> TextClause:
     ).bindparams(bindparam("evidence_ids", expanding=True))
 
 
+def _authored_citation_lookup(*, column: str) -> TextClause:
+    """Build one allow-listed reverse citation lookup for live authored pages."""
+    if column not in {"relation_id", "doc_id"}:
+        raise ValueError(f"unsupported citation column: {column}")
+    return text(
+        f"""
+        SELECT DISTINCT a.artifact_id
+        FROM knowledge_artifact_evidence e
+        JOIN knowledge_artifacts a
+          ON a.deployment_id = e.deployment_id
+         AND a.artifact_id = e.artifact_id
+        WHERE e.deployment_id = :deployment_id
+          AND e.{column} IN :evidence_ids
+          AND a.page_kind = 'authored'
+          AND a.status <> 'tombstoned'
+        ORDER BY a.artifact_id
+        """  # noqa: S608 -- column is checked against the fixed schema allow-list above
+    ).bindparams(bindparam("evidence_ids", expanding=True))
+
+
 _INSERT_PLAN_DECISION = text(
     """
     INSERT INTO knowledge_plan_decisions (
@@ -3218,6 +4062,390 @@ _RESOLVE_QUARANTINE = text(
     """
 )
 
+_SELECT_ARTIFACT_PATH_STATES = text(
+    """
+    SELECT artifact_id, git_path, page_kind::text AS page_kind, curation_path
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id AND status <> 'tombstoned'
+    ORDER BY git_path
+    """
+)
+
+_SELECT_ARTIFACT_BY_PATH_FOR_UPDATE = text(
+    """
+    SELECT artifact_id, page_kind::text AS page_kind,
+           status::text AS status, content_hash
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id AND git_path = :git_path
+    FOR UPDATE
+    """
+)
+
+_INSERT_AUTHORED_ARTIFACT = text(
+    """
+    INSERT INTO knowledge_artifacts (
+        artifact_id, deployment_id, layer, page_kind, git_path, status
+    ) VALUES (
+        :artifact_id, :deployment_id, CAST(:layer AS knowledge_layer),
+        'authored', :git_path, 'active'
+    )
+    """
+)
+
+_UPDATE_AUTHORED_CONTENT_HASH = text(
+    """
+    UPDATE knowledge_artifacts
+    SET content_hash = :content_hash
+    WHERE artifact_id = :artifact_id AND page_kind = 'authored'
+    """
+)
+
+_SELECT_WATCHED_PATHS = text(
+    """
+    SELECT git_path, artifact_id
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND git_path IN :paths
+      AND page_kind = 'compiled'
+      AND status <> 'tombstoned'
+    ORDER BY git_path
+    """
+).bindparams(bindparam("paths", expanding=True))
+
+_DELETE_ARTIFACT_PAGE_WATCHES = text(
+    "DELETE FROM knowledge_page_watches WHERE watcher_artifact_id = :artifact_id"
+)
+
+_INSERT_ARTIFACT_PAGE_WATCH = text(
+    """
+    INSERT INTO knowledge_page_watches (
+        watch_id, deployment_id, watcher_artifact_id, watched_artifact_id
+    ) VALUES (
+        :watch_id, :deployment_id, :watcher_artifact_id, :watched_artifact_id
+    )
+    """
+)
+
+_SELECT_AUTHORED_DECLARATION_COUNTS = text(
+    """
+    SELECT
+      (SELECT count(*) FROM knowledge_artifact_evidence
+       WHERE artifact_id = :artifact_id) AS citation_count,
+      (SELECT count(*) FROM knowledge_page_rules
+       WHERE artifact_id = :artifact_id AND status = 'active') AS watch_rule_count,
+      (SELECT count(*) FROM knowledge_page_watches
+       WHERE watcher_artifact_id = :artifact_id) AS page_watch_count
+    """
+)
+
+_INSERT_AUTHORED_RULE_DECISION = text(
+    """
+    INSERT INTO knowledge_plan_decisions (
+        decision_id, deployment_id, action, payload, trigger,
+        planner_version, status, application_commit
+    ) VALUES (
+        :decision_id, :deployment_id, 'adjust_rule', :payload, 'human',
+        'authored-frontmatter', 'applied', :application_commit
+    )
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_INSERT_SUBSCRIPTION = text(
+    """
+    INSERT INTO knowledge_subscriptions (
+        subscription_id, deployment_id, scope_id, name, workflow_endpoint,
+        debounce_seconds, created_by
+    ) VALUES (
+        :subscription_id, :deployment_id, :scope_id, :name, :workflow_endpoint,
+        :debounce_seconds, :created_by
+    )
+    """
+)
+
+_INSERT_SUBSCRIPTION_RULE = text(
+    """
+    INSERT INTO knowledge_page_rules (
+        rule_id, deployment_id, subscription_id, rule_kind, params
+    ) VALUES (
+        :rule_id, :deployment_id, :subscription_id, :rule_kind, :params
+    )
+    """
+).bindparams(bindparam("params", type_=JSON))
+
+_INSERT_SUBSCRIPTION_PAGE_WATCH = text(
+    """
+    INSERT INTO knowledge_page_watches (
+        watch_id, deployment_id, subscription_id, watched_artifact_id
+    ) VALUES (
+        :watch_id, :deployment_id, :subscription_id, :watched_artifact_id
+    )
+    """
+)
+
+_SELECT_NOTIFICATION_RULES_FOR_KEY = text(
+    """
+    SELECT r.rule_id, r.deployment_id, r.artifact_id, r.subscription_id,
+           r.rule_kind::text AS rule_kind, r.params
+    FROM knowledge_rule_keys k
+    JOIN knowledge_page_rules r ON r.rule_id = k.rule_id
+    LEFT JOIN knowledge_artifacts a
+      ON a.deployment_id = r.deployment_id AND a.artifact_id = r.artifact_id
+    LEFT JOIN knowledge_subscriptions s
+      ON s.subscription_id = r.subscription_id
+    WHERE k.deployment_id = :deployment_id
+      AND k.key_kind = CAST(:key_kind AS rule_key_kind)
+      AND k.key_value = :key_value
+      AND r.status = 'active'
+      AND (
+        (a.page_kind = 'authored' AND a.status <> 'tombstoned')
+        OR s.status = 'active'
+      )
+    ORDER BY r.rule_id
+    """
+)
+
+_SELECT_NOTIFICATION_FALLBACK_RULES = text(
+    """
+    SELECT r.rule_id, r.deployment_id, r.artifact_id, r.subscription_id,
+           r.rule_kind::text AS rule_kind, r.params
+    FROM knowledge_page_rules r
+    LEFT JOIN knowledge_artifacts a
+      ON a.deployment_id = r.deployment_id AND a.artifact_id = r.artifact_id
+    LEFT JOIN knowledge_subscriptions s
+      ON s.subscription_id = r.subscription_id
+    WHERE r.deployment_id = :deployment_id
+      AND r.rule_kind IN ('manual', 'scope_interests')
+      AND r.status = 'active'
+      AND (
+        (a.page_kind = 'authored' AND a.status <> 'tombstoned')
+        OR s.status = 'active'
+      )
+    ORDER BY r.rule_id
+    """
+)
+
+_SELECT_AUTHORED_CITATIONS_FOR_CLAIMS = text(
+    """
+    SELECT DISTINCT a.artifact_id
+    FROM claims c
+    JOIN chunks ch
+      ON ch.deployment_id = c.deployment_id AND ch.chunk_id = c.chunk_id
+    JOIN knowledge_artifact_evidence e
+      ON e.deployment_id = c.deployment_id
+     AND e.claim_lineage_id = c.doc_id
+     AND e.claim_chunk_content_hash = ch.chunk_content_hash
+    JOIN knowledge_artifacts a
+      ON a.deployment_id = e.deployment_id AND a.artifact_id = e.artifact_id
+    WHERE c.deployment_id = :deployment_id
+      AND c.claim_id IN :claim_ids
+      AND a.page_kind = 'authored'
+      AND a.status <> 'tombstoned'
+    ORDER BY a.artifact_id
+    """
+).bindparams(bindparam("claim_ids", expanding=True))
+
+_LOCK_ARTIFACT = text(
+    "SELECT artifact_id FROM knowledge_artifacts WHERE artifact_id = :artifact_id FOR UPDATE"
+)
+
+_SELECT_OPEN_AUTHORED_FLAG_FOR_UPDATE = text(
+    """
+    SELECT refresh_id, payload
+    FROM knowledge_refresh_queue
+    WHERE deployment_id = :deployment_id
+      AND artifact_id = :artifact_id
+      AND trigger = 'authored_review'
+      AND processed_at IS NULL
+    FOR UPDATE
+    """
+)
+
+_SELECT_OPEN_AUTHORED_FLAG_BY_ARTIFACT_FOR_UPDATE = text(
+    """
+    SELECT refresh_id, payload
+    FROM knowledge_refresh_queue
+    WHERE artifact_id = :artifact_id
+      AND trigger = 'authored_review'
+      AND processed_at IS NULL
+    FOR UPDATE
+    """
+)
+
+_INSERT_AUTHORED_FLAG = text(
+    """
+    INSERT INTO knowledge_refresh_queue (
+        refresh_id, deployment_id, artifact_id, trigger, payload
+    ) VALUES (
+        :refresh_id, :deployment_id, :artifact_id, 'authored_review', :payload
+    )
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_UPDATE_AUTHORED_FLAG = text(
+    """
+    UPDATE knowledge_refresh_queue
+    SET payload = :payload
+    WHERE refresh_id = :refresh_id AND processed_at IS NULL
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_RESOLVE_AUTHORED_FLAG = text(
+    """
+    UPDATE knowledge_refresh_queue
+    SET status = 'done', processed_at = now()
+    WHERE refresh_id = :refresh_id AND processed_at IS NULL
+    """
+)
+
+_RESOLVE_AUTHORED_FLAGS = text(
+    """
+    UPDATE knowledge_refresh_queue
+    SET status = 'done', processed_at = now()
+    WHERE artifact_id = :artifact_id
+      AND trigger = 'authored_review'
+      AND processed_at IS NULL
+    """
+)
+
+_SELECT_AUTHORED_REVIEW_STATE = text(
+    """
+    SELECT payload
+    FROM knowledge_refresh_queue q
+    JOIN knowledge_artifacts a ON a.artifact_id = q.artifact_id
+    WHERE q.artifact_id = :artifact_id
+      AND a.page_kind = 'authored'
+      AND a.status <> 'tombstoned'
+      AND q.trigger = 'authored_review'
+      AND q.processed_at IS NULL
+    ORDER BY q.enqueued_at, q.refresh_id
+    """
+)
+
+_LOCK_SUBSCRIPTION = text(
+    """
+    SELECT subscription_id
+    FROM knowledge_subscriptions
+    WHERE subscription_id = :subscription_id AND status = 'active'
+    FOR UPDATE
+    """
+)
+
+_SELECT_PENDING_DISPATCH_FOR_UPDATE = text(
+    """
+    SELECT dispatch_id, payload
+    FROM knowledge_dispatches
+    WHERE deployment_id = :deployment_id
+      AND subscription_id = :subscription_id
+      AND status = 'pending'
+    FOR UPDATE
+    """
+)
+
+_INSERT_DISPATCH = text(
+    """
+    INSERT INTO knowledge_dispatches (
+        dispatch_id, deployment_id, subscription_id, payload
+    ) VALUES (
+        :dispatch_id, :deployment_id, :subscription_id, :payload
+    )
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_UPDATE_PENDING_DISPATCH = text(
+    """
+    UPDATE knowledge_dispatches
+    SET payload = :payload
+    WHERE dispatch_id = :dispatch_id AND status = 'pending'
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_SELECT_DUE_DISPATCHES_FOR_UPDATE = text(
+    """
+    SELECT d.dispatch_id, d.payload
+    FROM knowledge_dispatches d
+    JOIN knowledge_subscriptions s ON s.subscription_id = d.subscription_id
+    WHERE d.deployment_id = :deployment_id
+      AND d.status = 'pending'
+      AND s.status = 'active'
+      AND d.enqueued_at + make_interval(secs => s.debounce_seconds) <= now()
+      AND NOT EXISTS (
+        SELECT 1 FROM processing_state p
+        WHERE p.deployment_id = d.deployment_id
+          AND p.target_kind = 'knowledge_dispatch'
+          AND p.target_id = d.dispatch_id
+          AND p.stage = 'dispatch_knowledge'
+      )
+    ORDER BY d.enqueued_at, d.dispatch_id
+    FOR UPDATE OF d SKIP LOCKED
+    """
+)
+
+_SELECT_DISPATCH_FOR_UPDATE = text(
+    """
+    SELECT d.dispatch_id, d.deployment_id, d.subscription_id, d.payload,
+           d.status::text AS status, s.workflow_endpoint,
+           s.status::text AS subscription_status
+    FROM knowledge_dispatches d
+    JOIN knowledge_subscriptions s ON s.subscription_id = d.subscription_id
+    WHERE d.dispatch_id = :dispatch_id
+    FOR UPDATE OF d
+    """
+)
+
+_MARK_DISPATCH_RUNNING = text(
+    """
+    UPDATE knowledge_dispatches
+    SET status = 'running'
+    WHERE dispatch_id = :dispatch_id AND status IN ('pending', 'failed', 'running')
+    """
+)
+
+_REJECT_UNAVAILABLE_DISPATCH = text(
+    """
+    UPDATE knowledge_dispatches
+    SET status = 'failed'
+    WHERE dispatch_id = :dispatch_id AND status IN ('pending', 'running', 'failed')
+    """
+)
+
+_COMPLETE_DISPATCH = text(
+    """
+    UPDATE knowledge_dispatches
+    SET status = 'done', delivered_at = now()
+    WHERE dispatch_id = :dispatch_id AND status = 'running'
+    """
+)
+
+_FAIL_DISPATCH = text(
+    """
+    UPDATE knowledge_dispatches
+    SET status = 'failed'
+    WHERE dispatch_id = :dispatch_id AND status = 'running'
+    """
+)
+
+_SELECT_PAGE_WATCHERS = text(
+    """
+    SELECT w.watcher_artifact_id, w.subscription_id,
+           watched.git_path AS watched_git_path
+    FROM knowledge_page_watches w
+    JOIN knowledge_artifacts watched
+      ON watched.deployment_id = w.deployment_id
+     AND watched.artifact_id = w.watched_artifact_id
+    LEFT JOIN knowledge_artifacts watcher
+      ON watcher.deployment_id = w.deployment_id
+     AND watcher.artifact_id = w.watcher_artifact_id
+    LEFT JOIN knowledge_subscriptions s ON s.subscription_id = w.subscription_id
+    WHERE w.deployment_id = :deployment_id
+      AND w.watched_artifact_id = :watched_artifact_id
+      AND (
+        (watcher.page_kind = 'authored' AND watcher.status <> 'tombstoned')
+        OR s.status = 'active'
+      )
+    ORDER BY w.watch_id
+    """
+)
+
 _INSERT_ARTIFACT = text(
     """
     INSERT INTO knowledge_artifacts (
@@ -3252,11 +4480,11 @@ _SELECT_RULE = text(
 
 _SELECT_DERIVED_RULES = text(
     """
-    SELECT rule_id, deployment_id, artifact_id, rule_kind::text AS rule_kind, params
+    SELECT rule_id, deployment_id, artifact_id, subscription_id,
+           rule_kind::text AS rule_kind, params
     FROM knowledge_page_rules
     WHERE deployment_id = :deployment_id
       AND status = 'active'
-      AND artifact_id IS NOT NULL
       AND rule_kind IN ('entity_subtree', 'community', 'scope_interests')
     ORDER BY rule_id
     """

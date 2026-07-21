@@ -353,6 +353,8 @@ class PageRef(BaseModel):
     last_compiled_at: UTCDateTime | None
     status: str
     stale: bool = False
+    open_review_flags: int = Field(default=0, ge=0)
+    redaction_required: bool = False
 
 
 class ScanRow(BaseModel):

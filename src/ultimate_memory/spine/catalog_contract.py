@@ -181,9 +181,11 @@ EXPECTED_INDEXES: Final = (
     "ix_kartifacts_stale",
     "ix_kcompilations_artifact",
     "ix_kdispatch_pending",
+    "ux_kdispatch_pending_subscription",
     "ix_kplan_proposed",
     "ix_kplan_runs_deployment",
     "ix_krefresh_runnable",
+    "ux_krefresh_open_authored_review",
     "ix_krule_keys_lookup",
     "ix_kwatch_watched",
     "ix_mentions_claim",
@@ -237,6 +239,7 @@ UNLANED_STAGES: Final = frozenset(
         "compile_knowledge",
         "reflect_knowledge",
         "lint_knowledge",
+        "dispatch_knowledge",
     }
 )
 """Stages whose trigger model is debounce/schedule (planes K and P): their route is unlaned.
