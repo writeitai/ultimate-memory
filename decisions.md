@@ -2097,6 +2097,17 @@ Non-goals: versioned docs, docs SaaS/external search, server-rendered features;
 API-reference pages render from the recipe registry when retrieval ships (D50) rather than
 being hand-maintained.
 
+> **Amended 2026-07-21 (public-home subdomain).** The future public home is
+> **`docs.remember.dev`**, not the bare `remember.dev` apex. The apex was allocated to the
+> managed-cloud product (its D14 — the author owns both programs and decided the split); this
+> open-source docs site keeps its own repo-local GitHub Pages hosting under the `docs.`
+> subdomain. The `docs.remember.dev` record is a DNS-only/unproxied entry in the cloud-owned
+> `remember.dev` zone pointing at this repo's Pages target, so OSS docs never route through the
+> cloud's private project (preserving the D66 trust-boundary note). The live
+> `website/public/CNAME` stays on the interim `ultimate-memory.writeit.ai` until the rename
+> gate executes; only then does it flip to `docs.remember.dev`. Design home:
+> `plan/designs/docs_site_design.md` §2.
+
 ---
 
 ## D67. Queue routing and retry state have one normalized home in Postgres
