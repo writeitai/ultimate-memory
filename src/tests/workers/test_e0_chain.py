@@ -214,6 +214,35 @@ def test_markdown_document_end_to_end(rig: _E0Rig) -> None:
     assert raw == _MARKDOWN_SOURCE.encode("utf-8")
 
 
+def test_initial_bulk_ingest_can_enter_the_backfill_lane(rig: _E0Rig) -> None:
+    """An initial corpus load uses the normal ingest chain on its separate lane."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(
+            filename="archive.md",
+            mime="text/markdown",
+            content=b"# Archive\n\nHistorical material.\n",
+        ),
+        lane=ProcessingLane.BACKFILL,
+    )
+
+    assert (
+        rig.ledger.claim_one(
+            deployment_id=_DEPLOYMENT_ID,
+            stage=PipelineStage.CONVERT,
+            lane=ProcessingLane.STEADY,
+        )
+        is None
+    )
+    claimed = rig.ledger.claim_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.CONVERT,
+        lane=ProcessingLane.BACKFILL,
+    )
+    assert claimed is not None
+    assert claimed.target_id == ingested.version_id
+
+
 def test_identical_bytes_reingested_are_a_no_op(rig: _E0Rig) -> None:
     """The D55 content-hash no-op: same bytes → same lineage, version, and work."""
     upload = DocumentUpload(

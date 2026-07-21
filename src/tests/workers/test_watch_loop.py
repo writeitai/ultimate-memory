@@ -257,6 +257,27 @@ def test_edit_becomes_a_new_version_of_the_same_lineage(rig: _WatchRig) -> None:
     assert still_current == 2  # the pointer only moves forward
 
 
+def test_initial_sync_can_route_the_corpus_to_backfill(rig: _WatchRig) -> None:
+    """The sync setting routes an initial watched corpus without a second ingest path."""
+    rig.runner._settings = SyncSettings(  # noqa: SLF001 - integration composition
+        debounce_quiet_seconds=0.0, lane=ProcessingLane.BACKFILL
+    )
+    rig.write(name="archive.md", content="# Archive\n\nHistorical material.\n")
+
+    result = rig.cycle()
+
+    assert len(result.ingested) == 1
+    with rig.engine.connect() as connection:
+        lane = connection.execute(
+            text(
+                "SELECT lane::text FROM processing_state"
+                " WHERE target_id = :version_id AND stage = 'convert'"
+            ),
+            {"version_id": result.ingested[0]},
+        ).scalar_one()
+    assert lane == ProcessingLane.BACKFILL.value
+
+
 def test_debounce_coalesces_active_edits(rig: _WatchRig) -> None:
     """A freshly modified file waits out the quiet window."""
     rig.runner._settings = SyncSettings(debounce_quiet_seconds=3600.0)  # noqa: SLF001

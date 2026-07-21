@@ -73,6 +73,27 @@ class EnqueueOutcome(BaseModel):
     promoted_to_steady: bool
 
 
+class BackfillSeedRequest(BaseModel):
+    """One version-bump campaign to enumerate into the backfill lane."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    deployment_id: UUID
+    stage: PipelineStage
+    component_version: str = Field(min_length=1)
+
+
+class BackfillSeedResult(BaseModel):
+    """Outcome of one bounded, restartable seeder transaction."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    selected: int = Field(ge=0)
+    created: int = Field(ge=0)
+    already_present: int = Field(ge=0)
+    complete: bool
+
+
 class ClaimedWork(BaseModel):
     """A claimed ``processing_state`` row, running its ``attempt``-th handler execution."""
 
@@ -120,6 +141,10 @@ class RunResultOutcome(StrEnum):
 
 class WorkLedgerError(Exception):
     """Base error for work-ledger operations."""
+
+
+class BackfillNotDrainedError(WorkLedgerError):
+    """Search-index maintenance was requested while backfill work was unresolved."""
 
 
 class LaneRouteError(WorkLedgerError):

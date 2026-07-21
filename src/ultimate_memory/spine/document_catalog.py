@@ -40,7 +40,11 @@ class DocumentCatalog:
         self._engine = engine
 
     def record_upload(
-        self, *, record: UploadRecord, convert_component_version: str
+        self,
+        *,
+        record: UploadRecord,
+        convert_component_version: str,
+        lane: ProcessingLane = ProcessingLane.STEADY,
     ) -> IngestedVersion:
         """Land one upload's rows and enqueue its convert work in one transaction.
 
@@ -110,7 +114,7 @@ class DocumentCatalog:
                     stage=PipelineStage.CONVERT,
                     component_version=convert_component_version,
                     content_hash=record.content_hash,
-                    lane=ProcessingLane.STEADY,
+                    lane=lane,
                     payload={"version_id": str(version_id)},
                 ),
             )

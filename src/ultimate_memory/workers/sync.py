@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
 from ultimate_memory.model import DocumentUpload
+from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import SourceItem
 from ultimate_memory.model import SyncCycleSummary
 from ultimate_memory.ports.connector import WatchedSourcePort
@@ -40,6 +41,7 @@ class SyncSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="UGM_SYNC_")
 
     debounce_quiet_seconds: float = Field(default=120.0, ge=0.0)
+    lane: ProcessingLane = ProcessingLane.STEADY
 
 
 class SyncCycleRunner:
@@ -159,6 +161,7 @@ class SyncCycleRunner:
             source_modified_at=item.modified_at,
             source_version_ref=item.revision,
             sync_cycle_id=cycle_id,
+            lane=self._settings.lane,
         )
         if result.created:
             return ("ingested", result.version_id)
