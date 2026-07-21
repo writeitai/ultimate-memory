@@ -88,7 +88,7 @@ cross-reference).
 | E2 claims/extraction (`e2_*`) | 9 | D2, D3, D19, D25, D31–D35, D41, D54, D59 |
 | E3 relations/observations (`e3_*`) | 5 | D2–D5, D15, D18, D43, D55, D64 |
 | Registries/ER + eval (`er_*`, `registry_*`, `eval_*`) | 6 | D17, D20–D24 |
-| K plane (`k_*`) | 8 | D45–D47, D22, D52, D54, D55 |
+| K plane (`k_*`) | 8 | D45–D47, D73, D22, D52, D54, D55 |
 | Projections (`p_*`, `p1_*`, `p2_*`, `p3_*`, `embedding_*`) | 8 | D6–D11, D40, D44, D55, D61, D63 |
 | Retrieval (`ret_*`) | 11 | D9, D41, D43, D48–D51 |
 | Ops/cross-cutting (`ops_*`, `source_of_truth_*`, `scope_views_*`) | 9 | D1, D7, D12, D16, D33, D46, D52–D56, D62 |

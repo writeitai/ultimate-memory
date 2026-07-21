@@ -4,7 +4,7 @@ The living register of **what is not settled yet** — open decisions, unwritten
 designs, known risks, and concrete inconsistencies to fix. It is the one place to look for "what's
 still open"; it cross-links the two specialized trackers:
 
-- **`decisions.md`** — what *is* decided (D1–D66).
+- **`decisions.md`** — what *is* decided (D1–D73).
 - **`plan/analysis/objections.md`** — the step-back critique (O1–O6) with accept/reject status.
 - The **design-doc index** in `plan/designs/overall_design.md` — which design docs are written
   (`current`) vs. `planned`.
@@ -33,11 +33,10 @@ Keep this current: when something here is decided, move it to a decision and pru
    seats inherit the principle and are gated by their phases' golden-set measurements.
 
 **Knowledge plane (K)**
-5. **K3 belief content** — the *mechanism* is now decided (D47: the belief tier — compiled pages
-   over high-evidence, uncontradicted facts; evidence-gated updates). Still open: **whose beliefs
-   are these** (the user's? the system's epistemic state?), and whether a belief carries a numeric
-   stance score — the answer *configures* the D47 tier (its rules and curation policy), it does
-   not replace it.
+5. ~~**K3 belief content**~~ **RESOLVED (D73).** There is no shipped K3 belief tier. Personal
+   or organizational principles are authored pages in a K2 purpose scope; compiled K2 pages may
+   provide cited support or suggestions but never promote a stance automatically. E3 remains the
+   system's current fact state. No numeric stance score is inferred.
 6. **K1/K2 freshness window** — the debounce cadence (minutes? hours? daily?) for the compile
    driver's cycle (D45); tied to the compile-cycle economics spike (`k_layers_design.md` §11).
 
@@ -100,8 +99,10 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 
-12. ~~**O2 — collapse K1/K3?**~~ **RESOLVED (D47).** One compilation mechanism, N scopes; K1 =
-    the default scope, K3 = the belief tier (same mechanism, stricter configuration). See
+12. ~~**O2 — collapse K1/K3?**~~ **RESOLVED (D47, refined by D73).** One compilation
+    mechanism, N scopes; K1 is the default scope and K2 holds purpose-specific compiled and
+    authored knowledge. The proposed K3 default was removed because normative principles are
+    authored K2 content and evidence-qualified facts already live in E3. See
     `plan/designs/k_layers_design.md` §2/§8.
 13. ~~**O4 — semantic regenerability of the K plane.**~~ **RESOLVED (D45/D46).** Every page
     carries routing rules + binding citations; compiled pages are semantically regenerable; the
@@ -114,12 +115,12 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 ## 3. Underspecified / unwritten designs (`planned` in the design index)
 
-15. ~~**K plane — highest risk, least designed.**~~ **RESOLVED (D45–D47)** —
+15. ~~**K plane — highest risk, least designed.**~~ **RESOLVED (D45–D47, D73)** —
     `k_layers_design.md` is written (planner/writer/driver compile system; compiled vs authored
-    pages; belief tier; `k3_beliefs_design.md` folded in). The fraught mechanism (concurrent
+    pages; K1 plus K2 purpose scopes; the former K3 proposal is withdrawn). The fraught mechanism (concurrent
     sessions, merge retry, hot-file delays) is removed, not mitigated. Remaining K items: the
     spikes in `k_layers_design.md` §11 (rule-kind coverage, planner blast-radius bands, writer
-    completeness eval, compile-cycle economics, git-history erasure) and #5/#6 above.
+    completeness eval, compile-cycle economics, git-history erasure) and #6 above.
 16. ~~**Retrieval — the consumer surface.**~~ **RESOLVED (D48–D51)** — `retrieval_design.md` is
     written, driven by the S1–S63 scenario battery (`plan/analysis/retrieval_scenarios.md`):
     zero-LLM primitives + registry recipes, the response envelope (grain / contradictions /
@@ -217,8 +218,8 @@ Keep this current: when something here is decided, move it to a decision and pru
 
 - **The K plane design** (was #15 "highest risk, least designed", #12 O2, #13 O4, #21 the
   shared-repo bottleneck) → **D45–D47** + `plan/designs/k_layers_design.md`: manifest-driven
-  planner/writer/driver compilation; compiled vs authored pages; one mechanism with K3 as the
-  belief tier. Open remainders stay tracked above (#5 whose-beliefs, #6 cadence, #24 hard-delete
+  planner/writer/driver compilation; compiled vs authored pages; one mechanism with K1 plus K2
+  scopes (D73 removes the proposed K3 default). Open remainders stay tracked above (#6 cadence, #24 hard-delete
   residuals) and in the design's §11 spikes.
 
 - **Ontology seed** (was "what seeds the ontology") → **D18** (8 core types + 14 predicates, since grown to 16 by D64, with

@@ -1153,6 +1153,10 @@ are surfaced, never silently resolved" extended to the knowledge plane.
 
 ## D47. One compilation mechanism, N scopes — K1 is the default scope, K3 is the belief tier (accepts O2)
 
+> **Refined by D73.** D47's one-mechanism/many-scopes decision stands, but its shipped K3
+> belief-tier configuration is withdrawn. The shipped layout is K1 plus K2 scopes; normative
+> principles and stances are authored K2 content.
+
 **Decision.** Plane K runs **one mechanism**; K1/K2/K3 survive as *content tiers*, not separate
 machinery. **K1** = the default scope (entity pages, topic/community pages, source digests, the
 root index). **K2** = additional purpose scopes — each a git subtree + registry rows (D16),
@@ -1410,6 +1414,9 @@ config choice.
 
 ## D54. Testimony currency + the counting rule — evidence_count ≡ distinct current-testimony lineages
 
+> **Refined by D73.** The testimony-currency and counting contract stands. Only D54's former
+> K3-eligibility consequence is removed because there is no shipped K3 tier.
+
 **Decision.** Claims gain **testimony currency**: a claim is *current testimony* iff it belongs
 to its document lineage's current extraction basis under the lineage's versioning mode
 (re-extraction: the superseded generation's claims flip non-current, wholesale by coordinates —
@@ -1428,8 +1435,8 @@ measurements: `invalidated_at` — D43 no-cap), recorded as `retracted_source_re
 flag; **processing-driven** loss (a new extractor generation fails to re-derive a claim from
 an *unchanged* file) is mechanically undecidable (artifact-corrected vs extractor-regressed
 demand opposite actions) and is **flagged `support_withdrawn`** for review — the flag's *only*
-trigger; the flag rate per extractor version doubles as the rollout canary. Flagged facts are
-**not K3-eligible** (extends D47) and carry their state in the retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
+trigger; the flag rate per extractor version doubles as the rollout canary. Flagged facts
+carry their state in the retrieval envelope. K stability: compiled-page `inputs_hash` keys on **fact state**, never raw
 claim IDs; claim-grain citations key on `(lineage, chunk_content_hash)`; "a new claim row for
 the same testimony" is not an evidence change (the stale-storm guard). Retrieval claim
 primitives default to current testimony with an audit opt-in; P1's default channel indexes
@@ -1438,7 +1445,7 @@ generations).
 
 **Context.** Review F3: evidence-once is keyed `(fact_id, claim_id)`, and a re-extraction mints
 new claim IDs for the same sentences — every extractor generation doubled the headline
-confidence signal (K3 gating, D9 reranking, adjudication weight), non-uniformly (only
+confidence signal (D9 reranking and adjudication weight), non-uniformly (only
 re-extracted documents inflate), while duplicate generations polluted claim search. The
 orchestration lanes (D52-era work) make re-extraction routine, so the leak was structural.
 Both parallel analyses converged on the counting meaning ("current testimony from distinct
@@ -2362,3 +2369,41 @@ batched micro-LLM call over each community's top members by PageRank, versioned 
 `community_detector` component (p2 §7). The general lesson is recorded with the engine
 rulebooks: **vendored capability surveys go stale — verify on the deployed build**, which is
 exactly what the WP-4.1 battery exists to do.
+
+## D73. Core principles are authored K2 content; the shipped K3 belief tier is removed (refines D47)
+
+**Decision.** Plane K ships with **K1 general knowledge plus any number of K2 purpose
+scopes**. It does not ship a K3 belief tier. Personal or organizational core principles — for
+example, "prefer simple codebases" — are normative commitments, not conclusions an evidence
+threshold can discover. They live as **authored pages in a K2 purpose scope**, cite the
+experiences and decisions they rest on, and use D45/D46/WP-6.6 watches, review flags, and
+dispatch when that ground changes. Compiled K2 pages may summarize recurring evidence and
+suggest a candidate principle, but only an accountable author may promote, rewrite, or retire
+the principle. No numeric stance score is inferred.
+
+The system's current evidence-qualified facts remain in E3 and are served through the D48–D51
+retrieval contract. Compiled K1/K2 pages may synthesize those facts, but are freshness-stamped
+prose, not a separate belief authority. D47's **one compilation mechanism, N scopes** remains
+binding; only its K3 default is withdrawn. The already-migrated `knowledge_layer = 'K3'` enum
+label remains an inert compatibility value: built-in configuration and behavior never create
+or special-case it, and removing an unused PostgreSQL enum value does not justify a destructive
+schema rewrite.
+
+**Context.** Gate #5 exposed a category error in the old K3 proposal. "The evidence currently
+supports X" is an epistemic summary; "I want my projects to favor X" is a chosen stance. The
+first is already represented by E3 facts and ordinary compiled summaries. The motivating
+personal-memory use case needs the second: a tiny, cross-project operating doctrine whose
+words remain under the user's control while the system keeps it connected to changing project
+evidence. K2 already supplies the scope, shared model page, compiled support material, authored
+ownership, citations, watches, and notification flow. Selectivity and distillation do not earn
+a new tier.
+
+**Consequences.** Question #5 and WP-6.7 close by removal rather than implementation; Phase 6
+ends at WP-6.6. There is no belief-threshold spike, belief-only scheduling exception,
+machine-promotion path, or calibrated confidence score to build. Supporting/contradicting
+citation roles remain useful generic provenance, but no special tier mandates both roles on
+every page. A future concrete use case that cannot be expressed as a K2 scope must earn a new
+decision; K3 is not a reserved roadmap promise. D45/D46, authored review flags, single-committer
+compilation, and configurable scope layout are unchanged. This is a design/plan reconciliation
+over already-generic runtime machinery, so it adds no public feature or website obligation
+under D66.

@@ -213,7 +213,7 @@ CREATE TYPE projection_plane       AS ENUM ('P1_search','P2_graph','P3_corpusfs'
 CREATE TYPE snapshot_status        AS ENUM ('building','validating','published','superseded','failed');
 CREATE TYPE community_algorithm    AS ENUM ('leiden','louvain');  -- external detection pass (D11)
 
-CREATE TYPE knowledge_layer        AS ENUM ('K1','K2','K3');  -- content TIERS of one mechanism (D47), not separate machinery
+CREATE TYPE knowledge_layer        AS ENUM ('K1','K2','K3');  -- K1/K2 are shipped scope labels; legacy K3 is inert compatibility only (D73)
 CREATE TYPE knowledge_page_kind    AS ENUM ('compiled','authored');  -- D46: machine-owned body vs human/agent-owned body
 -- 'quarantined' = a compiled body was human-edited directly; excluded from recompile until the
 -- diff is triaged — into the curation sidecar, or by adopting the page as authored
@@ -1510,7 +1510,7 @@ CREATE TABLE relations (
   valid_until     timestamptz,                 -- VALID-time end: closed by supersession when the fact stops holding ("Alice left Acme")
   ingested_at     timestamptz NOT NULL DEFAULT now(), -- TRANSACTION-time: when the system first believed this fact
   invalidated_at  timestamptz,                 -- TRANSACTION-time: when the system learned it was superseded (NULL = still believed)
-  evidence_count  integer NOT NULL DEFAULT 0,  -- cached count of DISTINCT DOCUMENT LINEAGES with current-testimony supporting claims (D54 — invariant under re-extraction/version churn/intra-doc repetition); confidence/salience signal (D2 refined); K3 candidate filter
+  evidence_count  integer NOT NULL DEFAULT 0,  -- cached count of DISTINCT DOCUMENT LINEAGES with current-testimony supporting claims (D54 — invariant under re-extraction/version churn/intra-doc repetition); confidence/salience signal (D2 refined)
   contradict_count integer NOT NULL DEFAULT 0, -- cached count of distinct current-testimony lineages contradicting (same D54 rule, stance=contradicts)
   confidence      real,                        -- aggregate confidence over evidence (not an extraction-time guess — concepts §3)
   contradiction_group uuid,                    -- shared id when two live relations contradict and can't be adjudicated — retrieval shows both sides (concepts §4)
@@ -1828,7 +1828,7 @@ CREATE TABLE entity_graph_metrics (
   entity_id       uuid NOT NULL,               -- composite FK below
   snapshot_id     uuid NOT NULL,               -- composite FK below (a P2_graph snapshot)
   community_id    uuid,                        -- this entity's community in this snapshot (composite FK below)
-  pagerank        double precision,            -- salience prior (retrieval rank + K3 filter)
+  pagerank        double precision,            -- salience prior for retrieval rank and K topic prioritization
   degree          integer,                     -- relation degree — copied into entities.graph_degree from the latest published snapshot only
   k_core          integer,                     -- k-core number (hub-ness)
   component_id    uuid,                        -- synthetic per-snapshot weakly-connected-component label (NOT an FK; scoped to snapshot_id)
@@ -1839,7 +1839,7 @@ CREATE TABLE entity_graph_metrics (
   FOREIGN KEY (deployment_id, community_id) REFERENCES communities (deployment_id, community_id) ON DELETE SET NULL (community_id)
 );
 COMMENT ON TABLE entity_graph_metrics IS
-  'Per-entity graph analytics written back from each P2 rebuild (D11): PageRank salience, degree (blast-radius), k-core, community, WCC. Read by retrieval ranking, K3 filtering, ER health checks. GC''d when its snapshot is superseded. entities.graph_degree is refreshed only from the published is_latest snapshot.';
+  'Per-entity graph analytics written back from each P2 rebuild (D11): PageRank salience, degree (blast-radius), k-core, community, WCC. Read by retrieval ranking, K topic prioritization, and ER health checks. GC''d when its snapshot is superseded. entities.graph_degree is refreshed only from the published is_latest snapshot.';
 CREATE INDEX ix_egm_entity   ON entity_graph_metrics (entity_id);
 CREATE INDEX ix_egm_snapshot ON entity_graph_metrics (snapshot_id);
 ```
@@ -1954,7 +1954,7 @@ these same views.
 
 ---
 
-## 11. K plane — the compile control plane (D1, D12, D45–D47)
+## 11. K plane — the compile control plane (D1, D12, D45–D47, D73)
 
 The K plane is **markdown whose source of truth is the git repo**, backed up independently (D1;
 irreducibly the human-authored content — D46). Postgres holds the **control plane** of the D45
@@ -1978,13 +1978,13 @@ holds only content. Binding design: `k_layers_design.md`.
 CREATE TABLE knowledge_artifacts (
   artifact_id     uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  layer           knowledge_layer NOT NULL,    -- K1 | K2 | K3 — content tier (D47), one mechanism
+  layer           knowledge_layer NOT NULL,    -- built-in configuration uses K1/K2; K3 is an inert legacy enum label (D73)
   page_kind       knowledge_page_kind NOT NULL, -- compiled | authored (D46)
   scope_id        uuid,                        -- non-null for K2 scope artifacts (composite FK below)
   parent_artifact_id uuid,                     -- tree/DAG position (composite FK below)
   git_path        text NOT NULL,               -- path of the markdown file in the K repo
   curation_path   text,                        -- compiled pages: the human curation sidecar file (D46)
-  kind            text,                        -- 'summary' | 'profile' | 'belief' | 'decision_log' | 'model_page' | ...
+  kind            text,                        -- 'summary' | 'profile' | 'principle' | 'decision_log' | 'model_page' | ...
   page_summary    text,                        -- writer-emitted 2–3 sentence abstract; what PARENT compiles consume
   content_hash    text,                        -- hash of the git file at last compile/sync (drift + quarantine detection, D46)
   inputs_hash     text,                        -- D45 staleness key: hash(candidate evidence IDs + validity fingerprints,
@@ -2234,7 +2234,7 @@ COMMENT ON TABLE knowledge_compilations IS
   'Append-only compile transcript per page (D45): inputs snapshot, candidate/cited/uncited counts, citation deltas, versions, cost, commit. Makes compiles idempotent (inputs_hash), auditable, and replayable-from-storage like every non-deterministic stage (D7/D33).';
 
 -- ─────────────────────────────────────────────────────────────────────────
--- knowledge_artifact_evidence — the CITATIONS: page ⇄ evidence links (D45/D46; K3 requirement +
+-- knowledge_artifact_evidence — the CITATIONS: page ⇄ evidence links (D45/D46; authored grounding +
 -- deletion cascade). A BINDING output contract, not self-reported provenance: on a compiled page
 -- the driver REPLACES these rows from the writer's returned citations each compile; on an
 -- authored page they are synced from the page's frontmatter (`cites:`). Evidence-change
@@ -2252,7 +2252,7 @@ CREATE TABLE knowledge_artifact_evidence (
   claim_chunk_content_hash text,               -- chunk-content half; required iff claim_lineage_id is present
   relation_id     uuid,                        -- composite FK below, ON DELETE CASCADE (real, relations is not partitioned)
   doc_id          uuid,                        -- LOGICAL FK → documents
-  role            knowledge_evidence_role NOT NULL, -- supports | contradicts | cites (K3 links supporting AND contradicting evidence)
+  role            knowledge_evidence_role NOT NULL, -- supports | contradicts | cites; generic provenance roles for any page
   CHECK ((claim_lineage_id IS NULL) = (claim_chunk_content_hash IS NULL)),
   CHECK (num_nonnulls(claim_lineage_id, relation_id, doc_id) = 1), -- claim pair counts as one target
   FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
@@ -2564,7 +2564,7 @@ Labs."*
 | D41 claim-grain source-asserted validity | `claims.claim_valid_from/until/precision/kind` (immutable); `claims_as_of` recipe (evidence-only); Lance scalar projection |
 | D45 planned K compilation (planner/writer/driver; mechanical routing; manifest staleness) | `knowledge_page_rules`, `knowledge_rule_keys`, `knowledge_plan_decisions`, `knowledge_compilations`; `knowledge_artifacts.inputs_hash/page_summary/parent_artifact_id` |
 | D46 compiled vs authored pages; ownership + quarantine | `knowledge_artifacts.page_kind/curation_path/content_hash` (+ `status='quarantined'`); citations binding in `knowledge_artifact_evidence`; authored review flags via `knowledge_refresh_queue ('authored_review')` |
-| D47 one K mechanism, N scopes; belief tier | `knowledge_artifacts.layer` (K1/K2/K3 as content tiers); belief tier = `knowledge_page_rules` selecting high-evidence uncontradicted facts; scope model page = an artifact all scope pages depend on |
+| D47/D73 one K mechanism, N scopes; no shipped K3 tier | `knowledge_artifacts.layer` (K1/K2 used by built-in configuration; legacy K3 label inert); scope model page = an artifact all writer runs in that scope depend on; authored K2 pages hold principles and stances |
 | E→K trigger surface (k_layers §5; the signal channel D42 deferred) | `knowledge_subscriptions`, `knowledge_page_watches`, `knowledge_dispatches`; rules owned by page XOR subscription; D42 `origin` guards re-ingested plans |
 | D48 propose/dispose hydration | no tables — an API-layer contract over existing spine reads (by-ID re-verification; drop counts in the envelope) |
 | D49 response envelope (grain / contradictions / freshness / negatives) | wire contract, not schema; the K freshness block reads `knowledge_artifacts` + `knowledge_compilations`; horizons read `projection_snapshots` |

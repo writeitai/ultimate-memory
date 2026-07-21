@@ -331,7 +331,7 @@ understanding was paid for upstream. Snapshot + validation + pointer swap, same 
 finding F6 — the stable-path contract for entity/document leaves — constrains the tree layout,
 not the worker's class.)*
 
-## 7. Plane K — the compile system (D45–D47)
+## 7. Plane K — the compile system (D45–D47, D73)
 
 ### 7.1 `k_driver` — deterministic; the repo's only automated committer
 
@@ -367,8 +367,8 @@ pre-hydrated evidence, no tools (the completeness floor); **agent mode** — a f
 retrieval tools over the memory for high-stakes scopes (the rule is a floor, not a ceiling).
 Output contract: markdown body + **citations** (binding; validated) + a 2–3-sentence page
 summary + optional suggestions. May never touch another file or leave inputs uncited.
-Fact-sheet-only pages skip the writer entirely (zero LLM). Model tier per page kind/scope —
-belief-tier and shared-model pages high, leaf entity pages mid.
+Fact-sheet-only pages skip the writer entirely (zero LLM). Model tier is configured per page
+kind/scope — shared-model and other high-stakes pages high, leaf entity pages mid.
 
 ### 7.4 `k_reflection` — agent harness, Claude family (the checker seat)
 

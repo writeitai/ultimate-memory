@@ -107,8 +107,8 @@ to exact keys only** (its conservative mode), never semantic matching.
    `evidence_count`/`contradict_count` (relations *and* observations) ≡ distinct document
    lineages with current-testimony support, per stance. Zero-current-support facts are
    flagged `support_withdrawn` for review (auto-invalidate only by explicit per-deployment
-   policy); they are never K3-eligible while unsupported (extends D47 gating). K compiled-page
-   `inputs_hash` keys on fact state, never raw claim IDs; K claim citations key on
+   policy); the retrieval envelope exposes that support moved. K compiled-page `inputs_hash`
+   keys on fact state, never raw claim IDs; K claim citations key on
    `(lineage, chunk_content_hash)`. Retrieval defaults to current testimony; the envelope
    discloses the regime (extends D49).
 2. **D55 — document lineages and versions.** `(source_kind, source_ref)` lineage identity;
