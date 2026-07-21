@@ -15,6 +15,7 @@ from ultimate_memory.model import KnowledgeWorkflowDelivery
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingTarget
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.spine.knowledge import KnowledgeCompilationError
 from ultimate_memory.spine.knowledge import KnowledgeControlPlane
 from ultimate_memory.spine.knowledge import KnowledgeDispatchUnavailableError
@@ -98,8 +99,9 @@ class KnowledgeDispatchHandler:
         self._control_plane = control_plane
         self._dispatcher = dispatcher
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Deliver at least once and keep both delivery/mirror failures visible."""
+        del meter
         if (
             work.target_kind is not ProcessingTarget.KNOWLEDGE_DISPATCH
             or work.stage is not PipelineStage.DISPATCH_KNOWLEDGE

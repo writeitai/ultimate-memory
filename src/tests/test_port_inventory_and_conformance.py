@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from datetime import timezone
+from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
 from typing import TypeVar
@@ -14,10 +15,12 @@ from pydantic import SecretBytes
 from ultimate_memory.model import AuthenticatedContext
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import EmbeddingResponse
+from ultimate_memory.model import GeneratedResponse
 from ultimate_memory.model import KRevision
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PerimeterCredential
+from ultimate_memory.model import ProviderCallUsage
 from ultimate_memory.model import PublishedMounts
 from ultimate_memory.model import QueueRoute
 from ultimate_memory.model import StructuredResponseModel
@@ -119,15 +122,30 @@ class FakeModelProvider:
 
     def generate(
         self, *, request: ModelRequest, response_type: type[ResponseT]
-    ) -> ResponseT:
+    ) -> GeneratedResponse[ResponseT]:
         """Construct the caller's declared response type from the rendered prompt."""
-        return response_type.model_validate({"answer": request.prompt})
+        return GeneratedResponse(
+            output=response_type.model_validate({"answer": request.prompt}),
+            usage=_usage(model_name=request.model),
+        )
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
         """Return one two-dimensional vector for every input text."""
         return EmbeddingResponse(
-            vectors=tuple((float(index), 1.0) for index, _ in enumerate(request.texts))
+            vectors=tuple((float(index), 1.0) for index, _ in enumerate(request.texts)),
+            usage=_usage(model_name=request.model),
         )
+
+
+def _usage(*, model_name: str) -> ProviderCallUsage:
+    """Return deterministic accounting for this structural fake."""
+    return ProviderCallUsage(
+        model_name=model_name,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=Decimal(0),
+        latency_ms=0,
+    )
 
 
 class FakeTelemetry:
@@ -256,7 +274,8 @@ def test_model_fake_validates_caller_declared_response_schema() -> None:
         )
     )
 
-    assert generated == ExampleResponse(answer="typed answer")
+    assert generated.output == ExampleResponse(answer="typed answer")
+    assert generated.usage.model_name == "configured-model"
     assert len(embedded.vectors) == 2
 
 

@@ -27,6 +27,7 @@ from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import ProcessingTarget
 from ultimate_memory.model import QueueRoute
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.queue import TaskQueuePort
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import WorkLedger
@@ -161,7 +162,7 @@ def test_announce_reannounces_an_existing_row(
             stage=PipelineStage.EXTRACT_CLAIMS,
             lane=ProcessingLane.STEADY,
         )
-        assert claimed is not None
+        assert isinstance(claimed, ClaimedWork)
         ledger.fail(
             processing_id=claimed.processing_id,
             error="Traceback: transient",
@@ -178,9 +179,9 @@ def test_announce_reannounces_an_existing_row(
 class _NoOpHandler:
     """Succeed without work — the demo chain's terminal stage handler."""
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Do nothing and chain nothing."""
-        del work
+        del work, meter
         return HandlerOutcome()
 
 

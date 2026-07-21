@@ -37,6 +37,7 @@ from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import P1ChunkRow
 from ultimate_memory.model import PackedChunk
 from ultimate_memory.model import PipelineStage
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.ports.p1_index import ChunkIndexPort
@@ -88,12 +89,13 @@ class ChunkHandler:
         self._params = params
         self._chunker_version = chunker_version(params=params)
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Pack one representation into chunks and chain the embed stage.
 
         Replay before regenerate (D7): rows this chunker generation already
         packed for the version are kept as-is and the stage just re-chains.
         """
+        del meter
         source = self._catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
         )
@@ -159,7 +161,7 @@ class EmbedChunksHandler:
         self._settings = settings
         self._chunker_version = chunker_version(params=params)
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Prefix, embed, and index every chunk of one document version.
 
         The D56/A3 carry-forward runs here: an unchanged chunk (same content
@@ -191,7 +193,11 @@ class EmbedChunksHandler:
         carried_vectors = self._carried_vectors(work=work, chunks=chunks, carry=carry)
         prefixes = tuple(
             self._resolve_prefix(
-                source=source, chunk=chunk, document_md=document_md, carry=carry
+                source=source,
+                chunk=chunk,
+                document_md=document_md,
+                carry=carry,
+                meter=meter,
             )
             for chunk in chunks
         )
@@ -210,6 +216,9 @@ class EmbedChunksHandler:
                     model=self._settings.embedding_model,
                     texts=tuple(texts[index] for index in fresh),
                 )
+            )
+            meter.record(
+                call_key="embed_chunks", tier="embedding", usage=response.usage
             )
             fresh_vectors = dict(
                 zip(
@@ -301,6 +310,7 @@ class EmbedChunksHandler:
         chunk: ChunkForEmbedding,
         document_md: str,
         carry: dict[str, CarryForwardSource],
+        meter: CostMeterPort,
     ) -> str:
         """One chunk's "where this sits" sentence: replayed if already stored.
 
@@ -327,7 +337,10 @@ class EmbedChunksHandler:
             request=ModelRequest(model=self._settings.prefix_model, prompt=prompt),
             response_type=ContextPrefix,
         )
-        return response.prefix
+        meter.record(
+            call_key=f"prefix:{chunk.chunk_id}", tier="prefix", usage=response.usage
+        )
+        return response.output.prefix
 
 
 def _chunk_record(

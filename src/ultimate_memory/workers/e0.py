@@ -47,6 +47,7 @@ from ultimate_memory.model import ObjectAlreadyExistsError
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import ProviderAccountingError
 from ultimate_memory.model import RepresentationRecord
 from ultimate_memory.model import SectionTreeRecord
 from ultimate_memory.model import SnappedSection
@@ -54,6 +55,7 @@ from ultimate_memory.model import StructureResponse
 from ultimate_memory.model import StructureSource
 from ultimate_memory.model import UnroutableMimeError
 from ultimate_memory.model import UploadRecord
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.document_catalog import DocumentCatalog
@@ -201,13 +203,14 @@ class ConvertHandler:
         self._artifact_store = artifact_store
         self._router = router
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Convert one document version and record its representation.
 
         Replay before regenerate (D65/D7): a representation this toolchain
         already produced for the version is re-chained as-is — the converter
         is never re-called on a retried or replayed attempt.
         """
+        del meter
         source = self._catalog.convert_source(
             version_id=_payload_uuid(work=work, field="version_id")
         )
@@ -393,7 +396,7 @@ class StructureHandler:
         self._model_provider = model_provider
         self._settings = settings or StructurerSettings()
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Structure one representation and flip currency."""
         source = self._catalog.structure_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
@@ -404,7 +407,7 @@ class StructureHandler:
         blocks = tuple(
             Block.model_validate(payload) for payload in blocks_doc["blocks"]
         )
-        response = self._propose(source=source, block_count=len(blocks))
+        response = self._propose(source=source, block_count=len(blocks), meter=meter)
         proposed = response.sections if response is not None else ()
         placement = (response.placement or None) if response is not None else None
         sections = snap_sections(
@@ -453,7 +456,7 @@ class StructureHandler:
         )
 
     def _propose(
-        self, *, source: StructureSource, block_count: int
+        self, *, source: StructureSource, block_count: int, meter: CostMeterPort
     ) -> StructureResponse | None:
         """Ask the structurer LLM for a tree; every failure degrades to None."""
         if self._model_provider is None:
@@ -469,12 +472,16 @@ class StructureHandler:
             document=markdown[: self._settings.max_prompt_chars],
         )
         try:
-            return self._model_provider.generate(
+            generated = self._model_provider.generate(
                 request=ModelRequest(model=self._settings.model, prompt=prompt),
                 response_type=StructureResponse,
             )
+        except ProviderAccountingError:
+            raise  # budget enforcement must never degrade missing usage to zero
         except Exception:  # noqa: BLE001 — a document never fails structuring
             return None
+        meter.record(call_key="structure", tier="structure", usage=generated.usage)
+        return generated.output
 
     def _write_sidecar(
         self,

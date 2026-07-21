@@ -1,7 +1,7 @@
 export const metadata = {
   title: "CLI Reference",
   description:
-    "The client-first ugm command line: query, ingest, manage deployment connectors, serve MCP, and drive the optional local review queue.",
+    "The client-first ugm command line: query, ingest, manage connectors, inspect budgets, serve MCP, and drive the local review queue.",
 };
 
 # CLI Reference
@@ -82,6 +82,34 @@ connector manager.
 Runs the base wheel's MCP stdio server. It discovers recipes from the remote
 deployment and proxies `tools/call` to the same HTTP recipe endpoint used by
 `ugm query`.
+
+## `ugm budget inspect`
+
+Budget inspection requires the `[server]` extra and connects directly to the
+deployment's PostgreSQL spine through `UGM_DATABASE_URL`:
+
+```bash
+ugm budget inspect --deployment <deployment-uuid>
+```
+
+Each output line is one configured route ceiling with its aligned window,
+current spend, remaining amount, exhaustion state, parked-work count, and spend
+grouped by the recorded cascade tier. Both enforcement and inspection read the
+same `processing_state` and `cost_ledger` rows; the CLI is not a billing system
+or a second source of pipeline truth.
+
+Ceilings are optional typed configuration in `UGM_WORK_BUDGETS`. The value is a
+JSON list; each item explicitly names the deployment, stage, lane, window size,
+and USD ceiling:
+
+```bash
+export UGM_WORK_BUDGETS='[{"deployment_id":"<deployment-uuid>","stage":"extract_claims","lane":"steady","window_seconds":86400,"ceiling_usd":"10.00"}]'
+```
+
+Use `null` for an unlaned K/P route. A route absent from the list is unlimited.
+When spend reaches its ceiling, due work is parked until the aligned window
+ends without consuming a handler attempt or becoming a failure; the same row
+then resumes normally.
 
 ## `ugm review`
 

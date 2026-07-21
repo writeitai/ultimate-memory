@@ -15,15 +15,19 @@ from uuid import UUID
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
+from ultimate_memory.model import BudgetParked
 from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import HandlerAlreadyRegisteredError
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import ProviderCallUsage
 from ultimate_memory.model import QueueRoute
+from ultimate_memory.model import RecordCall
 from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import UnknownStageHandlerError
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.queue import TaskQueuePort
 from ultimate_memory.spine.work_ledger import WorkLedger
 
@@ -42,13 +46,39 @@ class HandlerOutcome(BaseModel):
 class StageHandler(Protocol):
     """One stage's transformation over one claimed unit of work."""
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Process the claimed work and return its chain follow-ups.
 
         Raise `NonRetryableHandlerError` for permanent failures (the work
         dead-letters immediately); any other exception is a retryable failure.
         """
         ...
+
+
+class _LedgerCostMeter:
+    """Bind provider accounting to one claimed processing attempt."""
+
+    def __init__(self, *, ledger: WorkLedger, processing_id: UUID) -> None:
+        """Bind every call record to the authoritative running row."""
+        self._ledger = ledger
+        self._processing_id = processing_id
+
+    def record(
+        self, *, call_key: str, tier: str | None, usage: ProviderCallUsage
+    ) -> None:
+        """Persist one provider-reported call through the spine attribution path."""
+        self._ledger.record_call(
+            call=RecordCall(
+                processing_id=self._processing_id,
+                call_key=call_key,
+                model_name=usage.model_name,
+                tier=tier,
+                tokens_in=usage.tokens_in,
+                tokens_out=usage.tokens_out,
+                cost_usd=usage.cost_usd,
+                latency_ms=usage.latency_ms,
+            )
+        )
 
 
 class RunResult(BaseModel):
@@ -119,8 +149,24 @@ class Worker:
         )
         if claimed is None:
             return RunResult(processing_id=None, outcome=RunResultOutcome.NO_WORK)
+        if isinstance(claimed, BudgetParked):
+            if self._queue is not None:
+                self._queue.announce(
+                    processing_id=claimed.processing_id,
+                    route_snapshot=QueueRoute(
+                        deployment_id=deployment_id, stage=stage, lane=lane
+                    ),
+                    not_before_snapshot=claimed.resume_at,
+                )
+            return RunResult(
+                processing_id=claimed.processing_id,
+                outcome=RunResultOutcome.BUDGET_PARKED,
+            )
+        meter = _LedgerCostMeter(
+            ledger=self._ledger, processing_id=claimed.processing_id
+        )
         try:
-            outcome = handler.handle(work=claimed)
+            outcome = handler.handle(work=claimed, meter=meter)
         except NonRetryableHandlerError:
             _logger.exception(
                 "non-retryable failure in stage %s for %s",

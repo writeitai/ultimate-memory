@@ -207,7 +207,10 @@ from ultimate_memory.model.lifecycle import CurrencyTransition
 from ultimate_memory.model.lifecycle import ReconciliationDelta
 from ultimate_memory.model.model_provider import EmbeddingRequest
 from ultimate_memory.model.model_provider import EmbeddingResponse
+from ultimate_memory.model.model_provider import GeneratedResponse
 from ultimate_memory.model.model_provider import ModelRequest
+from ultimate_memory.model.model_provider import ProviderAccountingError
+from ultimate_memory.model.model_provider import ProviderCallUsage
 from ultimate_memory.model.model_provider import StructuredResponseModel
 from ultimate_memory.model.mounts import PublishedMounts
 from ultimate_memory.model.object_store import ObjectAlreadyExistsError
@@ -218,7 +221,11 @@ from ultimate_memory.model.operational_scale import OperationalScaleReport
 from ultimate_memory.model.processing import BackfillNotDrainedError
 from ultimate_memory.model.processing import BackfillSeedRequest
 from ultimate_memory.model.processing import BackfillSeedResult
+from ultimate_memory.model.processing import BudgetParked
 from ultimate_memory.model.processing import ClaimedWork
+from ultimate_memory.model.processing import CostBudget
+from ultimate_memory.model.processing import CostBudgetStatus
+from ultimate_memory.model.processing import CostTierSpend
 from ultimate_memory.model.processing import DeferReason
 from ultimate_memory.model.processing import EnqueueOutcome
 from ultimate_memory.model.processing import EnqueueWork
@@ -268,6 +275,7 @@ __all__ = (
     "BackfillNotDrainedError",
     "BackfillSeedRequest",
     "BackfillSeedResult",
+    "BudgetParked",
     "AddedContext",
     "AdjudicationVerdict",
     "AggregateBucket",
@@ -298,6 +306,9 @@ __all__ = (
     "ComponentVersionRecord",
     "ConnectorCreate",
     "ConnectorDescriptor",
+    "CostBudget",
+    "CostBudgetStatus",
+    "CostTierSpend",
     "ConnectorNotFoundError",
     "ContextPrefix",
     "ConversionError",
@@ -319,6 +330,7 @@ __all__ = (
     "DocumentVersionNotFoundError",
     "EmbeddingRequest",
     "EmbeddingResponse",
+    "GeneratedResponse",
     "EmbeddingUpdate",
     "EnqueueOutcome",
     "EnqueueWork",
@@ -373,6 +385,8 @@ __all__ = (
     "ProcessingLane",
     "ProcessingStatus",
     "ProcessingTarget",
+    "ProviderAccountingError",
+    "ProviderCallUsage",
     "PublishedMounts",
     "QueueRoute",
     "PageRef",

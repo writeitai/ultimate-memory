@@ -8,10 +8,15 @@ status='dead_letter' rows; billed calls copy their attribution from the locked
 running row and callers can never supply it.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
+from typing import cast
+from typing import Self
 from uuid import UUID
 from uuid import uuid4
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from sqlalchemy import bindparam
@@ -21,7 +26,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine import RowMapping
 
+from ultimate_memory.model import BudgetParked
 from ultimate_memory.model import ClaimedWork
+from ultimate_memory.model import CostBudget
+from ultimate_memory.model import CostBudgetStatus
+from ultimate_memory.model import CostTierSpend
 from ultimate_memory.model import EnqueueOutcome
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import LaneRouteError
@@ -34,12 +43,42 @@ from ultimate_memory.spine.catalog_contract import lane_is_valid
 
 
 class WorkLedgerSettings(BaseSettings):
-    """Retry-backoff configuration for failed handler attempts (D67 starting points)."""
+    """Retry backoff plus explicit route budgets for one worker deployment."""
 
     model_config = SettingsConfigDict(env_prefix="UGM_WORK_", extra="ignore")
 
     retry_backoff_base_s: float = 2.0
     retry_backoff_max_s: float = 60.0
+    budgets: tuple[CostBudget, ...] = ()
+
+    @model_validator(mode="after")
+    def require_unique_valid_budget_routes(self) -> Self:
+        """Reject ambiguous ceilings and stage/lane pairs that cannot be queued."""
+        routes: set[tuple[UUID, PipelineStage, ProcessingLane | None]] = set()
+        for budget in self.budgets:
+            if not lane_is_valid(
+                stage=budget.stage,
+                lane=None if budget.lane is None else budget.lane.value,
+            ):
+                raise ValueError(
+                    f"stage {budget.stage} does not accept budget lane {budget.lane!r}"
+                )
+            route = (budget.deployment_id, budget.stage, budget.lane)
+            if route in routes:
+                raise ValueError(
+                    "only one cost budget may be configured per deployment, stage, and lane"
+                )
+            routes.add(route)
+        return self
+
+
+@dataclass(frozen=True)
+class _BudgetWindowSpend:
+    """The database-clock window and deduplicated spend used by one pre-flight."""
+
+    started_at: datetime
+    ends_at: datetime
+    spent_usd: Decimal
 
 
 class WorkLedger:
@@ -64,12 +103,14 @@ class WorkLedger:
 
     def claim_one(
         self, *, deployment_id: UUID, stage: PipelineStage, lane: ProcessingLane | None
-    ) -> ClaimedWork | None:
-        """Claim the next due row on one route, or return None when nothing is due.
+    ) -> ClaimedWork | BudgetParked | None:
+        """Claim, budget-park, or find no due row on one route.
 
-        Claiming locks the row (SKIP LOCKED), clears any defer reason, moves it to
-        running, and increments attempts exactly once immediately before the
-        handler begins — delivery wake-ups without a claim never consume attempts.
+        The due row is locked before the current route-window spend is checked.
+        Exhaustion durably parks it until the aligned window rolls, without
+        consuming an attempt or touching its last error. Otherwise claiming
+        clears any defer reason, moves it to running, and increments attempts
+        exactly once immediately before the handler begins.
         """
         _require_valid_lane(stage=stage, lane=lane)
         with self._engine.begin() as connection:
@@ -83,6 +124,25 @@ class WorkLedger:
             )
             if row is None:
                 return None
+            budget = self._budget_for(
+                deployment_id=deployment_id, stage=stage, lane=lane
+            )
+            if budget is not None:
+                spend = _budget_window_spend(connection=connection, budget=budget)
+                if spend.spent_usd >= budget.ceiling_usd:
+                    connection.execute(
+                        _PARK_BUDGET,
+                        {
+                            "processing_id": row["processing_id"],
+                            "resume_at": spend.ends_at,
+                        },
+                    )
+                    return BudgetParked(
+                        processing_id=row["processing_id"],
+                        resume_at=spend.ends_at,
+                        spent_usd=spend.spent_usd,
+                        ceiling_usd=budget.ceiling_usd,
+                    )
             started = (
                 connection.execute(
                     _CLAIM_START, {"processing_id": row["processing_id"]}
@@ -91,6 +151,60 @@ class WorkLedger:
                 .one()
             )
             return _claimed_work(row=started)
+
+    def budget_status(self, *, deployment_id: UUID) -> tuple[CostBudgetStatus, ...]:
+        """Return current spend and parked work for every configured deployment budget."""
+        statuses: list[CostBudgetStatus] = []
+        with self._engine.connect() as connection:
+            for budget in self._settings.budgets:
+                if budget.deployment_id != deployment_id:
+                    continue
+                spend = _budget_window_spend(connection=connection, budget=budget)
+                tier_rows = connection.execute(
+                    _BUDGET_TIER_SPEND,
+                    {
+                        "deployment_id": budget.deployment_id,
+                        "stage": budget.stage,
+                        "lane": budget.lane,
+                        "window_started_at": spend.started_at,
+                        "window_ends_at": spend.ends_at,
+                    },
+                ).mappings()
+                tiers = tuple(
+                    CostTierSpend(
+                        tier=cast(str | None, row["tier"]),
+                        cost_usd=_decimal(row["cost_usd"]),
+                    )
+                    for row in tier_rows
+                )
+                parked_work = int(
+                    connection.execute(
+                        _BUDGET_PARKED_COUNT,
+                        {
+                            "deployment_id": budget.deployment_id,
+                            "stage": budget.stage,
+                            "lane": budget.lane,
+                        },
+                    ).scalar_one()
+                )
+                remaining = max(Decimal(0), budget.ceiling_usd - spend.spent_usd)
+                statuses.append(
+                    CostBudgetStatus(
+                        deployment_id=budget.deployment_id,
+                        stage=budget.stage,
+                        lane=budget.lane,
+                        window_seconds=budget.window_seconds,
+                        window_started_at=spend.started_at,
+                        window_ends_at=spend.ends_at,
+                        ceiling_usd=budget.ceiling_usd,
+                        spent_usd=spend.spent_usd,
+                        remaining_usd=remaining,
+                        exhausted=spend.spent_usd >= budget.ceiling_usd,
+                        parked_work=parked_work,
+                        tiers=tiers,
+                    )
+                )
+        return tuple(statuses)
 
     def complete(
         self, *, processing_id: UUID, follow_up: tuple[EnqueueWork, ...] = ()
@@ -162,10 +276,10 @@ class WorkLedger:
             return None
 
     def park_for_budget(self, *, processing_id: UUID, resume_at: datetime) -> None:
-        """Park healthy pending work until its budget window rolls (D67).
+        """Park queued work until its budget window rolls (D67).
 
         Parking happens at claim-time pre-flight, before an attempt starts: it
-        applies only to pending rows (a running attempt is never parked — that
+        applies only to pending/failed rows (a running attempt is never parked — that
         would allow a second concurrent claim), sets defer_reason budget with a
         future not_before, consumes no attempt, and touches no error state, so
         it can never cause dead-lettering.
@@ -176,7 +290,7 @@ class WorkLedger:
             ).rowcount
             if updated == 0:
                 raise WorkNotRunningError(
-                    f"processing row {processing_id} is not pending; only queued "
+                    f"processing row {processing_id} is not queued; only queued "
                     "work can be budget-parked"
                 )
 
@@ -238,6 +352,50 @@ class WorkLedger:
                 },
             ).rowcount
             return inserted == 1
+
+    def _budget_for(
+        self, *, deployment_id: UUID, stage: PipelineStage, lane: ProcessingLane | None
+    ) -> CostBudget | None:
+        """Return the one validated ceiling for a route, if the operator configured it."""
+        return next(
+            (
+                budget
+                for budget in self._settings.budgets
+                if budget.deployment_id == deployment_id
+                and budget.stage == stage
+                and budget.lane == lane
+            ),
+            None,
+        )
+
+
+def _budget_window_spend(
+    *, connection: Connection, budget: CostBudget
+) -> _BudgetWindowSpend:
+    """Read one aligned window and its deduplicated cost using the database clock."""
+    row = (
+        connection.execute(
+            _BUDGET_WINDOW_SPEND,
+            {
+                "deployment_id": budget.deployment_id,
+                "stage": budget.stage,
+                "lane": budget.lane,
+                "window_seconds": budget.window_seconds,
+            },
+        )
+        .mappings()
+        .one()
+    )
+    return _BudgetWindowSpend(
+        started_at=cast(datetime, row["window_started_at"]),
+        ends_at=cast(datetime, row["window_ends_at"]),
+        spent_usd=_decimal(row["spent_usd"]),
+    )
+
+
+def _decimal(value: object) -> Decimal:
+    """Normalize a PostgreSQL numeric aggregate without introducing float rounding."""
+    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 def _require_valid_lane(*, stage: PipelineStage, lane: ProcessingLane | None) -> None:
@@ -449,8 +607,61 @@ _FAIL_DEAD_LETTER = text(
 _PARK_BUDGET = text(
     """
     UPDATE processing_state
-    SET defer_reason = 'budget', not_before = :resume_at
-    WHERE processing_id = :processing_id AND status = 'pending'
+    SET status = 'pending', defer_reason = 'budget', not_before = :resume_at
+    WHERE processing_id = :processing_id AND status IN ('pending', 'failed')
+    """
+)
+
+_BUDGET_WINDOW_SPEND = text(
+    """
+    WITH bounds AS (
+        SELECT
+            to_timestamp(
+                floor(extract(epoch FROM now()) / :window_seconds)
+                * :window_seconds
+            ) AS window_started_at,
+            to_timestamp(
+                (floor(extract(epoch FROM now()) / :window_seconds) + 1)
+                * :window_seconds
+            ) AS window_ends_at
+    )
+    SELECT bounds.window_started_at,
+           bounds.window_ends_at,
+           COALESCE(sum(cost_ledger.cost_usd), 0) AS spent_usd
+    FROM bounds
+    LEFT JOIN cost_ledger
+      ON cost_ledger.deployment_id = :deployment_id
+     AND cost_ledger.stage = :stage
+     AND cost_ledger.lane IS NOT DISTINCT FROM :lane
+     AND cost_ledger.occurred_at >= bounds.window_started_at
+     AND cost_ledger.occurred_at < bounds.window_ends_at
+    GROUP BY bounds.window_started_at, bounds.window_ends_at
+    """
+)
+
+_BUDGET_TIER_SPEND = text(
+    """
+    SELECT tier, COALESCE(sum(cost_usd), 0) AS cost_usd
+    FROM cost_ledger
+    WHERE deployment_id = :deployment_id
+      AND stage = :stage
+      AND lane IS NOT DISTINCT FROM :lane
+      AND occurred_at >= :window_started_at
+      AND occurred_at < :window_ends_at
+    GROUP BY tier
+    ORDER BY tier NULLS FIRST
+    """
+)
+
+_BUDGET_PARKED_COUNT = text(
+    """
+    SELECT count(*)
+    FROM processing_state
+    WHERE deployment_id = :deployment_id
+      AND stage = :stage
+      AND lane IS NOT DISTINCT FROM :lane
+      AND status = 'pending'
+      AND defer_reason = 'budget'
     """
 )
 

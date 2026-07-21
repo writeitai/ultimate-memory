@@ -25,6 +25,7 @@ from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import NormalizationResponse
 from ultimate_memory.model import ObservationAssertion
 from ultimate_memory.model import PipelineStage
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
@@ -104,7 +105,7 @@ class NormalizeRelationsHandler:
         self._settings = settings
         self._chunker_version = chunker_version
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Normalize one document version's claims into relations/observations.
 
         Newly-created relations chain the supersession adjudicator (D3/D4)
@@ -160,12 +161,15 @@ class NormalizeRelationsHandler:
                 prompt_lines=prompt_lines,
                 signatures=signatures,
                 type_parents=type_parents,
+                meter=meter,
             )
         for entity_id, assertions in observations_by_entity.items():
             self._observation_adjudicator.add_observations(
                 deployment_id=deployment_id,
                 subject_entity_id=entity_id,
                 assertions=tuple(assertions),
+                meter=meter,
+                call_key=f"observation:{entity_id}",
             )
         return HandlerOutcome(
             follow_up=(
@@ -213,9 +217,10 @@ class NormalizeRelationsHandler:
         prompt_lines: str,
         signatures: dict[str, tuple[tuple[str, str], ...]],
         type_parents: dict[str, str | None],
+        meter: CostMeterPort,
     ) -> None:
         """One claim through the normalizer call and the deterministic gates."""
-        response = self._model_provider.generate(
+        response_call = self._model_provider.generate(
             request=ModelRequest(
                 model=self._settings.normalize_model,
                 prompt=_NORMALIZE_PROMPT.format(
@@ -227,7 +232,13 @@ class NormalizeRelationsHandler:
             ),
             response_type=NormalizationResponse,
         )
-        for relation in response.relations:
+        meter.record(
+            call_key=f"normalize:{claim.claim_id}",
+            tier="normalize",
+            usage=response_call.usage,
+        )
+        response = response_call.output
+        for relation_index, relation in enumerate(response.relations):
             if _OTHER_PREDICATE.fullmatch(relation.predicate):
                 # the D5 escape funnel: register tier=other, unconstrained
                 # by signatures, ranked by usage for periodic promotion
@@ -258,10 +269,20 @@ class NormalizeRelationsHandler:
                 )
                 continue
             subject = self._resolver.resolve(
-                deployment_id=deployment_id, reference=relation.subject, claim=claim
+                deployment_id=deployment_id,
+                reference=relation.subject,
+                claim=claim,
+                meter=meter,
+                call_key=(
+                    f"resolve:{claim.claim_id}:relation:{relation_index}:subject"
+                ),
             )
             object_ = self._resolver.resolve(
-                deployment_id=deployment_id, reference=relation.object, claim=claim
+                deployment_id=deployment_id,
+                reference=relation.object,
+                claim=claim,
+                meter=meter,
+                call_key=f"resolve:{claim.claim_id}:relation:{relation_index}:object",
             )
             if not _signature_allows(
                 predicate=relation.predicate,
@@ -292,9 +313,15 @@ class NormalizeRelationsHandler:
             )
             if upserted.created:
                 created_relations.append(str(upserted.relation_id))
-        for observation in response.observations:
+        for observation_index, observation in enumerate(response.observations):
             subject = self._resolver.resolve(
-                deployment_id=deployment_id, reference=observation.subject, claim=claim
+                deployment_id=deployment_id,
+                reference=observation.subject,
+                claim=claim,
+                meter=meter,
+                call_key=(
+                    f"resolve:{claim.claim_id}:observation:{observation_index}:subject"
+                ),
             )
             # the one write path for observations is the D43 adjudicator:
             # block on the entity, gate cheaply, ladder the residue,
@@ -363,7 +390,7 @@ class AdjudicateSupersessionHandler:
         """Bind the handler to the composed adjudicator."""
         self._adjudicator = adjudicator
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Adjudicate every relation the normalize stage created (idempotent).
 
         Chains the reconcile stage — the truth machinery for this version's
@@ -379,7 +406,10 @@ class AdjudicateSupersessionHandler:
             )
         for raw in relation_ids:
             self._adjudicator.adjudicate_new_relation(
-                deployment_id=work.deployment_id, relation_id=UUID(str(raw))
+                deployment_id=work.deployment_id,
+                relation_id=UUID(str(raw)),
+                meter=meter,
+                call_key=f"supersession:{raw}",
             )
         version_id = payload.get("version_id")
         representation_id = payload.get("representation_id")

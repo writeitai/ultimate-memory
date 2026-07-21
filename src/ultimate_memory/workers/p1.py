@@ -21,6 +21,7 @@ from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import P1ClaimRow
 from ultimate_memory.model import P1FactRow
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.p1_index import ClaimIndexPort
 from ultimate_memory.ports.p1_index import FactIndexPort
@@ -71,7 +72,7 @@ class EmbedClaimsHandler:
         self._settings = settings
         self._chunker_version = chunker_version
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Embed the version's not-yet-embedded claims as one document batch."""
         source = self._chunk_catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
@@ -92,6 +93,7 @@ class EmbedClaimsHandler:
                 texts=tuple(claim.claim_text for claim in claims),
             )
         )
+        meter.record(call_key="embed_claims", tier="embedding", usage=response.usage)
         self._claim_index.upsert_claims(
             rows=tuple(
                 P1ClaimRow(
@@ -132,7 +134,7 @@ class LabelFactsHandler:
         self._fact_index = fact_index
         self._settings = settings
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Label and embed the document's facts still lacking this generation.
 
         Ordering is the invariant (Codex review): the index write lands
@@ -151,7 +153,7 @@ class LabelFactsHandler:
                 doc_id=doc_id,
                 label_version=generation,
             ):
-                label = self._model_provider.generate(
+                label_call = self._model_provider.generate(
                     request=ModelRequest(
                         model=self._settings.label_model,
                         prompt=_FACT_LABEL_PROMPT.format(
@@ -161,7 +163,13 @@ class LabelFactsHandler:
                         ),
                     ),
                     response_type=FactLabelResponse,
-                ).label
+                )
+                meter.record(
+                    call_key=f"label_relation:{relation.relation_id}",
+                    tier="label",
+                    usage=label_call.usage,
+                )
+                label = label_call.output.label
                 rows.append(
                     P1FactRow(
                         fact_id=relation.relation_id,
@@ -195,6 +203,7 @@ class LabelFactsHandler:
                     texts=tuple(row.label for row in rows),
                 )
             )
+            meter.record(call_key="embed_facts", tier="embedding", usage=response.usage)
             self._fact_index.upsert_facts(
                 rows=tuple(
                     row.model_copy(update={"vector": vector})

@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.adapters.testing import NoopCostMeter
 from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
@@ -274,7 +275,8 @@ def test_rerunning_the_chunk_stage_replays_the_stored_packing(
                 "version_id": str(ingested.version_id),
                 "representation_id": str(representation),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     # the replay never re-read artifacts (nonexistent store) and kept the rows:
     assert replay.follow_up[0].stage is PipelineStage.EMBED_CHUNK
@@ -351,6 +353,7 @@ def test_embed_retry_replays_stored_prefixes(rig: _E1Rig, tmp_path: Path) -> Non
                 "version_id": str(ingested.version_id),
                 "representation_id": str(representation),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert len(rig.provider.generated_prompts) == calls_after_first

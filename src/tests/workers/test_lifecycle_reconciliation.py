@@ -28,6 +28,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.adapters.testing import NoopCostMeter
 from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
@@ -479,7 +480,8 @@ def test_worked_example_edit_retracts_solely_supported_fact(rig: _LifecycleRig) 
                 "version_id": str(version_id),
                 "representation_id": str(representation_id),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert (
         rig.scalar("SELECT count(*) FROM testimony_currency_events") == event
@@ -533,7 +535,8 @@ def test_extractor_bump_without_rederivation_flags_support_withdrawn(
                 "version_id": str(ingested.version_id),
                 "representation_id": str(representation_id),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     fact = rig.relation()
     assert fact["evidence_count"] == 0
@@ -824,7 +827,8 @@ def test_finalization_never_closes_a_flagged_fact(rig: _LifecycleRig) -> None:
                 "version_id": str(ingested.version_id),
                 "representation_id": str(representation_id),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert (
         rig.scalar(
@@ -915,7 +919,8 @@ def test_restore_support_plants_a_canary_the_pack_rechecks(rig: _LifecycleRig) -
                 "version_id": str(ingested.version_id),
                 "representation_id": str(representation_id),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     review_id = rig.scalar("SELECT review_id FROM review_queue")
     rig.review.decide_support_withdrawn(

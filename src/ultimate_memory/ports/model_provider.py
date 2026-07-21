@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import EmbeddingResponse
+from ultimate_memory.model import GeneratedResponse
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import StructuredResponseModel
 
@@ -18,8 +19,8 @@ class ModelProviderPort(Protocol):
 
     def generate(
         self, *, request: ModelRequest, response_type: type[ResponseT]
-    ) -> ResponseT:
-        """Return a response validated as the caller's declared structured type."""
+    ) -> GeneratedResponse[ResponseT]:
+        """Return validated output plus the provider-reported usage for this call."""
         ...
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:

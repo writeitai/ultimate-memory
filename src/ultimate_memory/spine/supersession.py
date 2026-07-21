@@ -27,6 +27,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import SupersessionOutcome
 from ultimate_memory.model import SupersessionVerdict
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 
 ADJUDICATOR_VERSION: Final = "adjudicator-2026.07"
@@ -75,7 +76,12 @@ class SupersessionAdjudicator:
         self._settings = settings
 
     def adjudicate_new_relation(
-        self, *, deployment_id: UUID, relation_id: UUID
+        self,
+        *,
+        deployment_id: UUID,
+        relation_id: UUID,
+        meter: CostMeterPort | None = None,
+        call_key: str = "supersession",
     ) -> None:
         """Run the cascade for one new relation (idempotent per generation).
 
@@ -181,6 +187,8 @@ class SupersessionAdjudicator:
                     new=dict(subject),
                     new_relation_id=relation_id,
                     old=dict(candidate),
+                    meter=meter,
+                    call_key=f"{call_key}:{candidate['relation_id']}",
                 )
 
     def _adjudicate_pair(
@@ -191,6 +199,8 @@ class SupersessionAdjudicator:
         new: dict[str, object],
         new_relation_id: UUID,
         old: dict[str, object],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> None:
         """Climb the ladder for one blocked pair and apply the outcome."""
         prompt = _ADJUDICATION_PROMPT.format(
@@ -201,19 +211,33 @@ class SupersessionAdjudicator:
             new_evidence=new["evidence_text"],
             new_asserted=new["asserted_at"] or "unknown",
         )
-        verdict = self._model_provider.generate(
+        verdict_call = self._model_provider.generate(
             request=ModelRequest(model=self._settings.small_model, prompt=prompt),
             response_type=SupersessionVerdict,
         )
+        if meter is not None:
+            meter.record(
+                call_key=f"{call_key}:small",
+                tier="small_model",
+                usage=verdict_call.usage,
+            )
+        verdict = verdict_call.output
         method = "small_model"
         model = self._settings.small_model
         if verdict.confidence < self._settings.confidence_floor:
-            verdict = self._model_provider.generate(
+            verdict_call = self._model_provider.generate(
                 request=ModelRequest(
                     model=self._settings.frontier_model, prompt=prompt
                 ),
                 response_type=SupersessionVerdict,
             )
+            if meter is not None:
+                meter.record(
+                    call_key=f"{call_key}:frontier",
+                    tier="frontier_llm",
+                    usage=verdict_call.usage,
+                )
+            verdict = verdict_call.output
             method = "frontier_llm"
             model = self._settings.frontier_model
         features: dict[str, object] = {"model": model, "rationale": verdict.rationale}

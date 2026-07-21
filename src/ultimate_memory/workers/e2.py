@@ -33,6 +33,7 @@ from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import SelectionCandidate
 from ultimate_memory.model import SelectionResponse
 from ultimate_memory.model import SelectionVerdict
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.object_store import ObjectStorePort
 from ultimate_memory.spine.chunk_catalog import ChunkCatalog
@@ -102,7 +103,7 @@ class ExtractClaimsHandler:
         self._settings = settings
         self._chunker_version = chunker_version
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Extract claims for one document version, chunk by chunk (D12 replay)."""
         source = self._chunk_catalog.chunk_source(
             representation_id=_payload_uuid(work=work, field="representation_id")
@@ -124,7 +125,11 @@ class ExtractClaimsHandler:
             if self._reuse_prior_extraction(source=source, chunk=chunk):
                 continue  # D56: the prior version's claims are re-attached
             self._extract_chunk(
-                source=source, chunks=chunks, index=index, document_md=document_md
+                source=source,
+                chunks=chunks,
+                index=index,
+                document_md=document_md,
+                meter=meter,
             )
         return HandlerOutcome(
             follow_up=(
@@ -185,19 +190,26 @@ class ExtractClaimsHandler:
         chunks: tuple[ChunkForEmbedding, ...],
         index: int,
         document_md: str,
+        meter: CostMeterPort,
     ) -> None:
         """Run the two Claimify calls for one chunk and land the results."""
         chunk = chunks[index]
         bundle = _bundle_text(
             source=source, chunks=chunks, index=index, document_md=document_md
         )
-        selection = self._model_provider.generate(
+        selection_call = self._model_provider.generate(
             request=ModelRequest(
                 model=self._settings.extract_model,
                 prompt=_SELECTION_PROMPT.format(bundle=bundle),
             ),
             response_type=SelectionResponse,
         )
+        meter.record(
+            call_key=f"selection:{chunk.chunk_id}",
+            tier="selection",
+            usage=selection_call.usage,
+        )
+        selection = selection_call.output
         decisions = list(
             _selection_decisions(source=source, chunk=chunk, selection=selection)
         )
@@ -216,7 +228,7 @@ class ExtractClaimsHandler:
                 for candidate in keeps
                 if candidate.verdict is SelectionVerdict.KEEP_FLAGGED
             }
-            response = self._model_provider.generate(
+            response_call = self._model_provider.generate(
                 request=ModelRequest(
                     model=self._settings.extract_model,
                     prompt=_CLAIMIFY_PROMPT.format(
@@ -226,6 +238,12 @@ class ExtractClaimsHandler:
                 ),
                 response_type=ClaimifyResponse,
             )
+            meter.record(
+                call_key=f"decontextualize:{chunk.chunk_id}",
+                tier="decontextualize",
+                usage=response_call.usage,
+            )
+            response = response_call.output
             for candidate in response.claims:
                 record = _grounded_claim(
                     candidate=candidate,

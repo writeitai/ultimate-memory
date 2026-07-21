@@ -1,8 +1,11 @@
 """Typed, provider-neutral model and embedding call values for the LLM boundary."""
 
+from decimal import Decimal
 from typing import Annotated
+from typing import Generic
 from typing import Self
 from typing import TypeAlias
+from typing import TypeVar
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -12,6 +15,32 @@ from pydantic import model_validator
 _NonEmptyText = Annotated[str, Field(min_length=1)]
 _EmbeddingVector = Annotated[tuple[float, ...], Field(min_length=1)]
 StructuredResponseModel: TypeAlias = BaseModel
+ResponseT = TypeVar("ResponseT", bound=StructuredResponseModel)
+
+
+class ProviderAccountingError(Exception):
+    """A provider response omitted or malformed required usage accounting."""
+
+
+class ProviderCallUsage(BaseModel):
+    """Provider-reported accounting for one successful generation or embedding call."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    model_name: _NonEmptyText
+    tokens_in: int = Field(ge=0)
+    tokens_out: int = Field(ge=0)
+    cost_usd: Decimal = Field(ge=Decimal(0))
+    latency_ms: int = Field(ge=0)
+
+
+class GeneratedResponse(BaseModel, Generic[ResponseT]):
+    """A validated structured output paired with its provider accounting."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    output: ResponseT
+    usage: ProviderCallUsage
 
 
 class ModelRequest(BaseModel):
@@ -38,6 +67,7 @@ class EmbeddingResponse(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     vectors: Annotated[tuple[_EmbeddingVector, ...], Field(min_length=1)]
+    usage: ProviderCallUsage
 
     @model_validator(mode="after")
     def require_one_dimension(self) -> Self:
