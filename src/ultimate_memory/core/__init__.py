@@ -37,6 +37,9 @@ from ultimate_memory.core.knowledge_fact_sheet import render_knowledge_fact_shee
 from ultimate_memory.core.knowledge_hashing import knowledge_content_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_inputs_hash
 from ultimate_memory.core.knowledge_hashing import knowledge_summary_hash
+from ultimate_memory.core.knowledge_planner import knowledge_planning_input_hash
+from ultimate_memory.core.knowledge_planner import primary_knowledge_plan_trigger
+from ultimate_memory.core.knowledge_planner import route_knowledge_plan
 from ultimate_memory.core.knowledge_writer import cap_knowledge_writer_bundle
 from ultimate_memory.core.knowledge_writer import knowledge_writer_coverage
 from ultimate_memory.core.knowledge_writer import render_knowledge_writer_bundle
@@ -95,7 +98,9 @@ __all__ = (
     "knowledge_content_hash",
     "knowledge_compile_order",
     "knowledge_inputs_hash",
+    "knowledge_planning_input_hash",
     "knowledge_summary_hash",
+    "primary_knowledge_plan_trigger",
     "compose_knowledge_page",
     "RecipeLintError",
     "lint_recipe",
@@ -105,6 +110,7 @@ __all__ = (
     "cap_knowledge_writer_bundle",
     "knowledge_writer_coverage",
     "render_knowledge_writer_bundle",
+    "route_knowledge_plan",
     "rerank_by_signal",
     "rerank_by_weighted_signals",
     "validate_knowledge_page_output",

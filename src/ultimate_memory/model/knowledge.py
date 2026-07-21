@@ -101,6 +101,15 @@ class KnowledgePageKind(StrEnum):
     AUTHORED = "authored"
 
 
+class KnowledgeArtifactStatus(StrEnum):
+    """Lifecycle states of one Plane-K artifact handle."""
+
+    ACTIVE = "active"
+    STALE = "stale"
+    QUARANTINED = "quarantined"
+    TOMBSTONED = "tombstoned"
+
+
 class KnowledgePlanAction(StrEnum):
     """Append-only planner structure actions supported by the schema."""
 
@@ -334,17 +343,25 @@ class KnowledgeCitation(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     role: KnowledgeEvidenceRole
-    claim_id: UUID | None = None
+    claim_lineage_id: UUID | None = None
+    claim_chunk_content_hash: str | None = None
     relation_id: UUID | None = None
     doc_id: UUID | None = None
 
     @model_validator(mode="after")
     def require_exactly_one_target(self) -> "KnowledgeCitation":
         """Mirror the ``knowledge_artifact_evidence`` exactly-one CHECK."""
+        claim_coordinate_present = self.claim_lineage_id is not None
+        if claim_coordinate_present != (self.claim_chunk_content_hash is not None):
+            raise ValueError("claim citation requires its complete stable coordinate")
         if (
             sum(
-                target is not None
-                for target in (self.claim_id, self.relation_id, self.doc_id)
+                target
+                for target in (
+                    claim_coordinate_present,
+                    self.relation_id is not None,
+                    self.doc_id is not None,
+                )
             )
             != 1
         ):
@@ -357,21 +374,29 @@ class KnowledgeEvidenceTarget(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    claim_id: UUID | None = None
+    claim_lineage_id: UUID | None = None
+    claim_chunk_content_hash: str | None = None
     relation_id: UUID | None = None
     doc_id: UUID | None = None
 
     @model_validator(mode="after")
     def require_exactly_one_target(self) -> "KnowledgeEvidenceTarget":
         """Keep exclusions at the same exactly-one evidence grain as citations."""
+        claim_coordinate_present = self.claim_lineage_id is not None
+        if claim_coordinate_present != (self.claim_chunk_content_hash is not None):
+            raise ValueError("claim exclusion requires its complete stable coordinate")
         if (
             sum(
-                target is not None
-                for target in (self.claim_id, self.relation_id, self.doc_id)
+                target
+                for target in (
+                    claim_coordinate_present,
+                    self.relation_id is not None,
+                    self.doc_id is not None,
+                )
             )
             != 1
         ):
-            raise ValueError("evidence target requires exactly one ID")
+            raise ValueError("evidence target requires exactly one target")
         return self
 
 
@@ -589,27 +614,50 @@ class KnowledgeWriterSuggestion(BaseModel):
     payload: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class KnowledgeWriterSandboxPolicy(BaseModel):
-    """The binding D52 limits applied to one stock-harness writer session."""
+class KnowledgeAgentSandboxPolicy(BaseModel):
+    """The binding D52 limits applied to one stock-harness Plane-K session."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     network_access: Literal["none"] = "none"
     memory_access: Literal["read_only"] = "read_only"
     repository_write_access: Literal[False] = False
+    accepted_output_paths: tuple[str, ...]
+
+    @field_validator("accepted_output_paths")
+    @classmethod
+    def require_safe_declared_outputs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Keep each worker's declared output surface normalized and inside output/."""
+        if not value or len(set(value)) != len(value):
+            raise ValueError("agent output paths must be non-empty and unique")
+        for raw_path in value:
+            path = PurePosixPath(raw_path)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or str(path) != raw_path
+                or not raw_path.startswith("output/")
+            ):
+                raise ValueError("agent output path must be normalized under output/")
+        return value
+
+
+class KnowledgeWriterSandboxPolicy(KnowledgeAgentSandboxPolicy):
+    """The fixed declared output surface of one prose-writer session."""
+
     accepted_output_paths: tuple[str, ...] = KNOWLEDGE_WRITER_OUTPUT_PATHS
 
     @field_validator("accepted_output_paths")
     @classmethod
     def require_declared_writer_outputs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """Prevent runtime configuration from widening the accepted write surface."""
+        """Prevent runtime configuration from widening the writer's output surface."""
         if value != KNOWLEDGE_WRITER_OUTPUT_PATHS:
             raise ValueError("accepted writer output paths are fixed by contract")
         return value
 
 
-class KnowledgeWriterSessionRequest(BaseModel):
-    """One isolated stock-harness invocation prepared by the prose compiler."""
+class KnowledgeAgentSessionRequest(BaseModel):
+    """One isolated stock-harness invocation prepared by a Plane-K worker."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -619,9 +667,7 @@ class KnowledgeWriterSessionRequest(BaseModel):
     timeout_seconds: int = Field(gt=0)
     input_files: dict[str, str]
     mounts: PublishedMounts
-    sandbox: KnowledgeWriterSandboxPolicy = Field(
-        default_factory=KnowledgeWriterSandboxPolicy
-    )
+    sandbox: KnowledgeAgentSandboxPolicy
 
     @field_validator("input_files")
     @classmethod
@@ -636,11 +682,26 @@ class KnowledgeWriterSessionRequest(BaseModel):
                 or str(path) != raw_path
                 or raw_path.startswith("output/")
             ):
-                raise ValueError("writer input path must be normalized and read-only")
+                raise ValueError("agent input path must be normalized and read-only")
         return value
 
 
-class KnowledgeWriterSessionResult(BaseModel):
+class KnowledgeWriterSessionRequest(KnowledgeAgentSessionRequest):
+    """One prose-writer invocation with the fixed writer output contract."""
+
+    sandbox: KnowledgeAgentSandboxPolicy = Field(
+        default_factory=KnowledgeWriterSandboxPolicy
+    )
+
+    @model_validator(mode="after")
+    def require_writer_output_contract(self) -> "KnowledgeWriterSessionRequest":
+        """Reject callers that replace the fixed prose-writer output surface."""
+        if self.sandbox.accepted_output_paths != KNOWLEDGE_WRITER_OUTPUT_PATHS:
+            raise ValueError("accepted writer output paths are fixed by contract")
+        return self
+
+
+class KnowledgeAgentSessionResult(BaseModel):
     """Raw declared files and complete process transcript from one harness session."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -659,6 +720,9 @@ class KnowledgeWriterSessionResult(BaseModel):
         if self.timed_out == (self.exit_code is not None):
             raise ValueError("timed-out sessions have no exit code; exited sessions do")
         return self
+
+
+KnowledgeWriterSessionResult = KnowledgeAgentSessionResult
 
 
 class KnowledgeCompileContext(BaseModel):
@@ -684,6 +748,7 @@ class KnowledgeCompileArtifact(BaseModel):
     curation_path: str | None = None
     artifact_kind: str | None = None
     page_summary: str | None = None
+    content_hash: SHA256 | None = None
     stale: bool
 
     @field_validator("git_path", "curation_path")
@@ -746,6 +811,8 @@ class KnowledgeCommitCycleResult(BaseModel):
     published_revision: str | None = None
     compiled_artifact_ids: tuple[UUID, ...] = ()
     recovered_cycle_ids: tuple[UUID, ...] = ()
+    quarantined_artifact_ids: tuple[UUID, ...] = ()
+    stamped_plan_decision_ids: tuple[UUID, ...] = ()
 
 
 class KnowledgeEvidenceDelta(BaseModel):

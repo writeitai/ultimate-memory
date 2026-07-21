@@ -160,8 +160,11 @@ def validate_knowledge_page_output(
 
 def _target_key(*, target: KnowledgeEvidenceTarget) -> tuple[str, str]:
     """Return the role-independent identity of one exclusion target."""
-    if target.claim_id is not None:
-        return "claim", str(target.claim_id)
+    if target.claim_lineage_id is not None:
+        return (
+            "claim_coordinate",
+            f"{target.claim_lineage_id}:{target.claim_chunk_content_hash}",
+        )
     if target.relation_id is not None:
         return "relation", str(target.relation_id)
     if target.doc_id is not None:
@@ -171,8 +174,11 @@ def _target_key(*, target: KnowledgeEvidenceTarget) -> tuple[str, str]:
 
 def _citation_target_key(*, citation: KnowledgeCitation) -> tuple[str, str]:
     """Return the role-independent identity of one citation target."""
-    if citation.claim_id is not None:
-        return "claim", str(citation.claim_id)
+    if citation.claim_lineage_id is not None:
+        return (
+            "claim_coordinate",
+            f"{citation.claim_lineage_id}:{citation.claim_chunk_content_hash}",
+        )
     if citation.relation_id is not None:
         return "relation", str(citation.relation_id)
     if citation.doc_id is not None:

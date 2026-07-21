@@ -2005,6 +2005,31 @@ CREATE INDEX ix_kartifacts_parent ON knowledge_artifacts (parent_artifact_id) WH
 CREATE INDEX ix_kartifacts_stale  ON knowledge_artifacts (deployment_id) WHERE status = 'stale';
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_plan_runs — one terminal row per stock-harness planner or reflection session.
+-- The transcript is archived before its decisions are parsed, so malformed output and failed
+-- sessions remain inspectable under D52 just like writer failures. Reflection is a separate
+-- run_kind because D53 requires it to use a different model family from the planner.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_plan_runs (
+  run_id                 uuid PRIMARY KEY,
+  deployment_id          uuid NOT NULL REFERENCES deployments,
+  scope_id               uuid,
+  run_kind               text NOT NULL CHECK (run_kind IN ('planner','reflection')),
+  trigger                plan_trigger NOT NULL,
+  component_version      text NOT NULL,       -- LOGICAL FK → the planner/reflection component version
+  input_hash             text NOT NULL,       -- canonical structural snapshot consumed by the run
+  session_transcript_uri text NOT NULL,       -- immutable complete harness transcript
+  status                 text NOT NULL CHECK (status IN ('succeeded','failed')),
+  failure                text,                -- full traceback on terminal failure, never str(error)-only
+  tokens                 integer CHECK (tokens IS NULL OR tokens >= 0),
+  cost_usd               numeric CHECK (cost_usd IS NULL OR cost_usd >= 0),
+  completed_at           timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE,
+  CHECK ((status = 'failed') = (failure IS NOT NULL))
+);
+CREATE INDEX ix_kplan_runs_deployment ON knowledge_plan_runs (deployment_id, completed_at DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_plan_decisions — the planner's append-only STRUCTURE transcript (D45; the D33
 -- ledger discipline applied to structure). Low-blast-radius decisions auto-apply; restructures
 -- above the band queue as 'proposed' for the deployment's accountable reviewer — a human or a
@@ -2020,12 +2045,49 @@ CREATE TABLE knowledge_plan_decisions (
   trigger         plan_trigger NOT NULL,       -- orphan_evidence | size_overflow | community_change | reflection | writer_suggestion | human
   planner_version text NOT NULL,               -- LOGICAL FK → pipeline_component_versions (knowledge_planner)
   status          plan_decision_status NOT NULL DEFAULT 'proposed', -- proposed | applied | rejected
+  plan_run_id     uuid REFERENCES knowledge_plan_runs (run_id), -- NULL only for explicit human/quarantine decisions
+  confidence      numeric CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
+  blast_radius    integer CHECK (blast_radius IS NULL OR blast_radius >= 0), -- deterministic affected-page/candidate count
+  expected_impact numeric CHECK (expected_impact IS NULL OR expected_impact >= 0), -- blast_radius × (1 - confidence)
+  reviewed_by     text,
+  reviewed_at     timestamptz,
+  application_commit text,                     -- git revision first reflecting an applied decision; NULL while pending
   decided_at      timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE
+  FOREIGN KEY (deployment_id, scope_id) REFERENCES scopes (deployment_id, scope_id) ON DELETE CASCADE,
+  CHECK ((reviewed_by IS NULL) = (reviewed_at IS NULL))
 );
 COMMENT ON TABLE knowledge_plan_decisions IS
   'Append-only planner transcript (D45): every create/split/merge/move/retire/rule change with trigger + rationale. Reviewable, revertible structure — the opposite of emergent session behavior. Blast-radius-gated auto-apply (D24 pattern).';
 CREATE INDEX ix_kplan_proposed ON knowledge_plan_decisions (deployment_id, decided_at) WHERE status = 'proposed';
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- knowledge_quarantines — a direct edit to a compiled body is retained verbatim as proposed
+-- curation and the page is excluded from compilation. Triage has exactly three durable exits:
+-- copy the proposal into the git sidecar and recompile, adopt the page as authored, or reject
+-- the edit. The proposal remains in this ledger after resolution, so regeneration cannot erase
+-- the author's work or the fact that the ownership boundary was crossed.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE knowledge_quarantines (
+  quarantine_id          uuid PRIMARY KEY,
+  decision_id            uuid NOT NULL UNIQUE REFERENCES knowledge_plan_decisions (decision_id),
+  deployment_id          uuid NOT NULL REFERENCES deployments,
+  artifact_id            uuid NOT NULL,
+  recorded_content_hash  text NOT NULL,
+  detected_content_hash  text NOT NULL,
+  proposed_sidecar_entry text NOT NULL,
+  status                 text NOT NULL DEFAULT 'proposed'
+    CHECK (status IN ('proposed','curation_accepted','adopted','rejected')),
+  resolution_note        text,
+  curation_content_hash  text,
+  detected_at            timestamptz NOT NULL DEFAULT now(),
+  resolved_at            timestamptz,
+  FOREIGN KEY (deployment_id, artifact_id)
+    REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
+  CHECK ((status = 'proposed') = (resolved_at IS NULL)),
+  CHECK (status <> 'curation_accepted' OR curation_content_hash IS NOT NULL)
+);
+CREATE UNIQUE INDEX ux_kquarantine_open_artifact
+  ON knowledge_quarantines (artifact_id) WHERE status = 'proposed';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- knowledge_subscriptions — the DISPATCH consumers (the K trigger surface, k_layers §5; the
@@ -2177,28 +2239,31 @@ COMMENT ON TABLE knowledge_compilations IS
 -- the driver REPLACES these rows from the writer's returned citations each compile; on an
 -- authored page they are synced from the page's frontmatter (`cites:`). Evidence-change
 -- staleness, authored review flags, and deletion reach are reverse lookups through this table.
--- A single link targets EXACTLY ONE of claim/relation/doc (the others NULL) — so a surrogate PK
--- + a num_nonnulls CHECK + a NULL-tolerant unique index, NOT an all-columns PK (PK columns
--- cannot be NULL).
+-- A single link targets EXACTLY ONE of stable claim coordinate/relation/doc (the others NULL)
+-- — so a surrogate PK + pair/exactly-one CHECKs + a NULL-tolerant unique index, NOT an
+-- all-columns PK (PK columns cannot be NULL). D54 forbids raw extraction-generation claim IDs
+-- here: re-extracting unchanged testimony must not churn a page's binding citations.
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE knowledge_artifact_evidence (
   evidence_link_id uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
   artifact_id     uuid NOT NULL,               -- composite FK below, ON DELETE CASCADE
-  claim_id        uuid,                        -- LOGICAL FK → claims (partitioned)
+  claim_lineage_id uuid,                       -- document lineage half of the D54-stable claim coordinate
+  claim_chunk_content_hash text,               -- chunk-content half; required iff claim_lineage_id is present
   relation_id     uuid,                        -- composite FK below, ON DELETE CASCADE (real, relations is not partitioned)
   doc_id          uuid,                        -- LOGICAL FK → documents
   role            knowledge_evidence_role NOT NULL, -- supports | contradicts | cites (K3 links supporting AND contradicting evidence)
-  CHECK (num_nonnulls(claim_id, relation_id, doc_id) = 1),  -- exactly one target per link
+  CHECK ((claim_lineage_id IS NULL) = (claim_chunk_content_hash IS NULL)),
+  CHECK (num_nonnulls(claim_lineage_id, relation_id, doc_id) = 1), -- claim pair counts as one target
   FOREIGN KEY (deployment_id, artifact_id) REFERENCES knowledge_artifacts (deployment_id, artifact_id) ON DELETE CASCADE,
   FOREIGN KEY (deployment_id, relation_id) REFERENCES relations (deployment_id, relation_id) ON DELETE CASCADE
 );
 COMMENT ON TABLE knowledge_artifact_evidence IS
-  'Citations (D45/D46): the ONE claim/relation/document each link rests on, role supports|contradicts|cites. Binding writer output on compiled pages (replaced per compile); frontmatter-synced on authored pages. Drives exact incremental refresh (D12), authored review flags (D46), and the deletion cascade. Exactly-one-target enforced by CHECK; surrogate PK because the targets are nullable alternatives.';
+  'Citations (D45/D46/D54): the ONE stable claim coordinate/relation/document each link rests on, role supports|contradicts|cites. Binding writer output on compiled pages (replaced per compile); frontmatter-synced on authored pages. Drives exact incremental refresh (D12), authored review flags (D46), and the deletion cascade. Exactly-one-target enforced by CHECK; surrogate PK because the targets are nullable alternatives.';
 -- NULL-tolerant dedup (one link per (artifact, target, role)); NULLS NOT DISTINCT treats the two
 -- NULL targets as equal so the populated one is the discriminator:
-CREATE UNIQUE INDEX ux_kae_link ON knowledge_artifact_evidence (artifact_id, role, claim_id, relation_id, doc_id) NULLS NOT DISTINCT;
-CREATE INDEX ix_kae_claim    ON knowledge_artifact_evidence (claim_id)    WHERE claim_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_kae_link ON knowledge_artifact_evidence (artifact_id, role, claim_lineage_id, claim_chunk_content_hash, relation_id, doc_id) NULLS NOT DISTINCT;
+CREATE INDEX ix_kae_claim_coordinate ON knowledge_artifact_evidence (claim_lineage_id, claim_chunk_content_hash) WHERE claim_lineage_id IS NOT NULL;
 CREATE INDEX ix_kae_relation ON knowledge_artifact_evidence (relation_id) WHERE relation_id IS NOT NULL;
 CREATE INDEX ix_kae_doc      ON knowledge_artifact_evidence (doc_id)      WHERE doc_id IS NOT NULL;
 

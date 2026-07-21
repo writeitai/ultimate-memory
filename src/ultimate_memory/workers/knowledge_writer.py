@@ -53,8 +53,9 @@ internet, initialize git, commit, or edit outside this temporary workspace.
 
 Write only these declared files in the current directory (archived under output/):
 - prose.md: non-empty prose band; do not reproduce the generated fact sheet.
-- citations.json: JSON array of objects with role supports|contradicts|cites and
-  exactly one of claim_id, relation_id, doc_id. Copy IDs exactly from available evidence.
+- citations.json: JSON array of objects with role supports|contradicts|cites and exactly one
+  target: claim_lineage_id + claim_chunk_content_hash together, relation_id, or doc_id. Copy
+  stable claim coordinates and IDs exactly from available evidence.
 - summary.md: a two- or three-sentence page summary for parent compilers.
 - suggestions.json: JSON array of optional planner suggestions with action,
   rationale, and payload. Use [] when there are none. Suggestions never take action.
@@ -372,7 +373,13 @@ def _unique_citations(
 ) -> tuple[KnowledgeCitation, ...]:
     """Apply deterministic set semantics to repeated writer citations."""
     keyed = {
-        (item.role.value, str(item.claim_id or item.relation_id or item.doc_id)): item
+        (
+            item.role.value,
+            str(item.claim_lineage_id),
+            item.claim_chunk_content_hash or "",
+            str(item.relation_id),
+            str(item.doc_id),
+        ): item
         for item in citations
     }
     return tuple(keyed[key] for key in sorted(keyed))

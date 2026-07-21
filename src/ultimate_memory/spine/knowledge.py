@@ -6,11 +6,14 @@ keywords, explicit evidence IDs) do not fit the schema's four key kinds, so
 they receive exact secondary SQL evaluation instead of invented key types.
 """
 
+from collections.abc import Collection
 from collections.abc import Iterable
 from collections.abc import Iterator
 from collections.abc import Mapping
 from collections.abc import Sequence
 from contextlib import contextmanager
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 from uuid import uuid4
 
@@ -18,6 +21,7 @@ from pydantic import JsonValue
 from pydantic import TypeAdapter
 from sqlalchemy import bindparam
 from sqlalchemy import JSON
+from sqlalchemy import String
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
@@ -26,12 +30,15 @@ from sqlalchemy.sql.elements import TextClause
 
 from ultimate_memory.core import knowledge_inputs_hash
 from ultimate_memory.core import knowledge_summary_hash
+from ultimate_memory.core import route_knowledge_plan
 from ultimate_memory.model import CommunityRuleParams
 from ultimate_memory.model import DocSetRuleParams
 from ultimate_memory.model import EntityRuleParams
 from ultimate_memory.model import EntitySubtreeRuleParams
+from ultimate_memory.model import KnowledgeAdjustRuleProposal
 from ultimate_memory.model import KnowledgeArtifactCreate
 from ultimate_memory.model import KnowledgeArtifactHash
+from ultimate_memory.model import KnowledgeArtifactStatus
 from ultimate_memory.model import KnowledgeCandidateLayer
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeClaimFingerprint
@@ -39,19 +46,41 @@ from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
+from ultimate_memory.model import KnowledgeCompiledContentState
+from ultimate_memory.model import KnowledgeConvertKindProposal
+from ultimate_memory.model import KnowledgeCreatePageProposal
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeFactFingerprint
 from ultimate_memory.model import KnowledgeFactSheetFact
 from ultimate_memory.model import KnowledgeFactSheetSnapshot
 from ultimate_memory.model import KnowledgeInputSnapshot
+from ultimate_memory.model import KnowledgeMergePagesProposal
+from ultimate_memory.model import KnowledgeMovePageProposal
+from ultimate_memory.model import KnowledgeOrphanAggregate
+from ultimate_memory.model import KnowledgePageKind
 from ultimate_memory.model import KnowledgePageRuleCreate
 from ultimate_memory.model import KnowledgePendingCycle
+from ultimate_memory.model import KnowledgePendingPlanDecision
+from ultimate_memory.model import KnowledgePlanBand
 from ultimate_memory.model import KnowledgePlanDecisionCreate
+from ultimate_memory.model import KnowledgePlanDecisionResult
+from ultimate_memory.model import KnowledgePlannedPage
+from ultimate_memory.model import KnowledgePlannerArtifactState
+from ultimate_memory.model import KnowledgePlanningSnapshot
+from ultimate_memory.model import KnowledgePlanProposal
+from ultimate_memory.model import KnowledgePlanRunStatus
+from ultimate_memory.model import KnowledgePlanRunWrite
+from ultimate_memory.model import KnowledgePlanStatus
+from ultimate_memory.model import KnowledgePlanTrigger
+from ultimate_memory.model import KnowledgeQuarantineRecord
+from ultimate_memory.model import KnowledgeQuarantineStatus
+from ultimate_memory.model import KnowledgeRetirePageProposal
 from ultimate_memory.model import KnowledgeRuleConfiguration
 from ultimate_memory.model import KnowledgeRuleKey
 from ultimate_memory.model import KnowledgeRuleKeyKind
 from ultimate_memory.model import KnowledgeRuleKind
 from ultimate_memory.model import KnowledgeRuleParams
+from ultimate_memory.model import KnowledgeSplitPageProposal
 from ultimate_memory.model import KnowledgeWriterBundle
 from ultimate_memory.model import KnowledgeWriterClaim
 from ultimate_memory.model import KnowledgeWriterClaimGroup
@@ -63,6 +92,7 @@ from ultimate_memory.model import ScopeInterestsRuleParams
 
 _RULE_ADAPTER = TypeAdapter(KnowledgeRuleParams)
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
+_PLAN_PROPOSAL_ADAPTER = TypeAdapter(KnowledgePlanProposal)
 
 
 class KnowledgeCompileContextMissingError(LookupError):
@@ -92,6 +122,334 @@ class KnowledgeControlPlane:
                 {
                     **decision.model_dump(mode="python", exclude={"payload"}),
                     "payload": decision.model_dump(mode="json")["payload"],
+                },
+            )
+
+    def record_plan_run_failure(self, *, run: KnowledgePlanRunWrite) -> None:
+        """Append one failed planner/reflection session with its complete traceback."""
+        if run.status is not KnowledgePlanRunStatus.FAILED:
+            raise KnowledgeCompilationError(
+                "plan failure ledger requires failed status"
+            )
+        with self._engine.begin() as connection:
+            connection.execute(_INSERT_PLAN_RUN, run.model_dump(mode="python"))
+
+    def record_plan_proposals(
+        self,
+        *,
+        run: KnowledgePlanRunWrite,
+        proposals: Sequence[KnowledgePlanProposal],
+        auto_apply_max_expected_impact: Decimal,
+    ) -> tuple[KnowledgePlanDecisionResult, ...]:
+        """Record one successful run and atomically route/apply all of its proposals."""
+        if run.status is not KnowledgePlanRunStatus.SUCCEEDED:
+            raise KnowledgeCompilationError(
+                "successful plan batch requires succeeded run"
+            )
+        results: list[KnowledgePlanDecisionResult] = []
+        with self._engine.begin() as connection:
+            connection.execute(_INSERT_PLAN_RUN, run.model_dump(mode="python"))
+            for proposal in proposals:
+                self._validate_proposal_scope(
+                    connection=connection,
+                    deployment_id=run.deployment_id,
+                    scope_id=run.scope_id,
+                    proposal=proposal,
+                )
+                blast_radius = self._plan_blast_radius(
+                    connection=connection,
+                    deployment_id=run.deployment_id,
+                    proposal=proposal,
+                )
+                band, expected_impact = route_knowledge_plan(
+                    proposal=proposal,
+                    run_kind=run.run_kind,
+                    blast_radius=blast_radius,
+                    auto_apply_max_expected_impact=auto_apply_max_expected_impact,
+                )
+                decision_id = uuid4()
+                status = (
+                    KnowledgePlanStatus.APPLIED
+                    if band is KnowledgePlanBand.AUTO_APPLY
+                    else KnowledgePlanStatus.PROPOSED
+                )
+                connection.execute(
+                    _INSERT_ROUTED_PLAN_DECISION,
+                    {
+                        "decision_id": decision_id,
+                        "deployment_id": run.deployment_id,
+                        "scope_id": run.scope_id,
+                        "action": proposal.action.value,
+                        "payload": proposal.model_dump(mode="json"),
+                        "trigger": run.trigger.value,
+                        "planner_version": run.component_version,
+                        "status": status.value,
+                        "plan_run_id": run.run_id,
+                        "confidence": proposal.confidence,
+                        "blast_radius": blast_radius,
+                        "expected_impact": expected_impact,
+                    },
+                )
+                if status is KnowledgePlanStatus.APPLIED:
+                    self._apply_plan_proposal(
+                        connection=connection,
+                        decision_id=decision_id,
+                        deployment_id=run.deployment_id,
+                        proposal=proposal,
+                    )
+                results.append(
+                    KnowledgePlanDecisionResult(
+                        decision_id=decision_id,
+                        action=proposal.action,
+                        status=status,
+                        band=band,
+                        blast_radius=blast_radius,
+                        expected_impact=expected_impact,
+                    )
+                )
+        return tuple(results)
+
+    def accept_plan_decision(
+        self, *, decision_id: UUID, reviewed_by: str, author_confirmed: bool = False
+    ) -> None:
+        """Apply one review-band proposal, requiring confirmation for handover."""
+        if not reviewed_by:
+            raise KnowledgeCompilationError("reviewed_by must be non-empty")
+        with self._engine.begin() as connection:
+            row = (
+                connection.execute(
+                    _SELECT_PLAN_DECISION_FOR_REVIEW, {"decision_id": decision_id}
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None or row["status"] != KnowledgePlanStatus.PROPOSED.value:
+                raise KnowledgeCompilationError("plan decision is not reviewable")
+            if row["open_quarantine"]:
+                raise KnowledgeCompilationError(
+                    "quarantine decisions require an explicit quarantine resolution"
+                )
+            proposal = _PLAN_PROPOSAL_ADAPTER.validate_python(row["payload"])
+            if (
+                isinstance(proposal, KnowledgeConvertKindProposal)
+                and proposal.to_kind is KnowledgePageKind.COMPILED
+                and not author_confirmed
+            ):
+                raise KnowledgeCompilationError(
+                    "authored-to-compiled handover requires author confirmation"
+                )
+            self._apply_plan_proposal(
+                connection=connection,
+                decision_id=decision_id,
+                deployment_id=row["deployment_id"],
+                proposal=proposal,
+            )
+            connection.execute(
+                _ACCEPT_PLAN_DECISION,
+                {"decision_id": decision_id, "reviewed_by": reviewed_by},
+            )
+
+    def reject_plan_decision(self, *, decision_id: UUID, reviewed_by: str) -> None:
+        """Reject one review-band proposal without mutating Plane-K structure."""
+        if not reviewed_by:
+            raise KnowledgeCompilationError("reviewed_by must be non-empty")
+        with self._engine.begin() as connection:
+            rejected = connection.execute(
+                _REJECT_PLAN_DECISION,
+                {"decision_id": decision_id, "reviewed_by": reviewed_by},
+            ).scalar_one_or_none()
+            if rejected is None:
+                raise KnowledgeCompilationError("plan decision is not reviewable")
+
+    def quarantine_compiled_edit(
+        self,
+        *,
+        artifact_id: UUID,
+        detected_content_hash: str,
+        edited_markdown: str,
+        driver_version: str,
+    ) -> KnowledgeQuarantineRecord:
+        """Preserve a direct compiled-body edit and exclude the page from compilation."""
+        if not edited_markdown or not driver_version:
+            raise KnowledgeCompilationError("quarantine input must be non-empty")
+        with self._engine.begin() as connection:
+            existing = (
+                connection.execute(
+                    _SELECT_OPEN_QUARANTINE, {"artifact_id": artifact_id}
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is not None:
+                if existing["detected_content_hash"] != detected_content_hash:
+                    raise KnowledgeCompilationError(
+                        "quarantined body changed again before triage"
+                    )
+                return KnowledgeQuarantineRecord.model_validate(dict(existing))
+            artifact = (
+                connection.execute(
+                    _SELECT_COMPILED_CONTENT_FOR_UPDATE, {"artifact_id": artifact_id}
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if artifact is None or artifact["content_hash"] is None:
+                raise KnowledgeCompilationError(
+                    "only previously compiled active/stale pages can be quarantined"
+                )
+            if artifact["content_hash"] == detected_content_hash:
+                raise KnowledgeCompilationError("compiled body has not changed")
+            proposal = KnowledgeConvertKindProposal(
+                artifact_id=artifact_id,
+                from_kind=KnowledgePageKind.COMPILED,
+                to_kind=KnowledgePageKind.AUTHORED,
+                rationale="A direct body edit crossed the compiled-page ownership boundary.",
+                confidence=Decimal("1"),
+            )
+            decision_id = uuid4()
+            quarantine_id = uuid4()
+            blast_radius = self._artifact_impact(
+                connection=connection,
+                deployment_id=artifact["deployment_id"],
+                artifact_id=artifact_id,
+            )
+            connection.execute(
+                _INSERT_ROUTED_PLAN_DECISION,
+                {
+                    "decision_id": decision_id,
+                    "deployment_id": artifact["deployment_id"],
+                    "scope_id": artifact["scope_id"],
+                    "action": proposal.action.value,
+                    "payload": proposal.model_dump(mode="json"),
+                    "trigger": KnowledgePlanTrigger.HUMAN.value,
+                    "planner_version": driver_version,
+                    "status": KnowledgePlanStatus.PROPOSED.value,
+                    "plan_run_id": None,
+                    "confidence": proposal.confidence,
+                    "blast_radius": blast_radius,
+                    "expected_impact": Decimal("0"),
+                },
+            )
+            row = (
+                connection.execute(
+                    _INSERT_QUARANTINE,
+                    {
+                        "quarantine_id": quarantine_id,
+                        "decision_id": decision_id,
+                        "deployment_id": artifact["deployment_id"],
+                        "artifact_id": artifact_id,
+                        "recorded_content_hash": artifact["content_hash"],
+                        "detected_content_hash": detected_content_hash,
+                        "proposed_sidecar_entry": edited_markdown,
+                    },
+                )
+                .mappings()
+                .one()
+            )
+            connection.execute(_MARK_QUARANTINED, {"artifact_id": artifact_id})
+            return KnowledgeQuarantineRecord.model_validate(dict(row))
+
+    def adopt_quarantined_page(self, *, quarantine_id: UUID, reviewed_by: str) -> None:
+        """Resolve a quarantined direct edit by transferring the page to its author."""
+        if not reviewed_by:
+            raise KnowledgeCompilationError("reviewed_by must be non-empty")
+        with self._engine.begin() as connection:
+            row, proposal = self._open_quarantine_proposal(
+                connection=connection, quarantine_id=quarantine_id
+            )
+            connection.execute(
+                _ACKNOWLEDGE_QUARANTINED_BODY,
+                {
+                    "artifact_id": row["artifact_id"],
+                    "content_hash": row["detected_content_hash"],
+                },
+            )
+            self._apply_plan_proposal(
+                connection=connection,
+                decision_id=row["decision_id"],
+                deployment_id=row["deployment_id"],
+                proposal=proposal,
+            )
+            connection.execute(
+                _ACCEPT_PLAN_DECISION,
+                {"decision_id": row["decision_id"], "reviewed_by": reviewed_by},
+            )
+            connection.execute(
+                _RESOLVE_QUARANTINE,
+                {
+                    "quarantine_id": quarantine_id,
+                    "status": KnowledgeQuarantineStatus.ADOPTED.value,
+                    "resolution_note": "compiled page adopted as authored",
+                    "curation_content_hash": None,
+                },
+            )
+
+    def accept_quarantine_to_curation(
+        self,
+        *,
+        quarantine_id: UUID,
+        curation_markdown: str,
+        curation_content_hash: str,
+        reviewed_by: str,
+    ) -> None:
+        """Resume compilation only after git curation contains the preserved edit."""
+        if not reviewed_by or not curation_content_hash:
+            raise KnowledgeCompilationError(
+                "curation resolution fields must be non-empty"
+            )
+        with self._engine.begin() as connection:
+            row, _ = self._open_quarantine_proposal(
+                connection=connection, quarantine_id=quarantine_id
+            )
+            if row["proposed_sidecar_entry"] not in curation_markdown:
+                raise KnowledgeCompilationError(
+                    "curation sidecar does not contain the quarantined edit"
+                )
+            connection.execute(
+                _RESOLVE_REJECT_PLAN_DECISION,
+                {"decision_id": row["decision_id"], "reviewed_by": reviewed_by},
+            )
+            connection.execute(
+                _CLEAR_QUARANTINED_BODY_IDENTITY, {"artifact_id": row["artifact_id"]}
+            )
+            connection.execute(
+                _RESUME_QUARANTINED_AS_STALE, {"artifact_id": row["artifact_id"]}
+            )
+            connection.execute(
+                _RESOLVE_QUARANTINE,
+                {
+                    "quarantine_id": quarantine_id,
+                    "status": KnowledgeQuarantineStatus.CURATION_ACCEPTED.value,
+                    "resolution_note": "direct edit accepted into curation sidecar",
+                    "curation_content_hash": curation_content_hash,
+                },
+            )
+
+    def reject_quarantined_edit(self, *, quarantine_id: UUID, reviewed_by: str) -> None:
+        """Reject one direct edit and return its compiled page to the stale queue."""
+        if not reviewed_by:
+            raise KnowledgeCompilationError("reviewed_by must be non-empty")
+        with self._engine.begin() as connection:
+            row, _ = self._open_quarantine_proposal(
+                connection=connection, quarantine_id=quarantine_id
+            )
+            connection.execute(
+                _RESOLVE_REJECT_PLAN_DECISION,
+                {"decision_id": row["decision_id"], "reviewed_by": reviewed_by},
+            )
+            connection.execute(
+                _CLEAR_QUARANTINED_BODY_IDENTITY, {"artifact_id": row["artifact_id"]}
+            )
+            connection.execute(
+                _RESUME_QUARANTINED_AS_STALE, {"artifact_id": row["artifact_id"]}
+            )
+            connection.execute(
+                _RESOLVE_QUARANTINE,
+                {
+                    "quarantine_id": quarantine_id,
+                    "status": KnowledgeQuarantineStatus.REJECTED.value,
+                    "resolution_note": "direct edit rejected",
+                    "curation_content_hash": None,
                 },
             )
 
@@ -357,6 +715,106 @@ class KnowledgeControlPlane:
             )
         return tuple(sorted(artifact_ids, key=str))
 
+    def planning_snapshot(
+        self,
+        *,
+        deployment_id: UUID,
+        scope_id: UUID | None,
+        delta: KnowledgeEvidenceDelta,
+        page_sizes: Mapping[UUID, int],
+        page_size_limit_bytes: int,
+    ) -> KnowledgePlanningSnapshot:
+        """Build exact structural triggers and health metrics for one scope."""
+        if page_size_limit_bytes <= 0 or any(size < 0 for size in page_sizes.values()):
+            raise KnowledgeCompilationError("planner page-size inputs must be positive")
+        with self._engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as connection:
+            with connection.begin():
+                rows = tuple(
+                    connection.execute(
+                        _SELECT_PLANNER_ARTIFACTS,
+                        {"deployment_id": deployment_id, "scope_id": scope_id},
+                    ).mappings()
+                )
+                artifact_ids = {row["artifact_id"] for row in rows}
+                unknown_sizes = set(page_sizes).difference(artifact_ids)
+                if unknown_sizes:
+                    raise KnowledgeCompilationError(
+                        "planner page sizes include an artifact outside the scope"
+                    )
+                artifacts = tuple(
+                    KnowledgePlannerArtifactState(
+                        **{
+                            key: row[key]
+                            for key in (
+                                "artifact_id",
+                                "layer",
+                                "page_kind",
+                                "status",
+                                "git_path",
+                                "scope_id",
+                                "parent_artifact_id",
+                                "artifact_kind",
+                                "candidate_count",
+                                "uncited_count",
+                            )
+                        },
+                        page_size_bytes=page_sizes.get(row["artifact_id"], 0),
+                    )
+                    for row in rows
+                )
+                covered = self._scope_candidate_keys(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    scope_id=scope_id,
+                )
+                orphan_rows = connection.execute(
+                    _SELECT_DELTA_CANDIDATE_ENTITIES,
+                    {
+                        "deployment_id": deployment_id,
+                        "relation_ids": [str(value) for value in delta.relation_ids],
+                        "observation_ids": [
+                            str(value) for value in delta.observation_ids
+                        ],
+                        "claim_ids": [str(value) for value in delta.claim_ids],
+                        "doc_ids": [str(value) for value in delta.doc_ids],
+                    },
+                ).mappings()
+                orphan_keys: dict[UUID, set[str]] = {}
+                for row in orphan_rows:
+                    candidate_key = str(row["candidate_key"])
+                    if candidate_key in covered:
+                        continue
+                    orphan_keys.setdefault(row["entity_id"], set()).add(candidate_key)
+                orphan_aggregates = tuple(
+                    KnowledgeOrphanAggregate(
+                        entity_id=entity_id, candidate_keys=tuple(candidate_keys)
+                    )
+                    for entity_id, candidate_keys in sorted(
+                        orphan_keys.items(), key=lambda item: str(item[0])
+                    )
+                )
+                suggestions = tuple(
+                    KnowledgeWriterSuggestion.model_validate(suggestion)
+                    for row in rows
+                    for suggestion in row["suggestions"]
+                )
+        return KnowledgePlanningSnapshot(
+            deployment_id=deployment_id,
+            scope_id=scope_id,
+            artifacts=artifacts,
+            orphan_aggregates=orphan_aggregates,
+            overflow_artifact_ids=tuple(
+                artifact.artifact_id
+                for artifact in artifacts
+                if artifact.page_kind is KnowledgePageKind.COMPILED
+                and artifact.page_size_bytes > page_size_limit_bytes
+            ),
+            community_ids=delta.community_ids,
+            writer_suggestions=suggestions,
+        )
+
     def _delta_contains_part_of(
         self, *, deployment_id: UUID, relation_ids: tuple[UUID, ...]
     ) -> bool:
@@ -416,6 +874,90 @@ class KnowledgeControlPlane:
                     _SELECT_ARTIFACT_GIT_PATHS, {"deployment_id": deployment_id}
                 ).scalars()
             )
+
+    def compiled_content_states(
+        self, *, deployment_id: UUID
+    ) -> tuple[KnowledgeCompiledContentState, ...]:
+        """Return accepted hashes for compiled bodies eligible for drift detection."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_COMPILED_CONTENT_STATES, {"deployment_id": deployment_id}
+            ).mappings()
+            return tuple(
+                KnowledgeCompiledContentState.model_validate(dict(row)) for row in rows
+            )
+
+    def pending_plan_decisions(
+        self, *, deployment_id: UUID
+    ) -> tuple[KnowledgePendingPlanDecision, ...]:
+        """Return applied structure decisions whose git reconciliation is unfinished."""
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                _SELECT_PENDING_PLAN_DECISIONS, {"deployment_id": deployment_id}
+            ).mappings()
+            decisions: list[KnowledgePendingPlanDecision] = []
+            for row in rows:
+                proposal = _PLAN_PROPOSAL_ADAPTER.validate_python(row["payload"])
+                artifact_ids = _proposal_artifact_ids(proposal=proposal)
+                paths = (
+                    {}
+                    if not artifact_ids
+                    else {
+                        artifact_id: git_path
+                        for artifact_id, git_path in connection.execute(
+                            _SELECT_PLAN_DECISION_ARTIFACT_PATHS,
+                            {
+                                "deployment_id": deployment_id,
+                                "artifact_ids": list(artifact_ids),
+                            },
+                        ).tuples()
+                    }
+                )
+                decisions.append(
+                    KnowledgePendingPlanDecision(
+                        decision_id=row["decision_id"],
+                        proposal=proposal,
+                        decided_at=row["decided_at"],
+                        artifact_paths=paths,
+                    )
+                )
+            return tuple(decisions)
+
+    def stamp_ready_plan_decisions(
+        self, *, deployment_id: UUID, git_commit: str, present_paths: Collection[str]
+    ) -> tuple[UUID, ...]:
+        """Bind structurally and physically complete decisions to one git revision."""
+        if not git_commit:
+            raise KnowledgeCompilationError("plan application commit must be non-empty")
+        paths = set(present_paths)
+        stamped: list[UUID] = []
+        with self._engine.begin() as connection:
+            rows = tuple(
+                connection.execute(
+                    _SELECT_PENDING_PLAN_DECISIONS_FOR_UPDATE,
+                    {"deployment_id": deployment_id},
+                ).mappings()
+            )
+            for row in rows:
+                proposal = _PLAN_PROPOSAL_ADAPTER.validate_python(row["payload"])
+                if not self._plan_decision_ready(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    decision_id=row["decision_id"],
+                    decided_at=row["decided_at"],
+                    proposal=proposal,
+                    present_paths=paths,
+                ):
+                    continue
+                connection.execute(
+                    _STAMP_PLAN_DECISION,
+                    {
+                        "decision_id": row["decision_id"],
+                        "application_commit": git_commit,
+                    },
+                )
+                stamped.append(row["decision_id"])
+        return tuple(stamped)
 
     def validate_citations(
         self, *, deployment_id: UUID, citations: tuple[KnowledgeCitation, ...]
@@ -718,6 +1260,540 @@ class KnowledgeControlPlane:
                         "git_commit": git_commit,
                     },
                 )
+
+    def _validate_proposal_scope(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        scope_id: UUID | None,
+        proposal: KnowledgePlanProposal,
+    ) -> None:
+        """Reject cross-deployment/scope structural mutations before banding."""
+        pages: tuple[KnowledgePlannedPage, ...] = ()
+        if isinstance(proposal, KnowledgeCreatePageProposal):
+            pages = (proposal.page,)
+        elif isinstance(proposal, KnowledgeSplitPageProposal):
+            pages = proposal.pages
+        elif isinstance(proposal, KnowledgeMergePagesProposal):
+            pages = (proposal.page,)
+        if any(page.scope_id != scope_id for page in pages):
+            raise KnowledgeCompilationError("planned page crosses the run scope")
+        artifact_ids = set(_proposal_artifact_ids(proposal=proposal))
+        artifact_ids.update(
+            page.parent_artifact_id
+            for page in pages
+            if page.parent_artifact_id is not None
+        )
+        if (
+            isinstance(proposal, KnowledgeMovePageProposal)
+            and proposal.new_parent_artifact_id is not None
+        ):
+            artifact_ids.add(proposal.new_parent_artifact_id)
+        if not artifact_ids:
+            return
+        rows = tuple(
+            connection.execute(
+                _SELECT_PLAN_ARTIFACT_SCOPES,
+                {"deployment_id": deployment_id, "artifact_ids": list(artifact_ids)},
+            ).mappings()
+        )
+        if len(rows) != len(artifact_ids) or any(
+            row["scope_id"] != scope_id for row in rows
+        ):
+            raise KnowledgeCompilationError("plan proposal crosses deployment or scope")
+
+    def _plan_decision_ready(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        decision_id: UUID,
+        decided_at: datetime,
+        proposal: KnowledgePlanProposal,
+        present_paths: set[str],
+    ) -> bool:
+        """Check that an accepted DB mutation and its files are both complete."""
+        existing = {
+            row["artifact_id"]: row
+            for row in connection.execute(
+                _SELECT_PLAN_EFFECT_TARGETS,
+                {
+                    "deployment_id": deployment_id,
+                    "artifact_ids": list(_proposal_artifact_ids(proposal=proposal)),
+                },
+            ).mappings()
+        }
+        created = tuple(
+            connection.execute(
+                _SELECT_PLAN_CREATED_ARTIFACTS,
+                {"deployment_id": deployment_id, "decision_id": decision_id},
+            ).mappings()
+        )
+
+        def compiled(row: RowMapping) -> bool:
+            last_compiled_at = row["last_compiled_at"]
+            return (
+                row["page_kind"] == KnowledgePageKind.COMPILED.value
+                and row["status"] == KnowledgeArtifactStatus.ACTIVE.value
+                and last_compiled_at is not None
+                and last_compiled_at >= decided_at
+                and row["git_path"] in present_paths
+            )
+
+        def authored(row: RowMapping) -> bool:
+            return (
+                row["page_kind"] == KnowledgePageKind.AUTHORED.value
+                and row["status"] == KnowledgeArtifactStatus.ACTIVE.value
+                and row["git_path"] in present_paths
+            )
+
+        if isinstance(proposal, KnowledgeCreatePageProposal):
+            return len(created) == 1 and compiled(created[0])
+        if isinstance(proposal, KnowledgeSplitPageProposal):
+            source = existing.get(proposal.source_artifact_id)
+            return (
+                source is not None
+                and compiled(source)
+                and len(created) == len(proposal.pages)
+                and all(compiled(row) for row in created)
+            )
+        if isinstance(proposal, KnowledgeMergePagesProposal):
+            return (
+                len(created) == 1
+                and compiled(created[0])
+                and all(
+                    (row := existing.get(artifact_id)) is not None
+                    and row["status"] == KnowledgeArtifactStatus.TOMBSTONED.value
+                    and row["git_path"] not in present_paths
+                    for artifact_id in proposal.source_artifact_ids
+                )
+            )
+        target_id = proposal.artifact_id
+        target = existing.get(target_id)
+        if target is None:
+            return False
+        if isinstance(proposal, KnowledgeMovePageProposal):
+            return (
+                (compiled(target) or authored(target))
+                and target["git_path"] == proposal.new_git_path
+                and proposal.new_git_path in present_paths
+                and (
+                    proposal.old_git_path == proposal.new_git_path
+                    or proposal.old_git_path not in present_paths
+                )
+                and target["curation_path"] == proposal.new_curation_path
+                and (
+                    (
+                        proposal.new_curation_path in present_paths
+                        and (
+                            proposal.old_curation_path == proposal.new_curation_path
+                            or proposal.old_curation_path not in present_paths
+                        )
+                    )
+                    or (
+                        proposal.new_curation_path not in present_paths
+                        and proposal.old_curation_path not in present_paths
+                    )
+                )
+            )
+        if isinstance(proposal, KnowledgeRetirePageProposal):
+            return (
+                target["status"] == KnowledgeArtifactStatus.TOMBSTONED.value
+                and target["git_path"] not in present_paths
+            )
+        if isinstance(proposal, KnowledgeAdjustRuleProposal):
+            return compiled(target) or authored(target)
+        if proposal.to_kind is KnowledgePageKind.AUTHORED:
+            return (
+                target["page_kind"] == KnowledgePageKind.AUTHORED.value
+                and target["status"] == KnowledgeArtifactStatus.ACTIVE.value
+                and target["git_path"] in present_paths
+            )
+        return compiled(target) and bool(
+            target["curation_path"] and target["curation_path"] in present_paths
+        )
+
+    def _plan_blast_radius(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        proposal: KnowledgePlanProposal,
+    ) -> int:
+        """Estimate affected candidates/pages mechanically from current committed state."""
+        if isinstance(proposal, KnowledgeCreatePageProposal):
+            return 1
+        if isinstance(proposal, KnowledgeSplitPageProposal):
+            return self._artifact_impact(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=proposal.source_artifact_id,
+            ) + len(proposal.pages)
+        if isinstance(proposal, KnowledgeMergePagesProposal):
+            return 1 + sum(
+                self._artifact_impact(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    artifact_id=artifact_id,
+                )
+                for artifact_id in proposal.source_artifact_ids
+            )
+        if isinstance(proposal, KnowledgeMovePageProposal):
+            descendants = int(
+                connection.execute(
+                    _SELECT_DESCENDANT_COUNT,
+                    {
+                        "deployment_id": deployment_id,
+                        "artifact_id": proposal.artifact_id,
+                    },
+                ).scalar_one()
+            )
+            return (
+                self._artifact_impact(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    artifact_id=proposal.artifact_id,
+                )
+                + descendants
+            )
+        artifact_id = _proposal_artifact_ids(proposal=proposal)[0]
+        return self._artifact_impact(
+            connection=connection, deployment_id=deployment_id, artifact_id=artifact_id
+        )
+
+    def _artifact_impact(
+        self, *, connection: Connection, deployment_id: UUID, artifact_id: UUID
+    ) -> int:
+        """Return at least one unit for a live artifact and its latest candidate set."""
+        value = connection.execute(
+            _SELECT_ARTIFACT_IMPACT,
+            {"deployment_id": deployment_id, "artifact_id": artifact_id},
+        ).scalar_one_or_none()
+        if value is None:
+            raise KnowledgeCompilationError("plan proposal targets an unknown artifact")
+        return max(1, int(value))
+
+    def _apply_plan_proposal(
+        self,
+        *,
+        connection: Connection,
+        decision_id: UUID,
+        deployment_id: UUID,
+        proposal: KnowledgePlanProposal,
+    ) -> None:
+        """Apply one accepted structural proposal without generating page content."""
+        if isinstance(proposal, KnowledgeCreatePageProposal):
+            self._create_planned_page(
+                connection=connection,
+                decision_id=decision_id,
+                deployment_id=deployment_id,
+                page=proposal.page,
+            )
+            return
+        if isinstance(proposal, KnowledgeSplitPageProposal):
+            source = self._compiled_plan_artifact(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=proposal.source_artifact_id,
+            )
+            self._retire_rules(
+                connection=connection, artifact_id=proposal.source_artifact_id
+            )
+            connection.execute(
+                _MARK_STALE, {"artifact_id": proposal.source_artifact_id}
+            )
+            for page in proposal.pages:
+                if page.scope_id != source["scope_id"]:
+                    raise KnowledgeCompilationError("split page crosses source scope")
+                self._create_planned_page(
+                    connection=connection,
+                    decision_id=decision_id,
+                    deployment_id=deployment_id,
+                    page=page,
+                )
+            return
+        if isinstance(proposal, KnowledgeMergePagesProposal):
+            sources = tuple(
+                self._compiled_plan_artifact(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    artifact_id=artifact_id,
+                )
+                for artifact_id in proposal.source_artifact_ids
+            )
+            if any(row["scope_id"] != proposal.page.scope_id for row in sources):
+                raise KnowledgeCompilationError("merge page crosses source scope")
+            if proposal.page.parent_artifact_id is not None and any(
+                self._is_descendant(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    ancestor_id=source_id,
+                    candidate_id=proposal.page.parent_artifact_id,
+                )
+                for source_id in proposal.source_artifact_ids
+            ):
+                raise KnowledgeCompilationError(
+                    "merge target parent cannot descend from a merge source"
+                )
+            target_artifact_id = self._create_planned_page(
+                connection=connection,
+                decision_id=decision_id,
+                deployment_id=deployment_id,
+                page=proposal.page,
+            )
+            for artifact_id in proposal.source_artifact_ids:
+                self._retire_rules(connection=connection, artifact_id=artifact_id)
+                connection.execute(
+                    _REPARENT_CHILDREN,
+                    {
+                        "source_artifact_id": artifact_id,
+                        "target_artifact_id": target_artifact_id,
+                    },
+                )
+                connection.execute(_TOMBSTONE_ARTIFACT, {"artifact_id": artifact_id})
+            return
+        if isinstance(proposal, KnowledgeMovePageProposal):
+            artifact = self._compiled_plan_artifact(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=proposal.artifact_id,
+            )
+            if artifact["git_path"] != proposal.old_git_path:
+                raise KnowledgeCompilationError("move proposal has a stale source path")
+            if artifact["curation_path"] != proposal.old_curation_path:
+                raise KnowledgeCompilationError(
+                    "move proposal has a stale curation path"
+                )
+            if artifact["parent_artifact_id"] != proposal.old_parent_artifact_id:
+                raise KnowledgeCompilationError(
+                    "move proposal has a stale source parent"
+                )
+            if proposal.new_parent_artifact_id is not None and self._is_descendant(
+                connection=connection,
+                deployment_id=deployment_id,
+                ancestor_id=proposal.artifact_id,
+                candidate_id=proposal.new_parent_artifact_id,
+            ):
+                raise KnowledgeCompilationError(
+                    "move proposal would create an artifact cycle"
+                )
+            connection.execute(
+                _MOVE_ARTIFACT,
+                {
+                    "artifact_id": proposal.artifact_id,
+                    "git_path": proposal.new_git_path,
+                    "curation_path": proposal.new_curation_path,
+                    "parent_artifact_id": proposal.new_parent_artifact_id,
+                },
+            )
+            return
+        if isinstance(proposal, KnowledgeRetirePageProposal):
+            self._compiled_plan_artifact(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=proposal.artifact_id,
+            )
+            child_count = int(
+                connection.execute(
+                    _SELECT_LIVE_CHILD_COUNT, {"artifact_id": proposal.artifact_id}
+                ).scalar_one()
+            )
+            if child_count:
+                raise KnowledgeCompilationError(
+                    "retire proposal must move or retire live children first"
+                )
+            self._retire_rules(connection=connection, artifact_id=proposal.artifact_id)
+            connection.execute(
+                _TOMBSTONE_ARTIFACT, {"artifact_id": proposal.artifact_id}
+            )
+            return
+        if isinstance(proposal, KnowledgeAdjustRuleProposal):
+            self._compiled_plan_artifact(
+                connection=connection,
+                deployment_id=deployment_id,
+                artifact_id=proposal.artifact_id,
+            )
+            self._replace_planned_rules(
+                connection=connection,
+                decision_id=decision_id,
+                deployment_id=deployment_id,
+                artifact_id=proposal.artifact_id,
+                rules=proposal.rules,
+            )
+            return
+        artifact = self._plan_artifact(
+            connection=connection,
+            deployment_id=deployment_id,
+            artifact_id=proposal.artifact_id,
+        )
+        if artifact["page_kind"] != proposal.from_kind.value:
+            raise KnowledgeCompilationError("convert-kind proposal has stale ownership")
+        if proposal.to_kind is KnowledgePageKind.AUTHORED:
+            connection.execute(_ADOPT_ARTIFACT, {"artifact_id": proposal.artifact_id})
+            return
+        connection.execute(
+            _HANDOVER_ARTIFACT,
+            {
+                "artifact_id": proposal.artifact_id,
+                "writer_version": proposal.writer_version,
+                "curation_path": proposal.curation_path,
+            },
+        )
+        self._replace_planned_rules(
+            connection=connection,
+            decision_id=decision_id,
+            deployment_id=deployment_id,
+            artifact_id=proposal.artifact_id,
+            rules=proposal.rules,
+        )
+
+    def _is_descendant(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        ancestor_id: UUID,
+        candidate_id: UUID,
+    ) -> bool:
+        """Return whether one live artifact is below another in the page tree."""
+        return bool(
+            connection.execute(
+                _SELECT_DESCENDANT_MEMBERSHIP,
+                {
+                    "deployment_id": deployment_id,
+                    "ancestor_id": ancestor_id,
+                    "candidate_id": candidate_id,
+                },
+            ).scalar_one()
+        )
+
+    def _create_planned_page(
+        self,
+        *,
+        connection: Connection,
+        decision_id: UUID,
+        deployment_id: UUID,
+        page: KnowledgePlannedPage,
+    ) -> UUID:
+        """Create one stale compiled artifact and its plan-authorized rule union."""
+        artifact_id = uuid4()
+        connection.execute(
+            _INSERT_PLANNED_ARTIFACT,
+            {
+                "artifact_id": artifact_id,
+                "deployment_id": deployment_id,
+                "layer": page.layer.value,
+                "scope_id": page.scope_id,
+                "parent_artifact_id": page.parent_artifact_id,
+                "git_path": page.git_path,
+                "curation_path": page.curation_path,
+                "kind": page.artifact_kind,
+                "writer_version": page.writer_version,
+            },
+        )
+        self._replace_planned_rules(
+            connection=connection,
+            decision_id=decision_id,
+            deployment_id=deployment_id,
+            artifact_id=artifact_id,
+            rules=page.rules,
+        )
+        return artifact_id
+
+    def _replace_planned_rules(
+        self,
+        *,
+        connection: Connection,
+        decision_id: UUID,
+        deployment_id: UUID,
+        artifact_id: UUID,
+        rules: tuple[KnowledgeRuleParams, ...],
+    ) -> None:
+        """Replace a page's rule union and inverted keys inside one plan transaction."""
+        self._retire_rules(connection=connection, artifact_id=artifact_id)
+        for params in rules:
+            rule_id = uuid4()
+            connection.execute(
+                _INSERT_PAGE_RULE,
+                {
+                    "rule_id": rule_id,
+                    "deployment_id": deployment_id,
+                    "artifact_id": artifact_id,
+                    "plan_decision_id": decision_id,
+                    "rule_kind": params.kind.value,
+                    "params": _stored_params(params=params),
+                },
+            )
+            self._replace_rule_keys(
+                connection=connection,
+                deployment_id=deployment_id,
+                rule_id=rule_id,
+                params=params,
+            )
+        connection.execute(_MARK_STALE, {"artifact_id": artifact_id})
+
+    def _retire_rules(self, *, connection: Connection, artifact_id: UUID) -> None:
+        """Deprecate one page's old rules and remove their routing keys."""
+        rule_ids = tuple(
+            connection.execute(
+                _SELECT_ACTIVE_RULE_IDS, {"artifact_id": artifact_id}
+            ).scalars()
+        )
+        for rule_id in rule_ids:
+            connection.execute(_DELETE_RULE_KEYS, {"rule_id": rule_id})
+        connection.execute(_DEPRECATE_ARTIFACT_RULES, {"artifact_id": artifact_id})
+
+    def _plan_artifact(
+        self, *, connection: Connection, deployment_id: UUID, artifact_id: UUID
+    ) -> RowMapping:
+        """Lock one live structural target and preserve its typed ownership fields."""
+        row = (
+            connection.execute(
+                _SELECT_PLAN_ARTIFACT_FOR_UPDATE,
+                {"deployment_id": deployment_id, "artifact_id": artifact_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise KnowledgeCompilationError("plan proposal targets no live artifact")
+        return row
+
+    def _compiled_plan_artifact(
+        self, *, connection: Connection, deployment_id: UUID, artifact_id: UUID
+    ) -> RowMapping:
+        """Lock one live compiled structural target."""
+        row = self._plan_artifact(
+            connection=connection, deployment_id=deployment_id, artifact_id=artifact_id
+        )
+        if row["page_kind"] != KnowledgePageKind.COMPILED.value:
+            raise KnowledgeCompilationError(
+                "planner may mutate only compiled structure"
+            )
+        if row["status"] == KnowledgeArtifactStatus.QUARANTINED.value:
+            raise KnowledgeCompilationError(
+                "quarantined pages require explicit quarantine triage"
+            )
+        return row
+
+    def _open_quarantine_proposal(
+        self, *, connection: Connection, quarantine_id: UUID
+    ) -> tuple[RowMapping, KnowledgeConvertKindProposal]:
+        """Lock and parse one unresolved compiled-to-authored quarantine proposal."""
+        row = (
+            connection.execute(
+                _SELECT_QUARANTINE_FOR_UPDATE, {"quarantine_id": quarantine_id}
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None or row["status"] != KnowledgeQuarantineStatus.PROPOSED.value:
+            raise KnowledgeCompilationError("quarantine is not open")
+        proposal = _PLAN_PROPOSAL_ADAPTER.validate_python(row["payload"])
+        if not isinstance(proposal, KnowledgeConvertKindProposal):
+            raise KnowledgeCompilationError("quarantine decision is not an adoption")
+        return row, proposal
 
     def _input_snapshot(
         self,
@@ -1176,6 +2252,28 @@ class KnowledgeControlPlane:
             connection=connection, deployment_id=deployment_id, params=params
         )
 
+    def _scope_candidate_keys(
+        self, *, connection: Connection, deployment_id: UUID, scope_id: UUID | None
+    ) -> set[str]:
+        """Evaluate the compiled rule union that already houses scope evidence."""
+        covered: set[str] = set()
+        rows = connection.execute(
+            _SELECT_SCOPE_COMPILED_RULES,
+            {"deployment_id": deployment_id, "scope_id": scope_id},
+        ).mappings()
+        for row in rows:
+            facts, claims = self._candidates_for_rule(
+                connection=connection,
+                deployment_id=deployment_id,
+                params=_parse_rule(row=row),
+            )
+            covered.update(f"fact:{fact.kind}:{fact.fact_id}" for fact in facts)
+            covered.update(
+                f"claim:{claim.lineage_id}:{claim.chunk_content_hash}"
+                for claim in claims
+            )
+        return covered
+
     def _entity_candidates(
         self,
         *,
@@ -1502,8 +2600,17 @@ class KnowledgeControlPlane:
     ) -> set[UUID]:
         """Find compiled pages citing schema-supported changed evidence."""
         artifacts: set[UUID] = set()
+        if delta.claim_ids:
+            artifacts.update(
+                connection.execute(
+                    _SELECT_CITATION_ARTIFACTS_FOR_CLAIMS,
+                    {
+                        "deployment_id": deployment_id,
+                        "claim_ids": list(delta.claim_ids),
+                    },
+                ).scalars()
+            )
         for column, values in (
-            ("claim_id", delta.claim_ids),
             ("relation_id", delta.relation_ids),
             ("doc_id", delta.doc_ids),
         ):
@@ -1558,10 +2665,14 @@ class KnowledgeControlPlane:
     ) -> None:
         """Reject citation IDs absent from this deployment's spine."""
         for citation in citations:
-            if citation.claim_id is not None:
+            if citation.claim_lineage_id is not None:
                 exists = connection.execute(
-                    _CLAIM_EXISTS,
-                    {"deployment_id": deployment_id, "evidence_id": citation.claim_id},
+                    _CLAIM_COORDINATE_EXISTS,
+                    {
+                        "deployment_id": deployment_id,
+                        "lineage_id": citation.claim_lineage_id,
+                        "chunk_content_hash": citation.claim_chunk_content_hash,
+                    },
                 ).scalar_one()
             elif citation.relation_id is not None:
                 exists = connection.execute(
@@ -1580,6 +2691,17 @@ class KnowledgeControlPlane:
                 raise KnowledgeCompilationError(
                     f"citation target does not exist in deployment: {citation}"
                 )
+
+
+def _proposal_artifact_ids(*, proposal: KnowledgePlanProposal) -> tuple[UUID, ...]:
+    """Return the existing artifact targets named by one structural proposal."""
+    if isinstance(proposal, KnowledgeCreatePageProposal):
+        return ()
+    if isinstance(proposal, KnowledgeSplitPageProposal):
+        return (proposal.source_artifact_id,)
+    if isinstance(proposal, KnowledgeMergePagesProposal):
+        return proposal.source_artifact_ids
+    return (proposal.artifact_id,)
 
 
 def _stored_params(*, params: KnowledgeRuleParams) -> dict[str, JsonValue]:
@@ -1627,11 +2749,12 @@ def _unique_citations(
 
 def _citation_tuple(
     *, citation: KnowledgeCitation
-) -> tuple[str, UUID | None, UUID | None, UUID | None]:
+) -> tuple[str, UUID | None, str | None, UUID | None, UUID | None]:
     """Return the database uniqueness coordinates for one citation."""
     return (
         citation.role.value,
-        citation.claim_id,
+        citation.claim_lineage_id,
+        citation.claim_chunk_content_hash,
         citation.relation_id,
         citation.doc_id,
     )
@@ -1639,7 +2762,7 @@ def _citation_tuple(
 
 def _citation_lookup(*, column: str) -> TextClause:
     """Build one allow-listed citation reverse lookup with an expanding bind."""
-    if column not in {"claim_id", "relation_id", "doc_id"}:
+    if column not in {"relation_id", "doc_id"}:
         raise ValueError(f"unsupported citation column: {column}")
     return text(
         f"""
@@ -1667,6 +2790,433 @@ _INSERT_PLAN_DECISION = text(
     )
     """
 ).bindparams(bindparam("payload", type_=JSON))
+
+_INSERT_PLAN_RUN = text(
+    """
+    INSERT INTO knowledge_plan_runs (
+        run_id, deployment_id, scope_id, run_kind, trigger,
+        component_version, input_hash, session_transcript_uri,
+        status, failure, tokens, cost_usd
+    ) VALUES (
+        :run_id, :deployment_id, :scope_id, :run_kind, :trigger,
+        :component_version, :input_hash, :session_transcript_uri,
+        :status, :failure, :tokens, :cost_usd
+    )
+    """
+)
+
+_INSERT_ROUTED_PLAN_DECISION = text(
+    """
+    INSERT INTO knowledge_plan_decisions (
+        decision_id, deployment_id, scope_id, action, payload,
+        trigger, planner_version, status, plan_run_id,
+        confidence, blast_radius, expected_impact
+    ) VALUES (
+        :decision_id, :deployment_id, :scope_id, :action, :payload,
+        :trigger, :planner_version, :status, :plan_run_id,
+        :confidence, :blast_radius, :expected_impact
+    )
+    """
+).bindparams(bindparam("payload", type_=JSON))
+
+_SELECT_PLAN_DECISION_FOR_REVIEW = text(
+    """
+    SELECT d.decision_id, d.deployment_id, d.payload, d.status::text AS status,
+           EXISTS(
+             SELECT 1 FROM knowledge_quarantines q
+             WHERE q.decision_id = d.decision_id AND q.status = 'proposed'
+           ) AS open_quarantine
+    FROM knowledge_plan_decisions d
+    WHERE d.decision_id = :decision_id
+    FOR UPDATE
+    """
+)
+
+_ACCEPT_PLAN_DECISION = text(
+    """
+    UPDATE knowledge_plan_decisions
+    SET status = 'applied', reviewed_by = :reviewed_by, reviewed_at = now()
+    WHERE decision_id = :decision_id AND status = 'proposed'
+    RETURNING decision_id
+    """
+)
+
+_REJECT_PLAN_DECISION = text(
+    """
+    UPDATE knowledge_plan_decisions
+    SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = now()
+    WHERE decision_id = :decision_id AND status = 'proposed'
+      AND NOT EXISTS (
+        SELECT 1 FROM knowledge_quarantines q
+        WHERE q.decision_id = knowledge_plan_decisions.decision_id
+          AND q.status = 'proposed'
+      )
+    RETURNING decision_id
+    """
+)
+
+_RESOLVE_REJECT_PLAN_DECISION = text(
+    """
+    UPDATE knowledge_plan_decisions
+    SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = now()
+    WHERE decision_id = :decision_id AND status = 'proposed'
+    RETURNING decision_id
+    """
+)
+
+_SELECT_PENDING_PLAN_DECISIONS = text(
+    """
+    SELECT decision_id, payload, decided_at
+    FROM knowledge_plan_decisions
+    WHERE deployment_id = :deployment_id
+      AND status = 'applied'
+      AND confidence IS NOT NULL
+      AND application_commit IS NULL
+    ORDER BY decided_at, decision_id
+    """
+)
+
+_SELECT_PENDING_PLAN_DECISIONS_FOR_UPDATE = text(
+    """
+    SELECT decision_id, payload, decided_at
+    FROM knowledge_plan_decisions
+    WHERE deployment_id = :deployment_id
+      AND status = 'applied'
+      AND confidence IS NOT NULL
+      AND application_commit IS NULL
+    ORDER BY decided_at, decision_id
+    FOR UPDATE
+    """
+)
+
+_STAMP_PLAN_DECISION = text(
+    """
+    UPDATE knowledge_plan_decisions
+    SET application_commit = :application_commit
+    WHERE decision_id = :decision_id
+      AND status = 'applied'
+      AND application_commit IS NULL
+    """
+)
+
+_SELECT_PLAN_EFFECT_TARGETS = text(
+    """
+    SELECT artifact_id, git_path, curation_path,
+           page_kind::text AS page_kind, status::text AS status, last_compiled_at
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND artifact_id IN :artifact_ids
+    ORDER BY artifact_id
+    """
+).bindparams(bindparam("artifact_ids", expanding=True))
+
+_SELECT_PLAN_CREATED_ARTIFACTS = text(
+    """
+    SELECT DISTINCT a.artifact_id, a.git_path, a.curation_path,
+           a.page_kind::text AS page_kind, a.status::text AS status,
+           a.last_compiled_at
+    FROM knowledge_artifacts a
+    JOIN knowledge_page_rules r
+      ON r.deployment_id = a.deployment_id
+     AND r.artifact_id = a.artifact_id
+    WHERE a.deployment_id = :deployment_id
+      AND r.plan_decision_id = :decision_id
+    ORDER BY a.artifact_id
+    """
+)
+
+_SELECT_PLAN_DECISION_ARTIFACT_PATHS = text(
+    """
+    SELECT artifact_id, git_path
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND artifact_id IN :artifact_ids
+    ORDER BY artifact_id
+    """
+).bindparams(bindparam("artifact_ids", expanding=True))
+
+_SELECT_PLAN_ARTIFACT_SCOPES = text(
+    """
+    SELECT artifact_id, scope_id
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND artifact_id IN :artifact_ids
+      AND status <> 'tombstoned'
+    ORDER BY artifact_id
+    """
+).bindparams(bindparam("artifact_ids", expanding=True))
+
+_SELECT_DESCENDANT_COUNT = text(
+    """
+    WITH RECURSIVE descendants(artifact_id) AS (
+        SELECT artifact_id
+        FROM knowledge_artifacts
+        WHERE deployment_id = :deployment_id
+          AND parent_artifact_id = :artifact_id
+          AND status <> 'tombstoned'
+        UNION ALL
+        SELECT child.artifact_id
+        FROM knowledge_artifacts child
+        JOIN descendants parent ON parent.artifact_id = child.parent_artifact_id
+        WHERE child.deployment_id = :deployment_id
+          AND child.status <> 'tombstoned'
+    )
+    SELECT count(*) FROM descendants
+    """
+)
+
+_SELECT_DESCENDANT_MEMBERSHIP = text(
+    """
+    WITH RECURSIVE descendants(artifact_id) AS (
+        SELECT artifact_id
+        FROM knowledge_artifacts
+        WHERE deployment_id = :deployment_id
+          AND parent_artifact_id = :ancestor_id
+          AND status <> 'tombstoned'
+        UNION ALL
+        SELECT child.artifact_id
+        FROM knowledge_artifacts child
+        JOIN descendants parent ON parent.artifact_id = child.parent_artifact_id
+        WHERE child.deployment_id = :deployment_id
+          AND child.status <> 'tombstoned'
+    )
+    SELECT EXISTS(
+        SELECT 1 FROM descendants WHERE artifact_id = :candidate_id
+    )
+    """
+)
+
+_SELECT_ARTIFACT_IMPACT = text(
+    """
+    SELECT COALESCE(
+        (
+          SELECT c.candidate_count
+          FROM knowledge_compilations c
+          WHERE c.artifact_id = a.artifact_id AND c.git_commit IS NOT NULL
+          ORDER BY c.compiled_at DESC
+          LIMIT 1
+        ),
+        (
+          SELECT count(*)
+          FROM knowledge_artifact_evidence e
+          WHERE e.artifact_id = a.artifact_id
+        ),
+        0
+    ) AS impact
+    FROM knowledge_artifacts a
+    WHERE a.deployment_id = :deployment_id
+      AND a.artifact_id = :artifact_id
+      AND a.status <> 'tombstoned'
+    """
+)
+
+_SELECT_PLAN_ARTIFACT_FOR_UPDATE = text(
+    """
+    SELECT artifact_id, deployment_id, scope_id, parent_artifact_id,
+           git_path, curation_path, page_kind::text AS page_kind,
+           status::text AS status
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND artifact_id = :artifact_id
+      AND status <> 'tombstoned'
+    FOR UPDATE
+    """
+)
+
+_INSERT_PLANNED_ARTIFACT = text(
+    """
+    INSERT INTO knowledge_artifacts (
+        artifact_id, deployment_id, layer, page_kind, scope_id,
+        parent_artifact_id, git_path, curation_path, kind,
+        writer_version, status
+    ) VALUES (
+        :artifact_id, :deployment_id, :layer, 'compiled', :scope_id,
+        :parent_artifact_id, :git_path, :curation_path, :kind,
+        :writer_version, 'stale'
+    )
+    """
+)
+
+_SELECT_ACTIVE_RULE_IDS = text(
+    """
+    SELECT rule_id
+    FROM knowledge_page_rules
+    WHERE artifact_id = :artifact_id AND status = 'active'
+    ORDER BY rule_id
+    """
+)
+
+_DEPRECATE_ARTIFACT_RULES = text(
+    """
+    UPDATE knowledge_page_rules
+    SET status = 'deprecated'
+    WHERE artifact_id = :artifact_id AND status = 'active'
+    """
+)
+
+_TOMBSTONE_ARTIFACT = text(
+    """
+    UPDATE knowledge_artifacts
+    SET status = 'tombstoned'
+    WHERE artifact_id = :artifact_id AND page_kind = 'compiled'
+    """
+)
+
+_SELECT_LIVE_CHILD_COUNT = text(
+    """
+    SELECT count(*)
+    FROM knowledge_artifacts
+    WHERE parent_artifact_id = :artifact_id AND status <> 'tombstoned'
+    """
+)
+
+_REPARENT_CHILDREN = text(
+    """
+    UPDATE knowledge_artifacts
+    SET parent_artifact_id = :target_artifact_id,
+        status = CASE
+          WHEN page_kind = 'compiled' THEN 'stale'::knowledge_artifact_status
+          ELSE status
+        END
+    WHERE parent_artifact_id = :source_artifact_id AND status <> 'tombstoned'
+    """
+)
+
+_MOVE_ARTIFACT = text(
+    """
+    UPDATE knowledge_artifacts
+    SET git_path = :git_path,
+        curation_path = :curation_path,
+        parent_artifact_id = :parent_artifact_id,
+        status = 'stale'
+    WHERE artifact_id = :artifact_id AND page_kind = 'compiled'
+    """
+)
+
+_ADOPT_ARTIFACT = text(
+    """
+    UPDATE knowledge_artifacts
+    SET page_kind = 'authored',
+        status = 'active',
+        curation_path = NULL,
+        page_summary = NULL,
+        inputs_hash = NULL,
+        writer_version = NULL,
+        last_compiled_at = NULL
+    WHERE artifact_id = :artifact_id AND page_kind = 'compiled'
+    """
+)
+
+_HANDOVER_ARTIFACT = text(
+    """
+    UPDATE knowledge_artifacts
+    SET page_kind = 'compiled',
+        status = 'stale',
+        curation_path = :curation_path,
+        page_summary = NULL,
+        inputs_hash = NULL,
+        content_hash = NULL,
+        writer_version = :writer_version,
+        last_compiled_at = NULL
+    WHERE artifact_id = :artifact_id AND page_kind = 'authored'
+    """
+)
+
+_SELECT_OPEN_QUARANTINE = text(
+    """
+    SELECT quarantine_id, decision_id, deployment_id, artifact_id,
+           recorded_content_hash, detected_content_hash,
+           proposed_sidecar_entry, status, detected_at, resolved_at
+    FROM knowledge_quarantines
+    WHERE artifact_id = :artifact_id AND status = 'proposed'
+    """
+)
+
+_SELECT_COMPILED_CONTENT_FOR_UPDATE = text(
+    """
+    SELECT artifact_id, deployment_id, scope_id, content_hash
+    FROM knowledge_artifacts
+    WHERE artifact_id = :artifact_id
+      AND page_kind = 'compiled'
+      AND status IN ('active','stale')
+    FOR UPDATE
+    """
+)
+
+_INSERT_QUARANTINE = text(
+    """
+    INSERT INTO knowledge_quarantines (
+        quarantine_id, decision_id, deployment_id, artifact_id,
+        recorded_content_hash, detected_content_hash, proposed_sidecar_entry
+    ) VALUES (
+        :quarantine_id, :decision_id, :deployment_id, :artifact_id,
+        :recorded_content_hash, :detected_content_hash, :proposed_sidecar_entry
+    )
+    RETURNING quarantine_id, decision_id, deployment_id, artifact_id,
+              recorded_content_hash, detected_content_hash,
+              proposed_sidecar_entry, status, detected_at, resolved_at
+    """
+)
+
+_MARK_QUARANTINED = text(
+    """
+    UPDATE knowledge_artifacts
+    SET status = 'quarantined'
+    WHERE artifact_id = :artifact_id AND page_kind = 'compiled'
+    """
+)
+
+_SELECT_QUARANTINE_FOR_UPDATE = text(
+    """
+    SELECT q.quarantine_id, q.decision_id, q.deployment_id, q.artifact_id,
+           q.detected_content_hash, q.proposed_sidecar_entry, q.status, d.payload
+    FROM knowledge_quarantines q
+    JOIN knowledge_plan_decisions d ON d.decision_id = q.decision_id
+    WHERE q.quarantine_id = :quarantine_id
+    FOR UPDATE OF q, d
+    """
+)
+
+_ACKNOWLEDGE_QUARANTINED_BODY = text(
+    """
+    UPDATE knowledge_artifacts
+    SET content_hash = :content_hash
+    WHERE artifact_id = :artifact_id
+      AND page_kind = 'compiled'
+      AND status = 'quarantined'
+    """
+)
+
+_CLEAR_QUARANTINED_BODY_IDENTITY = text(
+    """
+    UPDATE knowledge_artifacts
+    SET content_hash = NULL
+    WHERE artifact_id = :artifact_id
+      AND page_kind = 'compiled'
+      AND status = 'quarantined'
+    """
+)
+
+_RESUME_QUARANTINED_AS_STALE = text(
+    """
+    UPDATE knowledge_artifacts
+    SET status = 'stale'
+    WHERE artifact_id = :artifact_id
+      AND page_kind = 'compiled'
+      AND status = 'quarantined'
+    """
+)
+
+_RESOLVE_QUARANTINE = text(
+    """
+    UPDATE knowledge_quarantines
+    SET status = :status,
+        resolution_note = :resolution_note,
+        curation_content_hash = :curation_content_hash,
+        resolved_at = now()
+    WHERE quarantine_id = :quarantine_id AND status = 'proposed'
+    """
+)
 
 _INSERT_ARTIFACT = text(
     """
@@ -2298,6 +3848,25 @@ _SELECT_DOCUMENT_DELTA_KEYS = text(
     """
 ).bindparams(bindparam("doc_ids", expanding=True))
 
+_SELECT_CITATION_ARTIFACTS_FOR_CLAIMS = text(
+    """
+    SELECT DISTINCT a.artifact_id
+    FROM claims c
+    JOIN chunks ch
+      ON ch.deployment_id = c.deployment_id AND ch.chunk_id = c.chunk_id
+    JOIN knowledge_artifact_evidence e
+      ON e.deployment_id = c.deployment_id
+     AND e.claim_lineage_id = c.doc_id
+     AND e.claim_chunk_content_hash = ch.chunk_content_hash
+    JOIN knowledge_artifacts a
+      ON a.deployment_id = e.deployment_id AND a.artifact_id = e.artifact_id
+    WHERE c.deployment_id = :deployment_id
+      AND c.claim_id IN :claim_ids
+      AND a.page_kind = 'compiled'
+      AND a.status <> 'tombstoned'
+    """
+).bindparams(bindparam("claim_ids", expanding=True))
+
 _SELECT_ARTIFACTS_FOR_KEY = text(
     """
     SELECT DISTINCT a.artifact_id
@@ -2345,7 +3914,8 @@ _SELECT_MANUAL_RULES = text(
 
 _SELECT_CITATIONS = text(
     """
-    SELECT role::text, claim_id, relation_id, doc_id
+    SELECT role::text, claim_lineage_id, claim_chunk_content_hash,
+           relation_id, doc_id
     FROM knowledge_artifact_evidence
     WHERE artifact_id = :artifact_id
     """
@@ -2359,10 +3929,10 @@ _INSERT_CITATION = text(
     """
     INSERT INTO knowledge_artifact_evidence (
         evidence_link_id, deployment_id, artifact_id,
-        claim_id, relation_id, doc_id, role
+        claim_lineage_id, claim_chunk_content_hash, relation_id, doc_id, role
     ) VALUES (
         :evidence_link_id, :deployment_id, :artifact_id,
-        :claim_id, :relation_id, :doc_id, :role
+        :claim_lineage_id, :claim_chunk_content_hash, :relation_id, :doc_id, :role
     )
     """
 )
@@ -2438,7 +4008,7 @@ _STAMP_COMPILATION_COMMIT = text(
 _SELECT_COMPILE_ARTIFACTS = text(
     """
     SELECT artifact_id, deployment_id, scope_id, parent_artifact_id,
-           git_path, curation_path, kind AS artifact_kind, page_summary,
+           git_path, curation_path, kind AS artifact_kind, page_summary, content_hash,
            status = 'stale' AS stale
     FROM knowledge_artifacts
     WHERE deployment_id = :deployment_id
@@ -2455,6 +4025,122 @@ _SELECT_ARTIFACT_GIT_PATHS = text(
     WHERE deployment_id = :deployment_id AND status <> 'tombstoned'
     ORDER BY git_path
     """
+)
+
+_SELECT_COMPILED_CONTENT_STATES = text(
+    """
+    SELECT artifact_id, deployment_id, git_path, content_hash
+    FROM knowledge_artifacts
+    WHERE deployment_id = :deployment_id
+      AND page_kind = 'compiled'
+      AND status IN ('active','stale')
+      AND content_hash IS NOT NULL
+    ORDER BY artifact_id
+    """
+)
+
+_SELECT_PLANNER_ARTIFACTS = text(
+    """
+    SELECT a.artifact_id, a.layer::text AS layer,
+           a.page_kind::text AS page_kind, a.status::text AS status,
+           a.git_path, a.scope_id, a.parent_artifact_id,
+           a.kind AS artifact_kind,
+           COALESCE(latest.candidate_count, 0) AS candidate_count,
+           COALESCE(latest.uncited_count, 0) AS uncited_count,
+           COALESCE(latest.suggestions, '[]'::jsonb) AS suggestions
+    FROM knowledge_artifacts a
+    LEFT JOIN LATERAL (
+        SELECT c.candidate_count, c.uncited_count, c.suggestions
+        FROM knowledge_compilations c
+        WHERE c.artifact_id = a.artifact_id AND c.git_commit IS NOT NULL
+        ORDER BY c.compiled_at DESC, c.compilation_id DESC
+        LIMIT 1
+    ) latest ON true
+    WHERE a.deployment_id = :deployment_id
+      AND a.scope_id IS NOT DISTINCT FROM :scope_id
+      AND a.status <> 'tombstoned'
+    ORDER BY a.git_path, a.artifact_id
+    """
+)
+
+_SELECT_SCOPE_COMPILED_RULES = text(
+    """
+    SELECT r.rule_id, r.deployment_id,
+           r.rule_kind::text AS rule_kind, r.params
+    FROM knowledge_page_rules r
+    JOIN knowledge_artifacts a
+      ON a.deployment_id = r.deployment_id AND a.artifact_id = r.artifact_id
+    WHERE r.deployment_id = :deployment_id
+      AND a.scope_id IS NOT DISTINCT FROM :scope_id
+      AND a.page_kind = 'compiled'
+      AND a.status <> 'tombstoned'
+      AND r.status = 'active'
+    ORDER BY r.rule_id
+    """
+)
+
+_SELECT_DELTA_CANDIDATE_ENTITIES = text(
+    """
+    WITH relation_candidates AS (
+      SELECT DISTINCT entity_id,
+             'fact:relation:' || r.relation_id::text AS candidate_key
+      FROM relations r
+      CROSS JOIN LATERAL (
+        VALUES (r.subject_entity_id), (r.object_entity_id)
+      ) endpoint(entity_id)
+      WHERE r.deployment_id = :deployment_id
+        AND (
+          r.relation_id::text IN :relation_ids
+          OR EXISTS (
+            SELECT 1 FROM relation_evidence e
+            WHERE e.deployment_id = r.deployment_id
+              AND e.relation_id = r.relation_id
+              AND e.doc_id::text IN :doc_ids
+          )
+        )
+    ), observation_candidates AS (
+      SELECT DISTINCT o.subject_entity_id AS entity_id,
+             'fact:observation:' || o.observation_id::text AS candidate_key
+      FROM observations o
+      WHERE o.deployment_id = :deployment_id
+        AND (
+          o.observation_id::text IN :observation_ids
+          OR EXISTS (
+            SELECT 1 FROM observation_evidence e
+            WHERE e.deployment_id = o.deployment_id
+              AND e.observation_id = o.observation_id
+              AND e.doc_id::text IN :doc_ids
+          )
+        )
+    ), claim_candidates AS (
+      SELECT DISTINCT rd.entity_id,
+             'claim:' || c.doc_id::text || ':' || ch.chunk_content_hash
+               AS candidate_key
+      FROM claims c
+      JOIN chunks ch
+        ON ch.deployment_id = c.deployment_id AND ch.chunk_id = c.chunk_id
+      JOIN mentions m
+        ON m.deployment_id = c.deployment_id AND m.claim_id = c.claim_id
+      JOIN resolution_decisions rd
+        ON rd.deployment_id = m.deployment_id
+       AND rd.mention_id = m.mention_id
+       AND rd.superseded_by IS NULL
+      WHERE c.deployment_id = :deployment_id
+        AND c.is_current_testimony
+        AND (c.claim_id::text IN :claim_ids OR c.doc_id::text IN :doc_ids)
+    )
+    SELECT entity_id, candidate_key FROM relation_candidates
+    UNION
+    SELECT entity_id, candidate_key FROM observation_candidates
+    UNION
+    SELECT entity_id, candidate_key FROM claim_candidates
+    ORDER BY entity_id, candidate_key
+    """
+).bindparams(
+    bindparam("relation_ids", expanding=True, type_=String()),
+    bindparam("observation_ids", expanding=True, type_=String()),
+    bindparam("claim_ids", expanding=True, type_=String()),
+    bindparam("doc_ids", expanding=True, type_=String()),
 )
 
 _SELECT_PENDING_COMPILATIONS = text(
@@ -2519,11 +4205,17 @@ _UPDATE_COMPILED_ARTIFACT = text(
     """
 )
 
-_CLAIM_EXISTS = text(
+_CLAIM_COORDINATE_EXISTS = text(
     """
     SELECT EXISTS (
-        SELECT 1 FROM claims
-        WHERE deployment_id = :deployment_id AND claim_id = :evidence_id
+        SELECT 1
+        FROM claims c
+        JOIN chunks ch
+          ON ch.deployment_id = c.deployment_id AND ch.chunk_id = c.chunk_id
+        WHERE c.deployment_id = :deployment_id
+          AND c.doc_id = :lineage_id
+          AND ch.chunk_content_hash = :chunk_content_hash
+          AND c.is_current_testimony
     )
     """
 )

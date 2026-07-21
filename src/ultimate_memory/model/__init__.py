@@ -114,8 +114,12 @@ from ultimate_memory.model.knowledge import CommunityRuleParams
 from ultimate_memory.model.knowledge import DocSetRuleParams
 from ultimate_memory.model.knowledge import EntityRuleParams
 from ultimate_memory.model.knowledge import EntitySubtreeRuleParams
+from ultimate_memory.model.knowledge import KnowledgeAgentSandboxPolicy
+from ultimate_memory.model.knowledge import KnowledgeAgentSessionRequest
+from ultimate_memory.model.knowledge import KnowledgeAgentSessionResult
 from ultimate_memory.model.knowledge import KnowledgeArtifactCreate
 from ultimate_memory.model.knowledge import KnowledgeArtifactHash
+from ultimate_memory.model.knowledge import KnowledgeArtifactStatus
 from ultimate_memory.model.knowledge import KnowledgeCandidateLayer
 from ultimate_memory.model.knowledge import KnowledgeCitation
 from ultimate_memory.model.knowledge import KnowledgeClaimFingerprint
@@ -159,6 +163,29 @@ from ultimate_memory.model.knowledge import KnowledgeWriterSuggestion
 from ultimate_memory.model.knowledge import ManualRuleParams
 from ultimate_memory.model.knowledge import PredicateBeatRuleParams
 from ultimate_memory.model.knowledge import ScopeInterestsRuleParams
+from ultimate_memory.model.knowledge_planner import KnowledgeAdjustRuleProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeCompiledContentState
+from ultimate_memory.model.knowledge_planner import KnowledgeConvertKindProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeCreatePageProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeMergePagesProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeMovePageProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeOrphanAggregate
+from ultimate_memory.model.knowledge_planner import KnowledgePendingPlanDecision
+from ultimate_memory.model.knowledge_planner import KnowledgePlanBand
+from ultimate_memory.model.knowledge_planner import KnowledgePlanDecisionResult
+from ultimate_memory.model.knowledge_planner import KnowledgePlannedPage
+from ultimate_memory.model.knowledge_planner import KnowledgePlannerArtifactState
+from ultimate_memory.model.knowledge_planner import KnowledgePlannerSandboxPolicy
+from ultimate_memory.model.knowledge_planner import KnowledgePlannerSessionRequest
+from ultimate_memory.model.knowledge_planner import KnowledgePlanningSnapshot
+from ultimate_memory.model.knowledge_planner import KnowledgePlanProposal
+from ultimate_memory.model.knowledge_planner import KnowledgePlanRunKind
+from ultimate_memory.model.knowledge_planner import KnowledgePlanRunStatus
+from ultimate_memory.model.knowledge_planner import KnowledgePlanRunWrite
+from ultimate_memory.model.knowledge_planner import KnowledgeQuarantineRecord
+from ultimate_memory.model.knowledge_planner import KnowledgeQuarantineStatus
+from ultimate_memory.model.knowledge_planner import KnowledgeRetirePageProposal
+from ultimate_memory.model.knowledge_planner import KnowledgeSplitPageProposal
 from ultimate_memory.model.lifecycle import CurrencyTransition
 from ultimate_memory.model.lifecycle import ReconciliationDelta
 from ultimate_memory.model.model_provider import EmbeddingRequest
@@ -356,6 +383,10 @@ __all__ = (
     "EntitySubtreeRuleParams",
     "KnowledgeArtifactCreate",
     "KnowledgeArtifactHash",
+    "KnowledgeArtifactStatus",
+    "KnowledgeAgentSandboxPolicy",
+    "KnowledgeAgentSessionRequest",
+    "KnowledgeAgentSessionResult",
     "KnowledgeCandidateLayer",
     "KnowledgeCitation",
     "KnowledgeClaimFingerprint",
@@ -396,6 +427,29 @@ __all__ = (
     "KnowledgeWriterSessionRequest",
     "KnowledgeWriterSessionResult",
     "KnowledgeWriterSuggestion",
+    "KnowledgeAdjustRuleProposal",
+    "KnowledgeConvertKindProposal",
+    "KnowledgeCompiledContentState",
+    "KnowledgeCreatePageProposal",
+    "KnowledgeMergePagesProposal",
+    "KnowledgeMovePageProposal",
+    "KnowledgeOrphanAggregate",
+    "KnowledgePendingPlanDecision",
+    "KnowledgePlannedPage",
+    "KnowledgePlanBand",
+    "KnowledgePlanDecisionResult",
+    "KnowledgePlannerArtifactState",
+    "KnowledgePlannerSandboxPolicy",
+    "KnowledgePlannerSessionRequest",
+    "KnowledgePlanningSnapshot",
+    "KnowledgePlanProposal",
+    "KnowledgePlanRunKind",
+    "KnowledgePlanRunStatus",
+    "KnowledgePlanRunWrite",
+    "KnowledgeQuarantineRecord",
+    "KnowledgeQuarantineStatus",
+    "KnowledgeRetirePageProposal",
+    "KnowledgeSplitPageProposal",
     "ManualRuleParams",
     "PredicateBeatRuleParams",
     "ReconciliationDelta",

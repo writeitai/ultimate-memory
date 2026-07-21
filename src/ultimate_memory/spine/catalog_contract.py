@@ -106,6 +106,8 @@ EXPECTED_TABLES: Final = (
     "knowledge_page_rules",
     "knowledge_page_watches",
     "knowledge_plan_decisions",
+    "knowledge_plan_runs",
+    "knowledge_quarantines",
     "knowledge_refresh_queue",
     "knowledge_rule_keys",
     "knowledge_subscriptions",
@@ -171,7 +173,7 @@ EXPECTED_INDEXES: Final = (
     "ix_eval_suite_ver",
     "ix_golden_type",
     "ix_grounding_claim",
-    "ix_kae_claim",
+    "ix_kae_claim_coordinate",
     "ix_kae_doc",
     "ix_kae_relation",
     "ix_kartifacts_parent",
@@ -180,6 +182,7 @@ EXPECTED_INDEXES: Final = (
     "ix_kcompilations_artifact",
     "ix_kdispatch_pending",
     "ix_kplan_proposed",
+    "ix_kplan_runs_deployment",
     "ix_krefresh_runnable",
     "ix_krule_keys_lookup",
     "ix_kwatch_watched",
@@ -212,6 +215,7 @@ EXPECTED_INDEXES: Final = (
     "ix_sections_parent",
     "ix_sections_role",
     "ux_kae_link",
+    "ux_kquarantine_open_artifact",
     "ux_kwatch",
     "ux_snapshot_latest",
 )
@@ -267,7 +271,7 @@ EMPTY_AT_HEAD: Final = (
     "predicate_signatures",
     "predicates",
 )
-EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 25, "f": 106, "p": 57, "u": 27, "x": 1}
+EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 38, "f": 112, "p": 59, "u": 28, "x": 1}
 DECISION_OBJECTS: Final = {
     "D1": ("pipeline_component_versions",),
     "D2": ("claims", "relations", "relation_evidence"),
@@ -275,7 +279,8 @@ DECISION_OBJECTS: Final = {
     "D23": ("claims", "relation_evidence", "observation_evidence"),
     "D31": ("claims", "grounding_audits"),
     "D36": ("documents", "document_versions", "document_crossrefs"),
-    "D45": ("knowledge_artifacts", "knowledge_refresh_queue"),
+    "D45": ("knowledge_artifacts", "knowledge_plan_runs", "knowledge_refresh_queue"),
+    "D46": ("knowledge_artifacts", "knowledge_quarantines"),
     "D50": ("retrieval_recipes",),
     "D54": ("testimony_currency_events", "ix_claims_current"),
     "D55": ("document_versions", "document_representations"),
@@ -470,7 +475,8 @@ def verify_schema(connection: Connection) -> CatalogInventory:
     )
     required_constraint_fragments = (
         "exclude using gist",
-        "num_nonnulls(claim_id, relation_id, doc_id) = 1",
+        "num_nonnulls(claim_lineage_id, relation_id, doc_id) = 1",
+        "(claim_lineage_id is null) = (claim_chunk_content_hash is null)",
         "num_nonnulls(artifact_id, subscription_id) = 1",
         "anchor_ok and window_membership_ok",
         "unique (deployment_id, processing_id, attempt, call_key)",

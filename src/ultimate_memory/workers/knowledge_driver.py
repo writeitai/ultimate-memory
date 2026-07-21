@@ -2,13 +2,20 @@
 
 from collections.abc import Collection
 from collections.abc import Mapping
+from concurrent.futures import Future
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from pathlib import PurePosixPath
 from tempfile import TemporaryDirectory
 import traceback
+from typing import Final
 from typing import Protocol
 from uuid import UUID
 from uuid import uuid4
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
 
 from ultimate_memory.core import knowledge_compile_order
 from ultimate_memory.core import knowledge_content_hash
@@ -17,13 +24,29 @@ from ultimate_memory.model import KnowledgeCommitCycleResult
 from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompileArtifact
 from ultimate_memory.model import KnowledgeCompileContext
+from ultimate_memory.model import KnowledgeConvertKindProposal
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeEvidenceTarget
+from ultimate_memory.model import KnowledgeMergePagesProposal
+from ultimate_memory.model import KnowledgeMovePageProposal
 from ultimate_memory.model import KnowledgePageCompileOutput
 from ultimate_memory.model import KnowledgePageCompileRequest
+from ultimate_memory.model import KnowledgePageKind
 from ultimate_memory.model import KnowledgePendingCycle
+from ultimate_memory.model import KnowledgePendingPlanDecision
+from ultimate_memory.model import KnowledgeRetirePageProposal
 from ultimate_memory.ports import KGitRemotePort
 from ultimate_memory.spine.knowledge import KnowledgeControlPlane
+
+KNOWLEDGE_DRIVER_VERSION: Final = "k-driver-2026.07"
+
+
+class KnowledgeCommitSettings(BaseSettings):
+    """Settings-owned bound on concurrent disjoint page compilers."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_K_DRIVER_")
+
+    max_parallel_pages: int = Field(gt=0)
 
 
 class KnowledgePageCompiler(Protocol):
@@ -84,11 +107,13 @@ class KnowledgeCommitDriver:
         control_plane: KnowledgeControlPlane,
         git_remote: KGitRemotePort,
         compiler: KnowledgePageCompiler,
+        settings: KnowledgeCommitSettings,
     ) -> None:
         """Bind the commit loop to its Postgres, git, and page-compiler seams."""
         self._control_plane = control_plane
         self._git_remote = git_remote
         self._compiler = compiler
+        self._settings = settings
 
     def run_cycle(
         self,
@@ -106,13 +131,36 @@ class KnowledgeCommitDriver:
                     worktree=worktree,
                     git_revision=checkout.root,
                 )
+                pending_decisions = self._control_plane.pending_plan_decisions(
+                    deployment_id=deployment_id
+                )
+                plan_files_changed = _reconcile_plan_files(
+                    decisions=pending_decisions, worktree=worktree
+                )
+                quarantined = self._quarantine_compiled_drift(
+                    deployment_id=deployment_id, worktree=worktree
+                )
                 artifacts = self._control_plane.compile_artifacts(
                     deployment_id=deployment_id
                 )
                 schedule = knowledge_compile_order(artifacts=artifacts)
                 if not schedule:
+                    revision = checkout.root
+                    if plan_files_changed:
+                        revision = self._git_remote.publish(worktree=worktree).root
+                    stamped = self._control_plane.stamp_ready_plan_decisions(
+                        deployment_id=deployment_id,
+                        git_commit=revision,
+                        present_paths=_present_paths(worktree=worktree),
+                    )
                     return KnowledgeCommitCycleResult(
-                        checkout_revision=checkout.root, recovered_cycle_ids=recovered
+                        checkout_revision=checkout.root,
+                        published_revision=(
+                            revision if revision != checkout.root else None
+                        ),
+                        recovered_cycle_ids=recovered,
+                        quarantined_artifact_ids=quarantined,
+                        stamped_plan_decision_ids=stamped,
                     )
 
                 known_paths = self._control_plane.artifact_git_paths(
@@ -141,6 +189,11 @@ class KnowledgeCommitDriver:
                 self._control_plane.commit_compilations(
                     compilations=compilations, git_commit=published.root
                 )
+                stamped = self._control_plane.stamp_ready_plan_decisions(
+                    deployment_id=deployment_id,
+                    git_commit=published.root,
+                    present_paths=_present_paths(worktree=worktree),
+                )
                 return KnowledgeCommitCycleResult(
                     checkout_revision=checkout.root,
                     published_revision=published.root,
@@ -148,7 +201,45 @@ class KnowledgeCommitDriver:
                         artifact.artifact_id for artifact, _ in compiled
                     ),
                     recovered_cycle_ids=recovered,
+                    quarantined_artifact_ids=quarantined,
+                    stamped_plan_decision_ids=stamped,
                 )
+
+    def _quarantine_compiled_drift(
+        self, *, deployment_id: UUID, worktree: Path
+    ) -> tuple[UUID, ...]:
+        """Preserve direct compiled-body changes before scheduling any compiler."""
+        quarantined: list[UUID] = []
+        for state in self._control_plane.compiled_content_states(
+            deployment_id=deployment_id
+        ):
+            target = _worktree_target(worktree=worktree, git_path=state.git_path)
+            if target.is_file():
+                try:
+                    edited_markdown = target.read_text(encoding="utf-8")
+                    detected_hash = knowledge_content_hash(markdown=edited_markdown)
+                except UnicodeError:
+                    edited_markdown = (
+                        "# Quarantined compiled-page edit\n\n"
+                        "The directly edited body is not valid UTF-8.\n"
+                    )
+                    detected_hash = knowledge_content_hash(markdown=edited_markdown)
+            else:
+                edited_markdown = (
+                    "# Quarantined compiled-page deletion\n\n"
+                    "The compiled body was deleted directly from the checkout.\n"
+                )
+                detected_hash = knowledge_content_hash(markdown="")
+            if detected_hash == state.content_hash:
+                continue
+            self._control_plane.quarantine_compiled_edit(
+                artifact_id=state.artifact_id,
+                detected_content_hash=detected_hash,
+                edited_markdown=edited_markdown,
+                driver_version=KNOWLEDGE_DRIVER_VERSION,
+            )
+            quarantined.append(state.artifact_id)
+        return tuple(quarantined)
 
     def _recover_pending_cycles(
         self, *, deployment_id: UUID, worktree: Path, git_revision: str
@@ -186,7 +277,7 @@ class KnowledgeCommitDriver:
         worktree: Path,
         exclusions_by_artifact: Mapping[UUID, Collection[KnowledgeEvidenceTarget]],
     ) -> tuple[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput], ...]:
-        """Invoke one-page compilers in order while carrying fresh summaries forward."""
+        """Compile disjoint pages by wave while carrying fresh summaries upward."""
         summaries = {
             artifact.artifact_id: artifact.page_summary
             for artifact in artifacts
@@ -201,101 +292,369 @@ class KnowledgeCommitDriver:
         changed_summaries: set[UUID] = set()
         changed_model_scopes: set[UUID | None] = set()
         outputs: list[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput]] = []
-        for artifact in schedule:
-            child_ids = {
-                child.artifact_id
+        children = {
+            artifact.artifact_id: tuple(
+                child
                 for child in artifacts
                 if child.parent_artifact_id == artifact.artifact_id
-            }
-            model_changed = (
-                artifact.artifact_kind != "model_page"
-                and artifact.scope_id in changed_model_scopes
             )
-            if not (
-                artifact.stale
-                or child_ids.intersection(changed_summaries)
-                or model_changed
-            ):
-                continue
-            child_summaries = {
-                child.artifact_id: summaries[child.artifact_id]
-                for child in artifacts
-                if child.artifact_id in child_ids and child.artifact_id in summaries
-            }
-            exclusions = tuple(exclusions_by_artifact.get(artifact.artifact_id, ()))
-            previous_markdown = _read_optional_compiler_input(
-                worktree=worktree, git_path=artifact.git_path
-            )
-            curation_markdown = (
-                None
-                if artifact.curation_path is None
-                else _read_optional_compiler_input(
-                    worktree=worktree, git_path=artifact.curation_path
+            for artifact in artifacts
+        }
+        with ThreadPoolExecutor(
+            max_workers=self._settings.max_parallel_pages,
+            thread_name_prefix="ugm-k-page",
+        ) as executor:
+            for wave in _compile_waves(artifacts=artifacts, schedule=schedule):
+                eligible = tuple(
+                    artifact
+                    for artifact in wave
+                    if artifact.stale
+                    or {
+                        child.artifact_id for child in children[artifact.artifact_id]
+                    }.intersection(changed_summaries)
+                    or (
+                        artifact.artifact_kind != "model_page"
+                        and artifact.scope_id in changed_model_scopes
+                    )
                 )
-            )
-            output = self._compiler.compile_page(
-                request=KnowledgePageCompileRequest(
-                    artifact=artifact,
-                    child_summaries=child_summaries,
-                    shared_model_summary=(
-                        None
-                        if artifact.artifact_kind == "model_page"
-                        else model_summaries.get(artifact.scope_id)
-                    ),
-                    curation_hash=(
-                        None
-                        if curation_markdown is None
-                        else knowledge_content_hash(markdown=curation_markdown)
-                    ),
-                    curation_markdown=curation_markdown,
-                    previous_markdown=previous_markdown,
-                    exclusions=exclusions,
-                )
-            )
-            try:
-                validate_knowledge_page_output(
-                    artifact=artifact,
-                    output=output,
-                    known_git_paths=known_paths,
-                    exclusions=exclusions,
-                )
-                self._control_plane.validate_citations(
-                    deployment_id=artifact.deployment_id,
-                    citations=output.compilation.citations,
-                )
-            except Exception as error:
-                compilation = output.compilation
-                failure_trace = traceback.format_exc()
-                try:
-                    self._control_plane.record_failed_compilation(
-                        failure=KnowledgeCompilationFailure(
-                            compilation_id=compilation.compilation_id,
-                            deployment_id=compilation.deployment_id,
-                            artifact_id=compilation.artifact_id,
-                            inputs_hash=compilation.inputs_hash,
-                            candidate_count=compilation.candidate_count,
-                            claims_cut_count=compilation.claims_cut_count,
-                            writer_version=compilation.writer_version,
-                            failure=failure_trace,
-                            session_transcript_uri=compilation.session_transcript_uri,
+                futures: list[
+                    tuple[KnowledgeCompileArtifact, Future[KnowledgePageCompileOutput]]
+                ] = []
+                for artifact in eligible:
+                    child_summaries = {
+                        child.artifact_id: summaries[child.artifact_id]
+                        for child in children[artifact.artifact_id]
+                        if child.artifact_id in summaries
+                    }
+                    futures.append(
+                        (
+                            artifact,
+                            executor.submit(
+                                self._compile_one,
+                                artifact=artifact,
+                                child_summaries=child_summaries,
+                                shared_model_summary=(
+                                    None
+                                    if artifact.artifact_kind == "model_page"
+                                    else model_summaries.get(artifact.scope_id)
+                                ),
+                                known_paths=known_paths,
+                                worktree=worktree,
+                                exclusions=tuple(
+                                    exclusions_by_artifact.get(artifact.artifact_id, ())
+                                ),
+                            ),
                         )
                     )
-                except Exception as ledger_error:
-                    raise ExceptionGroup(
-                        "page validation and failure-ledger recording both failed",
-                        (error, ledger_error),
-                    ) from None
-                raise
-            new_summary = output.compilation.page_summary
-            if new_summary != artifact.page_summary:
-                changed_summaries.add(artifact.artifact_id)
-                if artifact.artifact_kind == "model_page":
-                    changed_model_scopes.add(artifact.scope_id)
-            summaries[artifact.artifact_id] = new_summary
-            if artifact.artifact_kind == "model_page":
-                model_summaries[artifact.scope_id] = new_summary
-            outputs.append((artifact, output))
+                wave_outputs, errors = self._collect_parallel_wave(futures=futures)
+                if errors:
+                    self._record_aborted_wave(outputs=wave_outputs, errors=errors)
+                for artifact, output in wave_outputs:
+                    new_summary = output.compilation.page_summary
+                    if new_summary != artifact.page_summary:
+                        changed_summaries.add(artifact.artifact_id)
+                        if artifact.artifact_kind == "model_page":
+                            changed_model_scopes.add(artifact.scope_id)
+                    summaries[artifact.artifact_id] = new_summary
+                    if artifact.artifact_kind == "model_page":
+                        model_summaries[artifact.scope_id] = new_summary
+                    outputs.append((artifact, output))
         return tuple(outputs)
+
+    def _compile_one(
+        self,
+        *,
+        artifact: KnowledgeCompileArtifact,
+        child_summaries: Mapping[UUID, str],
+        shared_model_summary: str | None,
+        known_paths: Collection[str],
+        worktree: Path,
+        exclusions: tuple[KnowledgeEvidenceTarget, ...],
+    ) -> KnowledgePageCompileOutput:
+        """Compile and validate one page without touching shared checkout state."""
+        previous_markdown = (
+            None
+            if artifact.content_hash is None
+            else _read_optional_compiler_input(
+                worktree=worktree, git_path=artifact.git_path
+            )
+        )
+        curation_markdown = (
+            None
+            if artifact.curation_path is None
+            else _read_optional_compiler_input(
+                worktree=worktree, git_path=artifact.curation_path
+            )
+        )
+        output = self._compiler.compile_page(
+            request=KnowledgePageCompileRequest(
+                artifact=artifact,
+                child_summaries=dict(child_summaries),
+                shared_model_summary=shared_model_summary,
+                curation_hash=(
+                    None
+                    if curation_markdown is None
+                    else knowledge_content_hash(markdown=curation_markdown)
+                ),
+                curation_markdown=curation_markdown,
+                previous_markdown=previous_markdown,
+                exclusions=exclusions,
+            )
+        )
+        try:
+            validate_knowledge_page_output(
+                artifact=artifact,
+                output=output,
+                known_git_paths=known_paths,
+                exclusions=exclusions,
+            )
+            self._control_plane.validate_citations(
+                deployment_id=artifact.deployment_id,
+                citations=output.compilation.citations,
+            )
+        except Exception as error:
+            compilation = output.compilation
+            failure_trace = traceback.format_exc()
+            try:
+                self._control_plane.record_failed_compilation(
+                    failure=KnowledgeCompilationFailure(
+                        compilation_id=compilation.compilation_id,
+                        deployment_id=compilation.deployment_id,
+                        artifact_id=compilation.artifact_id,
+                        inputs_hash=compilation.inputs_hash,
+                        candidate_count=compilation.candidate_count,
+                        claims_cut_count=compilation.claims_cut_count,
+                        writer_version=compilation.writer_version,
+                        failure=failure_trace,
+                        session_transcript_uri=compilation.session_transcript_uri,
+                    )
+                )
+            except Exception as ledger_error:
+                raise ExceptionGroup(
+                    "page validation and failure-ledger recording both failed",
+                    (error, ledger_error),
+                ) from None
+            raise
+        return output
+
+    def _collect_parallel_wave(
+        self,
+        *,
+        futures: list[
+            tuple[KnowledgeCompileArtifact, Future[KnowledgePageCompileOutput]]
+        ],
+    ) -> tuple[
+        list[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput]],
+        list[Exception],
+    ]:
+        """Await a whole wave so sibling sessions cannot outlive an aborted cycle."""
+        outputs: list[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput]] = []
+        errors: list[Exception] = []
+        for artifact, future in futures:
+            try:
+                outputs.append((artifact, future.result()))
+            except Exception as error:
+                errors.append(error)
+        return outputs, errors
+
+    def _record_aborted_wave(
+        self,
+        *,
+        outputs: list[tuple[KnowledgeCompileArtifact, KnowledgePageCompileOutput]],
+        errors: list[Exception],
+    ) -> None:
+        """Ledger successful siblings discarded because their wave could not publish."""
+        ledger_errors: list[Exception] = []
+        for _, output in outputs:
+            compilation = output.compilation
+            try:
+                self._control_plane.record_failed_compilation(
+                    failure=KnowledgeCompilationFailure(
+                        compilation_id=compilation.compilation_id,
+                        deployment_id=compilation.deployment_id,
+                        artifact_id=compilation.artifact_id,
+                        inputs_hash=compilation.inputs_hash,
+                        candidate_count=compilation.candidate_count,
+                        claims_cut_count=compilation.claims_cut_count,
+                        writer_version=compilation.writer_version,
+                        failure="parallel compile wave aborted because a sibling failed",
+                        session_transcript_uri=compilation.session_transcript_uri,
+                    )
+                )
+            except Exception as ledger_error:
+                ledger_errors.append(ledger_error)
+        combined = [*errors, *ledger_errors]
+        if len(combined) == 1:
+            raise combined[0]
+        raise ExceptionGroup("parallel compile wave failed", combined)
+
+
+def _compile_waves(
+    *,
+    artifacts: tuple[KnowledgeCompileArtifact, ...],
+    schedule: tuple[KnowledgeCompileArtifact, ...],
+) -> tuple[tuple[KnowledgeCompileArtifact, ...], ...]:
+    """Group a valid child-first order into disjoint dependency waves."""
+    by_id = {artifact.artifact_id: artifact for artifact in artifacts}
+    depths: dict[UUID, int] = {}
+
+    def depth(artifact: KnowledgeCompileArtifact) -> int:
+        known = depths.get(artifact.artifact_id)
+        if known is not None:
+            return known
+        parent = (
+            None
+            if artifact.parent_artifact_id is None
+            else by_id.get(artifact.parent_artifact_id)
+        )
+        value = 0 if parent is None else depth(parent) + 1
+        depths[artifact.artifact_id] = value
+        return value
+
+    models = tuple(
+        artifact for artifact in schedule if artifact.artifact_kind == "model_page"
+    )
+    root_indexes = tuple(
+        artifact
+        for artifact in schedule
+        if artifact.artifact_kind != "model_page"
+        and artifact.parent_artifact_id is None
+        and artifact.git_path == "_index.md"
+    )
+    regular = tuple(
+        artifact
+        for artifact in schedule
+        if artifact not in models and artifact not in root_indexes
+    )
+    waves: list[tuple[KnowledgeCompileArtifact, ...]] = []
+    if models:
+        waves.append(models)
+    for level in sorted({depth(artifact) for artifact in regular}, reverse=True):
+        waves.append(
+            tuple(artifact for artifact in regular if depth(artifact) == level)
+        )
+    if root_indexes:
+        waves.append(root_indexes)
+    return tuple(waves)
+
+
+def _reconcile_plan_files(
+    *, decisions: tuple[KnowledgePendingPlanDecision, ...], worktree: Path
+) -> bool:
+    """Apply accepted structure to the disposable checkout without generating prose."""
+    changed = False
+    for decision in decisions:
+        proposal = decision.proposal
+        if isinstance(proposal, KnowledgeMovePageProposal):
+            changed = (
+                _move_worktree_file(
+                    worktree=worktree,
+                    old_path=proposal.old_git_path,
+                    new_path=proposal.new_git_path,
+                )
+                or changed
+            )
+            changed = (
+                _move_worktree_file(
+                    worktree=worktree,
+                    old_path=proposal.old_curation_path,
+                    new_path=proposal.new_curation_path,
+                )
+                or changed
+            )
+        elif isinstance(proposal, KnowledgeMergePagesProposal):
+            for artifact_id in proposal.source_artifact_ids:
+                changed = (
+                    _remove_worktree_file(
+                        worktree=worktree, git_path=decision.artifact_paths[artifact_id]
+                    )
+                    or changed
+                )
+        elif isinstance(proposal, KnowledgeRetirePageProposal):
+            changed = (
+                _remove_worktree_file(
+                    worktree=worktree,
+                    git_path=decision.artifact_paths[proposal.artifact_id],
+                )
+                or changed
+            )
+        elif (
+            isinstance(proposal, KnowledgeConvertKindProposal)
+            and proposal.to_kind is KnowledgePageKind.COMPILED
+        ):
+            changed = (
+                _preserve_handover_body(
+                    worktree=worktree,
+                    body_path=decision.artifact_paths[proposal.artifact_id],
+                    curation_path=proposal.curation_path,
+                )
+                or changed
+            )
+    return changed
+
+
+def _move_worktree_file(*, worktree: Path, old_path: str, new_path: str) -> bool:
+    """Move one plan-owned file idempotently inside the checkout."""
+    if old_path == new_path:
+        return False
+    source = _worktree_target(worktree=worktree, git_path=old_path)
+    target = _worktree_target(worktree=worktree, git_path=new_path)
+    if source.exists() and target.exists():
+        raise ValueError(f"plan move has both source and target files: {old_path}")
+    if not source.exists():
+        return False
+    if not source.is_file():
+        raise ValueError(f"plan move source is not a file: {old_path}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(target)
+    return True
+
+
+def _remove_worktree_file(*, worktree: Path, git_path: str) -> bool:
+    """Remove one retired machine-owned page idempotently from the checkout."""
+    target = _worktree_target(worktree=worktree, git_path=git_path)
+    if not target.exists():
+        return False
+    if not target.is_file():
+        raise ValueError(f"retired artifact path is not a file: {git_path}")
+    target.unlink()
+    return True
+
+
+def _preserve_handover_body(
+    *, worktree: Path, body_path: str, curation_path: str | None
+) -> bool:
+    """Copy an author's former body into curation before a writer takes ownership."""
+    if curation_path is None:
+        raise ValueError("authored handover has no curation path")
+    body = _read_optional_compiler_input(worktree=worktree, git_path=body_path)
+    if body is None:
+        raise ValueError("authored handover body is missing")
+    target = _worktree_target(worktree=worktree, git_path=curation_path)
+    preserved = (
+        "# Authored handover source\n\n"
+        "The body below was preserved when this page became compiled.\n\n"
+        f"{body}"
+    )
+    if target.is_file():
+        existing = target.read_text(encoding="utf-8")
+        if body in existing:
+            return False
+        preserved = f"{existing.rstrip()}\n\n{preserved}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(preserved, encoding="utf-8")
+    return True
+
+
+def _present_paths(*, worktree: Path) -> tuple[str, ...]:
+    """Return normalized repository file paths used by plan readiness checks."""
+    return tuple(
+        sorted(
+            path.relative_to(worktree).as_posix()
+            for path in worktree.rglob("*")
+            if path.is_file() and ".git" not in path.relative_to(worktree).parts
+        )
+    )
 
 
 def _pending_cycle_matches_worktree(
