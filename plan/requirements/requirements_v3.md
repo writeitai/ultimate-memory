@@ -66,10 +66,11 @@ truth, and rebuild semantics. L-numbers from earlier drafts survive as shorthand
 
 ### Plane K — Knowledge (aggregate, compiled, debounced; git is the source of truth)
 
-One compilation mechanism, many scopes (D45–D47); K1/K2/K3 name **content tiers** of that one
-mechanism, not separate machinery — and they are its shipped **default configuration**: the
-mechanism is a framework, and a deployment (including any user of the open-source library)
-defines its own scopes and tiers (knowledge structure is configuration, not machinery — D47).
+One compilation mechanism, many scopes (D45–D47, refined by D73); K1 names the default scope
+and K2 names additional purpose scopes. They are configuration, not separate machinery: a
+deployment (including any user of the open-source library) defines its own scopes and layout.
+There is no shipped K3 belief tier. Normative core principles are authored K2 content; the
+system's evidence-qualified fact state remains in E3.
 Two content kinds, one shared guarantee — **every K artifact records the evidence it rests
 on** (citations), so staleness, deletion reach, and audit are mechanical, never guessed:
 
@@ -85,11 +86,11 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
 - **K1 — General knowledge** *(formerly L3)*: the default scope — progressive-disclosure
   summaries (entity, topic, source pages) over the evidence.
 - **K2 — Special-purpose scopes** *(formerly L4)*: pluggable purpose scopes (people profiles,
-  business planning, as-is/to-be migration tracking, …); multiple scopes coexist; each scope
-  anchors its vocabulary in a shared model page all its pages compile against.
-- **K3 — Core beliefs and stances** *(formerly L5)*: the belief tier — ultra-distilled,
-  compiled only from high-evidence, uncontradicted facts; every belief linked to its
-  supporting and contradicting evidence; updates only on evidence, resistant to drift.
+  business planning, as-is/to-be migration tracking, a personal operating doctrine, …);
+  multiple scopes coexist and each anchors its vocabulary in a shared model page. A scope may
+  mix compiled support material with authored principles, decisions, and stances. Normative
+  content is promoted and changed only by its accountable author, while citations and watches
+  keep it connected to changing evidence (D73).
 
 ### Plane P — Projections (derived, no authority; rebuilt on schedule)
 

@@ -405,8 +405,8 @@ them.
 1. **K1 compile hints**: communities ≈ candidate topics; "claims in community C changed" is a
    better incremental-refresh trigger for K1 summaries than per-file signals (Zep uses
    communities exactly this way).
-2. **Entity importance**: PageRank as a salience prior for retrieval ranking and K3 candidate
-   filtering.
+2. **Entity importance**: PageRank as a salience prior for retrieval ranking and K topic
+   prioritization.
 3. **Registry hygiene**: tiny disconnected components often indicate entity-resolution misses.
 
 ## 8. Failure modes

@@ -12,9 +12,9 @@ starting points to measure, not committed constants (CLAUDE.md).
 
 > **Reading this cold (CLAUDE.md Rule 1).** A **claim** is an immutable record of what a
 > source asserted (E2) — never edited, never superseded. A **relation**/**observation** is an
-> adjudicated fact the system believes (E3), linked to supporting claims by evidence rows;
-> **`evidence_count`** caches how much support a fact has and feeds belief gating (K3),
-> retrieval reranking (D9), and adjudication. A document's **`content_hash`** (sha256 of its
+> adjudicated fact the system currently holds (E3), linked to supporting claims by evidence rows;
+> **`evidence_count`** caches how much support a fact has and feeds retrieval reranking (D9)
+> and adjudication. A document's **`content_hash`** (sha256 of its
 > bytes) is the idempotency key (D12); the **extractor version** stamps which prompt/model
 > generation produced each claim (D33). Before this design, the system had no vocabulary for
 > either "this document was re-extracted by a newer generation" or "this document was edited
@@ -241,8 +241,8 @@ adjudication; it leaves the current fact layer entirely (history keeps the full 
 `uncertain` is the only non-terminal outcome and leaves the marker standing — deliberately
 visible, meant to be rare.
 
-While flagged, the fact is **not K3-eligible** (extends D47's gating) and carries
-`support: withdrawn` in the retrieval envelope, so agents see the ground moved before planning
+While flagged, the fact carries `support: withdrawn` in the retrieval envelope, so agents see
+the ground moved before planning
 on it. Two guards bracket the flag: D35's planted canaries catch known regressions *before* an
 extractor rolls, and the **flag rate per extractor version** is the live rollout canary — a
 spike right after an upgrade is the corpus-level regression alarm (rollback signal, D22
@@ -407,7 +407,7 @@ insufficiency of coordinate keys** (never assumed): the basis layer in **exact-k
 | D41 | **enriched**: `asserted_at` from `source_modified_at` per version — living documents get real testimony timelines |
 | D42 | **composes**: independence math = distinct *external* lineages |
 | D43 | **works as designed**: version-to-version value changes are ordinary supersession; observation counts follow the new rule |
-| D45–D47 | **reused**: reconciliation emits `evidence_changed`; K `inputs_hash` keyed on fact state (stale-storm guard); D47 gating excludes zero-current-support facts |
+| D45–D47/D73 | **reused**: reconciliation emits `evidence_changed`; K `inputs_hash` is keyed on fact state (stale-storm guard); authored K2 principles citing or watching the fact receive review notifications rather than machine edits |
 | D48–D51 | **small additions**: current-testimony defaults, regime disclosure, P1 channels |
 | Deletion §13 / S55 | **composes**: version grain added; lineage and forget as before |
 

@@ -384,12 +384,6 @@ and players understand it; a filesystem does not. So:
 12. **Image discriminator accuracy** (document vs picture) and misroute cost.
 13. **S58 media extension** — a cold agent must distinguish source expression / model
     observation / media time / world time / current fact from the skill alone.
-14. **K3 admission for model-mediated facts** — whether high-impact `model_observation`/
-    `model_interpretation` facts need a stricter K3 (core-belief) admission dial than
-    `source_expression` facts, measured on real promotion traffic. Genuinely open policy —
-    the disclosure machinery (§5) is bound either way; only the K3 gate setting is in
-    question.
-
 ## References
 
 Research: `plan/analysis/media_handling/` (internal, Codex, SYNTHESIS). Decisions: **D65**

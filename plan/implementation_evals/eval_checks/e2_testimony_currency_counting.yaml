@@ -25,8 +25,8 @@ instructions: |
      facts per shape (states: valid_until cap; measurements: invalidated_at) recorded as
      retracted_source_removal with no flag; processing-driven loss (new extractor generation
      fails to re-derive from an UNCHANGED file) is flagged support_withdrawn for review — the
-     flag's only trigger — and flagged facts are excluded from K3 eligibility and marked in the
-     retrieval envelope.
+     flag's only trigger — and flagged facts are marked in the retrieval envelope so ordinary
+     K candidates and readers see that their support moved.
   5. P1's default claim channel indexes current testimony only; an audit channel/opt-in sees
      all generations.
 

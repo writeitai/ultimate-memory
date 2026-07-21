@@ -1,10 +1,9 @@
 # Phase 6 — Plane K
 
-**Goal:** the knowledge framework: compiled + authored pages, the compile machine, triggers,
-subscriptions, the belief tier.
+**Goal:** the knowledge framework: compiled + authored pages, K1 plus K2 purpose scopes, the
+compile machine, triggers, and subscriptions.
 
-**Entry gates:** #4 K writer/planner model picks (Codex/OpenCode producers, D53 checkers);
-**#5 "whose beliefs"** blocks only WP-6.7.
+**Entry gates:** #4 K writer/planner model picks (Codex/OpenCode producers, D53 checkers).
 **Exit criteria:** K scenario classes (S31–S35) pass; writer-completeness canaries green;
 citation faithfulness sampled; a full compile cycle (route → plan → compile → validate →
 commit) runs debounced end-to-end; dispatch invokes a demo subscriber with a delta payload.
@@ -17,4 +16,4 @@ commit) runs debounced end-to-end; dispatch invokes a demo subscriber with a del
 | WP-6.4 | Writers (prose band): bundle hydration, citations contract, page summaries, suggestions | k_layers §5–7; D46 | WP-6.3 | writer worker | citation validation; completeness canaries | done (exact capped bundles + sandboxed prose writer + archived transcripts + driver-only acceptance) |
 | WP-6.5 | Planner + reflection (blast-radius bands, orphan triggers) + quarantine/adoption flows | k_layers §4–5, §7 | WP-6.2 | planner worker | plan-decision transcripts; D24-band routing | done (archived planner/reflection runs + exact structural triggers + D24 review bands + durable quarantine triage + bounded dependency-wave compilation) |
 | WP-6.6 | Authored pages: frontmatter sync, watches, review flags, declaration lint; subscriptions + dispatch | k_layers §4–5; schema §11 (watches/dispatches) | WP-6.2 | authored + trigger surface | flag on cited-evidence change; demo dispatch with delta | done (PR #117; atomic authored sync + cited-evidence flags + indexed watches + debounced D67 dispatch) |
-| WP-6.7 | Belief tier configuration (K3) | k_layers §8; D47 | WP-6.4, gate #5 | belief scope | evidence-gated recompile test; dual-role citations | blocked(#5) |
+| WP-6.7 | Former K3 belief-tier configuration | k_layers §8; D47/D73 | — | — | — | removed (D73; principles are authored K2 content, so no distinct implementation remains) |

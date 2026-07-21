@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D66); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D73); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -20,7 +20,7 @@ rules — trigger model, source of truth, mutability, rebuild semantics.
                  │          │            │   │      PLANE K — KNOWLEDGE (debounced,
                  │          │            │   │      LLM-compiled; git is truth)
                  │          │            ▼   ▼
-                 │          │        K1 general / K2 scopes ─► K3 beliefs
+                 │          │        K1 general / K2 purpose scopes
                  │          │            │   │
                  ▼          ▼            ▼   ▼      PLANE P — PROJECTIONS (scheduled
             ┌─────────────────────────────────────┐  rebuild; derived, no authority)
@@ -56,7 +56,7 @@ projection — D40 refined; `e0_files_design.md` §6.)*
 | **GCS — artifacts** | per-document markdown + `pageindex.json` + conversion sidecars, one immutable **representation** per conversion run (E0, D37/D65: `…/<content_hash>/<representation_id>/…`) | source of truth for converted bodies (nondeterministic converter output is **replayed from storage**, D7 — a toolchain bump creates a new representation beside the old, never regenerates in place) | — (like raw: backed up, not regenerated) |
 | **GCS — corpus fs** | **P3**: corpus organized as a mounted directory tree (D40) | derived | Postgres + artifacts (every cycle) |
 | **LanceDB** | **P1**: vector + FTS indexes over chunks, claims, relation fact labels + **media segments** (cross-modal, D65) | derived | Postgres + artifacts |
-| **git repo** | plane K: compiled + authored knowledge (K1/K2/K3 tiers, D47) | **source of truth** — irreducibly the human-authored content; compiled pages are semantically regenerable from the spine + recorded inputs (D45/D46) | — (own backups) |
+| **git repo** | plane K: compiled + authored knowledge (K1 plus K2 purpose scopes, D47/D73) | **source of truth** — irreducibly the human-authored content; compiled pages are semantically regenerable from the spine + recorded inputs (D45/D46) | — (own backups) |
 | **LadybugDB** | **P2**: graph projection of entities + relations | derived | Postgres (every cycle) |
 
 Two hard rules: validity/invalidation state exists **only** in Postgres — Lance and Ladybug
@@ -139,7 +139,7 @@ batch, carrying no authority.
 Neither plane is triggered per document — K is windowed/debounced ("N new claims or T
 minutes"), P rebuilds on schedule; both summarize/project across the corpus.
 
-- **K1/K2** (git): a manifest-driven compile system (D45–D47; design: `k_layers_design.md`).
+- **K1/K2** (git): a manifest-driven compile system (D45–D47, refined by D73; design: `k_layers_design.md`).
   A **planner** LLM maintains which pages exist and each page's mechanical **routing rule**
   (entity / subtree / predicate / community / doc-set keys); **writer** LLMs (Codex/OpenCode)
   compile one page each from the rule's evidence + the page's human curation + child-page
@@ -152,10 +152,10 @@ minutes"), P rebuilds on schedule; both summarize/project across the corpus.
   `knowledge_artifact_evidence`; a periodic **semantic linter** remains as prose quality
   assurance (cross-page contradictions, broken links), no longer the staleness mechanism.
   Repo exposed via MCP + auto-generated `llms.txt`.
-- **K3**: the belief tier of the same mechanism (D47): compiled pages whose rules select only
-  high-evidence, uncontradicted relations/observations; every belief links
-  supporting/contradicting claim IDs; recompiled only when its evidence set changes, never on
-  a timer.
+- **Core principles and stances**: authored pages inside a K2 purpose scope (D73), optionally
+  supported by compiled cross-project pattern summaries. Only an accountable author promotes
+  or changes a principle; citations, watches, review flags, and dispatch keep it connected to
+  changing evidence without rewriting it. E3 remains the system's current fact state.
 - **P2**: full rebuild from Postgres → Parquet → LadybugDB → validated immutable GCS
   snapshot; readers serve read-only copies and hot-swap (D7). Full design:
   `p2_graph_design.md`.
@@ -231,8 +231,8 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `e2_e3_claims_relations_design.md` | claim extraction + relation normalization; why there is no value gate (D31–D35, D25) | **current** |
 | `observations_design.md` | non-graph facts about one entity — untyped, entity-anchored, bi-temporal; supersession by entity-blocking + adjudication (D43) | **current** |
 | `registries_design.md` | entity resolution, ontology, governance, review, eval (D15–D24) | **current** |
-| `k_layers_design.md` | plane K: planner/writer/driver compile system, compiled + authored pages, belief tier (D45–D47) | **current** |
-| `k3_beliefs_design.md` | *(folded into `k_layers_design.md` — D47)* | — |
+| `k_layers_design.md` | plane K: planner/writer/driver compile system, compiled + authored pages, K1 plus K2 purpose scopes (D45–D47, D73) | **current** |
+| `k3_beliefs_design.md` | *(withdrawn — D73; principles are authored K2 content)* | — |
 | `p2_graph_design.md` | graph projection, rebuild, snapshots, search | **current** |
 | `retrieval_design.md` | the query machine: primitives, recipes, envelope, mounts, skill (D48–D51) | **current** |
 | `postgres_schema_design.md` | spine schema, tables, indexes, partitioning, deletion cascade | **current** |

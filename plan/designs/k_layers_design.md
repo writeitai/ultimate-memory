@@ -3,11 +3,11 @@
 How the system turns the evidence spine into the high-level, browsable knowledge layer agents
 read *first* — per-purpose curated summaries, entity profiles, and authored documents — while
 keeping every page mechanically traceable to the evidence it rests on. Binding design for
-decisions **D45–D47** (which also accept objections **O2** and **O4**); builds on D1 (split
+decisions **D45–D47, refined by D73** (which also accept objections **O2** and **O4**); builds on D1 (split
 source of truth), D11 (communities), D12 (debounced aggregate triggers), D24 (blast-radius
 review), D33 (decision ledgers for non-deterministic stages), D42 (document origin), D43
-(observations). This one document covers the whole plane — the previously separate
-`k3_beliefs_design.md` is folded in (one mechanism, D47). Schema:
+(observations). This one document covers the whole plane; D73 withdraws the previously proposed
+K3 belief tier because core principles are authored K2 content. Schema:
 `postgres_schema_design.md` §11. Numbers here are starting points to measure, not committed
 constants (CLAUDE.md).
 
@@ -52,16 +52,15 @@ mounted memory + CLI, §7). Determinism lives only in
 *triggering* (what is stale), *routing* (which page gets what evidence), and *bookkeeping*
 (what fed what).
 
-## 2. One mechanism, many scopes (D47 — accepts O2)
+## 2. One mechanism, many scopes (D47/D73 — accepts O2)
 
-Plane K runs **one compilation mechanism**. The K1/K2/K3 names survive as *content tiers*, not
+Plane K runs **one compilation mechanism**. K1 and K2 name its shipped scope layout, not
 separate machinery:
 
 | Tier | What it is under this design |
 |---|---|
 | **K1 — general knowledge** | the **default scope**: entity pages, topic (community) pages, source digests, the root index |
-| **K2 — purpose scopes** | additional scopes (people profiles, business planning, as-is/to-be migration tracking, …) — each a git subtree + registry rows (`scopes`, `scope_interests`, D16), sharing the one entity space |
-| **K3 — core beliefs** | a distinguished **belief tier** (§8): compiled pages under stricter rules — evidence-gated updates, mandatory supporting *and* contradicting citations |
+| **K2 — purpose scopes** | additional scopes (people profiles, business planning, as-is/to-be migration tracking, a personal operating doctrine, …) — each a git subtree + registry rows (`scopes`, `scope_interests`, D16), sharing the one entity space; each may mix compiled support material with authored principles and decisions (§8) |
 
 A scope is: a subtree of the repo, its registry rows, its pages (compiled and authored), and
 one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, truth doesn't"
@@ -70,48 +69,42 @@ one **shared model page** (§7) that anchors its vocabulary. "Scopes multiply, t
 ### A framework, shipped with a default configuration
 
 The mechanism above is deliberately a **framework**: nothing in the machinery knows what "K1"
-or "K3" *mean*. Two distinct strata, with a sharp line between them:
+or "K2" *mean*. Two distinct strata, with a sharp line between them:
 
 - **The framework contract — fixed, not per-deployment configurable:** the two page kinds and
   their ownership rules (D46); routing rules with binding citations (D45); the trigger surface
   and its acyclicity invariant (§5); one git repo + the Postgres control plane, with the
   driver as the repo's only automated committer.
 - **The knowledge layout — pure configuration, reshaped freely per deployment:** which scopes
-  exist, the tree, the rule assignments, whether a belief tier exists and under what
-  thresholds. All of it is registry rows and plan decisions, never code. **K1 (default scope)
-  / K2 (purpose scopes) / K3 (belief tier) is the shipped default configuration** — a
-  reference layout, not a requirement of the machinery; a deployment may rename, drop, or
-  invent tiers.
+  exist, their trees, rule assignments, and authored pages. All of it is registry rows, git
+  content, and plan decisions, never code. **K1 (default scope) plus K2 (purpose scopes) is the
+  shipped default configuration** — a reference layout, not a requirement of the machinery;
+  a deployment may rename, drop, or invent scopes.
 
 D15 established "ontology is content, not machinery"; the same statement holds one plane up:
 **knowledge structure is configuration, not machinery.** This applies equally to our own
 deployments and to any user of the open-source library — they inherit the contract, they own
-the layout. Guarantees travel with configurations, not names: a deployment that wants belief
-semantics gets K3's guarantees by enabling the belief-tier configuration (§8), whatever it
-calls the result.
+the layout. Guarantees travel with page ownership and citations, not tier names.
 
 ### Relationship to the original K1–K3 conception
 
 A reader arriving from older documents (requirements v1/v2, decisions D1/D12 as originally
-written, early discussions) should read the K1/K2/K3 names the way L-numbers are read after
-D14: **the names survive; the machinery behind them is superseded.** The original conception
-treated K1/K2/K3 as three *layers* — implicitly three pipelines, a separate belief design
-(`k3_beliefs_design.md`, never written), and a compilation mechanism of concurrent agent
-sessions editing a shared repo (merge-conflict retry, hot-file delays, linter-guessed
-staleness). All of that is replaced by this design: **one** machine (planner / writers /
-driver — D45), two page kinds (D46), one trigger surface (§5), with K1/K2/K3 surviving as
-*content tiers* of that machine (the table above; D47).
+written, early discussions) should treat K3 as **withdrawn by D73**, not as latent machinery.
+The original conception treated K1/K2/K3 as three layers — implicitly three pipelines, a
+separate belief design (`k3_beliefs_design.md`, never written), and concurrent agent sessions
+editing a shared repo. D47 first collapsed those into one mechanism; D73 completed the
+simplification after the motivating use case showed that core principles are authored K2
+content, while evidence-qualified facts already belong to E3. The current design is **one**
+machine (planner / writers / driver — D45), two page kinds (D46), one trigger surface (§5),
+K1 general knowledge, and any number of K2 purpose scopes.
 
-What did **not** change is the promise attached to each name: K1's progressive-disclosure
-summaries, K2's pluggable coexisting scopes, K3's evidence-linked drift-resistant beliefs are
-the same requirements-level guarantees as before — delivered by a different, stronger
-mechanism (mechanical staleness, binding citations, authored-page alerts). And several things
-in this design have **no counterpart** in the original conception at all — authored pages and
-curation sidecars, the promotion loop (§9), page watches and dispatch subscriptions (§5),
-two-band pages (§5): the original wasn't wrong about these so much as silent; the migration
-and agent-operated-company scenarios forced them into existence. One line to carry away:
-*the K1/K2/K3 taxonomy stands with its original guarantees intact; everything about how those
-tiers are built, updated, and governed is D45–D47.*
+K1's progressive-disclosure summaries and K2's pluggable coexisting scopes retain their
+requirements-level guarantees through mechanical staleness, binding citations, and
+authored-page alerts. Several things in this design have **no counterpart** in the original
+conception at all — authored pages and curation sidecars, the promotion loop (§9), page watches
+and dispatch subscriptions (§5), and two-band pages (§5). The migration, personal-memory, and
+agent-operated-company scenarios forced them into existence. One line to carry away: *K1 and
+K2 are scope configuration; compiled versus authored is the load-bearing semantic boundary.*
 
 ## 3. Three roles and one ownership rule (D45)
 
@@ -141,7 +134,7 @@ and what happens when cited evidence changes:
 | derived from evidence? | yes — regenerated from its rules' evidence | no — it *is* first-class content (a design, a decision, a target state) |
 | when cited evidence changes | page goes **stale → recompiled** | page gets a **review flag** ("a decision here rests on changed evidence") — never auto-rewritten |
 | human input via | the **curation sidecar** | direct editing (it's theirs) |
-| examples | entity profile, topic summary, as-is system description, belief page | to-be architecture, mapping decisions, project plans, position papers |
+| examples | entity profile, topic summary, as-is system description, recurring-pattern summary | to-be architecture, mapping decisions, project plans, position papers, personal principles |
 
 **Curation sidecars.** Human judgment about a *compiled* page lives in a per-page, git-tracked
 sidecar (`<page>.curation.md`): pins ("keep this framing"), exclusions ("never cite claim X"),
@@ -477,10 +470,6 @@ are replaced, the hash is updated. Properties an implementer must preserve:
 - **Reads never trigger.** No query, browse, or hydration has side effects on plane K. All
   triggering originates from writes (plane E events, git commits, plan decisions) — this is
   what keeps the retrieval path zero-LLM and side-effect-free (D9).
-- **The belief-tier exception.** Belief pages (§8) ignore `debounce_timer` entirely — they
-  recompile *only* on evidence-set changes. That is the mechanical meaning of "updates only on
-  evidence, resistant to drift."
-
 **Authored pages — four channels in, notification out.** An authored page has no
 `inputs_hash` and no staleness: the system cannot know whether its *content* is outdated,
 because the content is judgment. What the system knows is whether the page's **declared
@@ -670,25 +659,34 @@ broken narrative, tone drift — and files findings as review items or recompile
 citations — the D32-layer-4 pattern applied to K), and *staleness latency* (evidence-change →
 recompile lag against the configured cadence).
 
-## 8. The belief tier (K3 under D47)
+## 8. Core principles and stances are authored K2 content (D73)
 
-K3 is not separate machinery; it is the same mechanism under stricter configuration:
+A personal or organizational operating principle — "prefer simple codebases", "preserve an
+audit trail", "optimize for reversibility" — is a chosen normative commitment. Corpus
+redundancy, evidence counts, and contradiction state may inform it, but cannot establish who
+endorses it. Therefore principles live as **authored pages in a K2 purpose scope**, not as a
+machine-compiled belief tier.
 
-- **Rules select only settled evidence**: relations/observations with `evidence_count ≥ N`
-  (placeholder to measure) and **no live `contradiction_group`** — the candidate filter D2
-  anticipated ("a candidate filter for L5 core beliefs").
-- **Updates are evidence-gated**: belief pages recompile only when their evidence set changes
-  — never on a timer — which is what "updates only on evidence, resistant to drift"
-  (requirements) means operationally.
-- **Citations are mandatory in both roles**: every belief links its supporting *and*
-  contradicting evidence (`knowledge_evidence_role`), so a belief is always one hydration away
-  from its grounds.
-- Human stance enters through the same two doors as everywhere else: sidecar curation on
-  compiled belief pages, or authored position pages that cite evidence and carry watch rules.
+A typical personal-memory scope might contain an authored shared model page, a tiny
+`principles/` subtree, and compiled `project-patterns/` pages. The compiled pages summarize
+recurring experience across projects and may produce inert suggestions. Promotion into the
+principles set is explicit: an accountable human or authoring agent creates, changes, or
+retires the authored page through ordinary git flow. The driver never promotes a suggestion
+or rewrites the principle body.
 
-Open, deliberately (tracked in `questions.md` #5): *whose* beliefs these are (the user's? the
-system's epistemic state?) and whether a belief carries a numeric stance. The mechanism above
-is agnostic to that answer; the answer will configure it, not replace it.
+Principles still participate fully in the K contract:
+
+- `cites:` records the decisions and experiences the principle rests on;
+- `watch:` and page watches connect it to relevant projects and compiled summaries;
+- changed evidence raises a review flag or dispatches its owner, never changes its words;
+- the scope's shared model page defines the vocabulary and relationship among principles;
+- no numeric stance score is inferred without a separately measured, explicitly authorized
+  design.
+
+Evidence-qualified current facts remain E3 relations/observations. Ordinary compiled K1/K2
+pages synthesize them with freshness disclosure; they do not become a second belief authority.
+The former K3 proposal is removed, not deferred. Selectivity and distillation alone do not earn
+a new tier, and a future distinct mechanism requires a new concrete use case and decision.
 
 ## 9. Worked example — a migration scope (as-is / to-be), and the promotion loop
 
@@ -761,8 +759,8 @@ The deletion cascade (requirements; E0 §2) reaches plane K mechanically through
 ## 11. Consequences, residuals, and spikes
 
 **What this buys** (mapped to standing requirements): "refreshed incrementally, never
-globally" becomes exact (the stale set *is* the refresh set); K3's "every belief linked to
-evidence" holds by construction; the deletion cascade reaches K mechanically; per-page
+globally" becomes exact (the stale set *is* the refresh set); authored principles remain
+explicitly owned while citations and watches keep their ground visible; the deletion cascade reaches K mechanically; per-page
 freshness metadata exists; the K half of the "serial git bottleneck" risk is removed
 structurally (one committer, disjoint writes, DAG order).
 
@@ -788,19 +786,18 @@ structurally (one committer, disjoint writes, DAG order).
    `expected_impact` middle band).
 3. Writer completeness + citation faithfulness eval (canaries; sampled audits) — joins the
    E2/E3 harness (`questions.md` #14) as one eval surface.
-4. Belief-tier thresholds (`evidence_count ≥ N`; contradiction handling policy).
-5. Compile-cycle economics at scale (dirty-pages distribution per debounce window; hub-page
+4. Compile-cycle economics at scale (dirty-pages distribution per debounce window; hub-page
    budgets; shared-model-page recompile blast radius).
-6. Git-history erasure mechanics for hard-forget (filter-repo on a living repo + backup
+5. Git-history erasure mechanics for hard-forget (filter-repo on a living repo + backup
    rotation) — coordinates with the end-to-end forget item (`questions.md` #24).
-7. **Future-state extraction** for migration-style scopes (§9): decision-language →
+6. **Future-state extraction** for migration-style scopes (§9): decision-language →
    `Decision` entities + future-dated D41 windows, and how planned flows normalize
    (future-dated `uses`/`depends_on` relations vs Decision-mediated) — measure on a corpus
    slice; gates how much of a `to-be/` subtree can be compiled.
-8. **Dispatch semantics** (§5): per-subscription debounce windows, payload size caps,
+7. **Dispatch semantics** (§5): per-subscription debounce windows, payload size caps,
    at-least-once delivery + consumer idempotency, dead-letter policy for failing subscriber
    workflows — measure with the first agent-operated scope.
-9. ~~**Reader-facing flag surface**~~ **RESOLVED (D49)** — two surfaces: the retrieval
+8. ~~**Reader-facing flag surface**~~ **RESOLVED (D49)** — two surfaces: the retrieval
    **response envelope** carries each consumed K page's `compiled_at` + staleness + open-flag
    count, and P3's generated `_index.md` mirrors the same per page for the browse path. The
    status-sidecar option is dropped (a second mutable state to keep honest, for no third
@@ -808,7 +805,7 @@ structurally (one committer, disjoint writes, DAG order).
 
 ## References
 
-Decisions: **D45–D47** (this design), D1, D11, D12, D16, D24, D33, D42, D43 (`decisions.md`).
+Decisions: **D45–D47, D73** (this design), D1, D11, D12, D16, D24, D33, D42, D43 (`decisions.md`).
 Objections resolved: O2, O4 (`plan/analysis/objections.md`). Review that motivated it:
 `plan/analysis/design_review_2026_07.md` (F1). Schema: `postgres_schema_design.md` §11.
 Adjacent designs: `overall_design.md` §5, `registries_design.md` (scopes, extension packs),

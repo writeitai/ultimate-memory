@@ -45,16 +45,16 @@ Each plane breaks into a handful of layers:
 | | What it is | Backed by | Holds |
 |---|---|---|---|
 | **K1** | General knowledge | git repo | progressive-disclosure summaries over the claims |
-| **K2** | Special-purpose scopes | git repo | pluggable domain layers (people profiles, projects, …) |
-| **K3** | Core beliefs | git repo | ultra-distilled beliefs, each linked to its evidence |
+| **K2** | Special-purpose scopes | git repo | pluggable domains (people profiles, projects, a personal operating doctrine, …), mixing compiled support with authored principles |
 
-Plane K is a **framework**, not three fixed layers (D45–D47): one compile machine — an LLM
+Plane K is a **framework**, not fixed layers (D45–D47, refined by D73): one compile machine — an LLM
 planner owning *structure*, LLM writers owning *content*, a deterministic driver owning
 staleness, routing, and commits — over two page kinds: **compiled** (regenerated from the
 evidence when it changes) and **authored** (human/agent commitments that are never rewritten,
-only *alerted* when the evidence they cite changes). K1–K3 is the shipped **default
-configuration** of that framework; deployments — and users of the library — define their own
-scopes and tiers ("knowledge structure is configuration, not machinery").
+only *alerted* when the evidence they cite changes). K1 plus any number of K2 scopes is the
+shipped configuration; deployments define their own scopes ("knowledge structure is
+configuration, not machinery"). Core principles and stances are authored K2 pages because an
+evidence threshold cannot decide what a person or organization endorses.
 
 **P — Projections** *(derived from the E spine; rebuildable, hold no source-of-truth; K pages
 cross-link with P3 but are never a structural input — D40 refined)*

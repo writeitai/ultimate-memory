@@ -19,7 +19,7 @@ different place, with different rules:
 | **relation** | a fact linking **two entities** — `(Alice, works_for, Acme)` | Postgres (E3) | validity windows close on supersession |
 | **observation** | a fact stating a **value about one entity** — "Acme headcount 600" (D43) | Postgres (E3) | same bi-temporal rules; never enters the graph |
 | **fact** | the umbrella word for *relation or observation* — "what the system currently holds true" | — | — |
-| **core belief** | a distilled **K3 page**: compiled prose built only from the most-supported, uncontradicted facts, every statement citing its evidence | the K git repo | recompiled when its evidence changes |
+| **core principle** | a chosen personal or organizational stance: authored K2 content, cited and watched but never machine-promoted or rewritten (D73) | the K git repo | only its accountable author changes it; evidence changes raise review flags |
 
 Two distinctions that ride on the ladder:
 
@@ -29,8 +29,8 @@ Two distinctions that ride on the ladder:
   pages — pre-paid synthesis with a freshness stamp). A claim must never be mistaken for a
   current fact — that is the split this whole model exists to enforce. *(Naming note: the
   fact grain was called the "belief grain" in early drafts of D48–D51; renamed July 2026
-  because it collided with **core beliefs**, which are K3 pages — a different layer
-  entirely.)*
+  because "belief" ambiguously mixed current facts with normative stances. D73 places the
+  latter in authored K2 pages.)*
 - **Testimony currency** (D54): a claim is *current testimony* while it belongs to its
   document's current version and extraction generation; superseded generations and
   removed-content claims stop counting toward facts and drop out of default search, while
@@ -38,9 +38,9 @@ Two distinctions that ride on the ladder:
   judgment about truth — claims stay immutable in every sense.
 
 So a sentence like "the roster says Bob is CFO" travels: **claim** ("this file said it") →
-**relation** (`Bob works_for Acme`, the fact the system holds) → possibly cited by a **core
-belief** page if it is well-supported and uncontradicted — three layers, three words, no
-synonyms.
+**relation** (`Bob works_for Acme`, the current fact the system holds) → possibly synthesized
+in a compiled K1/K2 page. A personal principle may cite that history as context, but is never
+inferred from it.
 
 ## Running example
 
@@ -117,8 +117,8 @@ hundreds of times. Without the relation layer, that's hundreds of near-duplicate
 needing fuzzy dedup. With it, it's **one edge with evidence_count = 247** — and that count is
 itself useful: a fact independently asserted by 247 sources is more trustworthy than one
 asserted once. Confidence becomes an aggregate over evidence rather than a guess at extraction
-time. (This is also exactly the signal K3 wants: a "core belief" candidate is a relation with
-lots of supporting evidence and no contradicting stance — now a SQL query.)
+time. It is a ranking and adjudication signal, not an automatic promotion mechanism for
+normative principles (D73).
 
 ## 4. Supersession at the relation level
 

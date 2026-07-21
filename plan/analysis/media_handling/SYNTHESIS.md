@@ -89,8 +89,8 @@ Markdown (adoption #4) makes derivation kind a **block/section-grain, determinis
 mapping** — derivable, cacheable on the evidence link, no new judgment call anywhere. The
 mode is disclosure, never a verdict; Selection's existing verifiability rules still govern
 what is kept (a model's *interpretation* faces the same bar as any unattributed evaluative
-text), and whether high-impact `model_observation` claims need a stricter K3 admission dial
-is left as an open policy spike (Codex failure-mode 1).
+text). The former open question about a stricter K3 admission dial is closed by D73's removal
+of the shipped K3 tier; derivation disclosure remains binding.
 
 ## 4. Merged candidate decision package (likely one decision, D65-class)
 

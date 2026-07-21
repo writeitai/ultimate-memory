@@ -10,7 +10,8 @@ Status:
 - **O5 accepted → D15–D24** (entity-registry/ontology subsystem). Researched in
   `registry_research/`; design doc `plan/designs/registries_design.md`.
 - **O6 partially folded in** via D22 (eval loop ships v1; ER half + retrieval half).
-- **O2 accepted → D47** (one K compilation mechanism, N scopes; K3 = the belief tier).
+- **O2 accepted → D47, refined by D73** (one K compilation mechanism, N scopes; the proposed
+  K3 default was later removed because principles are authored K2 content).
 - **O4 accepted → D45/D46** (manifest-driven K compilation; citations binding; semantic
   regenerability; the non-rebuildable surface narrowed to human-authored content).
 
@@ -69,13 +70,12 @@ its own machinery.
 **Cost of adopting:** low now, high later (machinery built on three named layers hardens).
 **Risk of ignoring:** building and operating three pipelines where one suffices.
 
-**Resolution.** Accepted as proposed → **D47**: one compilation mechanism, N scopes; "general"
-(K1) is the default scope; K3 is the **belief tier** — the same mechanism under stricter
-configuration (rules select only high-evidence, uncontradicted facts; updates evidence-gated,
-never timer-driven; dual-role citations mandatory) — which is exactly the "curated view seeded
-from high-evidence, zero-contradiction relations", now with a defined update rule. The "whose
-beliefs" question stays open (`questions.md` #5); the mechanism is agnostic to its answer.
-Design: `plan/designs/k_layers_design.md` §2/§8.
+**Resolution.** Accepted → **D47**, then narrowed by **D73**: one compilation mechanism, N
+scopes; "general" (K1) is the default scope and K2 supplies additional compiled and authored
+purpose scopes. D47 initially retained K3 as a stricter configuration, but gate #5 exposed that
+normative principles cannot be inferred from evidence thresholds, while evidence-qualified facts
+already live in E3. D73 therefore removes the shipped K3 default and places personal or
+organizational principles in authored K2 pages. Design: `plan/designs/k_layers_design.md` §2/§8.
 
 ---
 
