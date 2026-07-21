@@ -123,11 +123,17 @@ class EntityRegistry:
         a crash-retry is bounded by the attempt limit and lands idempotently
         (mentions/verdicts are append-only transcript rows either way).
         """
+        return claim_id in self.normalized_claim_ids(claim_ids=(claim_id,))
+
+    def normalized_claim_ids(self, *, claim_ids: tuple[UUID, ...]) -> frozenset[UUID]:
+        """Return every evidence-backed replay marker in one bounded read."""
+        if not claim_ids:
+            return frozenset()
         with self._engine.connect() as connection:
-            return (
-                connection.execute(_COUNT_EVIDENCE, {"claim_id": claim_id}).scalar_one()
-                > 0
-            )
+            rows = connection.execute(
+                _SELECT_NORMALIZED_CLAIMS, {"claim_ids": list(claim_ids)}
+            ).scalars()
+            return frozenset(rows)
 
 
 _LOCK_LEMMA = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
@@ -190,9 +196,10 @@ _INSERT_DECISION = text(
     """
 ).bindparams(bindparam("features", type_=JSON))
 
-_COUNT_EVIDENCE = text(
+_SELECT_NORMALIZED_CLAIMS = text(
     """
-    SELECT (SELECT count(*) FROM relation_evidence WHERE claim_id = :claim_id)
-         + (SELECT count(*) FROM observation_evidence WHERE claim_id = :claim_id)
+    SELECT claim_id FROM relation_evidence WHERE claim_id = ANY(:claim_ids)
+    UNION
+    SELECT claim_id FROM observation_evidence WHERE claim_id = ANY(:claim_ids)
     """
 )

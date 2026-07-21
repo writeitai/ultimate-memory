@@ -245,33 +245,50 @@ class LifecycleCatalog:
         """
         if not transitions:
             return 0
-        applied = 0
+        # Collapse exact repeats before the set write. The former row loop
+        # made the first repeat win through its NOT EXISTS guard.
+        unique: dict[tuple[UUID, str, bool], CurrencyTransition] = {}
+        for transition in transitions:
+            unique.setdefault(
+                (transition.claim_id, transition.reason, transition.became_current),
+                transition,
+            )
+        event_rows = [
+            {
+                "event_id": str(uuid4()),
+                "claim_id": str(transition.claim_id),
+                "doc_id": str(transition.doc_id),
+                "became_current": transition.became_current,
+                "reason": transition.reason,
+                "from_extractor_version": transition.from_extractor_version,
+                "from_version_id": (
+                    str(transition.from_version_id)
+                    if transition.from_version_id is not None
+                    else None
+                ),
+            }
+            for transition in unique.values()
+        ]
+        # A claim can legitimately flip more than once in a composed run.
+        # Match the former loop: the final transition owns the cache value.
+        cache_rows = [
+            {"claim_id": str(claim_id), "is_current": is_current}
+            for claim_id, is_current in {
+                transition.claim_id: transition.became_current
+                for transition in transitions
+            }.items()
+        ]
         with self._engine.begin() as connection:
-            for transition in transitions:
-                inserted = connection.execute(
-                    _INSERT_CURRENCY_EVENT,
-                    {
-                        "event_id": uuid4(),
-                        "deployment_id": deployment_id,
-                        "claim_id": transition.claim_id,
-                        "doc_id": transition.doc_id,
-                        "reconciliation_id": reconciliation_id,
-                        "became_current": transition.became_current,
-                        "reason": transition.reason,
-                        "from_extractor_version": transition.from_extractor_version,
-                        "from_version_id": transition.from_version_id,
-                    },
-                ).scalar_one_or_none()
-                if inserted is not None:
-                    applied += 1
-                connection.execute(
-                    _UPDATE_CURRENCY_CACHE,
-                    {
-                        "claim_id": transition.claim_id,
-                        "is_current": transition.became_current,
-                    },
-                )
-        return applied
+            applied = connection.execute(
+                _INSERT_CURRENCY_EVENTS,
+                {
+                    "deployment_id": deployment_id,
+                    "reconciliation_id": reconciliation_id,
+                    "events": event_rows,
+                },
+            ).scalar_one()
+            connection.execute(_UPDATE_CURRENCY_CACHES, {"claims": cache_rows})
+        return int(applied)
 
     def affected_relation_ids(self, *, claim_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
         """Relations evidenced by any of these claims (the recount scope)."""
@@ -306,22 +323,32 @@ class LifecycleCatalog:
         guard's input: a re-extraction that changes no fact state must
         stale nothing, so only changed facts belong in the emitted delta.
         """
-        changed_relations: list[UUID] = []
-        changed_observations: list[UUID] = []
         with self._engine.begin() as connection:
-            for relation_id in relation_ids:
-                changed = connection.execute(
-                    _RECOUNT_RELATION, {"relation_id": relation_id}
-                ).scalar_one_or_none()
-                if changed:
-                    changed_relations.append(relation_id)
-            for observation_id in observation_ids:
-                changed = connection.execute(
-                    _RECOUNT_OBSERVATION, {"observation_id": observation_id}
-                ).scalar_one_or_none()
-                if changed:
-                    changed_observations.append(observation_id)
-        return tuple(changed_relations), tuple(changed_observations)
+            changed_relation_ids = (
+                frozenset(
+                    connection.execute(
+                        _RECOUNT_RELATIONS, {"relation_ids": list(relation_ids)}
+                    ).scalars()
+                )
+                if relation_ids
+                else frozenset()
+            )
+            changed_observation_ids = (
+                frozenset(
+                    connection.execute(
+                        _RECOUNT_OBSERVATIONS,
+                        {"observation_ids": list(observation_ids)},
+                    ).scalars()
+                )
+                if observation_ids
+                else frozenset()
+            )
+        # RETURNING order is not a SQL contract; retain the prior row-loop's
+        # caller-visible input order while keeping the write set-based.
+        return (
+            tuple(item for item in relation_ids if item in changed_relation_ids),
+            tuple(item for item in observation_ids if item in changed_observation_ids),
+        )
 
     def open_zero_support_relations(
         self, *, relation_ids: tuple[UUID, ...]
@@ -703,32 +730,58 @@ _SELECT_RUN_EVENTS = text(
     """
 )
 
-_INSERT_CURRENCY_EVENT = text(
+_INSERT_CURRENCY_EVENTS = text(
     """
-    INSERT INTO testimony_currency_events (
-        event_id, deployment_id, claim_id, doc_id, reconciliation_id,
-        became_current, reason, from_extractor_version, from_version_id
+    WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(CAST(:events AS jsonb)) AS event (
+            event_id uuid,
+            claim_id uuid,
+            doc_id uuid,
+            became_current boolean,
+            reason text,
+            from_extractor_version text,
+            from_version_id uuid
+        )
+    ), inserted AS (
+        INSERT INTO testimony_currency_events (
+            event_id, deployment_id, claim_id, doc_id, reconciliation_id,
+            became_current, reason, from_extractor_version, from_version_id
+        )
+        SELECT input.event_id, :deployment_id, input.claim_id, input.doc_id,
+               :reconciliation_id, input.became_current,
+               CAST(input.reason AS currency_reason),
+               input.from_extractor_version, input.from_version_id
+        FROM input
+        WHERE NOT EXISTS (
+            SELECT 1 FROM testimony_currency_events existing
+            WHERE existing.claim_id = input.claim_id
+              AND existing.reconciliation_id = :reconciliation_id
+              AND existing.reason = CAST(input.reason AS currency_reason)
+              AND existing.became_current = input.became_current
+        )
+        RETURNING event_id
     )
-    SELECT :event_id, :deployment_id, :claim_id, :doc_id, :reconciliation_id,
-           :became_current, CAST(:reason AS currency_reason),
-           :from_extractor_version, :from_version_id
-    WHERE NOT EXISTS (
-        SELECT 1 FROM testimony_currency_events e
-        WHERE e.claim_id = :claim_id
-          AND e.reconciliation_id = :reconciliation_id
-          AND e.reason = CAST(:reason AS currency_reason)
-          AND e.became_current = :became_current
-    )
-    RETURNING event_id
+    SELECT count(*) FROM inserted
     """
-)
+).bindparams(bindparam("events", type_=JSON))
 
-_UPDATE_CURRENCY_CACHE = text(
+_UPDATE_CURRENCY_CACHES = text(
     """
-    UPDATE claims SET is_current_testimony = :is_current
-    WHERE claim_id = :claim_id AND is_current_testimony <> :is_current
+    WITH input AS (
+        SELECT *
+        FROM jsonb_to_recordset(CAST(:claims AS jsonb)) AS claim (
+            claim_id uuid,
+            is_current boolean
+        )
+    )
+    UPDATE claims
+    SET is_current_testimony = input.is_current
+    FROM input
+    WHERE claims.claim_id = input.claim_id
+      AND claims.is_current_testimony <> input.is_current
     """
-)
+).bindparams(bindparam("claims", type_=JSON))
 
 _SELECT_AFFECTED_RELATIONS = text(
     """
@@ -744,50 +797,61 @@ _SELECT_AFFECTED_OBSERVATIONS = text(
     """
 )
 
-_RECOUNT_RELATION = text(
+_RECOUNT_RELATIONS = text(
     """
     WITH fresh AS (
-        SELECT
-            (SELECT count(DISTINCT e.doc_id)
-             FROM relation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
-             WHERE e.relation_id = :relation_id AND e.stance = 'supports'
-               AND cl.is_current_testimony) AS supports,
-            (SELECT count(DISTINCT e.doc_id)
-             FROM relation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
-             WHERE e.relation_id = :relation_id AND e.stance = 'contradicts'
-               AND cl.is_current_testimony) AS contradicts
+        SELECT requested.relation_id,
+               count(DISTINCT evidence.doc_id) FILTER (
+                   WHERE evidence.stance = 'supports'
+                     AND claims.is_current_testimony
+               ) AS supports,
+               count(DISTINCT evidence.doc_id) FILTER (
+                   WHERE evidence.stance = 'contradicts'
+                     AND claims.is_current_testimony
+               ) AS contradicts
+        FROM unnest(CAST(:relation_ids AS uuid[])) AS requested(relation_id)
+        LEFT JOIN relation_evidence evidence
+          ON evidence.relation_id = requested.relation_id
+        LEFT JOIN claims ON claims.claim_id = evidence.claim_id
+        GROUP BY requested.relation_id
     )
     UPDATE relations r
     SET evidence_count = fresh.supports,
         contradict_count = fresh.contradicts,
         updated_at = now()
     FROM fresh
-    WHERE r.relation_id = :relation_id
+    WHERE r.relation_id = fresh.relation_id
       AND (r.evidence_count IS DISTINCT FROM fresh.supports
            OR r.contradict_count IS DISTINCT FROM fresh.contradicts)
     RETURNING r.relation_id
     """
 )
 
-_RECOUNT_OBSERVATION = text(
+_RECOUNT_OBSERVATIONS = text(
     """
     WITH fresh AS (
-        SELECT
-            (SELECT count(DISTINCT e.doc_id)
-             FROM observation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
-             WHERE e.observation_id = :observation_id AND e.stance = 'supports'
-               AND cl.is_current_testimony) AS supports,
-            (SELECT count(DISTINCT e.doc_id)
-             FROM observation_evidence e JOIN claims cl ON cl.claim_id = e.claim_id
-             WHERE e.observation_id = :observation_id AND e.stance = 'contradicts'
-               AND cl.is_current_testimony) AS contradicts
+        SELECT requested.observation_id,
+               count(DISTINCT evidence.doc_id) FILTER (
+                   WHERE evidence.stance = 'supports'
+                     AND claims.is_current_testimony
+               ) AS supports,
+               count(DISTINCT evidence.doc_id) FILTER (
+                   WHERE evidence.stance = 'contradicts'
+                     AND claims.is_current_testimony
+               ) AS contradicts
+        FROM unnest(CAST(:observation_ids AS uuid[]))
+             AS requested(observation_id)
+        LEFT JOIN observation_evidence evidence
+          ON evidence.observation_id = requested.observation_id
+        LEFT JOIN claims ON claims.claim_id = evidence.claim_id
+        GROUP BY requested.observation_id
     )
     UPDATE observations o
     SET evidence_count = fresh.supports,
         contradict_count = fresh.contradicts,
         updated_at = now()
     FROM fresh
-    WHERE o.observation_id = :observation_id
+    WHERE o.observation_id = fresh.observation_id
       AND (o.evidence_count IS DISTINCT FROM fresh.supports
            OR o.contradict_count IS DISTINCT FROM fresh.contradicts)
     RETURNING o.observation_id

@@ -38,6 +38,16 @@ class ObservationCandidate(BaseModel):
     statement: _NonEmpty
 
 
+class ObservationAssertion(BaseModel):
+    """One resolved observation input in a document/entity adjudication batch."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    statement: _NonEmpty
+    claim_id: UUID
+    doc_id: UUID
+
+
 class NormalizationResponse(BaseModel):
     """The normalizer call's structured output for one claim (0..n of each)."""
 

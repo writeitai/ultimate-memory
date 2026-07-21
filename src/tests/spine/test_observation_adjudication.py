@@ -19,6 +19,7 @@ from ultimate_memory.adapters.testing import FakeModelProvider
 from ultimate_memory.eval import run_contradiction_suite
 from ultimate_memory.eval import seed_contradiction_cases
 from ultimate_memory.model import DeploymentBootstrapInput
+from ultimate_memory.model import ObservationAssertion
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import OBSERVATION_ADJUDICATOR_VERSION
 from ultimate_memory.spine import ObservationAdjudicator
@@ -252,6 +253,68 @@ def test_fixed_period_figures_contradict_and_both_stand(
     assert by_id[second]["valid_until"] is None
     groups = {row["contradiction_group"] for row in rows}
     assert len(groups) == 1 and None not in groups  # shared, both stand
+
+
+def test_entity_batches_preserve_supersession_and_contradiction_sequence(
+    database_engine: Engine,
+) -> None:
+    """Later assertions see earlier in-transaction caps and group updates."""
+    adjudicator, _ = _adjudicator(engine=database_engine)
+    headcount_entity = _entity(engine=database_engine)
+    doc_id = uuid4()
+    headcount_ids = adjudicator.add_observations(
+        deployment_id=_DEPLOYMENT_ID,
+        subject_entity_id=headcount_entity,
+        assertions=tuple(
+            ObservationAssertion(
+                statement=f"Acme's headcount is {value}",
+                claim_id=uuid4(),
+                doc_id=doc_id,
+            )
+            for value in (500, 600, 700)
+        ),
+    )
+    contradiction_entity = _entity(engine=database_engine)
+    contradiction_ids = adjudicator.add_observations(
+        deployment_id=_DEPLOYMENT_ID,
+        subject_entity_id=contradiction_entity,
+        assertions=tuple(
+            ObservationAssertion(
+                statement=f"Acme's FY2023 revenue was ${value}M",
+                claim_id=uuid4(),
+                doc_id=doc_id,
+            )
+            for value in (5, 7, 9)
+        ),
+    )
+
+    with database_engine.connect() as connection:
+        headcount_rows = (
+            connection.execute(
+                text(
+                    "SELECT observation_id, valid_until FROM observations"
+                    " WHERE observation_id = ANY(:ids)"
+                ),
+                {"ids": list(headcount_ids)},
+            )
+            .mappings()
+            .all()
+        )
+        contradiction_groups = tuple(
+            connection.execute(
+                text(
+                    "SELECT contradiction_group FROM observations"
+                    " WHERE observation_id = ANY(:ids)"
+                ),
+                {"ids": list(contradiction_ids)},
+            ).scalars()
+        )
+    windows = {row["observation_id"]: row["valid_until"] for row in headcount_rows}
+    assert windows[headcount_ids[0]] is not None
+    assert windows[headcount_ids[1]] is not None
+    assert windows[headcount_ids[2]] is None
+    assert len(set(contradiction_groups)) == 1
+    assert contradiction_groups[0] is not None
 
 
 def test_corpus_redundancy_collapses_with_zero_llm(database_engine: Engine) -> None:

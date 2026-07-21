@@ -29,7 +29,7 @@ their round trips.
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
 | WP-7.1 | Backfill lanes + seeding + reprocessing orchestration (version bumps) | orchestration §3–4 | Phase 6 | lane machinery | steady-state unaffected during backfill test | done |
-| WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | planned |
+| WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | done |
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | planned |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | planned |
 | WP-7.5 | **Hard-delete end-to-end**: design first, then purge active P1/P2/P3/K surfaces and prevent restore resurrection through the portable purge record/adapter contract | new design (gate #24); lifecycle §8; k_layers §10; S55 | gate #24 | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | blocked(#24) |
@@ -49,3 +49,27 @@ the typed `UGM_SYNC_LANE` setting. Steady work keeps its distinct claim route an
 a pending/failed duplicate under the D67 rule. After seeding has completed and all deployment
 backfill rows are terminal, `BackfillFinalizer` invokes the portable P1 maintenance port; it
 refuses the explicit Lance index build while any backfill row remains unresolved.
+
+## WP-7.2 implementation
+
+The `operational` eval suite records one complete four-part fixed-profile report in the existing
+`eval_runs` history. Its capability-sized CI profile verifies the exact seven RANGE plus two
+HASH-64 D23 parents, unpartitioned registry blocking targets and their GIN/Daitch-Mokotoff/btree
+indexes (including measured index sizes), a 2,000-alias entity hub, and a lineage fanning out to
+1,000 relations plus 1,000 observations. The same ungated shape scales through typed
+`UGM_OPERATIONAL_SCALE_*` settings; no corpus forecast or hosted target is embedded in the
+library.
+
+Lifecycle currency application and relation/observation recount are set-based: each remains one
+transaction and a constant two SQL statements independent of batch size, while preserving retry
+idempotency, last-transition cache semantics, distinct-current-lineage counts, and caller input
+order. E3 front-loads normalized-claim replay markers and groups proposed observations by the
+resolved `(document, entity)` batch. The adjudicator takes one entity lock, one claim-timestamp
+read, and one exhaustive block read, then applies assertions in order against an in-memory block
+that tracks new rows, caps, and contradiction groups before committing once.
+
+The provider-neutral measurement uses the real SQLAlchemy engine with explicit injected latency:
+513 interactive claim ids cross the binding 256-id boundary in exactly three confirmation
+statements, while currency writes and hub recount retain their constant statement counts. Only
+shape, correctness, query-count, and transaction-count invariants gate acceptance; every elapsed
+time is recorded as a machine-specific measurement, never an OSS SLA or topology commitment.

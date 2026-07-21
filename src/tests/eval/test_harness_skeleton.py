@@ -62,7 +62,7 @@ def bootstrapped_deployment(database_engine: Engine) -> None:
     )
 
 
-def test_all_five_empty_suites_run_and_pass(database_engine: Engine) -> None:
+def test_all_empty_suites_run_and_pass(database_engine: Engine) -> None:
     """The skeleton contract: every suite runs green with zero golden cases."""
     harness = EvalHarness(engine=database_engine)
     for suite in EvalSuite:

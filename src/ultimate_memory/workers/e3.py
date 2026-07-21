@@ -23,6 +23,7 @@ from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import NormalizationResponse
+from ultimate_memory.model import ObservationAssertion
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.spine.chunk_catalog import ChunkCatalog
@@ -143,17 +144,28 @@ class NormalizeRelationsHandler:
         signatures = self._facts.predicate_signatures(deployment_id=deployment_id)
         type_parents = self._facts.entity_type_parents(deployment_id=deployment_id)
         created_relations: list[str] = []
+        normalized_claim_ids = self._registry.normalized_claim_ids(
+            claim_ids=tuple(claim.claim_id for claim in claims)
+        )
+        observations_by_entity: dict[UUID, list[ObservationAssertion]] = {}
         for claim in claims:
-            if self._registry.claim_already_normalized(claim_id=claim.claim_id):
+            if claim.claim_id in normalized_claim_ids:
                 continue  # replay: stored mentions/facts are the output (D7)
             self._normalize_claim(
                 created_relations=created_relations,
+                observations_by_entity=observations_by_entity,
                 deployment_id=deployment_id,
                 claim=claim,
                 predicates=predicates,
                 prompt_lines=prompt_lines,
                 signatures=signatures,
                 type_parents=type_parents,
+            )
+        for entity_id, assertions in observations_by_entity.items():
+            self._observation_adjudicator.add_observations(
+                deployment_id=deployment_id,
+                subject_entity_id=entity_id,
+                assertions=tuple(assertions),
             )
         return HandlerOutcome(
             follow_up=(
@@ -194,6 +206,7 @@ class NormalizeRelationsHandler:
         self,
         *,
         created_relations: list[str],
+        observations_by_entity: dict[UUID, list[ObservationAssertion]],
         deployment_id: UUID,
         claim: ClaimForNormalization,
         predicates: dict[str, str | None],
@@ -286,12 +299,12 @@ class NormalizeRelationsHandler:
             # the one write path for observations is the D43 adjudicator:
             # block on the entity, gate cheaply, ladder the residue,
             # fail safe to coexist (observations §3)
-            self._observation_adjudicator.add_observation(
-                deployment_id=deployment_id,
-                subject_entity_id=subject.entity_id,
-                statement=observation.statement,
-                claim_id=claim.claim_id,
-                doc_id=claim.doc_id,
+            observations_by_entity.setdefault(subject.entity_id, []).append(
+                ObservationAssertion(
+                    statement=observation.statement,
+                    claim_id=claim.claim_id,
+                    doc_id=claim.doc_id,
+                )
             )
 
 

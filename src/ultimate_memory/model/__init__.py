@@ -213,6 +213,8 @@ from ultimate_memory.model.mounts import PublishedMounts
 from ultimate_memory.model.object_store import ObjectAlreadyExistsError
 from ultimate_memory.model.object_store import ObjectKey
 from ultimate_memory.model.object_store import ObjectKeyEscapesRootError
+from ultimate_memory.model.operational_scale import OperationalScaleMeasurement
+from ultimate_memory.model.operational_scale import OperationalScaleReport
 from ultimate_memory.model.processing import BackfillNotDrainedError
 from ultimate_memory.model.processing import BackfillSeedRequest
 from ultimate_memory.model.processing import BackfillSeedResult
@@ -241,6 +243,7 @@ from ultimate_memory.model.recipes import RecipeStep
 from ultimate_memory.model.relations import ClaimForNormalization
 from ultimate_memory.model.relations import EntityRef
 from ultimate_memory.model.relations import NormalizationResponse
+from ultimate_memory.model.relations import ObservationAssertion
 from ultimate_memory.model.relations import ObservationCandidate
 from ultimate_memory.model.relations import RelationCandidate
 from ultimate_memory.model.relations import ResolvedEntity
@@ -351,10 +354,13 @@ __all__ = (
     "ObjectAlreadyExistsError",
     "ObjectKey",
     "ObjectKeyEscapesRootError",
+    "ObservationAssertion",
     "ObservationCandidate",
     "ObservationForEmbedding",
     "ObservationOutcome",
     "ObservationVerdict",
+    "OperationalScaleMeasurement",
+    "OperationalScaleReport",
     "OtherPredicateGrammarError",
     "P1ChunkRow",
     "P1ClaimRow",

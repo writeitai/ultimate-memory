@@ -26,10 +26,10 @@ from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
-from sqlalchemy.engine import RowMapping
 
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import ModelRequest
+from ultimate_memory.model import ObservationAssertion
 from ultimate_memory.model import ObservationOutcome
 from ultimate_memory.model import ObservationVerdict
 from ultimate_memory.ports.model_provider import ModelProviderPort
@@ -95,40 +95,47 @@ class ObservationAdjudicator:
         claim_id: UUID,
         doc_id: UUID,
     ) -> UUID:
-        """Land one asserted value/statement through the full cascade.
+        """Compatibility wrapper for a one-assertion entity batch."""
+        return self.add_observations(
+            deployment_id=deployment_id,
+            subject_entity_id=subject_entity_id,
+            assertions=(
+                ObservationAssertion(
+                    statement=statement, claim_id=claim_id, doc_id=doc_id
+                ),
+            ),
+        )[0]
 
-        Returns the observation the claim ended up evidencing (existing on
-        collapse, new otherwise). One transaction; the entity block is
-        advisory-lock serialized; retries are no-ops via the evidence PK and
-        the replayable adjudication log (D7).
+    def add_observations(
+        self,
+        *,
+        deployment_id: UUID,
+        subject_entity_id: UUID,
+        assertions: tuple[ObservationAssertion, ...],
+    ) -> tuple[UUID, ...]:
+        """Adjudicate one document/entity batch against one front-loaded block.
+
+        The entity lock, claim timestamps, and exhaustive candidate block are
+        read once. Assertions still apply in order so a later assertion sees
+        an observation created or closed earlier in the same batch. The batch
+        commits in one transaction and retries remain evidence-PK idempotent.
         """
+        if not assertions:
+            return ()
         with self._engine.begin() as connection:
             connection.execute(
                 _LOCK_ENTITY, {"key": f"{deployment_id}:obs:{subject_entity_id}"}
             )
-            asserted_at = connection.execute(
-                _CLAIM_ASSERTED, {"claim_id": claim_id}
-            ).scalar_one_or_none()
-            exact = connection.execute(
-                _EXACT_STATEMENT,
-                {
-                    "deployment_id": deployment_id,
-                    "subject_entity_id": subject_entity_id,
-                    "statement": statement,
-                },
-            ).scalar_one_or_none()
-            if exact is not None:
-                # corpus redundancy: the biggest zero-LLM exit
-                self._evidence(
-                    connection=connection,
-                    deployment_id=deployment_id,
-                    observation_id=exact,
-                    claim_id=claim_id,
-                    doc_id=doc_id,
-                )
-                return exact
-            candidates = (
-                connection.execute(
+            claim_ids = list(dict.fromkeys(item.claim_id for item in assertions))
+            asserted_by_claim = {
+                row["claim_id"]: row["asserted_at"]
+                for row in connection.execute(
+                    _CLAIMS_ASSERTED, {"claim_ids": claim_ids}
+                ).mappings()
+            }
+            candidates = [
+                dict(row)
+                for row in connection.execute(
                     _BLOCK_ENTITY,
                     {
                         "deployment_id": deployment_id,
@@ -137,55 +144,130 @@ class ObservationAdjudicator:
                 )
                 .mappings()
                 .all()
+            ]
+            return tuple(
+                self._add_with_block(
+                    connection=connection,
+                    deployment_id=deployment_id,
+                    subject_entity_id=subject_entity_id,
+                    assertion=assertion,
+                    asserted_at=asserted_by_claim.get(assertion.claim_id),
+                    candidates=candidates,
+                )
+                for assertion in assertions
             )
-            if not candidates:
-                return self._insert_new(
-                    connection=connection,
-                    deployment_id=deployment_id,
-                    subject_entity_id=subject_entity_id,
-                    statement=statement,
-                    claim_id=claim_id,
-                    doc_id=doc_id,
-                    outcome="add",
-                    method="novelty_gate",
-                    confidence=1.0,
-                    features={"reason": "first observation on the entity"},
-                    related=None,
-                    contradiction_group=None,
-                )
-            ranked = self._rank(statement=statement, candidates=candidates)
-            if ranked[0][1] < self._settings.novelty_floor:
-                return self._insert_new(
-                    connection=connection,
-                    deployment_id=deployment_id,
-                    subject_entity_id=subject_entity_id,
-                    statement=statement,
-                    claim_id=claim_id,
-                    doc_id=doc_id,
-                    outcome="add",
-                    method="embedding",
-                    confidence=1.0,
-                    features={
-                        "reason": "clear novelty",
-                        "max_similarity": ranked[0][1],
-                    },
-                    related=None,
-                    contradiction_group=None,
-                )
-            # top-k is ORDERING plus a bounded comparison set — the design's
-            # own consequence rule: a skipped far candidate costs at most a
-            # duplicate coexisting row, never a wrong supersede
-            # (observations §3 step 2).
-            return self._adjudicate_residue(
+
+    def _add_with_block(
+        self,
+        *,
+        connection: Connection,
+        deployment_id: UUID,
+        subject_entity_id: UUID,
+        assertion: ObservationAssertion,
+        asserted_at: object,
+        candidates: list[dict[str, object]],
+    ) -> UUID:
+        """Apply one assertion while keeping the front-loaded block current."""
+        exact = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate["statement"] == assertion.statement
+                and bool(candidate["is_open"])
+            ),
+            None,
+        )
+        if exact is not None:
+            observation_id = UUID(str(exact["observation_id"]))
+            self._evidence(
+                connection=connection,
+                deployment_id=deployment_id,
+                observation_id=observation_id,
+                claim_id=assertion.claim_id,
+                doc_id=assertion.doc_id,
+            )
+            return observation_id
+        if not candidates:
+            observation_id = self._insert_new(
                 connection=connection,
                 deployment_id=deployment_id,
                 subject_entity_id=subject_entity_id,
-                statement=statement,
-                claim_id=claim_id,
-                doc_id=doc_id,
-                asserted_at=asserted_at,
-                ranked=ranked[: self._settings.hub_top_k],
+                statement=assertion.statement,
+                claim_id=assertion.claim_id,
+                doc_id=assertion.doc_id,
+                outcome="add",
+                method="novelty_gate",
+                confidence=1.0,
+                features={"reason": "first observation on the entity"},
+                related=None,
+                contradiction_group=None,
             )
+            _remember_candidate(
+                candidates=candidates,
+                observation_id=observation_id,
+                statement=assertion.statement,
+            )
+            return observation_id
+        # Capped state slices are history, not competitors for the next
+        # current slice. This also mirrors the former exact lookup, which
+        # excluded a row once its valid-time window had ended.
+        open_candidates = [
+            candidate for candidate in candidates if candidate["is_open"]
+        ]
+        if not open_candidates:
+            observation_id = self._insert_new(
+                connection=connection,
+                deployment_id=deployment_id,
+                subject_entity_id=subject_entity_id,
+                statement=assertion.statement,
+                claim_id=assertion.claim_id,
+                doc_id=assertion.doc_id,
+                outcome="add",
+                method="novelty_gate",
+                confidence=1.0,
+                features={"reason": "no open observation on the entity"},
+                related=None,
+                contradiction_group=None,
+            )
+            _remember_candidate(
+                candidates=candidates,
+                observation_id=observation_id,
+                statement=assertion.statement,
+            )
+            return observation_id
+        ranked = self._rank(statement=assertion.statement, candidates=open_candidates)
+        if ranked[0][1] < self._settings.novelty_floor:
+            observation_id = self._insert_new(
+                connection=connection,
+                deployment_id=deployment_id,
+                subject_entity_id=subject_entity_id,
+                statement=assertion.statement,
+                claim_id=assertion.claim_id,
+                doc_id=assertion.doc_id,
+                outcome="add",
+                method="embedding",
+                confidence=1.0,
+                features={"reason": "clear novelty", "max_similarity": ranked[0][1]},
+                related=None,
+                contradiction_group=None,
+            )
+            _remember_candidate(
+                candidates=candidates,
+                observation_id=observation_id,
+                statement=assertion.statement,
+            )
+            return observation_id
+        return self._adjudicate_residue(
+            connection=connection,
+            deployment_id=deployment_id,
+            subject_entity_id=subject_entity_id,
+            statement=assertion.statement,
+            claim_id=assertion.claim_id,
+            doc_id=assertion.doc_id,
+            asserted_at=asserted_at,
+            ranked=ranked[: self._settings.hub_top_k],
+            candidates=candidates,
+        )
 
     def judge_statements(
         self, *, existing: str, new: str
@@ -206,6 +288,7 @@ class ObservationAdjudicator:
         doc_id: UUID,
         asserted_at: object,
         ranked: list[tuple[dict[str, object], float]],
+        candidates: list[dict[str, object]],
     ) -> UUID:
         """Ladder the similar candidates; apply the first decisive outcome."""
         for candidate, similarity in ranked:
@@ -241,7 +324,7 @@ class ObservationAdjudicator:
                 if not (verdict.rationale or "").strip():
                     # an undocumented cap is an INCOMPLETE comparison — the
                     # binding contract coerces it to coexist (Codex review)
-                    return self._insert_new(
+                    new_id = self._insert_new(
                         connection=connection,
                         deployment_id=deployment_id,
                         subject_entity_id=subject_entity_id,
@@ -259,10 +342,16 @@ class ObservationAdjudicator:
                         related=candidate_id,
                         contradiction_group=None,
                     )
+                    _remember_candidate(
+                        candidates=candidates,
+                        observation_id=new_id,
+                        statement=statement,
+                    )
+                    return new_id
                 if verdict.confidence < self._settings.supersede_margin:
                     # THE BINDING CONTRACT: below the margin, never cap —
                     # coexist, and say why. The failure mode is a duplicate.
-                    return self._insert_new(
+                    new_id = self._insert_new(
                         connection=connection,
                         deployment_id=deployment_id,
                         subject_entity_id=subject_entity_id,
@@ -279,6 +368,12 @@ class ObservationAdjudicator:
                         related=candidate_id,
                         contradiction_group=None,
                     )
+                    _remember_candidate(
+                        candidates=candidates,
+                        observation_id=new_id,
+                        statement=statement,
+                    )
+                    return new_id
                 # the cap lands at the SUCCESSOR's valid_from (D43): the
                 # new testimony's asserted time, degraded to now() only for
                 # undated testimony — the slices tile without overlap.
@@ -316,6 +411,10 @@ class ObservationAdjudicator:
                     claim_id=claim_id,
                     features={**features, "capped": bool(capped)},
                 )
+                candidate["is_open"] = False
+                _remember_candidate(
+                    candidates=candidates, observation_id=new_id, statement=statement
+                )
                 return new_id
             if verdict.outcome is ObservationOutcome.CONTRADICT:
                 stored_group = candidate["contradiction_group"]
@@ -342,9 +441,16 @@ class ObservationAdjudicator:
                         "group_id": group,
                     },
                 )
+                candidate["contradiction_group"] = group
+                _remember_candidate(
+                    candidates=candidates,
+                    observation_id=new_id,
+                    statement=statement,
+                    contradiction_group=group,
+                )
                 return new_id
             # ObservationOutcome.NEW: no interaction with this candidate
-        return self._insert_new(
+        new_id = self._insert_new(
             connection=connection,
             deployment_id=deployment_id,
             subject_entity_id=subject_entity_id,
@@ -358,6 +464,10 @@ class ObservationAdjudicator:
             related=None,
             contradiction_group=None,
         )
+        _remember_candidate(
+            candidates=candidates, observation_id=new_id, statement=statement
+        )
+        return new_id
 
     def _ladder(self, *, existing: str, new: str) -> tuple[ObservationVerdict, str]:
         """Small-model verdict, escalating to frontier below the floor."""
@@ -375,7 +485,7 @@ class ObservationAdjudicator:
         return frontier, "frontier_llm"
 
     def _rank(
-        self, *, statement: str, candidates: Sequence[RowMapping]
+        self, *, statement: str, candidates: Sequence[dict[str, object]]
     ) -> list[tuple[dict[str, object], float]]:
         """Similarity-rank candidates (ordering only — the block is already
         exhaustive, so a skipped candidate can never cause a wrong cap)."""
@@ -385,7 +495,7 @@ class ObservationAdjudicator:
         ).vectors
         query = vectors[0]
         scored = [
-            (dict(candidate), _cosine(query, vector))
+            (candidate, _cosine(query, vector))
             for candidate, vector in zip(candidates, vectors[1:], strict=True)
         ]
         return sorted(scored, key=lambda item: item[1], reverse=True)
@@ -498,6 +608,24 @@ class ObservationAdjudicator:
         )
 
 
+def _remember_candidate(
+    *,
+    candidates: list[dict[str, object]],
+    observation_id: UUID,
+    statement: str,
+    contradiction_group: UUID | None = None,
+) -> None:
+    """Expose one in-transaction insert to later assertions in the batch."""
+    candidates.append(
+        {
+            "observation_id": observation_id,
+            "statement": statement,
+            "contradiction_group": contradiction_group,
+            "is_open": True,
+        }
+    )
+
+
 def _cosine(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     """Cosine similarity of two same-dimension vectors."""
     if len(a) != len(b):
@@ -512,20 +640,10 @@ def _cosine(a: tuple[float, ...], b: tuple[float, ...]) -> float:
 
 _LOCK_ENTITY = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
 
-_EXACT_STATEMENT = text(
-    """
-    SELECT observation_id FROM observations
-    WHERE deployment_id = :deployment_id
-      AND subject_entity_id = :subject_entity_id
-      AND statement = :statement
-      AND invalidated_at IS NULL
-      AND (valid_until IS NULL OR valid_until > now())
-    """
-)
-
 _BLOCK_ENTITY = text(
     """
-    SELECT observation_id, statement, contradiction_group
+    SELECT observation_id, statement, contradiction_group,
+           (valid_until IS NULL OR valid_until > now()) AS is_open
     FROM observations
     WHERE deployment_id = :deployment_id
       AND subject_entity_id = :subject_entity_id
@@ -604,4 +722,6 @@ _INSERT_ADJUDICATION = text(
     """
 ).bindparams(bindparam("features", type_=JSON))
 
-_CLAIM_ASSERTED = text("SELECT asserted_at FROM claims WHERE claim_id = :claim_id")
+_CLAIMS_ASSERTED = text(
+    "SELECT claim_id, asserted_at FROM claims WHERE claim_id = ANY(:claim_ids)"
+)
