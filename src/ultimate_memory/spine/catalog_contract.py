@@ -34,6 +34,7 @@ EXPECTED_ENUMS: Final = (
     "eval_suite",
     "evidence_stance",
     "extraction_decision_type",
+    "forget_manifest_status",
     "golden_hardness",
     "golden_label",
     "grounding_audit_status",
@@ -95,6 +96,7 @@ EXPECTED_TABLES: Final = (
     "entity_types",
     "eval_runs",
     "extension_packs",
+    "forget_manifests",
     "generic_identifier_guard",
     "golden_claim_labels",
     "golden_pairs",
@@ -171,6 +173,8 @@ EXPECTED_INDEXES: Final = (
     "ix_entities_type",
     "ix_entity_types_parent",
     "ix_eval_suite_ver",
+    "ix_forget_content_guard",
+    "ix_forget_source_guard",
     "ix_golden_type",
     "ix_grounding_claim",
     "ix_kae_claim_coordinate",
@@ -240,9 +244,10 @@ UNLANED_STAGES: Final = frozenset(
         "reflect_knowledge",
         "lint_knowledge",
         "dispatch_knowledge",
+        "hard_forget",
     }
 )
-"""Stages whose trigger model is debounce/schedule (planes K and P): their route is unlaned.
+"""Scheduled aggregate and deployment-orchestration stages whose route is unlaned.
 
 Laned-ness is enforced here, at the spine enqueue path — not by a stage-enumerating
 database CHECK, which would need a migration edit for every new stage (D67, simplified
@@ -254,7 +259,7 @@ def lane_is_valid(*, stage: str, lane: str | None) -> bool:
     """Return whether a lane value is legal for a stage's route (D67).
 
     Plane-E stages require a concrete lane (steady or backfill); scheduled K/P
-    stages must be unlaned (SQL NULL).
+    and hard-forget orchestration stages must be unlaned (SQL NULL).
     """
     return (lane is None) == (stage in UNLANED_STAGES)
 
@@ -274,7 +279,7 @@ EMPTY_AT_HEAD: Final = (
     "predicate_signatures",
     "predicates",
 )
-EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 38, "f": 112, "p": 59, "u": 28, "x": 1}
+EXPECTED_CONSTRAINT_COUNTS: Final = {"c": 40, "f": 113, "p": 60, "u": 30, "x": 1}
 DECISION_OBJECTS: Final = {
     "D1": ("pipeline_component_versions",),
     "D2": ("claims", "relations", "relation_evidence"),
@@ -293,6 +298,7 @@ DECISION_OBJECTS: Final = {
     "D67": ("processing_state", "cost_ledger", "ix_procstate_due"),
     "D68": ("deployments", "ix_entities_name_trgm"),
     "D69": ("v_graph_relates",),
+    "D74": ("forget_manifests", "ix_forget_content_guard"),
 }
 
 

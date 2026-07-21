@@ -93,6 +93,7 @@ def test_revision_graph_is_one_linear_structural_chain() -> None:
         "p6_05_0014",
         "p6_06_0015",
         "p7_02_0016",
+        "p7_05_0017",
     )
     assert len(script.get_heads()) == 1
 

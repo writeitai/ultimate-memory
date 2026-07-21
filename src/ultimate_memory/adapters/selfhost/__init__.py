@@ -1,5 +1,6 @@
 """Self-host adapters: pg delivery shell, local-FS object store, local mounts (WP-0.4a)."""
 
+from ultimate_memory.adapters.selfhost.forget import LocalFSForgetManifestStore
 from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
 from ultimate_memory.adapters.selfhost.mounts import AuditedRawReader
 from ultimate_memory.adapters.selfhost.mounts import LocalMountPublisher
@@ -16,6 +17,7 @@ from ultimate_memory.adapters.selfhost.watcher import LocalDirectoryWatcher
 
 __all__ = (
     "LanceChunkIndex",
+    "LocalFSForgetManifestStore",
     "LocalDirectoryWatcher",
     "JsonLineTelemetry",
     "LocalFSObjectStore",

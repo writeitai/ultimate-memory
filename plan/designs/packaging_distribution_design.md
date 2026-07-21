@@ -159,7 +159,7 @@ ugm/
   core/        # PURE logic, zero I/O: blockizer, packer, snap algorithm, grounding checks,
                # counting rules, currency rules, envelope assembly — unit-testable with no infra
   spine/       # the Postgres access layer — the ONLY place SQL lives (repositories per aggregate)
-  ports/       # the seven D61 interfaces as typing.Protocols — no implementations
+  ports/       # seven D61 substrate Protocols + D74's narrow intent/purge capabilities
   adapters/
     selfhost/  # MinIO/S3 object store, the pg-queue shell (§3), local-dir mount publisher,
                # plain git remote, BYO model keys, OTLP telemetry, API-key auth

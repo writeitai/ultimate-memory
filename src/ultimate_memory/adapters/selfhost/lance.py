@@ -1,5 +1,6 @@
 """The embedded-LanceDB P1 chunk index: one table of text + vectors (D8)."""
 
+from datetime import timedelta
 import math
 from pathlib import Path
 from typing import cast
@@ -236,6 +237,26 @@ class LanceChunkIndex:
         )
         return {row["entity_id"]: tuple(row["vector"]) for row in rows}
 
+    def purge_rows(
+        self,
+        *,
+        deployment_id: UUID,
+        chunk_ids: tuple[UUID, ...],
+        claim_ids: tuple[UUID, ...],
+        fact_ids: tuple[UUID, ...],
+        entity_ids: tuple[UUID, ...],
+    ) -> None:
+        """Delete exact deployment-owned rows and prune obsolete Lance versions."""
+        for table, key, ids in (
+            (_CHUNK_TABLE, "chunk_id", chunk_ids),
+            (_CLAIM_TABLE, "claim_id", claim_ids),
+            (_FACT_TABLE, "fact_id", fact_ids),
+            (_ENTITY_TABLE, "entity_id", entity_ids),
+        ):
+            self._purge_table_rows(
+                table=table, key=key, deployment_id=deployment_id, ids=ids
+            )
+
     def table_count(self, *, table: str) -> int:
         """Total rows in one P1 table (0 before its first write)."""
         if table not in self._connection.table_names():
@@ -258,6 +279,19 @@ class LanceChunkIndex:
             .when_not_matched_insert_all()
             .execute(payload)
         )
+
+    def _purge_table_rows(
+        self, *, table: str, key: str, deployment_id: UUID, ids: tuple[UUID, ...]
+    ) -> None:
+        """Delete one exact UUID set and physically prune its obsolete versions."""
+        if not ids or table not in self._connection.table_names():
+            return
+        rendered_ids = ", ".join(f"'{item}'" for item in ids)
+        lance_table = self._connection.open_table(table)
+        lance_table.delete(
+            f"deployment_id = '{deployment_id}' AND {key} IN ({rendered_ids})"
+        )
+        lance_table.optimize(cleanup_older_than=timedelta(0), delete_unverified=True)
 
     def row_count(self) -> int:
         """Total rows in the chunk table (0 before the first write)."""
