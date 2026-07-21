@@ -245,7 +245,8 @@ ports and published extension points, keeping it portable off GCP too.
    granularity — measure under Phase 7's fixed portable scale profiles.
 3. **Compose quickstart UX**: measure the cold-start-to-first-query time; it is a release
    gate (target: minutes).
-4. **Export/import round-trip drill**: self-host → export → import → projections rebuild →
+4. **Export/import round-trip drill** (after #24/WP-7.5): self-host → export → import →
+   projections rebuild → deletion state reapplied → forgotten-data non-resurrection canary +
    S-battery subset green; belongs in Phase 7's drills.
 5. **MCP server distribution**: whether the MCP server also ships as a standalone binary/uvx
    target for harnesses that don't want a Python env — decide with the first external users.

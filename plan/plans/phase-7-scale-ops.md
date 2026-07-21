@@ -1,5 +1,8 @@
 # Phase 7 — Operational Correctness + Portability
 
+> The filename is retained as a stable historical path; this title and D60 define the current
+> scope. "Scale + Ops" is no longer the phase contract.
+
 **Goal:** finish the mechanisms a complete single-deployment OSS library must own: resumable
 backfill, reproducible scale checks, enforced configurable budgets, visible failures, portable
 deletion, releases, and export/import.
