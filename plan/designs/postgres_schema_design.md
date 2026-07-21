@@ -144,14 +144,15 @@ CREATE TYPE pipeline_component     AS ENUM (
   'ingester','converter','blockizer','structurer','crossreferencer','chunker','context_prefixer',
   'extractor','grounder','resolver','normalizer','adjudicator','embedder','fact_labeler',
   'profile_summarizer','community_detector','snapshot_builder','knowledge_planner',
-  'knowledge_writer','knowledge_reflector','knowledge_linter','judge');
+  'knowledge_writer','knowledge_reflector','knowledge_linter','judge','forgetter');
 CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','observation','entity','snapshot','knowledge_artifact','document_version','knowledge_dispatch');
-CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge','reconcile','dispatch_knowledge');
+CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge','reconcile','dispatch_knowledge','hard_forget');
 CREATE TYPE processing_status      AS ENUM ('pending','running','succeeded','failed','dead_letter','skipped');
 -- D67: only plane-E routes use operational lanes. K/P (and other scheduled aggregate) jobs
 -- represent their single unlaned route with SQL NULL, never a synthetic third enum value.
 CREATE TYPE processing_lane        AS ENUM ('steady','backfill');
 CREATE TYPE processing_defer_reason AS ENUM ('scheduled','retry_backoff','budget');
+CREATE TYPE forget_manifest_status AS ENUM ('preparing','accepted','complete');
 
 CREATE TYPE ontology_tier          AS ENUM ('core','extension','other','deprecated');
 CREATE TYPE ontology_status        AS ENUM ('active','deprecated');
@@ -301,6 +302,39 @@ COMMENT ON TABLE pipeline_component_versions IS
   'Catalog resolving every *_version string to its model/prompt/params, so replay-on-rebuild (D7) and version-scoped reprocessing are auditable (D1, D12). Every pipeline_component enum value can be catalogued here.';
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- forget_manifests — D74's local materialization of one portable, content-free hard-forget
+-- intent. The external ForgetManifestPort remains the restore-surviving intent source; this row
+-- supplies admission, exact worker input, irreversible ingest guards, and verification progress.
+-- Attempts/retry/DLQ remain in processing_state, never here.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE forget_manifests (
+  forget_id            uuid PRIMARY KEY,
+  deployment_id        uuid NOT NULL REFERENCES deployments,
+  doc_id                uuid NOT NULL,               -- hard-forget v1 is lineage-scoped
+  schema_version        smallint NOT NULL,
+  manifest_hash         text,                        -- set with manifest before portable append
+  manifest              jsonb,                       -- stable IDs/hashes/keys only; no source prose
+  source_identity_hash  text,                        -- irreversible stable-source ingest guard
+  content_hashes        text[] NOT NULL DEFAULT '{}',-- irreversible raw-content ingest guards
+  status                forget_manifest_status NOT NULL DEFAULT 'preparing',
+  prepared_at           timestamptz NOT NULL DEFAULT now(),
+  accepted_at           timestamptz,
+  completed_at          timestamptz,
+  last_verified_at      timestamptz,                 -- latest all-store readiness re-honor
+  UNIQUE (deployment_id, doc_id),
+  UNIQUE (deployment_id, forget_id),
+  CHECK ((status = 'preparing') OR
+         (manifest_hash IS NOT NULL AND manifest IS NOT NULL AND accepted_at IS NOT NULL)),
+  CHECK ((status = 'complete') = (completed_at IS NOT NULL))
+);
+COMMENT ON TABLE forget_manifests IS
+  'D74 hard-forget manifest materialization: preparing is the temporary admission barrier; accepted means the portable append is durable; complete means one purge succeeded, never that readiness may skip re-honoring external stores.';
+CREATE INDEX ix_forget_source_guard
+  ON forget_manifests (deployment_id, source_identity_hash)
+  WHERE source_identity_hash IS NOT NULL;
+CREATE INDEX ix_forget_content_guard ON forget_manifests USING gin (content_hashes);
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- processing_state — idempotency + status + dead-letter, the D12 spine.
 -- One row per (target, stage, component_version). A worker INSERTs (ON CONFLICT DO NOTHING) this
 -- row before work; it is a no-op if a row for the SAME (deployment_id, target_kind, target_id,
@@ -317,7 +351,7 @@ COMMENT ON TABLE pipeline_component_versions IS
 CREATE TABLE processing_state (
   processing_id   uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  target_kind     processing_target NOT NULL,  -- document | document_section | chunk | claim | relation | observation | entity | snapshot | knowledge_artifact
+  target_kind     processing_target NOT NULL,  -- hard_forget reuses document; no deletion-only target kind
   target_id       uuid NOT NULL,               -- LOGICAL FK → the target table's PK (kind tells you which)
   stage           pipeline_stage NOT NULL,     -- the processing stage (see pipeline_stage enum, §1)
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions(version); the version this attempt ran
@@ -2450,15 +2484,32 @@ transaction); the real composite FKs on the smaller tables are the integrity bac
 
 ### 13.2 Hard forget (GDPR — erase the bytes *and* the derived text)
 
-Normal delete already purges the GCS bytes and the document row's text-bearing URIs. A full forget
-additionally **scrubs or deletes the source-bearing payloads** that normal delete retains for audit:
-`relation_adjudications.features`, `merge_events.evidence`, `mentions.context`/`surface_form`, and
-any `claim_text`/`source_span` already removed with the claims. Because those audit rows reference
-`relations`/`entities` via real composite FKs, a forget that *physically* deletes a relation/entity
-must first delete or anonymize the referencing audit rows (or rely on the retire-don't-delete model
-of §13.1 and scrub the free-text fields in place). The worker performs this as an explicit forget
-pass, distinct from normal delete, and records it in `processing_state` (`stage`-scoped) for audit
-of the erasure itself.
+**D74 / `hard_forget_design.md` is authoritative for orchestration, portable manifest shape,
+active-store adapter hooks, and restore non-resurrection.** This section owns only the PostgreSQL
+part. Normal delete already purges the GCS bytes and the document row's text-bearing URIs. A full
+forget additionally **scrubs or deletes every source-bearing payload** that normal delete retains
+for audit. The implementation owns one explicit column/table inventory, and the deterministic S55
+test fails when a new source-bearing field is not classified. At minimum it covers:
+
+- lineage/version/representation source refs, titles, URIs, errors, hashes that are not retained as
+  content-free guards, sections, cross-reference citation text, representation metadata, and assets;
+- chunks/occurrences, claims and their text/spans/added context, mentions and aliases exclusive to
+  the lineage, extraction decisions, grounding/resolution decisions, review payloads, locators,
+  audit rationales/features, and source-exclusive relation/observation evidence;
+- source-exclusive observation values and entity names/profiles, while facts/entities with
+  independent live support retain only that independently supported state;
+- K refresh/compile/plan payloads and transcript URIs tied to the affected evidence (the object
+  payloads themselves are purged through D74); and
+- eval/golden/canary payloads derived from the forgotten lineage.
+
+Because audit rows reference `relations`/`entities` via real composite FKs, a forget that physically
+deletes a relation/entity must first delete or anonymize the referencing audit rows (or use the
+retire-don't-delete handle from §13.1 and scrub every free-text field in place). The worker performs
+this explicit pass after the normal currency/counting cascade. `forget_manifests` retains only the
+portable manifest and irreversible ingest guards; the ordinary `processing_state` row records
+execution and failure. Any `preparing` or accepted-incomplete row closes public/ordinary-work
+admission until full cross-store verification succeeds; the authorized forget coordinator remains
+able to call its internal purge services.
 
 The logical-FK **auditor** (run periodically) catches orphans and worker-owned logical-uniqueness
 violations, and ignores rows belonging to documents with `deleted_at` set (a delete in flight).

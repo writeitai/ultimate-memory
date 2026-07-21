@@ -437,9 +437,9 @@ class becomes labeled query/expected-result pairs; the harness measures recall@k
 precision per **recipe × scenario class × corpus slice**, plus contract tests that are
 non-negotiable CI: grain labels present and truthful; contradiction co-members always
 returned (S23); truncation always marked (S18/S49);
-forgotten ≡ never-existed (S55 — the *contract*; its CI gate activates only when the
-end-to-end active-store cascade and restore non-resurrection behavior, `questions.md` #24, are
-designed — retrieval CI cannot enforce an unresolved lifecycle); recipe-vs-primitive-chain
+forgotten ≡ never-existed (S55 — the *contract*; D74 designs the end-to-end active-store cascade
+and restore non-resurrection behavior, and WP-7.5 activates the CI gate only when its executable
+canary is green); recipe-vs-primitive-chain
 equivalence (§4); and S58 as the
 skill's acceptance test. Rerank weights (graph distance, evidence count) are tuned on the
 harness, never in production.

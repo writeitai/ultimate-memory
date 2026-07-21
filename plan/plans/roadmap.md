@@ -102,7 +102,7 @@ needs to restate it:
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | done (exit criteria met 2026-07-19; PRs #100-#104 — see the phase file) |
 | 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | done (exit criteria met 2026-07-20; PRs #105–#111 — see the phase file) |
 | 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, K1 + K2 purpose scopes | k_layers | done (exit criteria met 2026-07-21; PRs #112–#117; former WP-6.7 removed by D73) |
-| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, export/import | orchestration, packaging, schema §12–13 | in progress (WP-7.1–7.3 done; see the phase file) |
+| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, export/import | orchestration, packaging, schema §12–13 | in progress (WP-7.1–7.4 done; see the phase file) |
 | 8 | Competitive benchmarks | external benchmark harness, adapters, baselines (Mem0/Zep-class), capability benchmark, published methodology + results | D22 (internal) + `phase-8` survey | planned |
 
 Sequencing calls already argued (see the phase files for the rest): **K after retrieval**
@@ -122,7 +122,7 @@ as usual):
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |
 | #5 K3 "whose beliefs" (**resolved** → D73) | former Phase 6 WP-6.7 | closed by removing the shipped K3 tier; principles and stances are authored K2 content |
-| #24 hard-delete end-to-end | Phase 7 WP-7.5 | active-store purge + portable non-resurrection contract; provider backup operation stays outside OSS per D60 |
+| #24 hard-delete end-to-end (**resolved** → D74) | Phase 7 WP-7.5 | closed: append-first portable manifest + fail-closed active-store purge/replay; provider backup operation stays outside OSS per D60 |
 
 **D60 routing (not gates):** corpus mix, real budget ceilings, Postgres HA, observability
 backends, backup schedules, fleet capacity, and vendor-topology tuning are deployment/operator or

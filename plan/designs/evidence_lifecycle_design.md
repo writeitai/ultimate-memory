@@ -377,8 +377,10 @@ the information survive its source's reorganization.)
   observing sync cycle (the cycle barrier still applies, so a delete-and-recreate or a
   split-then-delete within one sync pass resolves as support swaps, not close-then-reopen; a
   cross-cycle split leaves a brief, visible, self-healing gap).
-- **Hard-forget**: as today (S55 semantics), across all versions of the selected lineage —
-  version rows are soft-tombstoned like document rows; the K redaction flow is unchanged.
+- **Hard-forget**: D74's separate fail-closed workflow spans all versions of the selected lineage.
+  It first reuses this normal currency/counting transition, then scrubs source-bearing history,
+  purges active P1/P2/P3/K surfaces, and records the portable restore barrier defined in
+  `hard_forget_design.md`; a soft tombstone alone is explicitly insufficient for S55.
 
 ## 9. The rejected alternative — reified evidence bases (a documented alternative)
 
@@ -409,7 +411,7 @@ insufficiency of coordinate keys** (never assumed): the basis layer in **exact-k
 | D43 | **works as designed**: version-to-version value changes are ordinary supersession; observation counts follow the new rule |
 | D45–D47/D73 | **reused**: reconciliation emits `evidence_changed`; K `inputs_hash` is keyed on fact state (stale-storm guard); authored K2 principles citing or watching the fact receive review notifications rather than machine edits |
 | D48–D51 | **small additions**: current-testimony defaults, regime disclosure, P1 channels |
-| Deletion §13 / S55 | **composes**: version grain added; lineage and forget as before |
+| Deletion §13 / S55 | **composes**: version grain added; normal lineage delete remains here, irreversible forget is D74 |
 
 ## 11. Spikes (measure before locking)
 

@@ -122,11 +122,12 @@ stability window; unchanged chunks of the new version **reuse** their prior extr
 embeddings via the content-addressed keys (D56), so the cost of a version is proportional to
 the edit, not the document — full design: `evidence_lifecycle_design.md` §2/§6.
 
-**Deletion / forget (cascade).** Removing a document hard-deletes its **raw + artifacts** objects in
-GCS and its Postgres rows (`documents`, `document_sections`) and cascades downstream like any input
-removal (chunks → claims → relations). **P3 cascades for free** — it's a projection, so the document
-simply isn't materialized on the next rebuild; nothing to delete there. A tombstone signal also reaches the K layer (per the deletion-cascade requirement). This satisfies the
-deletion/forget requirement end-to-end (incl. GDPR-style hard delete of the original bytes).
+**Deletion / forget (cascade).** Normal removal tombstones the lineage, purges its unshared **raw +
+artifacts** objects, ends its testimony currency, and reaches K through the citation tombstone path
+(lifecycle §8; schema §13.1). Irreversible hard-forget is D74's separate fail-closed workflow: it
+also scrubs retained source payloads, explicitly purges P1 and old P2/P3 snapshots, erases affected
+K history, and records a portable restore barrier. A clean projection rebuild changes what is
+served; it does not by itself erase immutable old bytes (`hard_forget_design.md`).
 
 ## 3. The conversion module (raw → Markdown) — D38
 

@@ -1,26 +1,29 @@
 schema_version: 1
 id: k_hard_forget_git_history
 type: harness_judge
-description: Hard-forget reaches the K git plane — cited-history erasure, durable restore/import non-resurrection, and authored-page redaction duty.
-tags: [k, ops, D46, D55]
+description: D74 hard-forget reaches K through owner-redaction preflight, affected-path history erasure, and per-readiness restore replay.
+tags: [k, ops, D46, D55, D74]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
-  Read plan/designs/k_layers_design.md §10 — the binding source — and decisions.md D46/D55
-  for rationale and refinement history, then inspect the hard-forget path under src/. These
-  are acceptance checks for the FINAL system: if the subsystem is absent or partial, score 0.
+  Read plan/designs/k_layers_design.md §10 and plan/designs/hard_forget_design.md — the
+  binding sources — and decisions.md D46/D55/D74 for rationale and refinement history, then
+  inspect the hard-forget path under src/. These are acceptance checks for the FINAL system:
+  if the subsystem is absent or partial, score 0.
 
   Verify ALL of the following:
-  1. Hard-forget identifies, via the citation records, every compiled page (and its git
-     history) that ever cited the forgotten evidence, and rewrites/squashes that history so
-     the content is not recoverable from the repo — current recompilation alone is not
-     enough.
-  2. The library persists the deletion state needed to reapply K history erasure after restore
-     or import, and its restore/import path proves forgotten content cannot become queryable
-     again. Provider backup schedules, rotation, and physical expiry are operator/cloud duties
-     under D60, not an OSS worker requirement.
-  3. Authored pages that cite forgotten evidence get a redaction-duty flag routed to their
-     owner (the system never rewrites human words itself — but it must not silently leave
-     the reference either).
+  1. Hard-forget identifies every body and curation path that ever cited the forgotten
+     evidence, recompiles machine-owned current bodies, and rewrites/squashes all reachable
+     history for affected paths so content is not recoverable — current recompilation alone
+     is not enough.
+  2. The portable manifest retains non-content evidence/artifact identities needed to reapply
+     K erasure. EVERY readiness calls the idempotent K purge capability even when PostgreSQL
+     says complete; an independently restored pre-forget K remote loses/invalidates its local
+     acknowledgement and is erased again before serving. Provider backup schedules, rotation,
+     and physical expiry are operator/cloud duties under D60.
+  3. Current authored pages and compiled-page curation sidecars must be owner-redacted before
+     portable manifest acceptance. The library returns exact blocking paths and never rewrites
+     authored prose. The test proves this preflight, then owner redaction, history erasure, and
+     restore replay using deterministic local Git with no hosted LLM/network call.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together
