@@ -6,7 +6,8 @@ set"; this answers "are we better than the alternatives on shared ground", plus 
 do that they cannot".
 
 **Entry gates:** Phases 1–3 + 5 done (ingestion, lifecycle, full retrieval); Phase 6 optional
-per benchmark (K helps orientation-style tasks). #2 budget ceiling for cost baselines.
+per benchmark (K helps orientation-style tasks). Each run records its actual cost and explicit
+run cap; no deployment-owner budget is an OSS benchmark gate (D60).
 **Exit criteria:** a published methodology + results document (reproducible runs, pinned
 versions, honest losses included); the capability benchmark demonstrates the differentiators
 end to end.

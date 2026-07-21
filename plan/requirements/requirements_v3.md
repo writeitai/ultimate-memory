@@ -202,7 +202,10 @@ on** (citations), so staleness, deletion reach, and audit are mechanical, never 
   is part of the open-source deliverable (D60).
 - **Freshness**: plane E processes promptly per document; planes K and P are
   debounced/scheduled — staleness bounded by an explicit, configurable cadence.
-- Observability over all pipelines; backups for both sources of truth.
+- **Observable and recoverable, without an OSS operations platform**: typed telemetry and
+  CLI/admin inspection cover every pipeline; portable export plus restore/non-resurrection
+  contracts cover the sources of truth. Dashboard backends, alerts, HA, and physical backup
+  schedules/retention are deployment-operator or cloud responsibilities (D60/D61).
 
 ## Fixed choices & the reference deployment (D61)
 

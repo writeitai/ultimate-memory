@@ -1747,6 +1747,20 @@ enforcement; requirements name self-hostability explicitly. Governance instrumen
 relicense grant, trademark policy) are tracked in `questions.md` and must be settled before outside
 contributions are accepted.
 
+**Phase-7 scope reconciliation (2026-07-21).** "Complete memory system" means the OSS library
+ships the mechanisms required for correctness, portability, and one-deployment self-hosting; it
+does not absorb the hosted service's operating policy. The library therefore owns resumable
+backfill/reprocessing, reproducible scale batteries, provider-neutral I/O batching, cost metering
+and configurable budget parking, typed telemetry plus CLI inspection, the deletion contract and
+adapter hooks, release artifacts, and export/import. Real corpus forecasts, monetary ceilings,
+HA/failover topology, dashboard backends, backup schedules, fleet capacity, on-call runbooks, and
+vendor-specific topology tuning belong to the deployment operator or `ultimate-memory-cloud` and
+are not OSS implementation gates. Reference adapters remain in this repo; operating the reference
+deployment does not. A hard-forget operation must purge every active library-controlled surface
+and emit durable state that prevents a restore from resurrecting forgotten data; physically
+expiring provider backups is the operator's implementation of that contract. This is an
+application of D60's existing boundary, not a new subsystem or a retreat from correctness.
+
 ---
 
 ## D61. Provider ports — the deployment substrate is pluggable; the imposed constraints become the reference deployment

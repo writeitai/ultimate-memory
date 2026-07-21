@@ -1,7 +1,7 @@
 schema_version: 1
 id: boundary_no_human_control_plane_d60
 type: harness_judge
-description: No web UI and no multi-tenant control plane ship in this repository — agent surfaces (API/CLI/MCP/mounts) are the complete consumption story.
+description: No human or hosted-operations control plane ships in this repository — agent/admin surfaces and provider contracts are the complete OSS story.
 tags: [boundary, D60]
 instructions: |
   You are judging whether this repository's IMPLEMENTATION honors a binding design invariant.
@@ -15,6 +15,9 @@ instructions: |
      are API, CLI, MCP server, and mounted filesystems.
   2. No multi-tenant machinery exists: no orgs/users/roles tables, no SSO/SAML, no billing —
      one deployment is one trust domain.
+  3. The repository exposes correctness/portability mechanisms and provider contracts, but no
+     hosted HA/failover manager, fleet capacity planner, production dashboard backend, customer
+     budget policy, or provider backup scheduler. Reference adapters are allowed.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

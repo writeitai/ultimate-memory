@@ -18,8 +18,9 @@ instructions: |
      cannot crowd out steady-state work.
   3. E3 work is batched per (document, entity) as the design binds — not one queue message
      per claim.
-  4. Workers front-load their reads and batch their writes (the cross-cloud hop discipline);
-     the representative load test includes the pooling layer (pgBouncer) the design names.
+  4. Workers front-load reads and batch writes across the spine/provider boundary; fixed,
+     reproducible scale profiles exercise the real pool contract plus injected latency without
+     depending on a hosted topology, owner corpus forecast, or production SLA.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

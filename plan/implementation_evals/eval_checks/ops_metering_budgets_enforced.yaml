@@ -16,8 +16,9 @@ instructions: |
      Postgres.
   2. Budgets are enforced in code: a worker performs a budget preflight, and exhaustion
      blocks or parks the work (a durable, resumable state) — it does not merely log.
-  3. Spend is attributable per layer/stage/deployment (the metering supports the design's
-     dashboards and the cheap-first verification).
+  3. Spend is attributable per layer/stage/deployment and visible through durable admin or
+     telemetry state. No hosted dashboard or real monetary ceiling is required for the OSS
+     mechanism; tests use explicit configured fixture limits.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

@@ -4,7 +4,7 @@ How the workers *run*: the operational plane that connects the per-worker design
 **inventory** — every worker, its behavior contract, its execution class — is
 `../analysis/workers.md`; per-worker *semantics* live in the layer designs. This document binds
 what none of them owns: queue topology, the steady-state/backfill lane split, budget-enforcement
-semantics, dead-letter operations, and the cross-cloud write discipline. Decisions: **D52–D53**
+semantics, dead-letter operations, and provider-neutral I/O discipline. Decisions: **D52–D53**
 (execution-class and model-family invariants) and **D67** (normalized queue-state ownership),
 building on D12 (idempotent workers, retries, DLQ), D7 (replay-not-recall), D16 (deployment
 isolation), D23 (scale), D25 (ungated volume).
@@ -12,8 +12,9 @@ Numbers here are starting points to measure, not committed constants (CLAUDE.md)
 
 > **Reading this cold.** Plane E is a per-document chain of workers (E0
 > ingest→convert→structure→crossref; E1 chunk/prefix/embed; E2 extract/ground; E3
-> resolve/normalize/adjudicate/label), each a Cloud Run job fired by a Cloud Tasks queue when
-> the previous stage completes; planes K and P are debounced/scheduled aggregate workers.
+> resolve/normalize/adjudicate/label), each delivered through the D61 queue port when the
+> previous stage completes; the reference adapter uses Cloud Tasks/Cloud Run and the self-host
+> adapter uses Postgres wake-ups. Planes K and P are debounced/scheduled aggregate workers.
 > `processing_state` in Postgres is the idempotency + status + dead-letter ledger (one row per
 > target/stage/version — schema §2) and, under D67, the authority for route, due time, retry, and
 > parking state; `cost_ledger` meters every model call with lane attribution. A **lane** is a
@@ -25,8 +26,8 @@ Numbers here are starting points to measure, not committed constants (CLAUDE.md)
 There is deliberately **no Airflow / Temporal / Step Functions layer**. The orchestrator is the
 composition of three things that already exist:
 
-1. **Cloud Tasks queues** — at-least-once delivery, transport redelivery, rate limiting
-   (imposed constraint);
+1. **The D61 task-delivery port** — at-least-once announcement, transport redelivery, and
+   rate limiting (Cloud Tasks in the reference adapter; Postgres wake-ups when self-hosted);
 2. **`processing_state`** — state, idempotency, application retries, scheduling, and dead
    letters (D12/D67);
 3. **the chain rule** — a completing worker enqueues the next stage for its target.
@@ -56,10 +57,9 @@ attempt count, backoff, and terminal dead-lettering belong only to `processing_s
 - **Enqueue granularity mirrors `processing_state` targets**: document-grain through E0;
   chunk-grain from E1 fan-out (chunking is the fan-out point); E3 adjudication consumes
   **batches per (document, entity)** — the observation-design batching rule (one block fetch,
-  batched adjudication) applied as the enqueue unit, which also concentrates cross-cloud
-  round-trips (§5).
+  batched adjudication) applied as the enqueue unit, which also concentrates database I/O (§5).
 - **Rate limits and concurrency are per-queue config**, sized against the two shared
-  bottlenecks: Postgres write capacity through pgBouncer (the cross-cloud spine) and
+  bottlenecks: Postgres write capacity through the configured pool and
   per-provider LLM rate limits. Queues meter *volume*; the cascades already meter *ambiguity*
   (D4) — the two knobs are deliberately different mechanisms.
 - **K and P workers keep their own trigger models** (debounce window; schedule — D12) and do
@@ -102,7 +102,7 @@ document" — requirements). Rules:
 - **Lane budgets are separate** (§4): backfill spend is a knob turned deliberately, never a
   surprise on the steady-state budget. The two dominant backfill costs are metered per lane
   and known in advance: extraction-side LLM calls (volume-proportional — design-review F8) and
-  cross-cloud write round-trips (§5).
+  database/provider I/O (§5).
 - **Priority is structural, not scheduled**: the steady lane's rate limits are never reduced
   for a backfill; a backfill gets whatever headroom the shared bottlenecks have left. No
   priority scheduler exists or is needed.
@@ -124,10 +124,11 @@ document" — requirements). Rules:
   skipped; the chain resumes exactly where it stopped when the window rolls or the budget is
   raised. Parking between stages is safe **by construction** — stages are independent
   idempotent steps, so there is no half-open cross-stage state to corrupt.
-- **Exhaustion alerts carry the tier breakdown** (`cost_ledger.tier` — which cascade rung
-  spent the money): the operator must be able to tell "the corpus got bigger" from "a prompt
-  regression made the frontier rung fire 10× more often" in the alert itself, not by
-  archaeology.
+- **Exhaustion state carries the tier breakdown** (`cost_ledger.tier` — which cascade rung
+  spent the money) through the admin/telemetry surfaces: an operator or hosting product can
+  distinguish "the corpus got bigger" from "a prompt regression made the frontier rung fire
+  10× more often" without reconstructing it from logs. Alert routing and dashboards are not
+  library responsibilities (D60).
 
 Each logical model/provider call writes an attribution row identified by
 `(processing_id, attempt, call_key)`. The handler assigns a deterministic stage-local call key—D31
@@ -141,22 +142,23 @@ splitting. `cost_ledger.lane` is copied from
 `lane IS NULL`, but they do not silently join either plane-E lane. A delivery envelope or Cloud
 Tasks header cannot choose the attribution.
 
-## 5. The cross-cloud write path (design-review F9, made binding)
+## 5. Provider-neutral I/O discipline (portable core of design-review F9)
 
-Postgres lives on Hetzner; workers on GCP — every spine round-trip pays cross-cloud latency,
-multiplied by millions of documents during backfill. Rules:
+The spine or another provider may be remote from a worker. The library therefore avoids chatty
+I/O without embedding the reference deployment's Hetzner/GCP topology or its capacity targets in
+core logic. Rules:
 
 - **Batch writes per worker invocation.** A worker commits its target's rows in as few
   transactions as its semantics allow — never row-at-a-time chatter. The E3
   per-(document, entity) batching exists for adjudication correctness and pays again here.
 - **Front-load reads.** A worker fetches its inputs (context bundle, blocking candidates) in a
   bounded number of round-trips at start — never incrementally inside a loop.
-- **pgBouncer is in the loop for every load test**: the D23 partition/index test and the F9
-  write-path test run at backfill concurrency before any backfill sizing is trusted.
-- **Colocation contingency — an ops item, documented here, not an architecture change**: if
-  measured backfill duration or egress cost is unacceptable, the latency-sensitive workers
-  (E3's chatty adjudication) move adjacent to the spine. Store roles (D1/D6) are untouched
-  either way.
+- **Portable scale tests exercise the real pool contract and injected latency**: the fixed D23
+  profiles verify bounded round trips and batching behavior. Timings are recorded measurements,
+  never a hosted-service SLA or an owner forecast.
+- **Topology tuning is outside the library**: colocating workers, scaling pgBouncer, and choosing
+  regions are operator/`ultimate-memory-cloud` decisions. Store roles (D1/D6) and the batching
+  invariants stay unchanged.
 
 ## 6. Dead-letter operations
 
@@ -184,11 +186,12 @@ backoff-derived `not_before`; at the total-attempt limit the row becomes `dead_l
 Non-retryable errors may dead-letter earlier. Delivery retries that never claim the row consume no
 application attempt, and budget parking can never take either failure transition.
 
-## 7. Observability — queries over existing state, not new state
+## 7. Observable state and telemetry — no dashboard subsystem
 
 Everything below derives from tables that already exist (`processing_state`, `cost_ledger`,
-`projection_snapshots`, `knowledge_compilations`); observability adds dashboards, never a
-second bookkeeping system:
+`projection_snapshots`, `knowledge_compilations`). The library exposes it through typed admin/CLI
+results and the D61 telemetry port; it does not ship a dashboard backend or a second bookkeeping
+system:
 
 - per-stage throughput / latency / error rate / DLQ depth (`processing_state`);
 - spend by stage × cascade tier × lane against budget (`cost_ledger`);
@@ -197,6 +200,10 @@ second bookkeeping system:
 - freshness SLAs: plane E p95 ingest→relations latency; plane P `built_from_watermark` lag vs
   cadence; plane K evidence-change→recompile lag vs the configured window (the k_layers eval
   metric).
+
+The deployment operator or cloud product chooses collection, retention, dashboards, and alerts.
+Those consumers must derive their view from this state/telemetry rather than becoming another
+authority for pipeline truth (D60/D61).
 
 ## 8. Invariants (D52, D53)
 
