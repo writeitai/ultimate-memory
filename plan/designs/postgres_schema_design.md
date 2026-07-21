@@ -2104,7 +2104,7 @@ CREATE TABLE knowledge_subscriptions (
   scope_id        uuid,                        -- optional owning scope (composite FK below)
   name            text NOT NULL,               -- e.g. 'planning-module-replan'
   workflow_endpoint text NOT NULL,             -- the agentic workflow invoked on dispatch (Cloud Tasks target)
-  debounce_seconds integer NOT NULL,           -- per-subscription batch window (starting point, measure — k_layers §11 spike 8)
+  debounce_seconds integer NOT NULL,           -- per-subscription batch window (starting point, measure — k_layers §11 spike 7)
   status          subscription_status NOT NULL DEFAULT 'active', -- active | paused | retired
   created_by      text,                        -- registering agent/human
   created_at      timestamptz NOT NULL DEFAULT now(),

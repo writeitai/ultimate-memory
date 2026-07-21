@@ -278,6 +278,10 @@ projected graphs, read-only mode) are core, verified in source.
 
 ## D14. Naming: three planes (E/K/P) replace the L0–L6 ladder
 
+> **Refined by D47 and D73.** The three-plane naming stands. D47 collapsed K into one
+> mechanism; D73 withdrew the K3 tier, so current Plane K is K1 plus K2 purpose scopes. The
+> mapping below records the historical transition from the L-number design.
+
 **Decision.** The system is described as three planes, each with its own internal sequence,
 because the plane — not the number — determines the operational rules (trigger model, source
 of truth, mutability, rebuild semantics):
@@ -1155,7 +1159,8 @@ are surfaced, never silently resolved" extended to the knowledge plane.
 
 > **Refined by D73.** D47's one-mechanism/many-scopes decision stands, but its shipped K3
 > belief-tier configuration is withdrawn. The shipped layout is K1 plus K2 scopes; normative
-> principles and stances are authored K2 content.
+> principles and stances are authored K2 content. The Decision/Context/Consequences below
+> record D47 at adoption time; D73 is the current policy.
 
 **Decision.** Plane K runs **one mechanism**; K1/K2/K3 survive as *content tiers*, not separate
 machinery. **K1** = the default scope (entity pages, topic/community pages, source digests, the
@@ -2404,6 +2409,6 @@ machine-promotion path, or calibrated confidence score to build. Supporting/cont
 citation roles remain useful generic provenance, but no special tier mandates both roles on
 every page. A future concrete use case that cannot be expressed as a K2 scope must earn a new
 decision; K3 is not a reserved roadmap promise. D45/D46, authored review flags, single-committer
-compilation, and configurable scope layout are unchanged. This is a design/plan reconciliation
-over already-generic runtime machinery, so it adds no public feature or website obligation
-under D66.
+compilation, and configurable scope layout are unchanged. This changes terminology and project
+status documentation, but adds no new public runtime feature or configuration surface under
+D66.
