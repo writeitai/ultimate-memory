@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters import MarkitdownConverter
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.adapters.testing import NoopCostMeter
 from ultimate_memory.core import blockize
 from ultimate_memory.core import ConversionRouter
 from ultimate_memory.core import MarkdownPassthroughConverter
@@ -239,7 +240,7 @@ def test_initial_bulk_ingest_can_enter_the_backfill_lane(rig: _E0Rig) -> None:
         stage=PipelineStage.CONVERT,
         lane=ProcessingLane.BACKFILL,
     )
-    assert claimed is not None
+    assert isinstance(claimed, ClaimedWork)
     assert claimed.target_id == ingested.version_id
 
 
@@ -359,8 +360,8 @@ def test_retried_convert_replays_the_stored_representation(rig: _E0Rig) -> None:
         attempt=1,
         payload={"version_id": str(ingested.version_id)},
     )
-    first = handler.handle(work=work)
-    replay = handler.handle(work=work)  # the retried attempt
+    first = handler.handle(work=work, meter=NoopCostMeter())
+    replay = handler.handle(work=work, meter=NoopCostMeter())  # the retried attempt
     assert replay.follow_up[0].payload == first.follow_up[0].payload
 
     count = rig.row(

@@ -230,7 +230,7 @@ class GraphAnalyticsWorker:
             return {}
         return {
             ordered[item.index]: item.label
-            for item in response.labels
+            for item in response.output.labels
             if 0 <= item.index < len(ordered) and item.label
         }
 

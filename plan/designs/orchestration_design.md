@@ -113,10 +113,12 @@ document" — requirements). Rules:
 
 - **Declaration**: budgets are per `(deployment, stage, lane, window)` — e.g. "extract_claims
   / steady / $N per day" — in deployment config.
-- **Enforcement is a deterministic pre-flight check in the worker**: read the deduplicated
-  `cost_ledger` total for the row's authoritative lane and window (cached, refreshed on the
-  order of minutes — enforcement is a dam, not a scalpel; minutes of lag are priced in). If the
-  budget is exhausted, the worker
+- **Enforcement is a deterministic pre-flight check in the worker**: after locking one due row,
+  read the deduplicated `cost_ledger` total for its authoritative lane and aligned window in the
+  same claim transaction. The single-deployment library uses the existing range index directly;
+  it adds no cache or second budget-state service. Concurrent calls may still finish after another
+  worker passed pre-flight — enforcement is a dam, not a reservation system. If the budget is
+  exhausted, the worker
   **parks** by setting `status='pending'`, `defer_reason='budget'`, and `not_before` to the
   window roll, then re-announces the row and exits *without* starting the handler
   (`processing_state.attempts` and `last_error` are untouched).
@@ -141,6 +143,15 @@ splitting. `cost_ledger.lane` is copied from
 `(deployment_id, stage, lane, occurred_at)`; K/P calls can be metered on their unlaned route with
 `lane IS NULL`, but they do not silently join either plane-E lane. A delivery envelope or Cloud
 Tasks header cannot choose the attribution.
+
+The model-provider port returns every successful generation or embedding together with required
+provider accounting (resolved model name, input/output tokens, USD cost, and latency). A worker
+binds a small cost-meter port to the running `processing_id`; each model-using handler writes that
+usage under its deterministic call key immediately after the provider returns, before it consumes
+the output. Missing or malformed provider accounting is an adapter error rather than an implicit
+zero, so configured ceilings cannot be silently bypassed. Deterministic and non-worker consumers
+may use the provider port without inventing a processing row; enforced worker-route budgets remain
+anchored solely to `processing_state`.
 
 ## 5. Provider-neutral I/O discipline (portable core of design-review F9)
 

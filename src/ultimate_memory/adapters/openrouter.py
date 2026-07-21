@@ -1,6 +1,9 @@
 """The OpenRouter model-provider adapter (D63/D70): the shipped default binding."""
 
+from decimal import Decimal
+from decimal import InvalidOperation
 import json
+import time
 from typing import Any
 from typing import TypeVar
 
@@ -11,7 +14,10 @@ from pydantic_settings import SettingsConfigDict
 
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import EmbeddingResponse
+from ultimate_memory.model import GeneratedResponse
 from ultimate_memory.model import ModelRequest
+from ultimate_memory.model import ProviderAccountingError
+from ultimate_memory.model import ProviderCallUsage
 from ultimate_memory.model import StructuredResponseModel
 
 ResponseT = TypeVar("ResponseT", bound=StructuredResponseModel)
@@ -45,8 +51,9 @@ class OpenRouterModelProvider:
 
     def generate(
         self, *, request: ModelRequest, response_type: type[ResponseT]
-    ) -> ResponseT:
+    ) -> GeneratedResponse[ResponseT]:
         """One chat completion constrained to the caller's declared JSON schema."""
+        started_ns = time.monotonic_ns()
         body = self._post(
             path="/chat/completions",
             payload={
@@ -62,24 +69,36 @@ class OpenRouterModelProvider:
                 },
             },
         )
+        usage = _usage(
+            body=body,
+            requested_model=request.model,
+            latency_ms=(time.monotonic_ns() - started_ns) // 1_000_000,
+        )
         try:
             content = body["choices"][0]["message"]["content"]
-            return response_type.model_validate(json.loads(content))
+            output = response_type.model_validate(json.loads(content))
         except (KeyError, IndexError, ValueError) as err:
             raise OpenRouterProviderError(
                 f"unusable completion body for {response_type.__name__}"
             ) from err
+        return GeneratedResponse(output=output, usage=usage)
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
         """One embeddings call for the caller's batch."""
+        started_ns = time.monotonic_ns()
         body = self._post(
             path="/embeddings",
             payload={"model": request.model, "input": list(request.texts)},
         )
+        usage = _usage(
+            body=body,
+            requested_model=request.model,
+            latency_ms=(time.monotonic_ns() - started_ns) // 1_000_000,
+        )
         try:
             ordered = sorted(body["data"], key=lambda item: item["index"])
             return EmbeddingResponse(
-                vectors=tuple(tuple(item["embedding"]) for item in ordered)
+                vectors=tuple(tuple(item["embedding"]) for item in ordered), usage=usage
             )
         except (KeyError, TypeError, ValueError) as err:
             raise OpenRouterProviderError("unusable embeddings body") from err
@@ -93,3 +112,25 @@ class OpenRouterModelProvider:
                 f"{response.text[:500]}"
             )
         return response.json()
+
+
+def _usage(
+    *, body: dict[str, Any], requested_model: str, latency_ms: int
+) -> ProviderCallUsage:
+    """Validate OpenRouter accounting; missing usage must not silently disable budgets."""
+    raw = body.get("usage")
+    if not isinstance(raw, dict):
+        raise ProviderAccountingError("OpenRouter response carries no usage accounting")
+    model_name = body.get("model", requested_model)
+    try:
+        return ProviderCallUsage(
+            model_name=model_name,
+            tokens_in=raw["prompt_tokens"],
+            tokens_out=raw.get("completion_tokens", 0),
+            cost_usd=Decimal(str(raw["cost"])),
+            latency_ms=latency_ms,
+        )
+    except (InvalidOperation, KeyError, TypeError, ValueError) as err:
+        raise ProviderAccountingError(
+            "OpenRouter response carries invalid usage accounting"
+        ) from err

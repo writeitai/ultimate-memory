@@ -32,6 +32,7 @@ from ultimate_memory.model import ModelRequest
 from ultimate_memory.model import ObservationAssertion
 from ultimate_memory.model import ObservationOutcome
 from ultimate_memory.model import ObservationVerdict
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 
 OBSERVATION_ADJUDICATOR_VERSION: Final = "obs-adjudicator-2026.07"
@@ -94,6 +95,8 @@ class ObservationAdjudicator:
         statement: str,
         claim_id: UUID,
         doc_id: UUID,
+        meter: CostMeterPort | None = None,
+        call_key: str = "observation",
     ) -> UUID:
         """Compatibility wrapper for a one-assertion entity batch."""
         return self.add_observations(
@@ -104,6 +107,8 @@ class ObservationAdjudicator:
                     statement=statement, claim_id=claim_id, doc_id=doc_id
                 ),
             ),
+            meter=meter,
+            call_key=call_key,
         )[0]
 
     def add_observations(
@@ -112,6 +117,8 @@ class ObservationAdjudicator:
         deployment_id: UUID,
         subject_entity_id: UUID,
         assertions: tuple[ObservationAssertion, ...],
+        meter: CostMeterPort | None = None,
+        call_key: str = "observation",
     ) -> tuple[UUID, ...]:
         """Adjudicate one document/entity batch against one front-loaded block.
 
@@ -153,8 +160,10 @@ class ObservationAdjudicator:
                     assertion=assertion,
                     asserted_at=asserted_by_claim.get(assertion.claim_id),
                     candidates=candidates,
+                    meter=meter,
+                    call_key=f"{call_key}:{assertion_index}",
                 )
-                for assertion in assertions
+                for assertion_index, assertion in enumerate(assertions)
             )
 
     def _add_with_block(
@@ -166,6 +175,8 @@ class ObservationAdjudicator:
         assertion: ObservationAssertion,
         asserted_at: object,
         candidates: list[dict[str, object]],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> UUID:
         """Apply one assertion while keeping the front-loaded block current."""
         exact = next(
@@ -235,7 +246,12 @@ class ObservationAdjudicator:
                 statement=assertion.statement,
             )
             return observation_id
-        ranked = self._rank(statement=assertion.statement, candidates=open_candidates)
+        ranked = self._rank(
+            statement=assertion.statement,
+            candidates=open_candidates,
+            meter=meter,
+            call_key=f"{call_key}:rank",
+        )
         if ranked[0][1] < self._settings.novelty_floor:
             observation_id = self._insert_new(
                 connection=connection,
@@ -267,6 +283,8 @@ class ObservationAdjudicator:
             asserted_at=asserted_at,
             ranked=ranked[: self._settings.hub_top_k],
             candidates=candidates,
+            meter=meter,
+            call_key=call_key,
         )
 
     def judge_statements(
@@ -289,11 +307,16 @@ class ObservationAdjudicator:
         asserted_at: object,
         ranked: list[tuple[dict[str, object], float]],
         candidates: list[dict[str, object]],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> UUID:
         """Ladder the similar candidates; apply the first decisive outcome."""
         for candidate, similarity in ranked:
             verdict, method = self._ladder(
-                existing=str(candidate["statement"]), new=statement
+                existing=str(candidate["statement"]),
+                new=statement,
+                meter=meter,
+                call_key=f"{call_key}:verdict:{candidate['observation_id']}",
             )
             features: dict[str, object] = {
                 "similarity": similarity,
@@ -469,30 +492,58 @@ class ObservationAdjudicator:
         )
         return new_id
 
-    def _ladder(self, *, existing: str, new: str) -> tuple[ObservationVerdict, str]:
+    def _ladder(
+        self,
+        *,
+        existing: str,
+        new: str,
+        meter: CostMeterPort | None = None,
+        call_key: str = "observation:verdict",
+    ) -> tuple[ObservationVerdict, str]:
         """Small-model verdict, escalating to frontier below the floor."""
         prompt = _VERDICT_PROMPT.format(existing=existing, new=new)
-        verdict = self._model_provider.generate(
+        verdict_call = self._model_provider.generate(
             request=ModelRequest(model=self._settings.small_model, prompt=prompt),
             response_type=ObservationVerdict,
         )
+        if meter is not None:
+            meter.record(
+                call_key=f"{call_key}:small",
+                tier="small_model",
+                usage=verdict_call.usage,
+            )
+        verdict = verdict_call.output
         if verdict.confidence >= self._settings.confidence_floor:
             return verdict, "small_model"
-        frontier = self._model_provider.generate(
+        frontier_call = self._model_provider.generate(
             request=ModelRequest(model=self._settings.frontier_model, prompt=prompt),
             response_type=ObservationVerdict,
         )
-        return frontier, "frontier_llm"
+        if meter is not None:
+            meter.record(
+                call_key=f"{call_key}:frontier",
+                tier="frontier_llm",
+                usage=frontier_call.usage,
+            )
+        return frontier_call.output, "frontier_llm"
 
     def _rank(
-        self, *, statement: str, candidates: Sequence[dict[str, object]]
+        self,
+        *,
+        statement: str,
+        candidates: Sequence[dict[str, object]],
+        meter: CostMeterPort | None = None,
+        call_key: str = "observation:rank",
     ) -> list[tuple[dict[str, object], float]]:
         """Similarity-rank candidates (ordering only — the block is already
         exhaustive, so a skipped candidate can never cause a wrong cap)."""
         texts = (statement, *(str(c["statement"]) for c in candidates))
-        vectors = self._model_provider.embed(
+        response = self._model_provider.embed(
             request=EmbeddingRequest(model=self._settings.embedding_model, texts=texts)
-        ).vectors
+        )
+        if meter is not None:
+            meter.record(call_key=call_key, tier="embedding", usage=response.usage)
+        vectors = response.vectors
         query = vectors[0]
         scored = [
             (candidate, _cosine(query, vector))

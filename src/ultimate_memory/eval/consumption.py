@@ -82,7 +82,7 @@ def make_s58_evaluator(
             request=ModelRequest(model=model, prompt=_prompt(skill=skill, task=task)),
             response_type=S58Answer,
         )
-        return answer == expected
+        return answer.output == expected
 
     return evaluate
 

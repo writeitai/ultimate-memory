@@ -16,6 +16,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.adapters.testing import NoopCostMeter
 from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
@@ -450,7 +451,8 @@ def test_rerunning_normalization_replays_without_model_calls(rig: _E3Rig) -> Non
                 "version_id": str(version),
                 "representation_id": str(representation),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert len(rig.provider.generated_prompts) == calls_after_first
     with rig.engine.connect() as connection:
@@ -623,6 +625,7 @@ def test_p1_channels_carry_claims_and_labeled_facts(rig: _E3Rig) -> None:
             lane=ProcessingLane.STEADY,
             attempt=2,
             payload={"doc_id": str(ingested.doc_id)},
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert len(rig.provider.generated_prompts) == calls

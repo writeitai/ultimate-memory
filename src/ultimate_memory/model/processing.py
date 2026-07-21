@@ -1,5 +1,6 @@
 """Typed records for the D67 work ledger: enqueue, claim, attempt, and cost rows."""
 
+from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
@@ -111,6 +112,57 @@ class ClaimedWork(BaseModel):
     payload: dict[str, object] | None
 
 
+class CostBudget(BaseModel):
+    """One explicit spend ceiling for a deployment, stage, lane, and fixed window."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    deployment_id: UUID
+    stage: PipelineStage
+    lane: ProcessingLane | None
+    window_seconds: int = Field(gt=0)
+    ceiling_usd: Decimal = Field(gt=Decimal(0))
+
+
+class BudgetParked(BaseModel):
+    """A due work row parked before its next handler attempt because spend is exhausted."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    processing_id: UUID
+    resume_at: UTCDateTime
+    spent_usd: Decimal = Field(ge=Decimal(0))
+    ceiling_usd: Decimal = Field(gt=Decimal(0))
+
+
+class CostTierSpend(BaseModel):
+    """Current-window spend attributed to one recorded cascade tier."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tier: str | None
+    cost_usd: Decimal = Field(ge=Decimal(0))
+
+
+class CostBudgetStatus(BaseModel):
+    """Admin-visible state derived from one configured ceiling and the durable ledgers."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    deployment_id: UUID
+    stage: PipelineStage
+    lane: ProcessingLane | None
+    window_seconds: int = Field(gt=0)
+    window_started_at: UTCDateTime
+    window_ends_at: UTCDateTime
+    ceiling_usd: Decimal = Field(gt=Decimal(0))
+    spent_usd: Decimal = Field(ge=Decimal(0))
+    remaining_usd: Decimal = Field(ge=Decimal(0))
+    exhausted: bool
+    parked_work: int = Field(ge=0)
+    tiers: tuple[CostTierSpend, ...]
+
+
 class RecordCall(BaseModel):
     """One billed model/provider call to attribute to the claimed row's attempt.
 
@@ -126,7 +178,7 @@ class RecordCall(BaseModel):
     tier: str | None = None
     tokens_in: int | None = None
     tokens_out: int | None = None
-    cost_usd: float | None = None
+    cost_usd: Decimal | None = None
     latency_ms: int | None = None
 
 
@@ -134,6 +186,7 @@ class RunResultOutcome(StrEnum):
     """How one worker pass ended for the row it claimed (or that none was due)."""
 
     NO_WORK = "no_work"
+    BUDGET_PARKED = "budget_parked"
     SUCCEEDED = "succeeded"
     RETRY_SCHEDULED = "retry_scheduled"
     DEAD_LETTERED = "dead_lettered"

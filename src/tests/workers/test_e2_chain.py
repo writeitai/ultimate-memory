@@ -16,6 +16,7 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.adapters.selfhost import LanceChunkIndex
 from ultimate_memory.adapters.selfhost import LocalFSObjectStore
 from ultimate_memory.adapters.testing import FakeModelProvider
+from ultimate_memory.adapters.testing import NoopCostMeter
 from ultimate_memory.core import chunker_version
 from ultimate_memory.core import ChunkerParams
 from ultimate_memory.core import ConversionRouter
@@ -275,6 +276,17 @@ def test_claims_land_grounded_with_drops_ledgered_and_stance_kept(rig: _E2Rig) -
         links = connection.execute(
             text("SELECT count(*) FROM chunk_claims")
         ).scalar_one()
+        metered_calls = (
+            connection.execute(
+                text(
+                    "SELECT call_key, model_name, tier, tokens_in, cost_usd"
+                    " FROM cost_ledger WHERE stage = 'extract_claims'"
+                    " ORDER BY call_key"
+                )
+            )
+            .mappings()
+            .all()
+        )
 
     # the two grounded claims landed; both fabrications were rejected:
     assert [claim["claim_text"] for claim in claims] == [
@@ -309,6 +321,13 @@ def test_claims_land_grounded_with_drops_ledgered_and_stance_kept(rig: _E2Rig) -
     assert by_kind["selection_keep_flagged"]["claim_id"] == flagged_claim
 
     assert links == len(claims)
+    assert [call["call_key"].split(":", 1)[0] for call in metered_calls] == [
+        "decontextualize",
+        "selection",
+    ]
+    assert all(call["model_name"] and call["tokens_in"] > 0 for call in metered_calls)
+    assert {call["tier"] for call in metered_calls} == {"decontextualize", "selection"}
+    assert all(call["cost_usd"] == 0 for call in metered_calls)
 
 
 def test_rerunning_extraction_replays_without_model_calls(rig: _E2Rig) -> None:
@@ -346,7 +365,8 @@ def test_rerunning_extraction_replays_without_model_calls(rig: _E2Rig) -> None:
                 "version_id": str(version),
                 "representation_id": str(representation),
             },
-        )
+        ),
+        meter=NoopCostMeter(),
     )
     assert len(rig.provider.generated_prompts) == calls_after_first
     with rig.engine.connect() as connection:
@@ -410,7 +430,7 @@ def test_empty_extraction_is_terminal_and_replays_without_calls(
         attempt=1,
         payload={"version_id": str(version), "representation_id": str(representation)},
     )
-    handler.handle(work=work)
+    handler.handle(work=work, meter=NoopCostMeter())
     calls_after_first = len(empty_provider.generated_prompts)
     assert calls_after_first == 1  # one Selection call, no fused call
 
@@ -427,5 +447,5 @@ def test_empty_extraction_is_terminal_and_replays_without_calls(
         )
     assert marker["decision_type"] == "selection_drop"
 
-    handler.handle(work=work.model_copy(update={"attempt": 2}))
+    handler.handle(work=work.model_copy(update={"attempt": 2}), meter=NoopCostMeter())
     assert len(empty_provider.generated_prompts) == calls_after_first

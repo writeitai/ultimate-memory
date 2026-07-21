@@ -1,10 +1,13 @@
 """A deterministic in-memory model provider for behavior tests (no network)."""
 
+from decimal import Decimal
 import hashlib
 
 from ultimate_memory.model import EmbeddingRequest
 from ultimate_memory.model import EmbeddingResponse
+from ultimate_memory.model import GeneratedResponse
 from ultimate_memory.model import ModelRequest
+from ultimate_memory.model import ProviderCallUsage
 from ultimate_memory.model import StructuredResponseModel
 
 _EMBEDDING_DIMENSION = 8
@@ -30,26 +33,48 @@ class FakeModelProvider:
 
     def generate[ResponseT: StructuredResponseModel](
         self, *, request: ModelRequest, response_type: type[ResponseT]
-    ) -> ResponseT:
+    ) -> GeneratedResponse[ResponseT]:
         """Return the canned payload validated as the caller's declared type."""
         self.generated_prompts.append(request.prompt)
         if callable(self._generate_router):
-            return response_type.model_validate(
+            output = response_type.model_validate(
                 self._generate_router(request.prompt, response_type.__name__)
             )
-        payload = self._generate_payloads.get(
-            response_type.__name__, self._generate_payload
+        else:
+            payload = self._generate_payloads.get(
+                response_type.__name__, self._generate_payload
+            )
+            if payload is None:
+                raise AssertionError(f"no canned payload for {response_type.__name__}")
+            output = response_type.model_validate(payload)
+        return GeneratedResponse(
+            output=output,
+            usage=_fake_usage(
+                model_name=request.model, tokens_in=len(request.prompt.split())
+            ),
         )
-        if payload is None:
-            raise AssertionError(f"no canned payload for {response_type.__name__}")
-        return response_type.model_validate(payload)
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
         """Return one deterministic content-derived vector per input text."""
         self.embedded_texts.extend(request.texts)
         return EmbeddingResponse(
-            vectors=tuple(_vector_for(text=text) for text in request.texts)
+            vectors=tuple(_vector_for(text=text) for text in request.texts),
+            usage=_fake_usage(
+                model_name=request.model,
+                tokens_in=sum(len(text.split()) for text in request.texts),
+            ),
         )
+
+
+def _fake_usage(*, model_name: str, tokens_in: int) -> ProviderCallUsage:
+    """Return deterministic zero-cost accounting for one in-memory provider call."""
+    return ProviderCallUsage(
+        model_name=model_name,
+        tokens_in=tokens_in,
+        tokens_out=0,
+        cost_usd=Decimal(0),
+        latency_ms=0,
+    )
 
 
 def _vector_for(*, text: str) -> tuple[float, ...]:

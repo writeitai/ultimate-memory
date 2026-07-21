@@ -14,6 +14,7 @@ from sqlalchemy.engine import Engine
 
 from ultimate_memory.model import BackfillNotDrainedError
 from ultimate_memory.model import BackfillSeedRequest
+from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import LaneRouteError
@@ -101,7 +102,7 @@ def _complete_prior_work(*, ledger: WorkLedger, target_ids: tuple[UUID, ...]) ->
             stage=PipelineStage.EXTRACT_CLAIMS,
             lane=ProcessingLane.STEADY,
         )
-        assert claimed is not None
+        assert isinstance(claimed, ClaimedWork)
         ledger.complete(processing_id=claimed.processing_id)
 
 
@@ -187,13 +188,14 @@ def test_version_bump_is_bounded_resumable_and_cannot_starve_steady_work(
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.STEADY,
     )
-    assert claimed_live is not None and claimed_live.target_id == target_ids[3]
+    assert isinstance(claimed_live, ClaimedWork)
+    assert claimed_live.target_id == target_ids[3]
     claimed_backfill = ledger.claim_one(
         deployment_id=_DEPLOYMENT_ID,
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.BACKFILL,
     )
-    assert claimed_backfill is not None
+    assert isinstance(claimed_backfill, ClaimedWork)
     assert claimed_backfill.target_id in target_ids[:3]
 
 
@@ -227,7 +229,7 @@ def test_search_indexes_build_only_after_backfill_has_drained(
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.BACKFILL,
     )
-    assert claimed is not None
+    assert isinstance(claimed, ClaimedWork)
     ledger.complete(processing_id=claimed.processing_id)
 
     finalizer.build_search_indexes(deployment_id=_DEPLOYMENT_ID)

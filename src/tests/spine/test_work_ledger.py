@@ -4,6 +4,8 @@ from collections.abc import Iterator
 from datetime import datetime
 from datetime import timedelta
 from datetime import UTC
+from decimal import Decimal
+import json
 from pathlib import Path
 from uuid import UUID
 from uuid import uuid4
@@ -16,7 +18,9 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from ultimate_memory.adapters.testing import RecordingTaskQueue
 from ultimate_memory.model import ClaimedWork
+from ultimate_memory.model import CostBudget
 from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import LaneRouteError
@@ -27,10 +31,12 @@ from ultimate_memory.model import RecordCall
 from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import UnknownStageHandlerError
 from ultimate_memory.model import WorkNotRunningError
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.surfaces import cli_main
 from ultimate_memory.workers import HandlerOutcome
 from ultimate_memory.workers import HandlerRegistry
 from ultimate_memory.workers import Worker
@@ -134,7 +140,8 @@ def test_enqueue_is_idempotent_and_promotes_backfill_to_steady(
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.STEADY,
     )
-    assert claimed is not None and claimed.processing_id == first.processing_id
+    assert isinstance(claimed, ClaimedWork)
+    assert claimed.processing_id == first.processing_id
 
 
 def test_lane_pairing_is_enforced_at_enqueue_and_claim(ledger: WorkLedger) -> None:
@@ -165,10 +172,12 @@ def test_cost_attribution_is_copied_from_the_running_row(
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.STEADY,
     )
-    assert claimed is not None
+    assert isinstance(claimed, ClaimedWork)
 
     call = RecordCall(
-        processing_id=claimed.processing_id, call_key="selection", cost_usd=0.01
+        processing_id=claimed.processing_id,
+        call_key="selection",
+        cost_usd=Decimal("0.01"),
     )
     assert ledger.record_call(call=call) is True
     assert ledger.record_call(call=call) is False  # ack-lost retry cannot double-bill
@@ -239,7 +248,7 @@ def test_running_work_can_never_be_budget_parked(ledger: WorkLedger) -> None:
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.STEADY,
     )
-    assert claimed is not None
+    assert isinstance(claimed, ClaimedWork)
     with pytest.raises(WorkNotRunningError):
         ledger.park_for_budget(
             processing_id=claimed.processing_id,
@@ -247,11 +256,162 @@ def test_running_work_can_never_be_budget_parked(ledger: WorkLedger) -> None:
         )
 
 
+class _CountingHandler:
+    """A successful handler that exposes whether budget pre-flight let it execute."""
+
+    def __init__(self) -> None:
+        """Start with no handler executions."""
+        self.calls = 0
+
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
+        """Count one execution and complete without follow-up work."""
+        del work, meter
+        self.calls += 1
+        return HandlerOutcome()
+
+
+def test_configured_budget_parks_reports_and_resumes_without_losing_work(
+    database_engine: Engine,
+) -> None:
+    """A fixture ceiling parks before an attempt and the next window resumes normally."""
+    budget = CostBudget(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+        window_seconds=86_400,
+        ceiling_usd=Decimal("1.00"),
+    )
+    budgeted = WorkLedger(
+        engine=database_engine,
+        settings=WorkLedgerSettings(
+            retry_backoff_base_s=0.0, retry_backoff_max_s=0.0, budgets=(budget,)
+        ),
+    )
+
+    billed = budgeted.enqueue(work=_work())
+    claimed = budgeted.claim_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert isinstance(claimed, ClaimedWork)
+    assert claimed.processing_id == billed.processing_id
+    assert budgeted.record_call(
+        call=RecordCall(
+            processing_id=claimed.processing_id,
+            call_key="selection",
+            tier="selection",
+            cost_usd=Decimal("0.75"),
+        )
+    )
+    assert budgeted.record_call(
+        call=RecordCall(
+            processing_id=claimed.processing_id,
+            call_key="decontextualize",
+            tier="frontier",
+            cost_usd=Decimal("0.50"),
+        )
+    )
+    budgeted.complete(processing_id=claimed.processing_id)
+
+    waiting = budgeted.enqueue(work=_work())
+    handler = _CountingHandler()
+    registry = HandlerRegistry()
+    registry.register(stage=PipelineStage.EXTRACT_CLAIMS, handler=handler)
+    queue = RecordingTaskQueue()
+    worker = Worker(ledger=budgeted, registry=registry, queue=queue)
+
+    parked_result = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert parked_result.processing_id == waiting.processing_id
+    assert parked_result.outcome is RunResultOutcome.BUDGET_PARKED
+    assert handler.calls == 0
+    (announcement,) = queue.announcements
+    assert announcement.processing_id == waiting.processing_id
+
+    with database_engine.connect() as connection:
+        parked = (
+            connection.execute(
+                text(
+                    "SELECT status, defer_reason, attempts, last_error, not_before"
+                    " FROM processing_state WHERE processing_id = :processing_id"
+                ),
+                {"processing_id": waiting.processing_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert parked["status"] == "pending"
+    assert parked["defer_reason"] == "budget"
+    assert parked["attempts"] == 0
+    assert parked["last_error"] is None
+    assert announcement.not_before_snapshot == parked["not_before"]
+
+    (status,) = budgeted.budget_status(deployment_id=_DEPLOYMENT_ID)
+    assert status.spent_usd == Decimal("1.250000")
+    assert status.remaining_usd == Decimal(0)
+    assert status.exhausted
+    assert status.parked_work == 1
+    assert {tier.tier: tier.cost_usd for tier in status.tiers} == {
+        "frontier": Decimal("0.500000"),
+        "selection": Decimal("0.750000"),
+    }
+
+    with database_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE cost_ledger SET occurred_at = occurred_at - interval '2 days'")
+        )
+        connection.execute(
+            text(
+                "UPDATE processing_state SET not_before = now()"
+                " WHERE processing_id = :processing_id"
+            ),
+            {"processing_id": waiting.processing_id},
+        )
+
+    resumed = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+    assert resumed.processing_id == waiting.processing_id
+    assert resumed.outcome is RunResultOutcome.SUCCEEDED
+    assert handler.calls == 1
+
+
+def test_budget_settings_are_unique_and_cli_inspection_uses_them(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The environment declares one unambiguous route ceiling visible through the CLI."""
+    configured = {
+        "deployment_id": str(_DEPLOYMENT_ID),
+        "stage": PipelineStage.EXTRACT_CLAIMS.value,
+        "lane": ProcessingLane.STEADY.value,
+        "window_seconds": 3600,
+        "ceiling_usd": "2.50",
+    }
+    monkeypatch.setenv("UGM_WORK_BUDGETS", json.dumps([configured]))
+    settings = WorkLedgerSettings()
+    assert settings.budgets[0].ceiling_usd == Decimal("2.50")
+    with pytest.raises(ValidationError, match="only one cost budget"):
+        WorkLedgerSettings(budgets=(settings.budgets[0], settings.budgets[0]))
+
+    assert cli_main(["budget", "inspect", "--deployment", str(_DEPLOYMENT_ID)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stage"] == PipelineStage.EXTRACT_CLAIMS.value
+    assert payload["lane"] == ProcessingLane.STEADY.value
+    assert payload["ceiling_usd"] == "2.50"
+
+
 class _ChainingNoOpHandler:
     """The demo no-op handler: succeeds and chains the next stage for its target."""
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Produce the chain follow-up without doing any real work."""
+        del meter
         return HandlerOutcome(
             follow_up=(
                 EnqueueWork(
@@ -270,8 +430,9 @@ class _ChainingNoOpHandler:
 class _AlwaysFailingHandler:
     """A handler whose every execution raises — exercising retry then dead-letter."""
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Fail unconditionally with a real traceback."""
+        del meter
         raise RuntimeError(f"deliberate failure for {work.processing_id}")
 
 
@@ -352,7 +513,8 @@ def test_promotion_clears_backfill_budget_parking(
         stage=PipelineStage.EXTRACT_CLAIMS,
         lane=ProcessingLane.STEADY,
     )
-    assert claimed is not None and claimed.processing_id == enqueued.processing_id
+    assert isinstance(claimed, ClaimedWork)
+    assert claimed.processing_id == enqueued.processing_id
 
 
 def test_unregistered_stage_never_strands_a_claimed_row(

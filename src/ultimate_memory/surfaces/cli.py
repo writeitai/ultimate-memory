@@ -1,7 +1,8 @@
-"""The ``ugm`` CLI: a dependency-light client plus an optional local review UI.
+"""The ``ugm`` CLI: a dependency-light client plus optional local admin commands.
 
 Query, ingest, connector management, and MCP all talk to the deployment HTTP
-API. Only ``ugm review`` imports the server extra and connects to the spine.
+API. ``ugm review`` and ``ugm budget`` import the server extra and connect to
+the spine.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from ultimate_memory.surfaces.sdk import MemoryClient
 
 if TYPE_CHECKING:
     from ultimate_memory.spine.review import ReviewQueue
+    from ultimate_memory.spine.work_ledger import WorkLedger
 
 _MERGE_VERDICTS = ("merge", "not_merge")
 _TRIAGE_VERDICTS = ("restore_support", "invalidate_fact", "uncertain")
@@ -38,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "review":
             return _run_review(args)
+        if args.command == "budget":
+            return _run_budget(args)
         if args.command == "query":
             return _run_query(args)
         if args.command == "ingest":
@@ -80,6 +84,29 @@ def _run_review(args: argparse.Namespace) -> int:
             reviewer=args.reviewer,
             note=args.note,
         )
+    finally:
+        engine.dispose()
+
+
+def _run_budget(args: argparse.Namespace) -> int:
+    """Compose the local WorkLedger and print configured budget state."""
+    try:
+        from sqlalchemy import create_engine
+
+        from ultimate_memory.spine.settings import load_database_settings
+        from ultimate_memory.spine.work_ledger import WorkLedger
+        from ultimate_memory.spine.work_ledger import WorkLedgerSettings
+    except ModuleNotFoundError:
+        print(
+            "error: budget commands require the 'ultimate-memory[server]' extra",
+            file=sys.stderr,
+        )
+        return 1
+
+    engine = create_engine(load_database_settings().sqlalchemy_url())
+    try:
+        ledger = WorkLedger(engine=engine, settings=WorkLedgerSettings())
+        return _inspect_budgets(ledger=ledger, deployment_id=args.deployment)
     finally:
         engine.dispose()
 
@@ -218,6 +245,13 @@ def _list(*, queue: ReviewQueue, deployment_id: UUID) -> int:
     return 0
 
 
+def _inspect_budgets(*, ledger: WorkLedger, deployment_id: UUID) -> int:
+    """Print one current-window JSON record per configured deployment budget."""
+    for status in ledger.budget_status(deployment_id=deployment_id):
+        print(status.model_dump_json())
+    return 0
+
+
 def _decide(
     *,
     queue: ReviewQueue,
@@ -274,6 +308,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     decide.add_argument("--reviewer", required=True)
     decide.add_argument("--note", default=None)
+
+    budget = commands.add_parser("budget", help="inspect configured spend ceilings")
+    budget_commands = budget.add_subparsers(dest="budget_command", required=True)
+    inspect = budget_commands.add_parser(
+        "inspect", help="current spend, tier attribution, and parked work"
+    )
+    inspect.add_argument("--deployment", type=UUID, required=True)
 
     query = commands.add_parser("query", help="query deployment recipes")
     query_commands = query.add_subparsers(dest="query_command", required=True)

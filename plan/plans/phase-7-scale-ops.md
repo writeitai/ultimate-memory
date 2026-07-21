@@ -30,7 +30,7 @@ their round trips.
 |---|---|---|---|---|---|---|
 | WP-7.1 | Backfill lanes + seeding + reprocessing orchestration (version bumps) | orchestration §3–4 | Phase 6 | lane machinery | steady-state unaffected during backfill test | done |
 | WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | done |
-| WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | planned |
+| WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | done |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | planned |
 | WP-7.5 | **Hard-delete end-to-end**: design first, then purge active P1/P2/P3/K surfaces and prevent restore resurrection through the portable purge record/adapter contract | new design (gate #24); lifecycle §8; k_layers §10; S55 | gate #24 | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | blocked(#24) |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
@@ -73,3 +73,27 @@ The provider-neutral measurement uses the real SQLAlchemy engine with explicit i
 statements, while currency writes and hub recount retain their constant statement counts. Only
 shape, correctness, query-count, and transaction-count invariants gate acceptance; every elapsed
 time is recorded as a machine-specific measurement, never an OSS SLA or topology commitment.
+
+## WP-7.3 implementation
+
+Operators declare no implicit monetary policy. An optional typed `UGM_WORK_BUDGETS` list supplies
+explicit ceilings keyed by deployment, stage, lane, and aligned fixed window; an omitted route is
+unlimited. After locking one due row, the existing claim transaction sums the deduplicated
+`cost_ledger` range for that route. Exhaustion moves the row to durable `pending` / `budget` state
+until the window boundary without starting a handler, consuming an attempt, changing the last
+error, or creating a second scheduling ledger. The worker re-announces that existing row through
+the delivery port with the stored resume time.
+
+`WorkLedger.budget_status` and `ugm budget inspect` read the same two authoritative Postgres
+tables. They expose configured ceiling, current-window spend, remaining amount, tier attribution,
+aligned bounds, and parked-work count; they do not add a dashboard, hosted billing policy, cache,
+or control plane. The PostgreSQL acceptance fixture records two attributed calls, proves an
+over-budget handler never starts, then crosses the fixture window and proves the exact row resumes
+and completes normally.
+
+Successful generation and embedding responses carry mandatory provider-reported usage through the
+existing model port. The worker binds that usage to its running processing row, and every
+model-using stage records a deterministic logical call key and cascade tier before consuming the
+response. OpenRouter responses without cost/token accounting fail visibly instead of degrading to
+zero spend; the deterministic test provider emits zero-cost usage so end-to-end worker tests prove
+the same production attribution path without network calls.

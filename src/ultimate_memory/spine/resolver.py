@@ -28,6 +28,7 @@ from ultimate_memory.model import P1EntityRow
 from ultimate_memory.model import ResolutionCandidate
 from ultimate_memory.model import ResolvedEntity
 from ultimate_memory.model import ResolverConfig
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.model_provider import ModelProviderPort
 from ultimate_memory.ports.p1_index import EntityIndexPort
 from ultimate_memory.spine.entity_registry import normalized_lemma
@@ -81,7 +82,13 @@ class CascadeResolver:
         self._last_rejection: tuple[str, float, dict[str, object]] | None = None
 
     def resolve(
-        self, *, deployment_id: UUID, reference: EntityRef, claim: ClaimForNormalization
+        self,
+        *,
+        deployment_id: UUID,
+        reference: EntityRef,
+        claim: ClaimForNormalization,
+        meter: CostMeterPort | None = None,
+        call_key: str = "resolve",
     ) -> ResolvedEntity:
         """Run the cascade for one reference; mint when nothing matches.
 
@@ -125,6 +132,8 @@ class CascadeResolver:
                 reference=reference,
                 claim=claim,
                 candidates=candidates,
+                meter=meter,
+                call_key=call_key,
             )
             if decision is not None:
                 candidate, method, confidence, features = decision
@@ -148,6 +157,8 @@ class CascadeResolver:
                 claim=claim,
                 lemma=lemma,
                 considered=candidates,
+                meter=meter,
+                call_key=call_key,
             )
 
     def _ensure_registered(self, *, deployment_id: UUID) -> None:
@@ -216,13 +227,13 @@ class CascadeResolver:
             request=ModelRequest(model=self._small_model, prompt=prompt),
             response_type=AdjudicationVerdict,
         )
-        if verdict.confidence >= thresholds.t4_small_confidence_floor:
-            return verdict.match, "T4_small"
+        if verdict.output.confidence >= thresholds.t4_small_confidence_floor:
+            return verdict.output.match, "T4_small"
         frontier = self._model_provider.generate(
             request=ModelRequest(model=self._frontier_model, prompt=prompt),
             response_type=AdjudicationVerdict,
         )
-        return frontier.match, "T4_frontier"
+        return frontier.output.match, "T4_frontier"
 
     def _blocked_candidates(
         self, *, connection: Connection, deployment_id: UUID, lemma: str
@@ -259,13 +270,19 @@ class CascadeResolver:
         reference: EntityRef,
         claim: ClaimForNormalization,
         candidates: tuple[ResolutionCandidate, ...],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> tuple[ResolutionCandidate, str, float, dict[str, object]] | None:
         """T3 embedding bands, then T4 adjudication for the ambiguous band."""
         if not candidates:
             return None
         thresholds = self._config.thresholds_for(entity_type=reference.type)
         scored = self._t3_scores(
-            deployment_id=deployment_id, reference=reference, candidates=candidates
+            deployment_id=deployment_id,
+            reference=reference,
+            candidates=candidates,
+            meter=meter,
+            call_key=f"{call_key}:t3",
         )
         ordered = sorted(
             scored,
@@ -293,7 +310,11 @@ class CascadeResolver:
                 break
             adjudicated += 1
             verdict, seat, model = self._t4(
-                reference=reference, claim=claim, candidate=candidate
+                reference=reference,
+                claim=claim,
+                candidate=candidate,
+                meter=meter,
+                call_key=f"{call_key}:t4:{candidate.entity_id}",
             )
             if verdict.match:
                 return (
@@ -320,13 +341,17 @@ class CascadeResolver:
         deployment_id: UUID,
         reference: EntityRef,
         candidates: tuple[ResolutionCandidate, ...],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> tuple[tuple[ResolutionCandidate, float | None], ...]:
         """Cosine similarity against candidate profiles; None = no profile.
 
         A missing/stale profile vector is AMBIGUITY (route to T4), never a
         confident non-match (Codex review).
         """
-        query_vector = self._embed(surface=reference.name)
+        query_vector = self._embed(
+            surface=reference.name, meter=meter, call_key=call_key
+        )
         by_id = self._entity_index.entity_vectors(
             deployment_id=str(deployment_id),
             entity_ids=tuple(str(candidate.entity_id) for candidate in candidates),
@@ -347,6 +372,8 @@ class CascadeResolver:
         reference: EntityRef,
         claim: ClaimForNormalization,
         candidate: ResolutionCandidate,
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> tuple[AdjudicationVerdict, str, str]:
         """T4 small-model adjudication, escalating to frontier below the floor."""
         prompt = _T4_PROMPT.format(
@@ -356,18 +383,29 @@ class CascadeResolver:
             candidate=candidate.canonical_name,
             candidate_type=candidate.type,
         )
-        verdict = self._model_provider.generate(
+        verdict_call = self._model_provider.generate(
             request=ModelRequest(model=self._small_model, prompt=prompt),
             response_type=AdjudicationVerdict,
         )
+        if meter is not None:
+            meter.record(
+                call_key=f"{call_key}:small", tier="T4_small", usage=verdict_call.usage
+            )
+        verdict = verdict_call.output
         thresholds = self._config.thresholds_for(entity_type=reference.type)
         if verdict.confidence >= thresholds.t4_small_confidence_floor:
             return verdict, "T4_small", self._small_model
-        frontier = self._model_provider.generate(
+        frontier_call = self._model_provider.generate(
             request=ModelRequest(model=self._frontier_model, prompt=prompt),
             response_type=AdjudicationVerdict,
         )
-        return frontier, "T4_frontier", self._frontier_model
+        if meter is not None:
+            meter.record(
+                call_key=f"{call_key}:frontier",
+                tier="T4_frontier",
+                usage=frontier_call.usage,
+            )
+        return frontier_call.output, "T4_frontier", self._frontier_model
 
     def _mint(
         self,
@@ -378,6 +416,8 @@ class CascadeResolver:
         claim: ClaimForNormalization,
         lemma: str,
         considered: tuple[ResolutionCandidate, ...],
+        meter: CostMeterPort | None,
+        call_key: str,
     ) -> ResolvedEntity:
         """Create the canonical entity + alias and index its T3 profile."""
         entity_id = uuid4()
@@ -414,7 +454,9 @@ class CascadeResolver:
                     deployment_id=deployment_id,
                     type=reference.type,
                     canonical_name=reference.name,
-                    vector=self._embed(surface=reference.name),
+                    vector=self._embed(
+                        surface=reference.name, meter=meter, call_key=f"{call_key}:mint"
+                    ),
                 ),
             )
         )
@@ -493,11 +535,15 @@ class CascadeResolver:
             entity_id=entity_id, created=created, entity_type=entity_type
         )
 
-    def _embed(self, *, surface: str) -> tuple[float, ...]:
+    def _embed(
+        self, *, surface: str, meter: CostMeterPort | None, call_key: str
+    ) -> tuple[float, ...]:
         """One profile/query embedding through the configured port (D63)."""
         response = self._model_provider.embed(
             request=EmbeddingRequest(model=self._embedding_model, texts=(surface,))
         )
+        if meter is not None:
+            meter.record(call_key=call_key, tier="T3", usage=response.usage)
         return response.vectors[0]
 
 

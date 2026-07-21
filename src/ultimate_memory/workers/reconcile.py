@@ -28,6 +28,7 @@ from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import CurrencyTransition
 from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import ReconciliationDelta
+from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.spine.lifecycle import LifecycleCatalog
 from ultimate_memory.spine.review import ReviewQueue
 from ultimate_memory.workers.base import HandlerOutcome
@@ -61,13 +62,14 @@ class ReconcileHandler:
             params=ChunkerParams()
         )
 
-    def handle(self, *, work: ClaimedWork) -> HandlerOutcome:
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
         """Diff → transition → recount → policy → emit, idempotently.
 
         The work row's processing_id is the run's `reconciliation_id`: a
         retried attempt re-emits every ledger row, closure, flag, and
         trigger as a no-op.
         """
+        del meter
         version_id = _payload_uuid(work=work, field="version_id")
         representation_id = _payload_uuid(work=work, field="representation_id")
         context = self._catalog.reconciliation_context(version_id=version_id)
