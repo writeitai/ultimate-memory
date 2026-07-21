@@ -50,8 +50,11 @@ package rather than re-deriving them:
   it is a delivery artifact beside D62's three (repo, package, images), not part of the
   library.
 - **GitHub Pages at `ultimate-memory.writeit.ai`** (interim; the public home becomes
-  **`remember.dev`** — the author holds the domain and the name is decided, `questions.md`
-  §11a — when the rename gate executes) via `.github/workflows/docs-deploy.yml`: pushes
+  **`docs.remember.dev`** — the author holds the domain and the name is decided,
+  `questions.md` §11a. The bare **`remember.dev` apex belongs to the managed-cloud
+  product** (its D14, decided by the author who owns both programs), so this open-source
+  docs site keeps its own home on the `docs.` subdomain — when the rename gate executes)
+  via `.github/workflows/docs-deploy.yml`: pushes
   to `main` touching `website/**` build (Next export + Pagefind index) and deploy; PRs run
   the build as a check only. Pages + custom domain require a one-time provisioning step
   (Pages source = GitHub Actions; custom domain bound in Settings; a `CNAME` DNS record in
@@ -59,7 +62,10 @@ package rather than re-deriving them:
   the domain; the checklist lives in `website/README.md`.
 - **One trust boundary note (Rule 3):** the site is part of the open-source deliverable —
   hosting is repo-local (Pages), no private cloud project involved, and nothing
-  correctness-determining lives there.
+  correctness-determining lives there. When it moves to `docs.remember.dev`, that DNS
+  record is a **DNS-only / unproxied** entry in the cloud-owned `remember.dev` zone
+  pointing at **this repo's** GitHub Pages target — so open-source docs traffic never
+  routes through the managed-cloud project, preserving this boundary.
 
 ## 3. The truthfulness contract — how docs stay current through implementation
 
