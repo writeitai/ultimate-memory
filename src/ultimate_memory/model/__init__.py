@@ -213,6 +213,9 @@ from ultimate_memory.model.mounts import PublishedMounts
 from ultimate_memory.model.object_store import ObjectAlreadyExistsError
 from ultimate_memory.model.object_store import ObjectKey
 from ultimate_memory.model.object_store import ObjectKeyEscapesRootError
+from ultimate_memory.model.processing import BackfillNotDrainedError
+from ultimate_memory.model.processing import BackfillSeedRequest
+from ultimate_memory.model.processing import BackfillSeedResult
 from ultimate_memory.model.processing import ClaimedWork
 from ultimate_memory.model.processing import DeferReason
 from ultimate_memory.model.processing import EnqueueOutcome
@@ -259,6 +262,9 @@ from ultimate_memory.model.telemetry import TelemetryAttribute
 from ultimate_memory.model.telemetry import TelemetryEvent
 
 __all__ = (
+    "BackfillNotDrainedError",
+    "BackfillSeedRequest",
+    "BackfillSeedResult",
     "AddedContext",
     "AdjudicationVerdict",
     "AggregateBucket",

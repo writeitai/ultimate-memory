@@ -1,5 +1,8 @@
 """Postgres spine package."""
 
+from ultimate_memory.spine.backfill import BackfillFinalizer
+from ultimate_memory.spine.backfill import BackfillSeeder
+from ultimate_memory.spine.backfill import BackfillSeederSettings
 from ultimate_memory.spine.chunk_catalog import ChunkCatalog
 from ultimate_memory.spine.claim_catalog import ClaimCatalog
 from ultimate_memory.spine.clustering import EntityClusterer
@@ -41,6 +44,9 @@ from ultimate_memory.spine.work_ledger import WorkLedger
 from ultimate_memory.spine.work_ledger import WorkLedgerSettings
 
 __all__ = (
+    "BackfillFinalizer",
+    "BackfillSeeder",
+    "BackfillSeederSettings",
     "ChunkCatalog",
     "ClaimCatalog",
     "EntityRegistry",

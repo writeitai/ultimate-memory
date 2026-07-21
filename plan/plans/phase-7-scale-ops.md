@@ -28,10 +28,24 @@ their round trips.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-7.1 | Backfill lanes + seeding + reprocessing orchestration (version bumps) | orchestration §3–4 | Phase 6 | lane machinery | steady-state unaffected during backfill test | planned |
+| WP-7.1 | Backfill lanes + seeding + reprocessing orchestration (version bumps) | orchestration §3–4 | Phase 6 | lane machinery | steady-state unaffected during backfill test | done |
 | WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | planned |
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | planned |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | planned |
 | WP-7.5 | **Hard-delete end-to-end**: design first, then purge active P1/P2/P3/K surfaces and prevent restore resurrection through the portable purge record/adapter contract | new design (gate #24); lifecycle §8; k_layers §10; S55 | gate #24 | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | blocked(#24) |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
 | WP-7.7 | **Export/import round-trip**: `ugm export`/`import` (Postgres dump + buckets + K repo + deletion state; projections rebuild on import) | packaging §6; D7, D62 | WP-7.1, WP-7.5 | export/import CLI | round-trip drill → no forgotten-data resurrection + S-battery subset green | planned |
+
+## WP-7.1 implementation
+
+`BackfillSeeder` enumerates the authoritative `processing_state` ledger for prior executions of
+one plane-E stage that do not yet have the requested component version. Each configured-size
+transaction copies the latest immutable target input into the existing D12 enqueue path on the
+`backfill` lane. Re-running the same request is the cursor and recovery mechanism; no campaign
+table, scheduler, or second pipeline exists.
+
+Initial corpus loads use that same pipeline by selecting `backfill` at the upload boundary or via
+the typed `UGM_SYNC_LANE` setting. Steady work keeps its distinct claim route and still promotes
+a pending/failed duplicate under the D67 rule. After seeding has completed and all deployment
+backfill rows are terminal, `BackfillFinalizer` invokes the portable P1 maintenance port; it
+refuses the explicit Lance index build while any backfill row remains unresolved.

@@ -81,3 +81,12 @@ class EntityIndexPort(Protocol):
     ) -> dict[str, tuple[float, ...]]:
         """Profile vectors for the requested ids (absent ids are omitted)."""
         ...
+
+
+@runtime_checkable
+class P1IndexMaintenancePort(Protocol):
+    """Explicit post-bulk-load maintenance for the P1 search indexes."""
+
+    def build_search_indexes(self) -> None:
+        """Build or refresh search indexes after a backfill has drained."""
+        ...

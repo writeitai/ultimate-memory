@@ -46,6 +46,7 @@ from ultimate_memory.model import NonRetryableHandlerError
 from ultimate_memory.model import ObjectAlreadyExistsError
 from ultimate_memory.model import ObjectKey
 from ultimate_memory.model import PipelineStage
+from ultimate_memory.model import ProcessingLane
 from ultimate_memory.model import RepresentationRecord
 from ultimate_memory.model import SectionTreeRecord
 from ultimate_memory.model import SnappedSection
@@ -83,7 +84,13 @@ class UploadIngestor:
         self._catalog = catalog
         self._raw_store = raw_store
 
-    def ingest(self, *, deployment_id: UUID, upload: DocumentUpload) -> IngestedVersion:
+    def ingest(
+        self,
+        *,
+        deployment_id: UUID,
+        upload: DocumentUpload,
+        lane: ProcessingLane = ProcessingLane.STEADY,
+    ) -> IngestedVersion:
         """Ingest one uploaded file and enqueue its convert work."""
         content_hash = hashlib.sha256(upload.content).hexdigest()
         doc_id = uuid5(NAMESPACE_URL, f"ugm:upload:{deployment_id}:{content_hash}")
@@ -113,6 +120,7 @@ class UploadIngestor:
                 raw_uri=raw_uri,
             ),
             convert_component_version=E0_CONVERT_VERSION,
+            lane=lane,
         )
 
     def ingest_observed(
@@ -126,6 +134,7 @@ class UploadIngestor:
         source_modified_at: datetime | None,
         source_version_ref: str | None,
         sync_cycle_id: UUID | None,
+        lane: ProcessingLane = ProcessingLane.STEADY,
     ) -> IngestedVersion:
         """Ingest one WATCHED observation of a lineage (D55).
 
@@ -166,6 +175,7 @@ class UploadIngestor:
                 sync_cycle_id=sync_cycle_id,
             ),
             convert_component_version=E0_CONVERT_VERSION,
+            lane=lane,
         )
 
 
