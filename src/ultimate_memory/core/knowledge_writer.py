@@ -25,8 +25,10 @@ def cap_knowledge_writer_bundle(
     excluded_relations = {
         item.relation_id for item in exclusions if item.relation_id is not None
     }
-    excluded_claims = {
-        item.claim_id for item in exclusions if item.claim_id is not None
+    excluded_claim_coordinates = {
+        (item.claim_lineage_id, item.claim_chunk_content_hash)
+        for item in exclusions
+        if item.claim_lineage_id is not None
     }
     excluded_docs = {item.doc_id for item in exclusions if item.doc_id is not None}
     facts = tuple(
@@ -37,12 +39,13 @@ def cap_knowledge_writer_bundle(
     fact_keys = {(fact.kind, fact.fact_id) for fact in facts}
     groups: list[KnowledgeWriterClaimGroup] = []
     for group in bundle.claim_groups:
-        if group.lineage_id in excluded_docs:
+        if (
+            group.lineage_id in excluded_docs
+            or _claim_group_key(group) in excluded_claim_coordinates
+        ):
             continue
         claims = []
         for claim in group.claims:
-            if claim.claim_id in excluded_claims:
-                continue
             references = tuple(
                 reference
                 for reference in claim.fact_references
@@ -113,12 +116,16 @@ def knowledge_writer_coverage(
     cited_relations = {
         item.relation_id for item in citations if item.relation_id is not None
     }
-    cited_claims = {item.claim_id for item in citations if item.claim_id is not None}
+    cited_claims = {
+        (item.claim_lineage_id, item.claim_chunk_content_hash)
+        for item in citations
+        if item.claim_lineage_id is not None
+    }
     cited_docs = {item.doc_id for item in citations if item.doc_id is not None}
     supporting_claims = {
-        item.claim_id
+        (item.claim_lineage_id, item.claim_chunk_content_hash)
         for item in citations
-        if item.claim_id is not None
+        if item.claim_lineage_id is not None
         and item.role in (KnowledgeEvidenceRole.SUPPORTS, KnowledgeEvidenceRole.CITES)
     }
     supporting_docs = {
@@ -131,14 +138,10 @@ def knowledge_writer_coverage(
     cited_groups: set[tuple[UUID, str]] = set()
     supported_facts: set[tuple[str, UUID]] = set()
     for group in bundle.claim_groups:
-        group_used = group.lineage_id in cited_docs
+        coordinate = _claim_group_key(group)
+        group_used = group.lineage_id in cited_docs or coordinate in cited_claims
         for claim in group.claims:
-            if claim.claim_id in cited_claims:
-                group_used = True
-            if (
-                claim.claim_id in supporting_claims
-                or claim.lineage_id in supporting_docs
-            ):
+            if coordinate in supporting_claims or claim.lineage_id in supporting_docs:
                 supported_facts.update(
                     (reference.kind, reference.fact_id)
                     for reference in claim.fact_references

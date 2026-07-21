@@ -1,6 +1,7 @@
 """Real-PostgreSQL lifecycle tests for the Phase 0 Alembic schema chain."""
 
 from pathlib import Path
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
@@ -89,6 +90,7 @@ def test_revision_graph_is_one_linear_structural_chain() -> None:
         "p4_01_0011",
         "p6_02_0012",
         "p6_04_0013",
+        "p6_05_0014",
     )
     assert len(script.get_heads()) == 1
 
@@ -97,6 +99,120 @@ def test_revision_graph_is_one_linear_structural_chain() -> None:
     ).lower()
     assert "insert into" not in migration_source
     assert "bootstrap_deployment" not in migration_source
+
+
+def test_claim_citation_coordinate_migration_deduplicates_real_rows() -> None:
+    """Two extraction generations collapse to one stable citation and downgrade cleanly."""
+    database_url = _database_url()
+    config = _alembic_config(database_url=database_url)
+    command.downgrade(config=config, revision="base")
+    command.upgrade(config=config, revision="p6_04_0013")
+    deployment_id = uuid4()
+    doc_id = uuid4()
+    chunk_id = uuid4()
+    artifact_id = uuid4()
+    claim_ids = (uuid4(), uuid4())
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO deployments (deployment_id, slug, name, raw_bucket,"
+                    " artifacts_bucket, corpusfs_bucket)"
+                    " VALUES (:deployment, 'citation-migration', 'Citation migration',"
+                    " 'mem://raw', 'mem://artifacts', 'mem://corpusfs')"
+                ),
+                {"deployment": deployment_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO documents (doc_id, deployment_id, source_kind, source_ref)"
+                    " VALUES (:doc, :deployment, 'test', 'citation-migration')"
+                ),
+                {"doc": doc_id, "deployment": deployment_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO chunks (chunk_id, deployment_id, doc_id, version_id,"
+                    " representation_id, ordinal, block_start, block_end,"
+                    " chunk_content_hash, extraction_input_hash, char_start, char_end)"
+                    " VALUES (:chunk, :deployment, :doc, :version, :representation,"
+                    " 0, 0, 0, 'stable-coordinate', 'input-coordinate', 0, 20)"
+                ),
+                {
+                    "chunk": chunk_id,
+                    "deployment": deployment_id,
+                    "doc": doc_id,
+                    "version": uuid4(),
+                    "representation": uuid4(),
+                },
+            )
+            for ordinal, claim_id in enumerate(claim_ids):
+                connection.execute(
+                    text(
+                        "INSERT INTO claims (claim_id, deployment_id, doc_id, chunk_id,"
+                        " claim_text, source_span, char_start, char_end, anchor_ok,"
+                        " window_membership_ok, extractor_version)"
+                        " VALUES (:claim, :deployment, :doc, :chunk, :body, :body,"
+                        " 0, 20, true, true, :extractor)"
+                    ),
+                    {
+                        "claim": claim_id,
+                        "deployment": deployment_id,
+                        "doc": doc_id,
+                        "chunk": chunk_id,
+                        "body": f"extraction generation {ordinal}",
+                        "extractor": f"extractor-{ordinal}",
+                    },
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO knowledge_artifacts (artifact_id, deployment_id, layer,"
+                    " page_kind, git_path) VALUES"
+                    " (:artifact, :deployment, 'K1', 'compiled', 'k/citation.md')"
+                ),
+                {"artifact": artifact_id, "deployment": deployment_id},
+            )
+            for claim_id in claim_ids:
+                connection.execute(
+                    text(
+                        "INSERT INTO knowledge_artifact_evidence (evidence_link_id,"
+                        " deployment_id, artifact_id, claim_id, role)"
+                        " VALUES (:link, :deployment, :artifact, :claim, 'supports')"
+                    ),
+                    {
+                        "link": uuid4(),
+                        "deployment": deployment_id,
+                        "artifact": artifact_id,
+                        "claim": claim_id,
+                    },
+                )
+
+        command.upgrade(config=config, revision="p6_05_0014")
+        with engine.connect() as connection:
+            stable_rows = connection.execute(
+                text(
+                    "SELECT claim_lineage_id, claim_chunk_content_hash"
+                    " FROM knowledge_artifact_evidence WHERE artifact_id = :artifact"
+                ),
+                {"artifact": artifact_id},
+            ).all()
+        assert stable_rows == [(doc_id, "stable-coordinate")]
+
+        command.downgrade(config=config, revision="p6_04_0013")
+        with engine.connect() as connection:
+            restored_claim_id = connection.execute(
+                text(
+                    "SELECT claim_id FROM knowledge_artifact_evidence"
+                    " WHERE artifact_id = :artifact"
+                ),
+                {"artifact": artifact_id},
+            ).scalar_one()
+        assert restored_claim_id in claim_ids
+    finally:
+        engine.dispose()
+        command.downgrade(config=config, revision="base")
+        command.upgrade(config=config, revision="head")
 
 
 def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> None:
@@ -114,7 +230,7 @@ def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> N
         "observation_evidence": 64,
         "relation_evidence": 64,
     }
-    assert len(fresh_inventory.tables) == 57
+    assert len(fresh_inventory.tables) == 59
     assert fresh_inventory.empty_tables == (
         "deployments",
         "entity_types",
@@ -141,5 +257,5 @@ def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> N
     head_before_noop = _head_revision(database_url=database_url)
     command.upgrade(config=config, revision="head")
     head_after_noop = _head_revision(database_url=database_url)
-    assert head_before_noop == head_after_noop == "p6_04_0013"
+    assert head_before_noop == head_after_noop == "p6_05_0014"
     assert _inventory(database_url=database_url) == restored_inventory

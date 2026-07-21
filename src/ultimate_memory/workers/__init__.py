@@ -24,12 +24,19 @@ from ultimate_memory.workers.e3 import AdjudicateSupersessionHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
+from ultimate_memory.workers.knowledge_driver import KNOWLEDGE_DRIVER_VERSION
 from ultimate_memory.workers.knowledge_driver import KnowledgeCommitDriver
+from ultimate_memory.workers.knowledge_driver import KnowledgeCommitSettings
 from ultimate_memory.workers.knowledge_driver import KnowledgePageCompiler
 from ultimate_memory.workers.knowledge_driver import KnowledgeRoutingDriver
 from ultimate_memory.workers.knowledge_fact_sheet import KNOWLEDGE_FACT_SHEET_VERSION
 from ultimate_memory.workers.knowledge_fact_sheet import KnowledgeFactSheetCompileError
 from ultimate_memory.workers.knowledge_fact_sheet import KnowledgeFactSheetCompiler
+from ultimate_memory.workers.knowledge_planner import KNOWLEDGE_PLANNER_VERSION
+from ultimate_memory.workers.knowledge_planner import KnowledgePlannerError
+from ultimate_memory.workers.knowledge_planner import KnowledgePlannerSession
+from ultimate_memory.workers.knowledge_planner import KnowledgePlannerSettings
+from ultimate_memory.workers.knowledge_planner import KnowledgePlannerWorker
 from ultimate_memory.workers.knowledge_writer import KNOWLEDGE_WRITER_VERSION
 from ultimate_memory.workers.knowledge_writer import KnowledgePageCompilerRouter
 from ultimate_memory.workers.knowledge_writer import KnowledgeProseCompiler
@@ -76,10 +83,17 @@ __all__ = (
     "LabelFactsHandler",
     "KnowledgeRoutingDriver",
     "KnowledgeCommitDriver",
+    "KnowledgeCommitSettings",
+    "KNOWLEDGE_DRIVER_VERSION",
     "KnowledgePageCompiler",
     "KnowledgeFactSheetCompileError",
     "KnowledgeFactSheetCompiler",
     "KNOWLEDGE_FACT_SHEET_VERSION",
+    "KNOWLEDGE_PLANNER_VERSION",
+    "KnowledgePlannerError",
+    "KnowledgePlannerSession",
+    "KnowledgePlannerSettings",
+    "KnowledgePlannerWorker",
     "KNOWLEDGE_WRITER_VERSION",
     "KnowledgePageCompilerRouter",
     "KnowledgeProseCompiler",

@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from datetime import datetime
 from datetime import UTC
+from decimal import Decimal
 import json
 from pathlib import Path
 from uuid import UUID
@@ -26,22 +27,38 @@ from ultimate_memory.model import DeploymentBootstrapInput
 from ultimate_memory.model import DocSetRuleParams
 from ultimate_memory.model import EntityRuleParams
 from ultimate_memory.model import EntitySubtreeRuleParams
+from ultimate_memory.model import KnowledgeAdjustRuleProposal
+from ultimate_memory.model import KnowledgeAgentSessionResult
 from ultimate_memory.model import KnowledgeArtifactCreate
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileContext
+from ultimate_memory.model import KnowledgeConvertKindProposal
+from ultimate_memory.model import KnowledgeCreatePageProposal
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeEvidenceRole
 from ultimate_memory.model import KnowledgeEvidenceTarget
 from ultimate_memory.model import KnowledgeLayer
+from ultimate_memory.model import KnowledgeMergePagesProposal
+from ultimate_memory.model import KnowledgeOrphanAggregate
 from ultimate_memory.model import KnowledgePageCompileRequest
 from ultimate_memory.model import KnowledgePageKind
 from ultimate_memory.model import KnowledgePageRuleCreate
 from ultimate_memory.model import KnowledgePlanAction
+from ultimate_memory.model import KnowledgePlanBand
 from ultimate_memory.model import KnowledgePlanDecisionCreate
+from ultimate_memory.model import KnowledgePlannedPage
+from ultimate_memory.model import KnowledgePlannerSessionRequest
+from ultimate_memory.model import KnowledgePlanningSnapshot
+from ultimate_memory.model import KnowledgePlanRunKind
+from ultimate_memory.model import KnowledgePlanRunStatus
+from ultimate_memory.model import KnowledgePlanRunWrite
 from ultimate_memory.model import KnowledgePlanStatus
 from ultimate_memory.model import KnowledgePlanTrigger
+from ultimate_memory.model import KnowledgeQuarantineStatus
+from ultimate_memory.model import KnowledgeRetirePageProposal
+from ultimate_memory.model import KnowledgeSplitPageProposal
 from ultimate_memory.model import KnowledgeWriterSessionRequest
 from ultimate_memory.model import KnowledgeWriterSessionResult
 from ultimate_memory.model import KnowledgeWriterSuggestion
@@ -57,6 +74,9 @@ from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.workers import KNOWLEDGE_FACT_SHEET_VERSION
 from ultimate_memory.workers import KnowledgeFactSheetCompiler
 from ultimate_memory.workers import KnowledgePageCompilerRouter
+from ultimate_memory.workers import KnowledgePlannerError
+from ultimate_memory.workers import KnowledgePlannerSettings
+from ultimate_memory.workers import KnowledgePlannerWorker
 from ultimate_memory.workers import KnowledgeProseCompiler
 from ultimate_memory.workers import KnowledgeRoutingDriver
 from ultimate_memory.workers import KnowledgeWriterError
@@ -522,6 +542,28 @@ class _WriterSession:
         )
 
 
+class _PlannerSession:
+    """Deterministic decisions-only stock-harness fake."""
+
+    def __init__(self, *, decisions_json: str) -> None:
+        self.decisions_json = decisions_json
+        self.requests: list[KnowledgePlannerSessionRequest] = []
+
+    def run_session(
+        self, *, request: KnowledgePlannerSessionRequest
+    ) -> KnowledgeAgentSessionResult:
+        """Return one declared decision file and an auditable raw transcript."""
+        self.requests.append(request)
+        return KnowledgeAgentSessionResult(
+            session_id=request.session_id,
+            exit_code=0,
+            output_files={"output/decisions.json": self.decisions_json},
+            transcript='{"stdout":"planner trace","stderr":""}',
+            tokens=23,
+            cost_usd=0.25,
+        )
+
+
 class _TranscriptStore:
     """Immutable in-memory store proving archive-before-parse ordering."""
 
@@ -567,12 +609,31 @@ def _writer_settings() -> KnowledgeWriterSettings:
     )
 
 
-def _writer_files(*, claim_id: UUID) -> dict[str, str]:
+def _planner_settings() -> KnowledgePlannerSettings:
+    """Return explicit cross-family planner settings with no hidden policy defaults."""
+    return KnowledgePlannerSettings(
+        planner_model="producer-test",
+        planner_model_family="openai",
+        reflection_model="checker-test",
+        reflection_model_family="xai",
+        timeout_seconds=60,
+        auto_apply_max_expected_impact=Decimal("0"),
+        transcript_prefix="k-planner-transcripts",
+    )
+
+
+def _writer_files(*, lineage_id: UUID, chunk_content_hash: str) -> dict[str, str]:
     """Return a valid raw prose/citation/summary/suggestion output set."""
     return {
         "output/prose.md": "# Root\n\nRoot is an active project.\n",
         "output/citations.json": json.dumps(
-            [{"role": "supports", "claim_id": str(claim_id)}]
+            [
+                {
+                    "role": "supports",
+                    "claim_lineage_id": str(lineage_id),
+                    "claim_chunk_content_hash": chunk_content_hash,
+                }
+            ]
         ),
         "output/summary.md": "Root is active. It works with Acme.",
         "output/suggestions.json": json.dumps(
@@ -1053,7 +1114,11 @@ def test_prose_compiler_archives_session_and_builds_mechanical_two_band_page(
         for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
         if item.artifact_id == page
     )
-    writer = _WriterSession(files=_writer_files(claim_id=corpus.claims["drive"]))
+    writer = _WriterSession(
+        files=_writer_files(
+            lineage_id=corpus.docs["drive"], chunk_content_hash="chunk-drive"
+        )
+    )
     transcripts = _TranscriptStore()
     compiler = KnowledgeProseCompiler(
         control_plane=corpus.control,
@@ -1078,7 +1143,9 @@ def test_prose_compiler_archives_session_and_builds_mechanical_two_band_page(
     )
     assert output.compilation.citations == (
         KnowledgeCitation(
-            role=KnowledgeEvidenceRole.SUPPORTS, claim_id=corpus.claims["drive"]
+            role=KnowledgeEvidenceRole.SUPPORTS,
+            claim_lineage_id=corpus.docs["drive"],
+            claim_chunk_content_hash="chunk-drive",
         ),
     )
     assert output.compilation.candidate_count > 0
@@ -1127,7 +1194,9 @@ def test_malformed_writer_output_keeps_archived_transcript_and_failure_row(
         for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
         if item.artifact_id == page
     )
-    files = _writer_files(claim_id=corpus.claims["drive"])
+    files = _writer_files(
+        lineage_id=corpus.docs["drive"], chunk_content_hash="chunk-drive"
+    )
     files["output/citations.json"] = "{malformed"
     writer = _WriterSession(files=files)
     transcripts = _TranscriptStore()
@@ -1176,7 +1245,9 @@ def test_writer_and_failure_ledger_errors_remain_visible_together(
         for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
         if item.artifact_id == page
     )
-    files = _writer_files(claim_id=corpus.claims["drive"])
+    files = _writer_files(
+        lineage_id=corpus.docs["drive"], chunk_content_hash="chunk-drive"
+    )
     files["output/citations.json"] = "{malformed"
     transcripts = _TranscriptStore()
     compiler = KnowledgeProseCompiler(
@@ -1321,7 +1392,9 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
                 relation_id=corpus.relations["root"],
             ),
             KnowledgeCitation(
-                role=KnowledgeEvidenceRole.CITES, claim_id=corpus.claims["drive"]
+                role=KnowledgeEvidenceRole.CITES,
+                claim_lineage_id=corpus.docs["drive"],
+                claim_chunk_content_hash="chunk-drive",
             ),
         ),
         writer_version="writer-test",
@@ -1330,6 +1403,34 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
     )
     corpus.control.record_pending_compilation(compilation=first)
     corpus.control.commit_compilation(compilation=first, git_commit="commit-first")
+
+    replacement_claim = uuid4()
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO claims (claim_id, deployment_id, doc_id, chunk_id,"
+                " claim_text, source_span, char_start, char_end, anchor_ok,"
+                " window_membership_ok, extractor_version, ingested_at)"
+                " VALUES (:claim, :deployment, :doc, :chunk, 'replacement extraction',"
+                " 'replacement extraction', 0, 20, true, true, 'extractor-new', :at)"
+            ),
+            {
+                "claim": replacement_claim,
+                "deployment": _DEPLOYMENT_ID,
+                "doc": corpus.docs["drive"],
+                "chunk": corpus.chunks["drive"],
+                "at": _NOW,
+            },
+        )
+    replacement_snapshot = corpus.control.input_snapshot(
+        artifact_id=page, context=context
+    )
+    assert knowledge_inputs_hash(snapshot=replacement_snapshot) == first.inputs_hash
+    assert corpus.control.route_delta(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(claim_ids=(replacement_claim,)),
+    ) == (page,)
+
     second = first.model_copy(
         update={
             "compilation_id": uuid4(),
@@ -1356,9 +1457,10 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
         live_before_push = (
             connection.execute(
                 text(
-                    "SELECT claim_id, relation_id, doc_id"
+                    "SELECT claim_lineage_id, claim_chunk_content_hash,"
+                    " relation_id, doc_id"
                     " FROM knowledge_artifact_evidence WHERE artifact_id = :a"
-                    " ORDER BY claim_id NULLS LAST, relation_id NULLS LAST"
+                    " ORDER BY claim_lineage_id NULLS LAST, relation_id NULLS LAST"
                 ),
                 {"a": page},
             )
@@ -1381,7 +1483,8 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
         citations = (
             connection.execute(
                 text(
-                    "SELECT claim_id, relation_id, doc_id"
+                    "SELECT claim_lineage_id, claim_chunk_content_hash,"
+                    " relation_id, doc_id"
                     " FROM knowledge_artifact_evidence WHERE artifact_id = :a"
                 ),
                 {"a": page},
@@ -1402,7 +1505,12 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
             .one()
         )
     assert citations == [
-        {"claim_id": None, "relation_id": None, "doc_id": corpus.docs["drive"]}
+        {
+            "claim_lineage_id": None,
+            "claim_chunk_content_hash": None,
+            "relation_id": None,
+            "doc_id": corpus.docs["drive"],
+        }
     ]
     assert transcript["cited_count"] == 1
     assert transcript["uncited_count"] == second.uncited_count
@@ -1427,3 +1535,616 @@ def test_compilation_replaces_binding_citations_and_records_deltas(
     )
     with pytest.raises(KnowledgeCompilationError):
         corpus.control.record_pending_compilation(compilation=invalid)
+
+
+def _plan_run(
+    *,
+    run_kind: KnowledgePlanRunKind = KnowledgePlanRunKind.PLANNER,
+    trigger: KnowledgePlanTrigger = KnowledgePlanTrigger.ORPHAN_EVIDENCE,
+) -> KnowledgePlanRunWrite:
+    """Build one successful transcript-bearing planner ledger row."""
+    run_id = uuid4()
+    return KnowledgePlanRunWrite(
+        run_id=run_id,
+        deployment_id=_DEPLOYMENT_ID,
+        run_kind=run_kind,
+        trigger=trigger,
+        component_version="planner-test",
+        input_hash=f"snapshot-{run_id}",
+        session_transcript_uri=f"mem://planner/{run_id}.json",
+        status=KnowledgePlanRunStatus.SUCCEEDED,
+        tokens=17,
+        cost_usd=Decimal("0.01"),
+    )
+
+
+def test_planner_run_routes_low_impact_create_and_applies_rules(
+    corpus: _Corpus,
+) -> None:
+    """The driver, not the proposing session, applies a low-impact page decision."""
+    proposal = KnowledgeCreatePageProposal(
+        page=KnowledgePlannedPage(
+            layer=KnowledgeLayer.K1,
+            git_path="k/planned-acme.md",
+            curation_path="k/planned-acme.curation.md",
+            writer_version="writer-test",
+            rules=(EntityRuleParams(entity_id=corpus.entities["acme"]),),
+        ),
+        rationale="Acme evidence needs a stable home.",
+        confidence=Decimal("1"),
+    )
+    results = corpus.control.record_plan_proposals(
+        run=_plan_run(),
+        proposals=(proposal,),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )
+    assert len(results) == 1
+    assert results[0].band is KnowledgePlanBand.AUTO_APPLY
+    assert results[0].status is KnowledgePlanStatus.APPLIED
+    assert results[0].blast_radius == 1
+    assert results[0].expected_impact == Decimal("0")
+
+    with corpus.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT a.page_kind::text AS page_kind,"
+                    " a.status::text AS status, r.rule_kind::text AS rule_kind,"
+                    " d.application_commit, d.plan_run_id"
+                    " FROM knowledge_artifacts a"
+                    " JOIN knowledge_page_rules r ON r.artifact_id = a.artifact_id"
+                    " JOIN knowledge_plan_decisions d"
+                    "   ON d.decision_id = r.plan_decision_id"
+                    " WHERE a.git_path = 'k/planned-acme.md'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert row["page_kind"] == "compiled"
+    assert row["status"] == "stale"
+    assert row["rule_kind"] == "entity"
+    assert row["application_commit"] is None
+    assert row["plan_run_id"] is not None
+
+
+def test_driver_applies_every_planner_structure_action_transactionally(
+    corpus: _Corpus,
+) -> None:
+    """Split, merge, retire, and rule replacement have explicit DB consequences."""
+    split_source = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]), slug="split-source"
+    )
+    split = KnowledgeSplitPageProposal(
+        source_artifact_id=split_source,
+        pages=(
+            KnowledgePlannedPage(
+                layer=KnowledgeLayer.K1,
+                git_path="k/split-a.md",
+                curation_path="k/split-a.curation.md",
+                writer_version="writer-test",
+                parent_artifact_id=split_source,
+                rules=(EntityRuleParams(entity_id=corpus.entities["root"]),),
+            ),
+            KnowledgePlannedPage(
+                layer=KnowledgeLayer.K1,
+                git_path="k/split-b.md",
+                curation_path="k/split-b.curation.md",
+                writer_version="writer-test",
+                parent_artifact_id=split_source,
+                rules=(EntityRuleParams(entity_id=corpus.entities["child"]),),
+            ),
+        ),
+        rationale="The page has two stable evidence domains.",
+        confidence=Decimal("1"),
+    )
+    corpus.control.record_plan_proposals(
+        run=_plan_run(trigger=KnowledgePlanTrigger.SIZE_OVERFLOW),
+        proposals=(split,),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )
+
+    merge_a = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["outside"]), slug="merge-a"
+    )
+    merge_b = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["acme"]), slug="merge-b"
+    )
+    merge = KnowledgeMergePagesProposal(
+        source_artifact_ids=(merge_a, merge_b),
+        page=KnowledgePlannedPage(
+            layer=KnowledgeLayer.K1,
+            git_path="k/merged.md",
+            curation_path="k/merged.curation.md",
+            writer_version="writer-test",
+            rules=(
+                EntityRuleParams(entity_id=corpus.entities["outside"]),
+                EntityRuleParams(entity_id=corpus.entities["acme"]),
+            ),
+        ),
+        rationale="The two leaves duplicate one evidence domain.",
+        confidence=Decimal("1"),
+    )
+    corpus.control.record_plan_proposals(
+        run=_plan_run(trigger=KnowledgePlanTrigger.REFLECTION),
+        proposals=(merge,),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )
+
+    adjusted = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]), slug="adjusted"
+    )
+    corpus.control.record_plan_proposals(
+        run=_plan_run(trigger=KnowledgePlanTrigger.WRITER_SUGGESTION),
+        proposals=(
+            KnowledgeAdjustRuleProposal(
+                artifact_id=adjusted,
+                rules=(EntityRuleParams(entity_id=corpus.entities["outside"]),),
+                rationale="The existing rule owns the wrong entity.",
+                confidence=Decimal("1"),
+            ),
+        ),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )
+
+    retired = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["child"]), slug="retired"
+    )
+    corpus.control.record_plan_proposals(
+        run=_plan_run(trigger=KnowledgePlanTrigger.REFLECTION),
+        proposals=(
+            KnowledgeRetirePageProposal(
+                artifact_id=retired,
+                rationale="No evidence or navigation path needs this leaf.",
+                confidence=Decimal("1"),
+            ),
+        ),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )
+
+    with corpus.engine.connect() as connection:
+        source_rule_statuses = set(
+            connection.execute(
+                text(
+                    "SELECT status::text FROM knowledge_page_rules"
+                    " WHERE artifact_id = :artifact"
+                ),
+                {"artifact": split_source},
+            ).scalars()
+        )
+        split_children = connection.execute(
+            text(
+                "SELECT count(*) FROM knowledge_artifacts"
+                " WHERE parent_artifact_id = :parent AND status = 'stale'"
+            ),
+            {"parent": split_source},
+        ).scalar_one()
+        merged_sources = set(
+            connection.execute(
+                text(
+                    "SELECT status::text FROM knowledge_artifacts"
+                    " WHERE artifact_id IN (:a, :b)"
+                ),
+                {"a": merge_a, "b": merge_b},
+            ).scalars()
+        )
+        merged_target = connection.execute(
+            text(
+                "SELECT status::text FROM knowledge_artifacts"
+                " WHERE git_path = 'k/merged.md'"
+            )
+        ).scalar_one()
+        adjusted_params = connection.execute(
+            text(
+                "SELECT params FROM knowledge_page_rules"
+                " WHERE artifact_id = :artifact AND status = 'active'"
+            ),
+            {"artifact": adjusted},
+        ).scalar_one()
+        retired_status = connection.execute(
+            text(
+                "SELECT status::text FROM knowledge_artifacts"
+                " WHERE artifact_id = :artifact"
+            ),
+            {"artifact": retired},
+        ).scalar_one()
+    assert source_rule_statuses == {"deprecated"}
+    assert split_children == 2
+    assert merged_sources == {"tombstoned"}
+    assert merged_target == "stale"
+    assert adjusted_params["entity_id"] == str(corpus.entities["outside"])
+    assert retired_status == "tombstoned"
+
+
+def test_reflection_and_authored_handover_always_require_review(
+    corpus: _Corpus,
+) -> None:
+    """Checker proposals and ownership loss cannot cross the review gate silently."""
+    compiled = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="reflection-target",
+    )
+    reflection = KnowledgeCreatePageProposal(
+        page=KnowledgePlannedPage(
+            layer=KnowledgeLayer.K1,
+            git_path="k/reflection-page.md",
+            curation_path="k/reflection-page.curation.md",
+            writer_version="writer-test",
+            rules=(EntityRuleParams(entity_id=corpus.entities["child"]),),
+        ),
+        rationale="Fresh eyes found a missing navigation leaf.",
+        confidence=Decimal("1"),
+    )
+    reflection_result = corpus.control.record_plan_proposals(
+        run=_plan_run(
+            run_kind=KnowledgePlanRunKind.REFLECTION,
+            trigger=KnowledgePlanTrigger.REFLECTION,
+        ),
+        proposals=(reflection,),
+        auto_apply_max_expected_impact=Decimal("99"),
+    )[0]
+    assert reflection_result.band is KnowledgePlanBand.REVIEW
+    assert reflection_result.status is KnowledgePlanStatus.PROPOSED
+    corpus.control.accept_plan_decision(
+        decision_id=reflection_result.decision_id, reviewed_by="review-agent"
+    )
+
+    authored = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["outside"]),
+        slug="authored-handover",
+        page_kind=KnowledgePageKind.AUTHORED,
+    )
+    handover = KnowledgeConvertKindProposal(
+        artifact_id=authored,
+        from_kind=KnowledgePageKind.AUTHORED,
+        to_kind=KnowledgePageKind.COMPILED,
+        writer_version="writer-test",
+        curation_path="k/authored-handover.curation.md",
+        rules=(EntityRuleParams(entity_id=corpus.entities["outside"]),),
+        rationale="The author confirmed the page is now wholly evidence-derived.",
+        confidence=Decimal("1"),
+    )
+    handover_result = corpus.control.record_plan_proposals(
+        run=_plan_run(trigger=KnowledgePlanTrigger.HUMAN),
+        proposals=(handover,),
+        auto_apply_max_expected_impact=Decimal("99"),
+    )[0]
+    assert handover_result.band is KnowledgePlanBand.REVIEW
+    with pytest.raises(KnowledgeCompilationError, match="author confirmation"):
+        corpus.control.accept_plan_decision(
+            decision_id=handover_result.decision_id, reviewed_by="review-agent"
+        )
+    corpus.control.accept_plan_decision(
+        decision_id=handover_result.decision_id,
+        reviewed_by="review-agent",
+        author_confirmed=True,
+    )
+    with corpus.engine.connect() as connection:
+        ownership = connection.execute(
+            text(
+                "SELECT page_kind::text, status::text, curation_path, content_hash"
+                " FROM knowledge_artifacts WHERE artifact_id = :a"
+            ),
+            {"a": authored},
+        ).one()
+        reflection_status = connection.execute(
+            text(
+                "SELECT status::text FROM knowledge_artifacts"
+                " WHERE git_path = 'k/reflection-page.md'"
+            )
+        ).scalar_one()
+    assert ownership == ("compiled", "stale", "k/authored-handover.curation.md", None)
+    assert reflection_status == "stale"
+    assert compiled in {
+        item.artifact_id
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+    }
+
+
+def test_compiled_edit_quarantine_is_durable_and_has_explicit_resolutions(
+    corpus: _Corpus,
+) -> None:
+    """A direct edit is excluded until adoption, curation, or rejection resolves it."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]),
+        slug="quarantine-adopt",
+    )
+    corpus.compile(artifact_id=page)
+    edited = "# Human revision\n\nKeep this framing.\n"
+    record = corpus.control.quarantine_compiled_edit(
+        artifact_id=page,
+        detected_content_hash=knowledge_content_hash(markdown=edited),
+        edited_markdown=edited,
+        driver_version="driver-test",
+    )
+    repeated = corpus.control.quarantine_compiled_edit(
+        artifact_id=page,
+        detected_content_hash=knowledge_content_hash(markdown=edited),
+        edited_markdown=edited,
+        driver_version="driver-test",
+    )
+    assert repeated.quarantine_id == record.quarantine_id
+    with pytest.raises(KnowledgeCompilationError, match="explicit quarantine"):
+        corpus.control.accept_plan_decision(
+            decision_id=record.decision_id, reviewed_by="generic-reviewer"
+        )
+    with pytest.raises(KnowledgeCompilationError, match="not reviewable"):
+        corpus.control.reject_plan_decision(
+            decision_id=record.decision_id, reviewed_by="generic-reviewer"
+        )
+    assert page not in {
+        item.artifact_id
+        for item in corpus.control.compile_artifacts(deployment_id=_DEPLOYMENT_ID)
+    }
+    corpus.control.adopt_quarantined_page(
+        quarantine_id=record.quarantine_id, reviewed_by="page-author"
+    )
+
+    curation_page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["child"]),
+        slug="quarantine-curation",
+    )
+    corpus.compile(artifact_id=curation_page)
+    curation_record = corpus.control.quarantine_compiled_edit(
+        artifact_id=curation_page,
+        detected_content_hash=knowledge_content_hash(markdown=edited),
+        edited_markdown=edited,
+        driver_version="driver-test",
+    )
+    with pytest.raises(KnowledgeCompilationError, match="does not contain"):
+        corpus.control.accept_quarantine_to_curation(
+            quarantine_id=curation_record.quarantine_id,
+            curation_markdown="# unrelated\n",
+            curation_content_hash="unrelated",
+            reviewed_by="curator",
+        )
+    corpus.control.accept_quarantine_to_curation(
+        quarantine_id=curation_record.quarantine_id,
+        curation_markdown=f"# Accepted guidance\n\n{edited}",
+        curation_content_hash="curation-hash",
+        reviewed_by="curator",
+    )
+    rejected_page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["outside"]),
+        slug="quarantine-rejected",
+    )
+    corpus.compile(artifact_id=rejected_page)
+    rejected_record = corpus.control.quarantine_compiled_edit(
+        artifact_id=rejected_page,
+        detected_content_hash=knowledge_content_hash(markdown=edited),
+        edited_markdown=edited,
+        driver_version="driver-test",
+    )
+    corpus.control.reject_quarantined_edit(
+        quarantine_id=rejected_record.quarantine_id, reviewed_by="curator"
+    )
+    with corpus.engine.connect() as connection:
+        adopted = connection.execute(
+            text(
+                "SELECT page_kind::text, status::text, writer_version, content_hash"
+                " FROM knowledge_artifacts WHERE artifact_id = :a"
+            ),
+            {"a": page},
+        ).one()
+        curation_state = connection.execute(
+            text(
+                "SELECT status::text, content_hash FROM knowledge_artifacts"
+                " WHERE artifact_id = :a"
+            ),
+            {"a": curation_page},
+        ).one()
+        rejected_state = connection.execute(
+            text(
+                "SELECT status::text, content_hash FROM knowledge_artifacts"
+                " WHERE artifact_id = :a"
+            ),
+            {"a": rejected_page},
+        ).one()
+        statuses = {
+            quarantine_id: status
+            for quarantine_id, status in connection.execute(
+                text(
+                    "SELECT quarantine_id, status FROM knowledge_quarantines"
+                    " ORDER BY detected_at"
+                )
+            ).tuples()
+        }
+    edited_hash = knowledge_content_hash(markdown=edited)
+    assert adopted == ("authored", "active", None, edited_hash)
+    assert curation_state == ("stale", None)
+    assert rejected_state == ("stale", None)
+    assert statuses[record.quarantine_id] == KnowledgeQuarantineStatus.ADOPTED.value
+    assert (
+        statuses[curation_record.quarantine_id]
+        == KnowledgeQuarantineStatus.CURATION_ACCEPTED.value
+    )
+    assert (
+        statuses[rejected_record.quarantine_id]
+        == KnowledgeQuarantineStatus.REJECTED.value
+    )
+
+
+def test_planning_snapshot_reports_only_unhoused_delta_candidates(
+    corpus: _Corpus,
+) -> None:
+    """Planner triggers use exact rule membership and stable candidate identities."""
+    page = corpus.page(
+        params=EntityRuleParams(entity_id=corpus.entities["root"]), slug="root-owner"
+    )
+    snapshot = corpus.control.planning_snapshot(
+        deployment_id=_DEPLOYMENT_ID,
+        scope_id=None,
+        delta=KnowledgeEvidenceDelta(
+            relation_ids=(corpus.relations["root"], corpus.relations["outside"]),
+            claim_ids=(corpus.claims["drive"], corpus.claims["email"]),
+            community_ids=(corpus.community_id,),
+        ),
+        page_sizes={page: 101},
+        page_size_limit_bytes=100,
+    )
+    aggregates = {
+        aggregate.entity_id: set(aggregate.candidate_keys)
+        for aggregate in snapshot.orphan_aggregates
+    }
+    outside_fact = f"fact:relation:{corpus.relations['outside']}"
+    outside_claim = f"claim:{corpus.docs['email']}:chunk-email"
+    assert corpus.entities["root"] not in aggregates
+    assert aggregates[corpus.entities["outside"]] == {outside_fact, outside_claim}
+    assert outside_fact in aggregates[corpus.entities["acme"]]
+    assert snapshot.overflow_artifact_ids == (page,)
+    assert snapshot.community_ids == (corpus.community_id,)
+
+
+def test_planner_worker_archives_then_routes_typed_decisions(corpus: _Corpus) -> None:
+    """The harness can only propose; its archived JSON is applied by the control plane."""
+    proposal = KnowledgeCreatePageProposal(
+        page=KnowledgePlannedPage(
+            layer=KnowledgeLayer.K1,
+            git_path="k/worker-created.md",
+            curation_path="k/worker-created.curation.md",
+            writer_version="writer-test",
+            rules=(EntityRuleParams(entity_id=corpus.entities["outside"]),),
+        ),
+        rationale="The orphan aggregate needs a compiled evidence home.",
+        confidence=Decimal("1"),
+    )
+    session = _PlannerSession(
+        decisions_json=json.dumps([proposal.model_dump(mode="json")])
+    )
+    store = _TranscriptStore()
+    worker = KnowledgePlannerWorker(
+        control_plane=corpus.control,
+        agent_session=session,
+        transcript_store=store,
+        mount_publisher=_MountPublisher(),
+        settings=_planner_settings(),
+        clock=lambda: _NOW,
+    )
+    snapshot = KnowledgePlanningSnapshot(
+        deployment_id=_DEPLOYMENT_ID,
+        orphan_aggregates=(
+            KnowledgeOrphanAggregate(
+                entity_id=corpus.entities["outside"],
+                candidate_keys=(f"fact:relation:{corpus.relations['outside']}",),
+            ),
+        ),
+        artifacts=(),
+    )
+
+    results = worker.run_planner(snapshot=snapshot)
+
+    assert results[0].status is KnowledgePlanStatus.APPLIED
+    assert len(store.objects) == 1
+    assert session.requests[0].model == "producer-test"
+    assert session.requests[0].sandbox.accepted_output_paths == (
+        "output/decisions.json",
+    )
+    with corpus.engine.connect() as connection:
+        run = (
+            connection.execute(
+                text(
+                    "SELECT run_kind, trigger::text AS trigger, status, tokens, cost_usd"
+                    " FROM knowledge_plan_runs"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        created = connection.execute(
+            text(
+                "SELECT status::text FROM knowledge_artifacts"
+                " WHERE git_path = 'k/worker-created.md'"
+            )
+        ).scalar_one()
+    assert run == {
+        "run_kind": "planner",
+        "trigger": "orphan_evidence",
+        "status": "succeeded",
+        "tokens": 23,
+        "cost_usd": Decimal("0.25"),
+    }
+    assert created == "stale"
+
+
+def test_planner_worker_records_parse_failure_after_transcript(corpus: _Corpus) -> None:
+    """Malformed agent output leaves a failed run and its original transcript."""
+    session = _PlannerSession(decisions_json="not-json")
+    store = _TranscriptStore()
+    worker = KnowledgePlannerWorker(
+        control_plane=corpus.control,
+        agent_session=session,
+        transcript_store=store,
+        mount_publisher=_MountPublisher(),
+        settings=_planner_settings(),
+        clock=lambda: _NOW,
+    )
+    snapshot = KnowledgePlanningSnapshot(deployment_id=_DEPLOYMENT_ID, artifacts=())
+
+    with pytest.raises(KnowledgePlannerError, match="typed contract"):
+        worker.run_planner(snapshot=snapshot)
+
+    assert list(store.objects.values()) == [b'{"stdout":"planner trace","stderr":""}']
+    with corpus.engine.connect() as connection:
+        failed = (
+            connection.execute(
+                text(
+                    "SELECT status, failure, session_transcript_uri"
+                    " FROM knowledge_plan_runs"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert failed["status"] == "failed"
+    assert "KnowledgePlannerError" in failed["failure"]
+    assert failed["session_transcript_uri"].startswith("k-planner-transcripts/")
+
+
+def test_reflection_uses_the_independent_model_and_review_only_band(
+    corpus: _Corpus,
+) -> None:
+    """The checker seat is cross-family and cannot auto-apply its proposals."""
+    proposal = KnowledgeCreatePageProposal(
+        page=KnowledgePlannedPage(
+            layer=KnowledgeLayer.K1,
+            git_path="k/reflection-worker.md",
+            curation_path="k/reflection-worker.curation.md",
+            writer_version="writer-test",
+            rules=(EntityRuleParams(entity_id=corpus.entities["root"]),),
+        ),
+        rationale="Reflection found a navigation dead end.",
+        confidence=Decimal("1"),
+    )
+    session = _PlannerSession(
+        decisions_json=json.dumps([proposal.model_dump(mode="json")])
+    )
+    worker = KnowledgePlannerWorker(
+        control_plane=corpus.control,
+        agent_session=session,
+        transcript_store=_TranscriptStore(),
+        mount_publisher=_MountPublisher(),
+        settings=_planner_settings(),
+        clock=lambda: _NOW,
+    )
+
+    results = worker.run_reflection(
+        snapshot=KnowledgePlanningSnapshot(deployment_id=_DEPLOYMENT_ID, artifacts=())
+    )
+
+    assert session.requests[0].model == "checker-test"
+    assert results[0].band is KnowledgePlanBand.REVIEW
+    assert results[0].status is KnowledgePlanStatus.PROPOSED
+
+
+def test_planner_settings_reject_same_family_reflection() -> None:
+    """Producer/checker separation is a binding deploy-time contract."""
+    with pytest.raises(ValidationError, match="different model family"):
+        KnowledgePlannerSettings(
+            planner_model="producer",
+            planner_model_family="OpenAI",
+            reflection_model="checker",
+            reflection_model_family="openai",
+            timeout_seconds=60,
+            auto_apply_max_expected_impact=Decimal("0"),
+            transcript_prefix="planner",
+        )

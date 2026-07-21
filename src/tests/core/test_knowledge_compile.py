@@ -170,12 +170,14 @@ def test_page_validation_rejects_unresolved_internal_links(markdown: str) -> Non
 def test_page_validation_rejects_excluded_citation_and_hash_drift() -> None:
     """Curation exclusions and the exact body hash are mechanical publish gates."""
     artifact = _artifact(git_path="source.md")
-    claim_id = uuid4()
+    relation_id = uuid4()
     output = _output(
         artifact=artifact,
         markdown="# Source\n",
         citations=(
-            KnowledgeCitation(role=KnowledgeEvidenceRole.SUPPORTS, claim_id=claim_id),
+            KnowledgeCitation(
+                role=KnowledgeEvidenceRole.SUPPORTS, relation_id=relation_id
+            ),
         ),
     )
 
@@ -184,7 +186,7 @@ def test_page_validation_rejects_excluded_citation_and_hash_drift() -> None:
             artifact=artifact,
             output=output,
             known_git_paths=(artifact.git_path,),
-            exclusions=(KnowledgeEvidenceTarget(claim_id=claim_id),),
+            exclusions=(KnowledgeEvidenceTarget(relation_id=relation_id),),
         )
 
     drifted = output.model_copy(update={"markdown": "# Changed after hashing\n"})
@@ -194,6 +196,37 @@ def test_page_validation_rejects_excluded_citation_and_hash_drift() -> None:
             output=drifted,
             known_git_paths=(artifact.git_path,),
             exclusions=(),
+        )
+
+
+def test_page_validation_rejects_excluded_stable_claim_coordinate() -> None:
+    """Raw claim-generation churn cannot bypass a claim curation exclusion."""
+    artifact = _artifact(git_path="source.md")
+    lineage_id = uuid4()
+    chunk_content_hash = "stable-chunk-content"
+    output = _output(
+        artifact=artifact,
+        markdown="# Source\n",
+        citations=(
+            KnowledgeCitation(
+                role=KnowledgeEvidenceRole.SUPPORTS,
+                claim_lineage_id=lineage_id,
+                claim_chunk_content_hash=chunk_content_hash,
+            ),
+        ),
+    )
+
+    with pytest.raises(KnowledgePageValidationError, match="excluded evidence"):
+        validate_knowledge_page_output(
+            artifact=artifact,
+            output=output,
+            known_git_paths=(artifact.git_path,),
+            exclusions=(
+                KnowledgeEvidenceTarget(
+                    claim_lineage_id=lineage_id,
+                    claim_chunk_content_hash=chunk_content_hash,
+                ),
+            ),
         )
 
 

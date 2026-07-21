@@ -1,4 +1,4 @@
-"""Sandboxed stock-Codex adapter for one Plane-K prose writer session."""
+"""Sandboxed stock-Codex adapter for one declared-output Plane-K session."""
 
 import json
 from pathlib import Path
@@ -9,28 +9,38 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
-from ultimate_memory.model import KnowledgeWriterSessionRequest
-from ultimate_memory.model import KnowledgeWriterSessionResult
+from ultimate_memory.model import KnowledgeAgentSessionRequest
+from ultimate_memory.model import KnowledgeAgentSessionResult
+
+
+class CodexAgentAdapterSettings(BaseSettings):
+    """The executable binding shared by Plane-K stock-harness seats."""
+
+    model_config = SettingsConfigDict(env_prefix="UGM_K_CODEX_")
+
+    executable: str = Field(default="codex", min_length=1)
 
 
 class CodexWriterAdapterSettings(BaseSettings):
-    """The executable binding for the Codex producer harness."""
+    """Backward-compatible writer-specific executable settings."""
 
     model_config = SettingsConfigDict(env_prefix="UGM_K_WRITER_CODEX_")
 
     executable: str = Field(default="codex", min_length=1)
 
 
-class CodexCLIWriterAdapter:
+class CodexCLIAgentAdapter:
     """Run Codex in an ephemeral non-git workspace and accept declared files only."""
 
-    def __init__(self, *, settings: CodexWriterAdapterSettings) -> None:
+    def __init__(
+        self, *, settings: CodexAgentAdapterSettings | CodexWriterAdapterSettings
+    ) -> None:
         """Bind the adapter to its settings-owned executable."""
         self._settings = settings
 
     def run_session(
-        self, *, request: KnowledgeWriterSessionRequest
-    ) -> KnowledgeWriterSessionResult:
+        self, *, request: KnowledgeAgentSessionRequest
+    ) -> KnowledgeAgentSessionResult:
         """Run one sandboxed session and return raw outputs without accepting them."""
         with TemporaryDirectory(prefix="ugm-k-writer-") as temporary:
             workspace = Path(temporary)
@@ -65,7 +75,7 @@ class CodexCLIWriterAdapter:
             except subprocess.TimeoutExpired as error:
                 stdout = _timeout_text(value=error.stdout)
                 stderr = _timeout_text(value=error.stderr)
-                return KnowledgeWriterSessionResult(
+                return KnowledgeAgentSessionResult(
                     session_id=request.session_id,
                     exit_code=None,
                     timed_out=True,
@@ -77,7 +87,7 @@ class CodexCLIWriterAdapter:
                     ),
                     tokens=_token_usage(stdout=stdout),
                 )
-            return KnowledgeWriterSessionResult(
+            return KnowledgeAgentSessionResult(
                 session_id=request.session_id,
                 exit_code=completed.returncode,
                 output_files=_declared_outputs(
@@ -96,7 +106,7 @@ class CodexCLIWriterAdapter:
 def _codex_command(
     *,
     executable: str,
-    request: KnowledgeWriterSessionRequest,
+    request: KnowledgeAgentSessionRequest,
     writer_workdir: Path,
     last_message: Path,
 ) -> list[str]:
@@ -206,3 +216,6 @@ def _token_usage(*, stdout: str) -> int | None:
         total += input_tokens + output_tokens
         found = True
     return total if found else None
+
+
+CodexCLIWriterAdapter = CodexCLIAgentAdapter

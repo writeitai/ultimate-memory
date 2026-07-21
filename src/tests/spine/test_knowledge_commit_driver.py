@@ -2,7 +2,10 @@
 
 from collections.abc import Iterator
 from collections.abc import Sequence
+from decimal import Decimal
 from pathlib import Path
+from threading import Barrier
+from threading import Lock
 from uuid import UUID
 from uuid import uuid4
 
@@ -21,9 +24,14 @@ from ultimate_memory.model import KnowledgeArtifactCreate
 from ultimate_memory.model import KnowledgeCommitCycleResult
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeLayer
+from ultimate_memory.model import KnowledgeMovePageProposal
 from ultimate_memory.model import KnowledgePageCompileOutput
 from ultimate_memory.model import KnowledgePageCompileRequest
 from ultimate_memory.model import KnowledgePageKind
+from ultimate_memory.model import KnowledgePlanRunKind
+from ultimate_memory.model import KnowledgePlanRunStatus
+from ultimate_memory.model import KnowledgePlanRunWrite
+from ultimate_memory.model import KnowledgePlanTrigger
 from ultimate_memory.model import KRevision
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import KnowledgeCommitBusyError
@@ -31,6 +39,7 @@ from ultimate_memory.spine import KnowledgeCompilationError
 from ultimate_memory.spine import KnowledgeControlPlane
 from ultimate_memory.spine.settings import load_database_settings
 from ultimate_memory.workers import KnowledgeCommitDriver
+from ultimate_memory.workers import KnowledgeCommitSettings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("62000000-0000-0000-0000-000000000002")
@@ -224,6 +233,34 @@ class _Compiler:
         )
 
 
+class _ConcurrentCompiler(_Compiler):
+    """Barrier-backed compiler proving siblings overlap in one dependency wave."""
+
+    def __init__(self, *, concurrent_artifact_ids: frozenset[UUID]) -> None:
+        super().__init__()
+        self.concurrent_artifact_ids = concurrent_artifact_ids
+        self.barrier = Barrier(len(concurrent_artifact_ids))
+        self.lock = Lock()
+        self.active = 0
+        self.peak_active = 0
+
+    def compile_page(
+        self, *, request: KnowledgePageCompileRequest
+    ) -> KnowledgePageCompileOutput:
+        """Hold only the selected sibling calls until each is concurrently active."""
+        if request.artifact.artifact_id not in self.concurrent_artifact_ids:
+            return super().compile_page(request=request)
+        with self.lock:
+            self.active += 1
+            self.peak_active = max(self.peak_active, self.active)
+        try:
+            self.barrier.wait(timeout=10)
+            return super().compile_page(request=request)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
 class _FailFirstFinalizeControlPlane(KnowledgeControlPlane):
     """Simulate process death after publish and before PG finalization."""
 
@@ -250,7 +287,10 @@ def _run(
 ) -> KnowledgeCommitCycleResult:
     """Run one cycle with no future curation exclusions."""
     return KnowledgeCommitDriver(
-        control_plane=control or graph.control, git_remote=remote, compiler=compiler
+        control_plane=control or graph.control,
+        git_remote=remote,
+        compiler=compiler,
+        settings=KnowledgeCommitSettings(max_parallel_pages=4),
     ).run_cycle(deployment_id=_DEPLOYMENT_ID, exclusions_by_artifact={})
 
 
@@ -267,10 +307,52 @@ def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) ->
     assert [request.artifact.artifact_id for request in compiler.requests] == list(
         graph.artifact_ids
     )
+
+
+def test_disjoint_sibling_writers_run_in_one_bounded_parallel_wave(
+    graph: _CompileGraph,
+) -> None:
+    """Independent children overlap, while their parent still consumes both summaries."""
+    sibling = graph._page(
+        git_path="work/sibling.md", kind="profile", parent_artifact_id=graph.parent
+    )
+    sibling_body = "# Old work/sibling.md\n"
+    with graph.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE knowledge_artifacts"
+                " SET status = 'stale', page_summary = 'old:work/sibling.md',"
+                " content_hash = :content_hash, inputs_hash = :inputs_hash"
+                " WHERE artifact_id = :artifact"
+            ),
+            {
+                "artifact": sibling,
+                "content_hash": knowledge_content_hash(markdown=sibling_body),
+                "inputs_hash": "e" * 64,
+            },
+        )
+    remote = _GitRemote(files={**graph.old_files, "work/sibling.md": sibling_body})
+    compiler = _ConcurrentCompiler(
+        concurrent_artifact_ids=frozenset((graph.child, sibling))
+    )
+
+    result = _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert compiler.peak_active == 2
+    assert result.published_revision == "head-1"
+    parent_request = next(
+        request
+        for request in compiler.requests
+        if request.artifact.artifact_id == graph.parent
+    )
+    assert set(parent_request.child_summaries) == {graph.child, sibling}
     requests = {request.artifact.artifact_id: request for request in compiler.requests}
     assert requests[graph.model].shared_model_summary is None
     assert requests[graph.child].shared_model_summary == "new:work/model.md"
-    assert requests[graph.parent].child_summaries == {graph.child: "new:work/child.md"}
+    assert requests[graph.parent].child_summaries == {
+        graph.child: "new:work/child.md",
+        sibling: "new:work/sibling.md",
+    }
     assert requests[graph.root].child_summaries == {graph.parent: "new:work/parent.md"}
 
     with graph.engine.connect() as connection:
@@ -292,7 +374,7 @@ def test_cycle_compiles_dependencies_and_publishes_once(graph: _CompileGraph) ->
         transcript_rows = list(transcripts)
     assert all(row["status"] == "active" for row in artifact_rows.values())
     assert all(row["page_summary"].startswith("new:") for row in artifact_rows.values())
-    assert len(transcript_rows) == 4
+    assert len(transcript_rows) == 5
     assert len({row["cycle_id"] for row in transcript_rows}) == 1
     assert {row["git_commit"] for row in transcript_rows} == {"head-1"}
 
@@ -315,6 +397,44 @@ def test_cycle_reads_prior_page_and_curation_sidecar_from_checkout(
     assert child_request.curation_hash == knowledge_content_hash(markdown=curation)
     assert requests[graph.parent].curation_markdown is None
     assert requests[graph.parent].curation_hash is None
+
+
+def test_rejected_quarantine_edit_is_not_reused_as_previous_machine_prose(
+    graph: _CompileGraph,
+) -> None:
+    """Rejecting a direct edit regenerates from evidence without absorbing that edit."""
+    with graph.engine.begin() as connection:
+        connection.execute(text("UPDATE knowledge_artifacts SET status = 'active'"))
+    edited = "# Direct human edit\n\nDo not absorb this body.\n"
+    remote = _GitRemote(files={**graph.old_files, "work/child.md": edited})
+
+    first = _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert first.quarantined_artifact_ids == (graph.child,)
+    assert first.published_revision is None
+    with graph.engine.connect() as connection:
+        quarantine_id = connection.execute(
+            text(
+                "SELECT quarantine_id FROM knowledge_quarantines"
+                " WHERE artifact_id = :artifact AND status = 'proposed'"
+            ),
+            {"artifact": graph.child},
+        ).scalar_one()
+    graph.control.reject_quarantined_edit(
+        quarantine_id=quarantine_id, reviewed_by="test-reviewer"
+    )
+    compiler = _Compiler()
+
+    second = _run(graph=graph, remote=remote, compiler=compiler)
+
+    child_request = next(
+        request
+        for request in compiler.requests
+        if request.artifact.artifact_id == graph.child
+    )
+    assert child_request.previous_markdown is None
+    assert second.published_revision == "head-1"
+    assert remote.files["work/child.md"] == "# New work/child.md\n"
 
 
 def test_changed_child_summary_propagates_through_active_ancestors(
@@ -562,3 +682,95 @@ def test_second_driver_cannot_enter_deployment_commit_cycle(
         with pytest.raises(KnowledgeCommitBusyError):
             with competing.commit_lease(deployment_id=_DEPLOYMENT_ID):
                 pytest.fail("competing driver unexpectedly acquired the commit lease")
+
+
+def test_driver_quarantines_direct_body_drift_before_compilation(
+    graph: _CompileGraph,
+) -> None:
+    """A checkout edit remains intact and its compiled owner leaves the schedule."""
+    remote = _GitRemote(files=graph.old_files)
+    direct_edit = "# Direct human edit\n\nDo not overwrite this.\n"
+    remote.files[graph.paths_by_id[graph.child]] = direct_edit
+    compiler = _Compiler()
+
+    result = _run(graph=graph, remote=remote, compiler=compiler)
+
+    assert result.quarantined_artifact_ids == (graph.child,)
+    assert graph.child not in {
+        request.artifact.artifact_id for request in compiler.requests
+    }
+    assert remote.files[graph.paths_by_id[graph.child]] == direct_edit
+    with graph.engine.connect() as connection:
+        artifact_status = connection.execute(
+            text(
+                "SELECT status::text FROM knowledge_artifacts"
+                " WHERE artifact_id = :artifact"
+            ),
+            {"artifact": graph.child},
+        ).scalar_one()
+        quarantine = (
+            connection.execute(
+                text(
+                    "SELECT proposed_sidecar_entry, status"
+                    " FROM knowledge_quarantines WHERE artifact_id = :artifact"
+                ),
+                {"artifact": graph.child},
+            )
+            .mappings()
+            .one()
+        )
+    assert artifact_status == "quarantined"
+    assert quarantine == {"proposed_sidecar_entry": direct_edit, "status": "proposed"}
+
+
+def test_driver_reconciles_move_and_stamps_its_single_git_revision(
+    graph: _CompileGraph,
+) -> None:
+    """An accepted move changes DB and files through the one-committer cycle."""
+    run_id = uuid4()
+    result = graph.control.record_plan_proposals(
+        run=KnowledgePlanRunWrite(
+            run_id=run_id,
+            deployment_id=_DEPLOYMENT_ID,
+            scope_id=graph.scope_id,
+            run_kind=KnowledgePlanRunKind.PLANNER,
+            trigger=KnowledgePlanTrigger.HUMAN,
+            component_version="planner-test",
+            input_hash=f"snapshot-{run_id}",
+            session_transcript_uri=f"mem://planner/{run_id}.json",
+            status=KnowledgePlanRunStatus.SUCCEEDED,
+        ),
+        proposals=(
+            KnowledgeMovePageProposal(
+                artifact_id=graph.child,
+                old_git_path="work/child.md",
+                new_git_path="work/moved-child.md",
+                old_curation_path="work/child.md.curation.md",
+                new_curation_path="work/moved-child.md.curation.md",
+                old_parent_artifact_id=graph.parent,
+                new_parent_artifact_id=graph.parent,
+                rationale="The profile belongs at its stable navigation path.",
+                confidence=Decimal("1"),
+            ),
+        ),
+        auto_apply_max_expected_impact=Decimal("0"),
+    )[0]
+    remote = _GitRemote(files=graph.old_files)
+
+    cycle = _run(graph=graph, remote=remote, compiler=_Compiler())
+
+    assert cycle.published_revision == "head-1"
+    assert cycle.stamped_plan_decision_ids == (result.decision_id,)
+    assert "work/child.md" not in remote.files
+    assert "work/moved-child.md" in remote.files
+    with graph.engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT a.git_path, a.curation_path, d.application_commit"
+                " FROM knowledge_artifacts a"
+                " JOIN knowledge_plan_decisions d ON d.decision_id = :decision"
+                " WHERE a.artifact_id = :artifact"
+            ),
+            {"artifact": graph.child, "decision": result.decision_id},
+        ).one()
+    assert row == ("work/moved-child.md", "work/moved-child.md.curation.md", "head-1")

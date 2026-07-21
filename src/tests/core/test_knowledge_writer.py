@@ -141,13 +141,16 @@ def test_excluded_evidence_is_neither_offered_nor_leaked_by_bundle_rendering() -
     """Curation exclusions shrink the offering before the writer sees any IDs or text."""
     bundle = _bundle()
     excluded_relation = KnowledgeEvidenceTarget(relation_id=_RELATION_ID)
-    excluded_claim = bundle.claim_groups[2].claims[0].claim_id
+    excluded_group = bundle.claim_groups[2]
 
     capped = cap_knowledge_writer_bundle(
         bundle=bundle,
         exclusions=(
             excluded_relation,
-            KnowledgeEvidenceTarget(claim_id=excluded_claim),
+            KnowledgeEvidenceTarget(
+                claim_lineage_id=excluded_group.lineage_id,
+                claim_chunk_content_hash=excluded_group.chunk_content_hash,
+            ),
         ),
         residue_claim_limit=5,
         evidence_claims_per_fact=5,
@@ -156,7 +159,7 @@ def test_excluded_evidence_is_neither_offered_nor_leaked_by_bundle_rendering() -
 
     assert _RELATION_ID not in {fact.fact_id for fact in capped.fact_sheet.facts}
     assert str(_RELATION_ID) not in rendered
-    assert str(excluded_claim) not in rendered
+    assert str(excluded_group.claims[0].claim_id) not in rendered
     assert "chunk-1" not in rendered
     assert "Claim 1" not in rendered
     assert all(
@@ -175,7 +178,7 @@ def test_coverage_credits_observation_only_through_supporting_claim_evidence() -
         residue_claim_limit=1,
         evidence_claims_per_fact=1,
     )
-    observation_claim = capped.claim_groups[1].claims[0]
+    observation_group = capped.claim_groups[1]
 
     coverage = knowledge_writer_coverage(
         bundle=capped,
@@ -184,7 +187,9 @@ def test_coverage_credits_observation_only_through_supporting_claim_evidence() -
                 role=KnowledgeEvidenceRole.SUPPORTS, relation_id=_RELATION_ID
             ),
             KnowledgeCitation(
-                role=KnowledgeEvidenceRole.SUPPORTS, claim_id=observation_claim.claim_id
+                role=KnowledgeEvidenceRole.SUPPORTS,
+                claim_lineage_id=observation_group.lineage_id,
+                claim_chunk_content_hash=observation_group.chunk_content_hash,
             ),
         ),
     )
