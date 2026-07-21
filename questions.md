@@ -174,15 +174,15 @@ Keep this current: when something here is decided, move it to a decision and pru
     every result is re-verified by-ID against live Postgres at hydration (staleness costs
     recall, never correctness), and the envelope stamps freshness per contributing source (PG
     live / P1 lag / P2 snapshot ts / K compiled_at + flags). See `retrieval_design.md` §2/§5.
-24. **End-to-end hard delete / GDPR.** E0 §2 covers raw+artifact+Postgres-row deletion, and the
-    **K side is now mechanical** (D45/D46: citation reverse-lookup → compiled pages recompile
-    without the evidence, authored pages get author-redaction flags; residual: **K-repo
-    git-history erasure**, named in `k_layers_design.md` §10). Still open: reaching the immutable
-    **P2/P3 snapshots**, the **P1/Lance** indexes, coordinating the active-store cascade, and a
-    portable purge record that prevents restore from resurrecting forgotten data. The library
-    owns that contract and its adapter hooks; physical backup schedules/expiry are operator/cloud
-    responsibilities (D60). Requirement remains "every derived layer" (requirements §Deletion
-    cascade).
+24. ~~**End-to-end hard delete / GDPR.**~~ **RESOLVED (D74,
+    `plan/designs/hard_forget_design.md`).** One append-first portable manifest is the durable
+    lineage-forget intent outside the ordinary restore set; one fail-closed, idempotent worker
+    reuses the normal lifecycle transition, scrubs PostgreSQL, purges objects/P1, rebuilds and
+    removes old P2/P3 snapshots, and erases affected K paths from history. Serving readiness
+    replays every manifest before traffic, so an old restore cannot resurrect content. Authored K
+    and curation prose must be owner-redacted before acceptance; the library never rewrites it.
+    Provider backup schedules/expiry remain operator/cloud responsibilities under D60. WP-7.5 now
+    implements and activates the S55 gate; design resolution alone is not runtime completion.
 
 ## 5. Concrete inconsistencies to fix
 
@@ -231,14 +231,14 @@ Keep this current: when something here is decided, move it to a decision and pru
 - **The K plane design** (was #15 "highest risk, least designed", #12 O2, #13 O4, #21 the
   shared-repo bottleneck) → **D45–D47** + `plan/designs/k_layers_design.md`: manifest-driven
   planner/writer/driver compilation; compiled vs authored pages; one mechanism with K1 plus K2
-  scopes (D73 removes the proposed K3 default). Open remainders stay tracked above (#6 cadence, #24 hard-delete
-  residuals) and in the design's §11 spikes.
+  scopes (D73 removes the proposed K3 default). Open remainders stay tracked above (#6 cadence)
+  and in the design's §11 spikes; D74 closes the hard-forget design residual.
 
 - **Ontology seed** (was "what seeds the ontology") → **D18** (8 core types + 14 predicates, since grown to 16 by D64, with
   domain/range; extension packs; `other:` promotion).
 - **Multi-tenant / ID scoping** (was "single user or multi-tenant") → **D16** + the deployment model
   (`registries_design.md` §1): separate deployments = separate Postgres instances + entity spaces.
-- **Raw/artifact deletion** (was "hard-delete requirements") → **E0 §2** (deletes raw + artifacts +
-  Postgres rows + K tombstone). *Not* fully resolved — the end-to-end cascade across P1/P2/P3
-  snapshots and K markdown plus restore non-resurrection is still open (#24 / O4). Physical
-  backup scheduling/expiry is operator/cloud scope under D60.
+- **Raw/artifact deletion** (was "hard-delete requirements") → **E0 §2** for normal deletion;
+  **D74 / `hard_forget_design.md`** resolves the irreversible P1/P2/P3/K purge and restore
+  non-resurrection contract. WP-7.5 implementation and S55 proof remain; physical backup
+  scheduling/expiry is operator/cloud scope under D60.

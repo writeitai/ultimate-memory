@@ -256,11 +256,11 @@ masquerade as the other (requirements §Retrieval, D41).
   reaches the API/mounts at all) is deployment infrastructure, not the library.
 - **S55** ⏳ After a hard-forget of document D: no query — semantic, verbatim, graph, K, or
   browse — resurfaces its content; and *forgotten* is indistinguishable from *never existed*
-  (deletion cascade §13; K git-history erasure). **This is the contract; its CI gate is
-  inactive until the end-to-end deletion cascade (`questions.md` #24 — P1/P2/P3 snapshots,
-  K history, and restore non-resurrection) is designed** — a retrieval contract cannot enforce
-  an unresolved lifecycle. Physical backup retention is operator/cloud policy under D60; the
-  library must make its restore behavior safe regardless.
+  (deletion cascade §13; K git-history erasure). **This is the contract; D74 now designs the
+  P1/P2/P3/K active-store purge and restore non-resurrection path.** Its CI gate activates when
+  WP-7.5's executable canary is green, not merely because the design exists. Physical backup
+  retention is operator/cloud policy under D60; the library makes restored serving state safe
+  through portable-manifest replay regardless.
 
 ## O. Identity lifecycle — merges, un-merges, identity as-of
 

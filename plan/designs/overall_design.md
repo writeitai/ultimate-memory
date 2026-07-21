@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D73); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D74); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -212,10 +212,11 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
   involved; budgets enforced, not advisory.
 - **Versioning**: prompt/model/embedding versions on every artifact; embedding migration is
   a planned batch path (re-embed by version filter).
-- **Deletion cascade**: input removal propagates E1→P2; plane K is reached mechanically via
-  citations (D45/D46) — compiled pages recompile without the removed evidence, authored pages
-  are review-flagged; hard-delete supported (K-repo git-history erasure:
-  `k_layers_design.md` §10).
+- **Deletion cascade**: normal input removal propagates through currency/counting and reaches K
+  mechanically via citations (D45/D46). D74 hard-forget additionally scrubs PostgreSQL, explicitly
+  purges object/P1/old P2/P3/local-serving copies, erases affected K history after owner redaction,
+  and re-honors one portable manifest before every serving readiness
+  (`hard_forget_design.md`).
 - **Maintenance**: Lance compaction schedule; rebuild drills; semantic linter cadence;
   predicate-registry review.
 - **Observability**: typed pipeline telemetry plus CLI/admin inspection of DLQ, per-stage
@@ -242,9 +243,10 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `packaging_distribution_design.md` | delivery artifacts, delivery-only task execution, enforced code architecture (D62) | **current** |
 | `media_design.md` | media (images/audio/video): converter routes, source locators, derivation disclosure, media search (D65) | **current** |
 | `docs_site_design.md` | public docs site: in-repo Next.js/MDX static module + same-PR truthfulness contract (D66) | **current** |
+| `hard_forget_design.md` | lineage hard-forget, active-store purge, and restore non-resurrection (D74) | **current** |
 
 ## 10. Open questions
 
-Tracked in `questions.md` (root). Highest-impact for design work: backfill vs. steady-state
-volumes, hard-delete obligations. (The embedding model is decided — D63: port config, default
-`qwen3-embedding-8b`; what remains is the stored-dimension measurement.)
+Tracked in `questions.md` (root). Hard-delete obligations are resolved by D74; remaining open
+items do not alter the active-store purge contract. (The embedding model is decided — D63: port
+config, default `qwen3-embedding-8b`; what remains is the stored-dimension measurement.)

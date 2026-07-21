@@ -1778,6 +1778,7 @@ and the **reference adapter** (which is also what the cloud offering runs):
 | Model / embedding providers | BYO keys | configured providers |
 | Telemetry export | OTLP / stdout | managed collection |
 | Auth perimeter | API keys (the D50 trust model) | swappable middleware (SSO lives outside the library) |
+| Hard-forget manifest + store purge capabilities (D74) | dedicated append-only manifest root + LocalFS/Lance/local-Git erasure | separately durable manifest store + reference object/P1/mount/K erasure |
 
 **Anti-goal — the engine is not abstracted.** Postgres, LanceDB, LadybugDB, the E/K/P data model,
 PageIndex/semchunk/Claimify, and the K compile machine are the system's *identity*, not substrate; no
@@ -1815,6 +1816,13 @@ snapshots only. Postgres owns nullable lane, due time, defer reason, handler-att
 DLQ. The self-host initial wake is a schema-owned transactional `AFTER INSERT` notification, not a
 port-side insert; explicit port announcements only wake existing rows. Cloud Tasks delivery
 attempts and self-host wake-ups cannot consume an application attempt.
+
+**Refined by D74 (portable hard-forget).** `ForgetManifestPort` is the sole durable source of
+lineage-forget intent outside the ordinary restore set. `ObjectPurgePort`, `P1PurgePort`,
+`ProjectionPurgePort`, and `KGitPurgePort` are narrow erasure capabilities implemented by the same
+two maintained store adapters above, not new engine abstractions or provider families. Every serving
+readiness pass re-honors every manifest; PostgreSQL completion is progress, never permission to skip
+a separately restored store.
 
 ---
 
@@ -2437,3 +2445,50 @@ decision; K3 is not a reserved roadmap promise. D45/D46, authored review flags, 
 compilation, and configurable scope layout are unchanged. This changes terminology and project
 status documentation, but adds no new public runtime feature or configuration surface under
 D66.
+
+## D74. Hard-forget is an append-first, fail-closed lineage purge with one portable manifest
+
+**Decision.** Hard-forget targets one document lineage and runs one straight, resumable path
+across the existing lifecycle cascade, PostgreSQL scrubbing, object/P1 deletion, clean P2/P3
+rebuilds plus old-snapshot removal, and K history erasure. Before the request is accepted, a
+content-free, versioned manifest is appended through a narrow `ForgetManifestPort`; that manifest
+is the durable source of intent outside the ordinary restore set. PostgreSQL materializes it and
+tracks the ordinary worker's progress. While a request is `preparing` or an accepted manifest is
+incomplete, every serving surface for the deployment fails closed. Completion requires mechanical
+store verification and the S55 contract; failures remain visible and never reopen admission.
+
+The manifest carries only stable IDs, hashes, exact object/snapshot targets, P1 row IDs, and K
+artifact IDs needed to replay after any one store has already been scrubbed. A readiness step
+enumerates manifests before traffic, rematerializes missing work, and re-honors the external purge
+for **every** manifest even when PostgreSQL still says `complete`; an old database, index, snapshot,
+object bucket, local serving cache, or K restore therefore cannot serve forgotten content.
+Completed source-identity/content hashes remain irreversible ingest guards. Physical
+backup schedules and expiry remain operator/cloud policy under D60, but a backup is not an active
+serving store until manifest replay succeeds.
+
+Authored K pages and compiled-page curation sidecars must be redacted by their accountable owner
+(human or agent) before manifest append. The library reports the exact blocking paths and never
+invents replacement authored prose. Once clean, the K adapter erases affected paths from all
+reachable history and re-adds only their sanitized current files. Independently supported facts
+survive; source-exclusive payloads and derived identities do not. The normative workflow, record
+shape, adapter responsibilities, restore gate, and acceptance canary live in
+`plan/designs/hard_forget_design.md`.
+
+**Context.** Question #24 was the remaining gap between normal, audit-preserving deletion and the
+S55 promise. Rebuilding projections only changes the latest pointer: it does not erase immutable
+P1/P2/P3 bytes, local serving copies, K history, or data restored from an older backup. A database-
+only tombstone also cannot survive restoration of a database from before the request. Conversely,
+putting backup topology, lifecycle schedules, or a hosted deletion controller in the OSS library
+would cross D60 and violate the simplicity rule.
+
+**Rejected alternatives.** Distributed rollback/transactions across five stores; a second deletion
+scheduler or control plane; provider-specific backup policy in the library; semantic similarity
+erasure; treating hard-forget as normal soft deletion; silently rewriting authored prose; and
+claiming projections purge "for free." Durable preparation followed by append-first acceptance,
+idempotent stages, and a temporary serving/ordinary-work barrier (with the forget coordinator
+explicitly authorized) are intentionally less available but much smaller and easier to prove.
+
+**Consequences.** Gate #24 is resolved and WP-7.5 may implement the design. The OSS adds one
+portable manifest port and exact purge hooks, not a hosted operations layer. WP-7.7 exports/imports
+the same manifests before data. S55 activates only when WP-7.5's deterministic active-store and
+restore canary is green; design resolution alone does not pretend the runtime contract is shipped.

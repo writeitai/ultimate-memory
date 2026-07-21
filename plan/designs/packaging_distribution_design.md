@@ -220,8 +220,8 @@ ports and published extension points, keeping it portable off GCP too.
   exactly its **sources of truth** — the Postgres database (dump), the raw + artifacts
   buckets (object sync), and the K git repo (clone). Projections (P1/P2/P3) are *not*
   exported: they rebuild from the spine on import by the standard cycle. `ugm export` /
-  `ugm import` wrap those three + a manifest (versions, deployment id, and the deletion/
-  non-resurrection state selected by the #24 design); this doubles as the cloud↔self-host
+  `ugm import` wrap those three + a manifest (versions, deployment id, and D74's portable
+  hard-forget manifests, imported before serving); this doubles as the cloud↔self-host
   migration path in both directions (no lock-in — a D60 credibility requirement).
 
 ## 7. Decision interactions
@@ -245,7 +245,7 @@ ports and published extension points, keeping it portable off GCP too.
    granularity — measure under Phase 7's fixed portable scale profiles.
 3. **Compose quickstart UX**: measure the cold-start-to-first-query time; it is a release
    gate (target: minutes).
-4. **Export/import round-trip drill** (after #24/WP-7.5): self-host → export → import →
+4. **Export/import round-trip drill** (after D74/WP-7.5): self-host → export → import →
    projections rebuild → deletion state reapplied → forgotten-data non-resurrection canary +
    S-battery subset green; belongs in Phase 7's drills.
 5. **MCP server distribution**: whether the MCP server also ships as a standalone binary/uvx

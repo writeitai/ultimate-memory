@@ -18,8 +18,8 @@ HA manager, backup scheduler, or parallel source of operational truth. Extend th
 Postgres state, narrow ports, typed settings, and CLI/admin surfaces along one shared path for
 self-host and reference adapters.
 
-**Entry gates:** none. Work-package-local gates remain explicit: #24 must be designed before
-WP-7.5; rename/clearance + CLA gate WP-7.6 only.
+**Entry gates:** none. Work-package-local gates remain explicit: #24 is resolved by D74 before
+WP-7.5 implementation; rename/clearance + CLA gate WP-7.6 only.
 **Exit criteria:** fixed synthetic scale profiles exercise the D23 shapes and portable batching;
 a fixture budget parks and later resumes work without loss; telemetry/admin surfaces expose
 pipeline and DLQ state; rebuild and forget drills pass; S55 is green across active serving stores
@@ -32,7 +32,7 @@ their round trips.
 | WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | done |
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | done |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
-| WP-7.5 | **Hard-delete end-to-end**: design first, then purge active P1/P2/P3/K surfaces and prevent restore resurrection through the portable purge record/adapter contract | new design (gate #24); lifecycle §8; k_layers §10; S55 | gate #24 | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | blocked(#24) |
+| WP-7.5 | **Hard-delete end-to-end**: purge active P1/P2/P3/K surfaces and prevent restore resurrection through the D74 portable manifest/adapter contract | hard-forget design; lifecycle §8; k_layers §10; S55 | D74 (gate #24 resolved) | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | planned |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
 | WP-7.7 | **Export/import round-trip**: `ugm export`/`import` (Postgres dump + buckets + K repo + deletion state; projections rebuild on import) | packaging §6; D7, D62 | WP-7.1, WP-7.5 | export/import CLI | round-trip drill → no forgotten-data resurrection + S-battery subset green | planned |
 
@@ -120,3 +120,21 @@ the original exception object and exporter failures propagate. Self-hosting can 
 per event with the full exception cause chain; tests use an in-memory recorder. `ugm ops inspect`,
 `replay`, and `rebuild` are thin local admin commands. Rebuild selects the existing production
 `GraphRebuildWorker` or `CorpusFsBuilder`, so the drill cannot diverge into a recovery-only path.
+
+## WP-7.5 design gate (D74)
+
+Hard-forget is one lineage-scoped, append-first workflow, not an extension of reversible normal
+deletion and not a hosted operations feature. A content-free portable manifest is durably appended
+outside the ordinary restore set before acceptance; PostgreSQL materializes that one intent and the
+existing work ledger tracks execution. A durable `preparing` row blocks public/ordinary work while
+leaving the authorized forget coordinator's internal calls available; pre-append failures are
+resumed or safely reopen admission before any append attempt. The worker reuses the normal currency
+cascade, scrubs PostgreSQL, purges objects/P1, publishes clean P2/P3 snapshots and deletes old ones,
+then erases affected K paths from history. Every serving readiness pass re-honors every portable
+manifest—including locally complete ones—so independently restoring an old external store cannot
+resurrect forgotten content.
+
+Authored pages and compiled-page curation sidecars must be owner-redacted before acceptance. This
+keeps D46 intact without introducing a human-only gate: the accountable owner may be an agent, but
+the library never invents replacement authored prose. The normative record, ordering, adapter
+hooks, scope boundaries, and S55/restore canary are in `plan/designs/hard_forget_design.md`.

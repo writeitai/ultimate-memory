@@ -744,19 +744,21 @@ any other; only content no source yet attests must be authored.
 
 The deletion cascade (requirements; E0 §2) reaches plane K mechanically through citations:
 
-- **Delete a document** → its claims/relations/evidence go (E-plane cascade) → reverse lookup
-  through `knowledge_artifact_evidence` → affected **compiled** pages recompile without the
-  removed evidence; affected **authored** pages get review flags; pages whose rules now match
-  nothing become planner retire proposals. No tombstone guesswork.
+- **Delete a document** → its testimony currency ends and current support changes (the E-plane
+  cascade retains audit history) → reverse lookup through `knowledge_artifact_evidence` before
+  scrub → affected **compiled** pages recompile without the removed evidence; affected **authored**
+  pages get review flags; pages whose rules now match nothing become planner retire proposals. No
+  tombstone guesswork.
 - **Hard forget (GDPR)** additionally requires erasing the *text* the evidence produced. New
   compiled bodies regenerate clean, but **git history retains prior page versions** — so the
   K repo's hard-forget mechanism is a history-erasure step (rewrite/squash of the affected
   paths' history, e.g. `git filter-repo`), scoped by the citation index to exactly the pages
-  that ever cited the forgotten source. The library records enough deletion state for restore
-  to reapply the erasure; backup schedules and physical expiry belong to the operator/cloud
-  under D60.
-  Authored pages that cited it are flagged for the author to redact — the system must not
-  rewrite an author's words, even to forget.
+  that ever cited the forgotten source. D74 makes those artifact IDs part of the portable
+  content-free manifest, so a restored K remote is erased again before serving; backup schedules
+  and physical expiry belong to the operator/cloud under D60. Authored pages and compiled-page
+  curation sidecars must be owner-redacted before the forget manifest is accepted — the system
+  reports exact blocking paths and never rewrites an author's words. See
+  `hard_forget_design.md` for the ordering and restore gate.
 
 ## 11. Consequences, residuals, and spikes
 
@@ -790,9 +792,10 @@ structurally (one committer, disjoint writes, DAG order).
    E2/E3 harness (`questions.md` #14) as one eval surface.
 4. Compile-cycle economics at scale (dirty-pages distribution per debounce window; hub-page
    budgets; shared-model-page recompile blast radius).
-5. Git-history erasure + restore non-resurrection mechanics for hard-forget (filter-repo on a
-   living repo; provider backup rotation remains an operator/cloud concern under D60) —
-   coordinates with the end-to-end forget item (`questions.md` #24).
+5. ~~Git-history erasure + restore non-resurrection mechanics for hard-forget~~ **DESIGNED by
+   D74** — affected paths are erased from every reachable ref and restored remotes replay the
+   portable manifest before serving; WP-7.5 supplies the executable canary. Provider backup
+   rotation remains an operator/cloud concern under D60.
 6. **Future-state extraction** for migration-style scopes (§9): decision-language →
    `Decision` entities + future-dated D41 windows, and how planned flows normalize
    (future-dated `uses`/`depends_on` relations vs Decision-mediated) — measure on a corpus
