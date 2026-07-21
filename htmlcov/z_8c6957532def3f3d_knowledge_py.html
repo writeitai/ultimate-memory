@@ -55,8 +55,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">371 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">347<span class="text"> run</span></button>
+            <span class="text">374 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">350<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">24<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">14<span class="text"> partial</span></button>
@@ -64,10 +64,10 @@
         <p class="text">
             <a id="prevFileLink" class="nav" href="z_8c6957532def3f3d_git_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a id="nextFileLink" class="nav" href="z_8c6957532def3f3d_knowledge_planner_py.html">&#xbb; next</a>
+            <a id="nextFileLink" class="nav" href="z_8c6957532def3f3d_knowledge_authored_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-21 00:26 +0000
+            created at 2026-07-21 02:56 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -897,38 +897,41 @@
     <p class="run"><span class="n"><a id="t813" href="#t813">813</a></span><span class="t">    <span class="nam">recovered_cycle_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t814" href="#t814">814</a></span><span class="t">    <span class="nam">quarantined_artifact_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t815" href="#t815">815</a></span><span class="t">    <span class="nam">stamped_plan_decision_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t816" href="#t816">816</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t817" href="#t817">817</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t818" href="#t818">818</a></span><span class="t"><span class="key">class</span> <span class="nam">KnowledgeEvidenceDelta</span><span class="op">(</span><span class="nam">BaseModel</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t819" href="#t819">819</a></span><span class="t">    <span class="str">"""Fact/document/community identifiers changed since the previous K cycle."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t816" href="#t816">816</a></span><span class="t">    <span class="nam">registered_authored_artifact_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t817" href="#t817">817</a></span><span class="t">    <span class="nam">synced_authored_artifact_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t818" href="#t818">818</a></span><span class="t">    <span class="nam">authored_lint_flag_artifact_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t819" href="#t819">819</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t820" href="#t820">820</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t821" href="#t821">821</a></span><span class="t">    <span class="nam">model_config</span> <span class="op">=</span> <span class="nam">ConfigDict</span><span class="op">(</span><span class="nam">frozen</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">extra</span><span class="op">=</span><span class="str">"forbid"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t822" href="#t822">822</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t823" href="#t823">823</a></span><span class="t">    <span class="nam">relation_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t824" href="#t824">824</a></span><span class="t">    <span class="nam">observation_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t825" href="#t825">825</a></span><span class="t">    <span class="nam">claim_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t826" href="#t826">826</a></span><span class="t">    <span class="nam">doc_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t827" href="#t827">827</a></span><span class="t">    <span class="nam">community_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t828" href="#t828">828</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t829" href="#t829">829</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t830" href="#t830">830</a></span><span class="t"><span class="key">class</span> <span class="nam">KnowledgeArtifactHash</span><span class="op">(</span><span class="nam">BaseModel</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t831" href="#t831">831</a></span><span class="t">    <span class="str">"""One artifact's recorded and freshly computed staleness keys."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t821" href="#t821">821</a></span><span class="t"><span class="key">class</span> <span class="nam">KnowledgeEvidenceDelta</span><span class="op">(</span><span class="nam">BaseModel</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t822" href="#t822">822</a></span><span class="t">    <span class="str">"""Fact/document/community identifiers changed since the previous K cycle."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t823" href="#t823">823</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t824" href="#t824">824</a></span><span class="t">    <span class="nam">model_config</span> <span class="op">=</span> <span class="nam">ConfigDict</span><span class="op">(</span><span class="nam">frozen</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">extra</span><span class="op">=</span><span class="str">"forbid"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t825" href="#t825">825</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t826" href="#t826">826</a></span><span class="t">    <span class="nam">relation_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t827" href="#t827">827</a></span><span class="t">    <span class="nam">observation_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t828" href="#t828">828</a></span><span class="t">    <span class="nam">claim_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t829" href="#t829">829</a></span><span class="t">    <span class="nam">doc_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t830" href="#t830">830</a></span><span class="t">    <span class="nam">community_ids</span><span class="op">:</span> <span class="nam">tuple</span><span class="op">[</span><span class="nam">UUID</span><span class="op">,</span> <span class="op">...</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t831" href="#t831">831</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t832" href="#t832">832</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t833" href="#t833">833</a></span><span class="t">    <span class="nam">model_config</span> <span class="op">=</span> <span class="nam">ConfigDict</span><span class="op">(</span><span class="nam">frozen</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">extra</span><span class="op">=</span><span class="str">"forbid"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t834" href="#t834">834</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t835" href="#t835">835</a></span><span class="t">    <span class="nam">artifact_id</span><span class="op">:</span> <span class="nam">UUID</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t836" href="#t836">836</a></span><span class="t">    <span class="nam">recorded_hash</span><span class="op">:</span> <span class="nam">str</span> <span class="op">|</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t837" href="#t837">837</a></span><span class="t">    <span class="nam">computed_hash</span><span class="op">:</span> <span class="nam">str</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t833" href="#t833">833</a></span><span class="t"><span class="key">class</span> <span class="nam">KnowledgeArtifactHash</span><span class="op">(</span><span class="nam">BaseModel</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t834" href="#t834">834</a></span><span class="t">    <span class="str">"""One artifact's recorded and freshly computed staleness keys."""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t835" href="#t835">835</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t836" href="#t836">836</a></span><span class="t">    <span class="nam">model_config</span> <span class="op">=</span> <span class="nam">ConfigDict</span><span class="op">(</span><span class="nam">frozen</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">extra</span><span class="op">=</span><span class="str">"forbid"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t837" href="#t837">837</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t838" href="#t838">838</a></span><span class="t">    <span class="nam">artifact_id</span><span class="op">:</span> <span class="nam">UUID</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t839" href="#t839">839</a></span><span class="t">    <span class="nam">recorded_hash</span><span class="op">:</span> <span class="nam">str</span> <span class="op">|</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t840" href="#t840">840</a></span><span class="t">    <span class="nam">computed_hash</span><span class="op">:</span> <span class="nam">str</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
         <p>
             <a class="nav" href="z_8c6957532def3f3d_git_py.html">&#xab; prev</a> &nbsp; &nbsp;
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
-            <a class="nav" href="z_8c6957532def3f3d_knowledge_planner_py.html">&#xbb; next</a>
+            <a class="nav" href="z_8c6957532def3f3d_knowledge_authored_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-21 00:26 +0000
+            created at 2026-07-21 02:56 +0000
         </p>
     </div>
 </footer>
