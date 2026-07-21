@@ -39,7 +39,8 @@ class PipelineStage(StrEnum):
     COMPILE_KNOWLEDGE = "compile_knowledge"
     REFLECT_KNOWLEDGE = "reflect_knowledge"
     LINT_KNOWLEDGE = "lint_knowledge"
-    RECONCILE = "reconcile"  # appended (ALTER TYPE ADD VALUE lands last)
+    RECONCILE = "reconcile"
+    DISPATCH_KNOWLEDGE = "dispatch_knowledge"  # appended by WP-6.6
 
 
 class ProcessingLane(StrEnum):

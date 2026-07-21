@@ -27,6 +27,10 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.knowledge_authored import authored_declaration_is_empty
+from ultimate_memory.core.knowledge_authored import knowledge_citation_reference
+from ultimate_memory.core.knowledge_authored import KnowledgeAuthoredDeclarationError
+from ultimate_memory.core.knowledge_authored import parse_knowledge_authored_frontmatter
 from ultimate_memory.core.knowledge_compile import knowledge_compile_order
 from ultimate_memory.core.knowledge_compile import KnowledgeCompileGraphError
 from ultimate_memory.core.knowledge_compile import KnowledgePageValidationError
@@ -93,14 +97,17 @@ __all__ = (
     "DEFAULT_RRF_K",
     "KNOWN_OPS",
     "KnowledgeCompileGraphError",
+    "KnowledgeAuthoredDeclarationError",
     "KnowledgeFactLifecycle",
     "KnowledgePageValidationError",
     "knowledge_content_hash",
+    "knowledge_citation_reference",
     "knowledge_compile_order",
     "knowledge_inputs_hash",
     "knowledge_planning_input_hash",
     "knowledge_summary_hash",
     "primary_knowledge_plan_trigger",
+    "parse_knowledge_authored_frontmatter",
     "compose_knowledge_page",
     "RecipeLintError",
     "lint_recipe",
@@ -114,4 +121,5 @@ __all__ = (
     "rerank_by_signal",
     "rerank_by_weighted_signals",
     "validate_knowledge_page_output",
+    "authored_declaration_is_empty",
 )

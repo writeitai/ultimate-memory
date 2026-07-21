@@ -813,6 +813,9 @@ class KnowledgeCommitCycleResult(BaseModel):
     recovered_cycle_ids: tuple[UUID, ...] = ()
     quarantined_artifact_ids: tuple[UUID, ...] = ()
     stamped_plan_decision_ids: tuple[UUID, ...] = ()
+    registered_authored_artifact_ids: tuple[UUID, ...] = ()
+    synced_authored_artifact_ids: tuple[UUID, ...] = ()
+    authored_lint_flag_artifact_ids: tuple[UUID, ...] = ()
 
 
 class KnowledgeEvidenceDelta(BaseModel):

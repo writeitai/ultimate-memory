@@ -145,8 +145,8 @@ CREATE TYPE pipeline_component     AS ENUM (
   'extractor','grounder','resolver','normalizer','adjudicator','embedder','fact_labeler',
   'profile_summarizer','community_detector','snapshot_builder','knowledge_planner',
   'knowledge_writer','knowledge_reflector','knowledge_linter','judge');
-CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','observation','entity','snapshot','knowledge_artifact');
-CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge');
+CREATE TYPE processing_target      AS ENUM ('document','document_section','chunk','claim','relation','observation','entity','snapshot','knowledge_artifact','document_version','knowledge_dispatch');
+CREATE TYPE pipeline_stage         AS ENUM ('ingest','convert','structure','crossref','chunk','embed_chunk','extract_claims','embed_claim','ground_claims','resolve_entities','normalize_relations','adjudicate_supersession','adjudicate_observations','embed_relation','label_relation','embed_observation','label_observation','refresh_profile','build_snapshot','detect_communities','compile_knowledge','reflect_knowledge','lint_knowledge','reconcile','dispatch_knowledge');
 CREATE TYPE processing_status      AS ENUM ('pending','running','succeeded','failed','dead_letter','skipped');
 -- D67: only plane-E routes use operational lanes. K/P (and other scheduled aggregate) jobs
 -- represent their single unlaned route with SQL NULL, never a synthetic third enum value.

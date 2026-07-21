@@ -388,7 +388,10 @@ class _Corpus:
             },
         )
 
-    def _artifact(self, connection: object, key: str, status: str) -> UUID:
+    def _artifact(
+        self, connection: object, key: str, status: str, page_kind: str = "compiled"
+    ) -> UUID:
+        """Insert one compiled or authored discovery-page fixture."""
         artifact_id = uuid4()
         self.art[key] = artifact_id
         connection.execute(  # type: ignore[attr-defined]
@@ -396,7 +399,8 @@ class _Corpus:
                 "INSERT INTO knowledge_artifacts (artifact_id, deployment_id,"
                 " layer, page_kind, git_path, page_summary, last_compiled_at,"
                 " status)"
-                " VALUES (:a, :d, 'K1', 'compiled', :path, :summary, :at,"
+                " VALUES (:a, :d, 'K1', CAST(:page_kind AS knowledge_page_kind),"
+                " :path, :summary, :at,"
                 " CAST(:status AS knowledge_artifact_status))"
             ),
             {
@@ -406,6 +410,7 @@ class _Corpus:
                 "summary": f"Everything about {key}",
                 "at": _COMPILE,
                 "status": status,
+                "page_kind": page_kind,
             },
         )
         return artifact_id
@@ -459,7 +464,10 @@ class _Corpus:
         fresh = self._artifact(connection, "alice_fresh", "active")
         stale = self._artifact(connection, "alice_stale", "active")
         tombstoned = self._artifact(connection, "alice_gone", "tombstoned")
-        for artifact_id in (fresh, stale, tombstoned):
+        authored = self._artifact(
+            connection, "alice_decision", "active", page_kind="authored"
+        )
+        for artifact_id in (fresh, stale, tombstoned, authored):
             self._rule_on(connection, artifact_id, plan_decision)
         # a queued, unprocessed refresh makes `stale` stale
         connection.execute(  # type: ignore[attr-defined]
@@ -469,6 +477,16 @@ class _Corpus:
                 " VALUES (:r, :d, :a, 'evidence_changed')"
             ),
             {"r": uuid4(), "d": _DEPLOYMENT_ID, "a": stale},
+        )
+        connection.execute(  # type: ignore[attr-defined]
+            text(
+                "INSERT INTO knowledge_refresh_queue (refresh_id, deployment_id,"
+                " artifact_id, trigger, payload)"
+                " VALUES (:r, :d, :a, 'authored_review',"
+                " jsonb_build_object('reasons', jsonb_build_array('tombstone'),"
+                " 'redaction_required', true))"
+            ),
+            {"r": uuid4(), "d": _DEPLOYMENT_ID, "a": authored},
         )
         # a compilation of the fresh page (the k_page transcript + delta feed)
         connection.execute(  # type: ignore[attr-defined]
@@ -766,6 +784,10 @@ def test_pages_about_discovers_pages_and_flags_stale(corpus: _Corpus) -> None:
     assert corpus.art["alice_gone"] not in by_id  # tombstoned excluded
     assert by_id[corpus.art["alice_fresh"]].stale is False
     assert by_id[corpus.art["alice_stale"]].stale is True
+    authored = by_id[corpus.art["alice_decision"]]
+    assert authored.stale is False
+    assert authored.open_review_flags == 1
+    assert authored.redaction_required is True
 
 
 def test_pages_about_with_no_pages_is_known_empty(corpus: _Corpus) -> None:

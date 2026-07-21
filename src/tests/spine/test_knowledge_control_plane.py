@@ -30,12 +30,16 @@ from ultimate_memory.model import EntitySubtreeRuleParams
 from ultimate_memory.model import KnowledgeAdjustRuleProposal
 from ultimate_memory.model import KnowledgeAgentSessionResult
 from ultimate_memory.model import KnowledgeArtifactCreate
+from ultimate_memory.model import KnowledgeAuthoredDeclaration
+from ultimate_memory.model import KnowledgeAuthoredPageSync
+from ultimate_memory.model import KnowledgeAuthoredReviewReason
 from ultimate_memory.model import KnowledgeCitation
 from ultimate_memory.model import KnowledgeCompilationFailure
 from ultimate_memory.model import KnowledgeCompilationWrite
 from ultimate_memory.model import KnowledgeCompileContext
 from ultimate_memory.model import KnowledgeConvertKindProposal
 from ultimate_memory.model import KnowledgeCreatePageProposal
+from ultimate_memory.model import KnowledgeDispatchStatus
 from ultimate_memory.model import KnowledgeEvidenceDelta
 from ultimate_memory.model import KnowledgeEvidenceRole
 from ultimate_memory.model import KnowledgeEvidenceTarget
@@ -59,19 +63,27 @@ from ultimate_memory.model import KnowledgePlanTrigger
 from ultimate_memory.model import KnowledgeQuarantineStatus
 from ultimate_memory.model import KnowledgeRetirePageProposal
 from ultimate_memory.model import KnowledgeSplitPageProposal
+from ultimate_memory.model import KnowledgeSubscriptionCreate
+from ultimate_memory.model import KnowledgeWorkflowDelivery
 from ultimate_memory.model import KnowledgeWriterSessionRequest
 from ultimate_memory.model import KnowledgeWriterSessionResult
 from ultimate_memory.model import KnowledgeWriterSuggestion
 from ultimate_memory.model import ManualRuleParams
 from ultimate_memory.model import ObjectKey
+from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import PredicateBeatRuleParams
 from ultimate_memory.model import PublishedMounts
+from ultimate_memory.model import RunResultOutcome
 from ultimate_memory.model import ScopeInterestsRuleParams
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import KnowledgeCompilationError
 from ultimate_memory.spine import KnowledgeControlPlane
+from ultimate_memory.spine import WorkLedger
+from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import HandlerRegistry
 from ultimate_memory.workers import KNOWLEDGE_FACT_SHEET_VERSION
+from ultimate_memory.workers import KnowledgeDispatchHandler
 from ultimate_memory.workers import KnowledgeFactSheetCompiler
 from ultimate_memory.workers import KnowledgePageCompilerRouter
 from ultimate_memory.workers import KnowledgePlannerError
@@ -81,6 +93,7 @@ from ultimate_memory.workers import KnowledgeProseCompiler
 from ultimate_memory.workers import KnowledgeRoutingDriver
 from ultimate_memory.workers import KnowledgeWriterError
 from ultimate_memory.workers import KnowledgeWriterSettings
+from ultimate_memory.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("61000000-0000-0000-0000-000000000001")
@@ -741,7 +754,7 @@ def test_stale_set_is_exact_and_claim_reextraction_is_stable(corpus: _Corpus) ->
     doc_page = corpus.page(
         params=DocSetRuleParams(source_kind="google_drive"), slug="stale-doc-set"
     )
-    corpus.page(
+    authored_page = corpus.page(
         params=EntityRuleParams(entity_id=corpus.entities["root"]),
         slug="authored",
         page_kind=KnowledgePageKind.AUTHORED,
@@ -806,6 +819,10 @@ def test_stale_set_is_exact_and_claim_reextraction_is_stable(corpus: _Corpus) ->
             contexts=contexts,
         )
     ) == {page, doc_page}
+    assert (
+        corpus.control.authored_review_state(artifact_id=authored_page).open_flag_count
+        == 1
+    )
     context = corpus.compile(artifact_id=page)
     doc_context = corpus.compile(artifact_id=doc_page)
 
@@ -2148,3 +2165,371 @@ def test_planner_settings_reject_same_family_reflection() -> None:
             auto_apply_max_expected_impact=Decimal("0"),
             transcript_prefix="planner",
         )
+
+
+def test_authored_sync_routes_exact_flags_and_page_compile_deltas(
+    corpus: _Corpus,
+) -> None:
+    """Authored ground syncs atomically and only exact evidence/page changes flag it."""
+    watched_id = corpus.page(
+        params=PredicateBeatRuleParams(predicate="works_for"), slug="watched-record"
+    )
+    markdown = "# Authored decision\n\nKeep the current ordering.\n"
+    citation = KnowledgeCitation(
+        role=KnowledgeEvidenceRole.CITES, relation_id=corpus.relations["root"]
+    )
+    result = corpus.control.sync_authored_page(
+        sync=KnowledgeAuthoredPageSync(
+            deployment_id=_DEPLOYMENT_ID,
+            git_path="decisions/ordering.md",
+            markdown=markdown,
+            content_hash=knowledge_content_hash(markdown=markdown),
+            git_revision="authored-1",
+            declaration=KnowledgeAuthoredDeclaration(
+                citations=(citation,),
+                watch_rules=(
+                    PredicateBeatRuleParams(
+                        predicate="works_for", subject_entity_id=corpus.entities["root"]
+                    ),
+                ),
+                watched_page_paths=("k/watched-record.md",),
+            ),
+        )
+    )
+    assert result.registered
+    assert not result.lint_flagged
+
+    revised_markdown = f"{markdown}\nAn authored clarification.\n"
+    preserved = corpus.control.sync_authored_page(
+        sync=KnowledgeAuthoredPageSync(
+            deployment_id=_DEPLOYMENT_ID,
+            git_path="decisions/ordering.md",
+            markdown=revised_markdown,
+            content_hash=knowledge_content_hash(markdown=revised_markdown),
+            git_revision="authored-2",
+            declaration=KnowledgeAuthoredDeclaration(),
+        )
+    )
+    assert preserved.artifact_id == result.artifact_id
+    assert preserved.content_changed
+    with corpus.engine.connect() as connection:
+        counts = (
+            connection.execute(
+                text(
+                    "SELECT"
+                    " (SELECT count(*) FROM knowledge_artifact_evidence"
+                    "  WHERE artifact_id = :artifact_id) AS citations,"
+                    " (SELECT count(*) FROM knowledge_page_rules"
+                    "  WHERE artifact_id = :artifact_id AND status = 'active') AS rules,"
+                    " (SELECT count(*) FROM knowledge_page_watches"
+                    "  WHERE watcher_artifact_id = :artifact_id) AS watches"
+                ),
+                {"artifact_id": result.artifact_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert counts == {"citations": 1, "rules": 1, "watches": 1}
+
+    routed = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+    )
+    assert routed.authored_artifact_ids == (result.artifact_id,)
+    state = corpus.control.authored_review_state(artifact_id=result.artifact_id)
+    assert state.open_flag_count == 1
+    assert state.payloads[0].reasons == (
+        KnowledgeAuthoredReviewReason.EVIDENCE_CHANGED,
+    )
+
+    with corpus.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE relations SET predicate = 'works_for' WHERE relation_id = :r"),
+            {"r": corpus.relations["outside"]},
+        )
+    filtered = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["outside"],)),
+    )
+    assert filtered.authored_artifact_ids == ()
+
+    context = KnowledgeCompileContext(
+        curation_hash="curation-test", writer_version="writer-test"
+    )
+    snapshot = corpus.control.input_snapshot(artifact_id=watched_id, context=context)
+    compilation = KnowledgeCompilationWrite(
+        compilation_id=uuid4(),
+        deployment_id=_DEPLOYMENT_ID,
+        artifact_id=watched_id,
+        inputs_hash=knowledge_inputs_hash(snapshot=snapshot),
+        candidate_count=len(snapshot.facts) + len(snapshot.claims),
+        uncited_count=len(snapshot.facts) + len(snapshot.claims) - 1,
+        citations=(citation,),
+        writer_version="writer-test",
+        page_summary="The watched record changed.",
+        content_hash=knowledge_content_hash(markdown="# Watched\n"),
+    )
+    corpus.control.record_pending_compilation(compilation=compilation)
+    corpus.control.commit_compilation(
+        compilation=compilation, git_commit="watched-compile-1"
+    )
+    page_payload = corpus.control.authored_review_state(
+        artifact_id=result.artifact_id
+    ).payloads[0]
+    assert KnowledgeAuthoredReviewReason.PAGE_RECOMPILED in page_payload.reasons
+    assert page_payload.page_refs == ("k/watched-record.md",)
+    assert page_payload.citations_added == (
+        f"cites:relation:{corpus.relations['root']}",
+    )
+    corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+        tombstone=True,
+    )
+    tombstone_state = corpus.control.authored_review_state(
+        artifact_id=result.artifact_id
+    )
+    assert tombstone_state.redaction_required
+    assert KnowledgeAuthoredReviewReason.TOMBSTONE in (
+        tombstone_state.payloads[0].reasons
+    )
+
+
+def test_authored_declaration_lint_and_invalid_citation_are_atomic(
+    corpus: _Corpus,
+) -> None:
+    """Groundless pages stay visibly flagged and invalid declarations leave no row."""
+    markdown = "# Ungrounded target state\n"
+    result = corpus.control.sync_authored_page(
+        sync=KnowledgeAuthoredPageSync(
+            deployment_id=_DEPLOYMENT_ID,
+            git_path="targets/ungrounded.md",
+            markdown=markdown,
+            content_hash=knowledge_content_hash(markdown=markdown),
+            git_revision="authored-lint",
+            declaration=KnowledgeAuthoredDeclaration(
+                citations=(), watch_rules=(), watched_page_paths=()
+            ),
+        )
+    )
+    assert result.lint_flagged
+    assert corpus.control.authored_review_state(
+        artifact_id=result.artifact_id
+    ).payloads[0].reasons == (KnowledgeAuthoredReviewReason.DECLARATION_MISSING,)
+
+    invalid_markdown = "# Invalid premise\n"
+    with pytest.raises(KnowledgeCompilationError, match="citation target"):
+        corpus.control.sync_authored_page(
+            sync=KnowledgeAuthoredPageSync(
+                deployment_id=_DEPLOYMENT_ID,
+                git_path="targets/invalid.md",
+                markdown=invalid_markdown,
+                content_hash=knowledge_content_hash(markdown=invalid_markdown),
+                git_revision="authored-invalid",
+                declaration=KnowledgeAuthoredDeclaration(
+                    citations=(
+                        KnowledgeCitation(
+                            role=KnowledgeEvidenceRole.CITES, relation_id=uuid4()
+                        ),
+                    )
+                ),
+            )
+        )
+    with corpus.engine.connect() as connection:
+        invalid_count = connection.execute(
+            text(
+                "SELECT count(*) FROM knowledge_artifacts"
+                " WHERE deployment_id = :d AND git_path = 'targets/invalid.md'"
+            ),
+            {"d": _DEPLOYMENT_ID},
+        ).scalar_one()
+    assert invalid_count == 0
+
+
+def test_subscription_dispatch_coalesces_delta_and_materializes_d67_work(
+    corpus: _Corpus,
+) -> None:
+    """One debounce window carries the exact delta into one generic worker target."""
+    subscription_id = uuid4()
+    corpus.control.register_subscription(
+        subscription=KnowledgeSubscriptionCreate(
+            subscription_id=subscription_id,
+            deployment_id=_DEPLOYMENT_ID,
+            name="replan-on-employment-change",
+            workflow_endpoint="demo://planning/replan",
+            debounce_seconds=60,
+            created_by="planner-test",
+            rules=(PredicateBeatRuleParams(predicate="works_for"),),
+        )
+    )
+    first = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+    )
+    second = corpus.control.route_notifications(
+        deployment_id=_DEPLOYMENT_ID,
+        delta=KnowledgeEvidenceDelta(
+            relation_ids=(corpus.relations["root"],),
+            claim_ids=(corpus.claims["drive"],),
+        ),
+    )
+    assert first.dispatch_ids == second.dispatch_ids
+    dispatch_id = first.dispatch_ids[0]
+    with corpus.engine.begin() as connection:
+        payload = connection.execute(
+            text(
+                "UPDATE knowledge_dispatches"
+                " SET enqueued_at = now() - interval '2 minutes'"
+                " WHERE dispatch_id = :dispatch_id RETURNING payload"
+            ),
+            {"dispatch_id": dispatch_id},
+        ).scalar_one()
+        pending_count = connection.execute(
+            text(
+                "SELECT count(*) FROM knowledge_dispatches"
+                " WHERE subscription_id = :subscription_id AND status = 'pending'"
+            ),
+            {"subscription_id": subscription_id},
+        ).scalar_one()
+    assert pending_count == 1
+    assert payload["delta"]["relation_ids"] == [str(corpus.relations["root"])]
+    assert payload["delta"]["claim_ids"] == [str(corpus.claims["drive"])]
+
+    materialized = corpus.control.materialize_due_dispatches(
+        deployment_id=_DEPLOYMENT_ID, component_version="dispatch-test-v1"
+    )
+    assert len(materialized) == 1
+    assert materialized[0].dispatch_id == dispatch_id
+    with corpus.engine.connect() as connection:
+        work = connection.execute(
+            text(
+                "SELECT target_kind::text, stage::text, lane::text"
+                " FROM processing_state WHERE processing_id = :processing_id"
+            ),
+            {"processing_id": materialized[0].processing_id},
+        ).one()
+    assert work == ("knowledge_dispatch", "dispatch_knowledge", None)
+    record = corpus.control.begin_dispatch(dispatch_id=dispatch_id)
+    assert record.status is KnowledgeDispatchStatus.RUNNING
+    assert record.workflow_endpoint == "demo://planning/replan"
+    corpus.control.complete_dispatch(dispatch_id=dispatch_id)
+    assert (
+        corpus.control.begin_dispatch(dispatch_id=dispatch_id).status
+        is KnowledgeDispatchStatus.DONE
+    )
+
+
+class _WorkflowDispatcher:
+    """Demo subscription endpoint that can prove success or durable failure."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        """Choose whether every idempotent delivery attempt fails visibly."""
+        self.fail = fail
+        self.deliveries: list[KnowledgeWorkflowDelivery] = []
+
+    def deliver(self, *, delivery: KnowledgeWorkflowDelivery) -> None:
+        """Record the delivery and optionally simulate an unavailable workflow."""
+        self.deliveries.append(delivery)
+        if self.fail:
+            raise RuntimeError("demo workflow unavailable")
+
+
+def test_dispatch_worker_delivers_demo_payload_and_dead_letters_failures(
+    corpus: _Corpus,
+) -> None:
+    """The generic worker owns retries/full tracebacks while dispatch mirrors state."""
+
+    def materialize(*, name: str) -> UUID:
+        """Register, route, mature, and materialize one independent test batch."""
+        subscription_id = uuid4()
+        corpus.control.register_subscription(
+            subscription=KnowledgeSubscriptionCreate(
+                subscription_id=subscription_id,
+                deployment_id=_DEPLOYMENT_ID,
+                name=name,
+                workflow_endpoint=f"demo://{name}",
+                debounce_seconds=60,
+                created_by="worker-test",
+                rules=(PredicateBeatRuleParams(predicate="works_for"),),
+            )
+        )
+        dispatch_id = corpus.control.route_notifications(
+            deployment_id=_DEPLOYMENT_ID,
+            delta=KnowledgeEvidenceDelta(relation_ids=(corpus.relations["root"],)),
+        ).dispatch_ids[0]
+        with corpus.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE knowledge_dispatches"
+                    " SET enqueued_at = now() - interval '2 minutes'"
+                    " WHERE dispatch_id = :dispatch_id"
+                ),
+                {"dispatch_id": dispatch_id},
+            )
+        corpus.control.materialize_due_dispatches(
+            deployment_id=_DEPLOYMENT_ID, component_version="dispatch-worker-test"
+        )
+        return dispatch_id
+
+    ledger = WorkLedger(
+        engine=corpus.engine,
+        settings=WorkLedgerSettings(retry_backoff_base_s=0, retry_backoff_max_s=0),
+    )
+    success_dispatch_id = materialize(name="successful-planner")
+    successful_endpoint = _WorkflowDispatcher()
+    success_registry = HandlerRegistry()
+    success_registry.register(
+        stage=PipelineStage.DISPATCH_KNOWLEDGE,
+        handler=KnowledgeDispatchHandler(
+            control_plane=corpus.control, dispatcher=successful_endpoint
+        ),
+    )
+
+    success = Worker(ledger=ledger, registry=success_registry).run_one(
+        deployment_id=_DEPLOYMENT_ID, stage=PipelineStage.DISPATCH_KNOWLEDGE, lane=None
+    )
+
+    assert success.outcome is RunResultOutcome.SUCCEEDED
+    assert len(successful_endpoint.deliveries) == 1
+    assert (
+        corpus.control.begin_dispatch(dispatch_id=success_dispatch_id).status
+        is KnowledgeDispatchStatus.DONE
+    )
+
+    failed_dispatch_id = materialize(name="unavailable-planner")
+    failing_endpoint = _WorkflowDispatcher(fail=True)
+    failure_registry = HandlerRegistry()
+    failure_registry.register(
+        stage=PipelineStage.DISPATCH_KNOWLEDGE,
+        handler=KnowledgeDispatchHandler(
+            control_plane=corpus.control, dispatcher=failing_endpoint
+        ),
+    )
+    failure_worker = Worker(ledger=ledger, registry=failure_registry)
+    outcomes = tuple(
+        failure_worker.run_one(
+            deployment_id=_DEPLOYMENT_ID,
+            stage=PipelineStage.DISPATCH_KNOWLEDGE,
+            lane=None,
+        ).outcome
+        for _ in range(3)
+    )
+
+    assert outcomes == (
+        RunResultOutcome.RETRY_SCHEDULED,
+        RunResultOutcome.RETRY_SCHEDULED,
+        RunResultOutcome.DEAD_LETTERED,
+    )
+    with corpus.engine.connect() as connection:
+        failure = connection.execute(
+            text(
+                "SELECT p.status::text, p.last_error, d.status::text"
+                " FROM processing_state p"
+                " JOIN knowledge_dispatches d ON d.dispatch_id = p.target_id"
+                " WHERE d.dispatch_id = :dispatch_id"
+            ),
+            {"dispatch_id": failed_dispatch_id},
+        ).one()
+    assert failure[0] == "dead_letter"
+    assert "RuntimeError: demo workflow unavailable" in failure[1]
+    assert failure[2] == "failed"

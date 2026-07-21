@@ -163,6 +163,23 @@ from ultimate_memory.model.knowledge import KnowledgeWriterSuggestion
 from ultimate_memory.model.knowledge import ManualRuleParams
 from ultimate_memory.model.knowledge import PredicateBeatRuleParams
 from ultimate_memory.model.knowledge import ScopeInterestsRuleParams
+from ultimate_memory.model.knowledge_authored import KnowledgeArtifactPathState
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredDeclaration
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredPageSync
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredPageSyncResult
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredReviewPayload
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredReviewReason
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredReviewState
+from ultimate_memory.model.knowledge_authored import KnowledgeAuthoredSyncResult
+from ultimate_memory.model.knowledge_authored import KnowledgeDispatchMaterialization
+from ultimate_memory.model.knowledge_authored import KnowledgeDispatchRecord
+from ultimate_memory.model.knowledge_authored import KnowledgeDispatchStatus
+from ultimate_memory.model.knowledge_authored import KnowledgeNotificationResult
+from ultimate_memory.model.knowledge_authored import KnowledgeSubscriptionCreate
+from ultimate_memory.model.knowledge_authored import KnowledgeSubscriptionStatus
+from ultimate_memory.model.knowledge_authored import KnowledgeWorkflowDelivery
+from ultimate_memory.model.knowledge_authored import merge_authored_review_payloads
+from ultimate_memory.model.knowledge_authored import merge_knowledge_deltas
 from ultimate_memory.model.knowledge_planner import KnowledgeAdjustRuleProposal
 from ultimate_memory.model.knowledge_planner import KnowledgeCompiledContentState
 from ultimate_memory.model.knowledge_planner import KnowledgeConvertKindProposal
@@ -383,11 +400,19 @@ __all__ = (
     "EntitySubtreeRuleParams",
     "KnowledgeArtifactCreate",
     "KnowledgeArtifactHash",
+    "KnowledgeArtifactPathState",
     "KnowledgeArtifactStatus",
     "KnowledgeAgentSandboxPolicy",
     "KnowledgeAgentSessionRequest",
     "KnowledgeAgentSessionResult",
     "KnowledgeCandidateLayer",
+    "KnowledgeAuthoredDeclaration",
+    "KnowledgeAuthoredPageSync",
+    "KnowledgeAuthoredPageSyncResult",
+    "KnowledgeAuthoredReviewPayload",
+    "KnowledgeAuthoredReviewReason",
+    "KnowledgeAuthoredReviewState",
+    "KnowledgeAuthoredSyncResult",
     "KnowledgeCitation",
     "KnowledgeClaimFingerprint",
     "KnowledgeCommitCycleResult",
@@ -398,6 +423,9 @@ __all__ = (
     "KnowledgeEvidenceDelta",
     "KnowledgeEvidenceTarget",
     "KnowledgeEvidenceRole",
+    "KnowledgeDispatchMaterialization",
+    "KnowledgeDispatchRecord",
+    "KnowledgeDispatchStatus",
     "KnowledgeFactFingerprint",
     "KnowledgeFactSheetFact",
     "KnowledgeFactSheetSnapshot",
@@ -433,6 +461,7 @@ __all__ = (
     "KnowledgeCreatePageProposal",
     "KnowledgeMergePagesProposal",
     "KnowledgeMovePageProposal",
+    "KnowledgeNotificationResult",
     "KnowledgeOrphanAggregate",
     "KnowledgePendingPlanDecision",
     "KnowledgePlannedPage",
@@ -450,6 +479,9 @@ __all__ = (
     "KnowledgeQuarantineStatus",
     "KnowledgeRetirePageProposal",
     "KnowledgeSplitPageProposal",
+    "KnowledgeSubscriptionCreate",
+    "KnowledgeSubscriptionStatus",
+    "KnowledgeWorkflowDelivery",
     "ManualRuleParams",
     "PredicateBeatRuleParams",
     "ReconciliationDelta",
@@ -482,4 +514,6 @@ __all__ = (
     "WorkLedgerError",
     "WorkNotFoundError",
     "WorkNotRunningError",
+    "merge_authored_review_payloads",
+    "merge_knowledge_deltas",
 )

@@ -24,6 +24,9 @@ from ultimate_memory.workers.e3 import AdjudicateSupersessionHandler
 from ultimate_memory.workers.e3 import E3_NORMALIZER_VERSION
 from ultimate_memory.workers.e3 import E3Settings
 from ultimate_memory.workers.e3 import NormalizeRelationsHandler
+from ultimate_memory.workers.knowledge_authored import KnowledgeAuthoredSynchronizer
+from ultimate_memory.workers.knowledge_authored import KnowledgeDispatchHandler
+from ultimate_memory.workers.knowledge_authored import KnowledgeWorkflowDispatcher
 from ultimate_memory.workers.knowledge_driver import KNOWLEDGE_DRIVER_VERSION
 from ultimate_memory.workers.knowledge_driver import KnowledgeCommitDriver
 from ultimate_memory.workers.knowledge_driver import KnowledgeCommitSettings
@@ -82,6 +85,9 @@ __all__ = (
     "FACT_LABEL_VERSION",
     "LabelFactsHandler",
     "KnowledgeRoutingDriver",
+    "KnowledgeAuthoredSynchronizer",
+    "KnowledgeDispatchHandler",
+    "KnowledgeWorkflowDispatcher",
     "KnowledgeCommitDriver",
     "KnowledgeCommitSettings",
     "KNOWLEDGE_DRIVER_VERSION",

@@ -37,6 +37,7 @@ from ultimate_memory.model import KnowledgePendingPlanDecision
 from ultimate_memory.model import KnowledgeRetirePageProposal
 from ultimate_memory.ports import KGitRemotePort
 from ultimate_memory.spine.knowledge import KnowledgeControlPlane
+from ultimate_memory.workers.knowledge_authored import KnowledgeAuthoredSynchronizer
 
 KNOWLEDGE_DRIVER_VERSION: Final = "k-driver-2026.07"
 
@@ -72,6 +73,7 @@ class KnowledgeRoutingDriver:
         deployment_id: UUID,
         delta: KnowledgeEvidenceDelta,
         contexts: Mapping[UUID, KnowledgeCompileContext],
+        tombstone: bool = False,
     ) -> tuple[UUID, ...]:
         """Narrow by keys/citations, then mark only manifest mismatches.
 
@@ -86,7 +88,11 @@ class KnowledgeRoutingDriver:
         stale = self._control_plane.stale_artifacts(
             deployment_id=deployment_id, contexts=contexts, artifact_ids=routed
         )
-        return self._control_plane.mark_stale(artifacts=stale)
+        marked = self._control_plane.mark_stale(artifacts=stale)
+        self._control_plane.route_notifications(
+            deployment_id=deployment_id, delta=delta, tombstone=tombstone
+        )
+        return marked
 
     def mark_all_manifest_drift(
         self, *, deployment_id: UUID, contexts: Mapping[UUID, KnowledgeCompileContext]
@@ -114,6 +120,7 @@ class KnowledgeCommitDriver:
         self._git_remote = git_remote
         self._compiler = compiler
         self._settings = settings
+        self._authored = KnowledgeAuthoredSynchronizer(control_plane=control_plane)
 
     def run_cycle(
         self,
@@ -130,6 +137,15 @@ class KnowledgeCommitDriver:
                     deployment_id=deployment_id,
                     worktree=worktree,
                     git_revision=checkout.root,
+                )
+                authored = self._authored.sync_checkout(
+                    deployment_id=deployment_id,
+                    worktree=worktree,
+                    git_revision=checkout.root,
+                )
+                self._control_plane.materialize_due_dispatches(
+                    deployment_id=deployment_id,
+                    component_version=KNOWLEDGE_DRIVER_VERSION,
                 )
                 pending_decisions = self._control_plane.pending_plan_decisions(
                     deployment_id=deployment_id
@@ -161,6 +177,13 @@ class KnowledgeCommitDriver:
                         recovered_cycle_ids=recovered,
                         quarantined_artifact_ids=quarantined,
                         stamped_plan_decision_ids=stamped,
+                        registered_authored_artifact_ids=(
+                            authored.registered_artifact_ids
+                        ),
+                        synced_authored_artifact_ids=authored.synced_artifact_ids,
+                        authored_lint_flag_artifact_ids=(
+                            authored.lint_flag_artifact_ids
+                        ),
                     )
 
                 known_paths = self._control_plane.artifact_git_paths(
@@ -203,6 +226,9 @@ class KnowledgeCommitDriver:
                     recovered_cycle_ids=recovered,
                     quarantined_artifact_ids=quarantined,
                     stamped_plan_decision_ids=stamped,
+                    registered_authored_artifact_ids=(authored.registered_artifact_ids),
+                    synced_authored_artifact_ids=authored.synced_artifact_ids,
+                    authored_lint_flag_artifact_ids=authored.lint_flag_artifact_ids,
                 )
 
     def _quarantine_compiled_drift(

@@ -665,6 +665,8 @@ class QueryEngine:
                 last_compiled_at=row["last_compiled_at"],
                 status=row["status"],
                 stale=row["stale"],
+                open_review_flags=row["open_review_flags"],
+                redaction_required=row["redaction_required"],
             )
             for row in rows
         )
@@ -1353,12 +1355,30 @@ _PAGES_ABOUT = text(
         SELECT DISTINCT ON (a.artifact_id)
                a.artifact_id, a.page_kind::text AS page_kind, a.git_path,
                a.page_summary, a.last_compiled_at, a.status::text AS status,
-               (a.status::text = 'stale' OR EXISTS (
+               (a.page_kind = 'compiled' AND (
+                 a.status::text = 'stale' OR EXISTS (
                     SELECT 1 FROM knowledge_refresh_queue q
                     WHERE q.deployment_id = a.deployment_id
                       AND q.artifact_id = a.artifact_id
                       AND q.processed_at IS NULL
-               )) AS stale
+               ))) AS stale,
+               CASE WHEN a.page_kind = 'authored' THEN (
+                 SELECT count(*) FROM knowledge_refresh_queue q
+                 WHERE q.deployment_id = a.deployment_id
+                   AND q.artifact_id = a.artifact_id
+                   AND q.trigger = 'authored_review'
+                   AND q.processed_at IS NULL
+               ) ELSE 0 END AS open_review_flags,
+               CASE WHEN a.page_kind = 'authored' THEN COALESCE((
+                 SELECT bool_or(
+                   COALESCE((q.payload ->> 'redaction_required')::boolean, false)
+                 )
+                 FROM knowledge_refresh_queue q
+                 WHERE q.deployment_id = a.deployment_id
+                   AND q.artifact_id = a.artifact_id
+                   AND q.trigger = 'authored_review'
+                   AND q.processed_at IS NULL
+               ), false) ELSE false END AS redaction_required
         FROM knowledge_rule_keys rk
         JOIN knowledge_page_rules pr ON pr.deployment_id = rk.deployment_id
                                     AND pr.rule_id = rk.rule_id
