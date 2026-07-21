@@ -136,6 +136,11 @@ class FakeKGit:
     ) -> None:
         raise AssertionError("request admission must not purge K")
 
+    def verify_artifacts_purged(
+        self, *, deployment_id: UUID, forget_id: UUID, artifact_ids: tuple[UUID, ...]
+    ) -> None:
+        raise AssertionError("request admission must not verify K purge")
+
 
 def _service(*, catalog: FakeCatalog, k_git: FakeKGit) -> HardForgetService:
     return HardForgetService(
