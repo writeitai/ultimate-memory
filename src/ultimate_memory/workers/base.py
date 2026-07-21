@@ -6,7 +6,10 @@ handler failure is logged with its full traceback, recorded on the row, and
 either retried with backoff or dead-lettered — it never disappears.
 """
 
+from datetime import datetime
+from datetime import UTC
 import logging
+import time
 import traceback
 from typing import Protocol
 from typing import runtime_checkable
@@ -26,9 +29,12 @@ from ultimate_memory.model import ProviderCallUsage
 from ultimate_memory.model import QueueRoute
 from ultimate_memory.model import RecordCall
 from ultimate_memory.model import RunResultOutcome
+from ultimate_memory.model import TelemetryAttribute
+from ultimate_memory.model import TelemetryEvent
 from ultimate_memory.model import UnknownStageHandlerError
 from ultimate_memory.ports.cost_meter import CostMeterPort
 from ultimate_memory.ports.queue import TaskQueuePort
+from ultimate_memory.ports.telemetry import TelemetryPort
 from ultimate_memory.spine.work_ledger import WorkLedger
 
 _logger = logging.getLogger(__name__)
@@ -122,6 +128,7 @@ class Worker:
         ledger: WorkLedger,
         registry: HandlerRegistry,
         queue: TaskQueuePort | None = None,
+        telemetry: TelemetryPort | None = None,
     ) -> None:
         """Bind the runner to its ledger, handler registry, and optional queue port.
 
@@ -131,6 +138,7 @@ class Worker:
         self._ledger = ledger
         self._registry = registry
         self._queue = queue
+        self._telemetry = telemetry
 
     def run_one(
         self, *, deployment_id: UUID, stage: PipelineStage, lane: ProcessingLane | None
@@ -142,6 +150,7 @@ class Worker:
         `NonRetryableHandlerError` dead-letters immediately, anything else
         retries with backoff until the attempt limit dead-letters it.
         """
+        started_ns = time.monotonic_ns()
         handler = self._registry.handler_for(stage=stage)  # before any claim:
         # an unregistered stage must never strand a claimed row as running.
         claimed = self._ledger.claim_one(
@@ -158,6 +167,17 @@ class Worker:
                     ),
                     not_before_snapshot=claimed.resume_at,
                 )
+            self._export_event(
+                event=_worker_event(
+                    deployment_id=deployment_id,
+                    processing_id=claimed.processing_id,
+                    stage=stage,
+                    lane=lane,
+                    attempt=None,
+                    outcome=RunResultOutcome.BUDGET_PARKED,
+                    started_ns=started_ns,
+                )
+            )
             return RunResult(
                 processing_id=claimed.processing_id,
                 outcome=RunResultOutcome.BUDGET_PARKED,
@@ -167,7 +187,7 @@ class Worker:
         )
         try:
             outcome = handler.handle(work=claimed, meter=meter)
-        except NonRetryableHandlerError:
+        except NonRetryableHandlerError as exception:
             _logger.exception(
                 "non-retryable failure in stage %s for %s",
                 claimed.stage,
@@ -178,11 +198,23 @@ class Worker:
                 error=traceback.format_exc(),
                 retryable=False,
             )
+            self._export_exception(
+                event=_worker_event(
+                    deployment_id=claimed.deployment_id,
+                    processing_id=claimed.processing_id,
+                    stage=claimed.stage,
+                    lane=claimed.lane,
+                    attempt=claimed.attempt,
+                    outcome=RunResultOutcome.DEAD_LETTERED,
+                    started_ns=started_ns,
+                ),
+                exception=exception,
+            )
             return RunResult(
                 processing_id=claimed.processing_id,
                 outcome=RunResultOutcome.DEAD_LETTERED,
             )
-        except Exception:
+        except Exception as exception:
             _logger.exception(
                 "retryable failure in stage %s for %s",
                 claimed.stage,
@@ -193,6 +225,11 @@ class Worker:
                 error=traceback.format_exc(),
                 retryable=True,
             )
+            result_outcome = (
+                RunResultOutcome.RETRY_SCHEDULED
+                if retry_at is not None
+                else RunResultOutcome.DEAD_LETTERED
+            )
             if retry_at is not None and self._queue is not None:
                 self._queue.announce(
                     processing_id=claimed.processing_id,
@@ -201,15 +238,75 @@ class Worker:
                     ),
                     not_before_snapshot=retry_at,
                 )
+            self._export_exception(
+                event=_worker_event(
+                    deployment_id=claimed.deployment_id,
+                    processing_id=claimed.processing_id,
+                    stage=claimed.stage,
+                    lane=claimed.lane,
+                    attempt=claimed.attempt,
+                    outcome=result_outcome,
+                    started_ns=started_ns,
+                ),
+                exception=exception,
+            )
             return RunResult(
-                processing_id=claimed.processing_id,
-                outcome=RunResultOutcome.RETRY_SCHEDULED
-                if retry_at is not None
-                else RunResultOutcome.DEAD_LETTERED,
+                processing_id=claimed.processing_id, outcome=result_outcome
             )
         self._ledger.complete(
             processing_id=claimed.processing_id, follow_up=outcome.follow_up
         )
+        self._export_event(
+            event=_worker_event(
+                deployment_id=claimed.deployment_id,
+                processing_id=claimed.processing_id,
+                stage=claimed.stage,
+                lane=claimed.lane,
+                attempt=claimed.attempt,
+                outcome=RunResultOutcome.SUCCEEDED,
+                started_ns=started_ns,
+            )
+        )
         return RunResult(
             processing_id=claimed.processing_id, outcome=RunResultOutcome.SUCCEEDED
         )
+
+    def _export_event(self, *, event: TelemetryEvent) -> None:
+        """Export one completed transition when telemetry is configured."""
+        if self._telemetry is not None:
+            self._telemetry.export_event(event=event)
+
+    def _export_exception(
+        self, *, event: TelemetryEvent, exception: BaseException
+    ) -> None:
+        """Export the original exception object without hiding exporter failure."""
+        if self._telemetry is not None:
+            self._telemetry.export_exception(event=event, exception=exception)
+
+
+def _worker_event(
+    *,
+    deployment_id: UUID,
+    processing_id: UUID,
+    stage: PipelineStage,
+    lane: ProcessingLane | None,
+    attempt: int | None,
+    outcome: RunResultOutcome,
+    started_ns: int,
+) -> TelemetryEvent:
+    """Build the one stable provider-neutral worker event vocabulary."""
+    return TelemetryEvent(
+        name="worker.run",
+        occurred_at=datetime.now(UTC),
+        attributes=(
+            TelemetryAttribute(name="deployment_id", value=str(deployment_id)),
+            TelemetryAttribute(name="processing_id", value=str(processing_id)),
+            TelemetryAttribute(name="stage", value=stage.value),
+            TelemetryAttribute(name="lane", value=None if lane is None else lane.value),
+            TelemetryAttribute(name="attempt", value=attempt),
+            TelemetryAttribute(name="outcome", value=outcome.value),
+            TelemetryAttribute(
+                name="duration_ms", value=(time.monotonic_ns() - started_ns) / 1e6
+            ),
+        ),
+    )

@@ -31,7 +31,7 @@ their round trips.
 | WP-7.1 | Backfill lanes + seeding + reprocessing orchestration (version bumps) | orchestration §3–4 | Phase 6 | lane machinery | steady-state unaffected during backfill test | done |
 | WP-7.2 | Reproducible scale battery: D23 partitions/indexes, hub entities/lineages, recount cost, and provider-neutral read/write batching | schema §12; D23; lifecycle §11.5; orchestration §5; retrieval §13.7 | WP-7.1 | fixed synthetic profiles + report | shapes and batching invariants recorded; timings remain measurements, not hosted SLAs | done |
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | done |
-| WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | planned |
+| WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
 | WP-7.5 | **Hard-delete end-to-end**: design first, then purge active P1/P2/P3/K surfaces and prevent restore resurrection through the portable purge record/adapter contract | new design (gate #24); lifecycle §8; k_layers §10; S55 | gate #24 | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | blocked(#24) |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
 | WP-7.7 | **Export/import round-trip**: `ugm export`/`import` (Postgres dump + buckets + K repo + deletion state; projections rebuild on import) | packaging §6; D7, D62 | WP-7.1, WP-7.5 | export/import CLI | round-trip drill → no forgotten-data resurrection + S-battery subset green | planned |
@@ -97,3 +97,26 @@ model-using stage records a deterministic logical call key and cascade tier befo
 response. OpenRouter responses without cost/token accounting fail visibly instead of degrading to
 zero spend; the deterministic test provider emits zero-cost usage so end-to-end worker tests prove
 the same production attribution path without network calls.
+
+## WP-7.4 implementation
+
+`OperationalCatalog.inspect` reads one repeatable PostgreSQL snapshot and emits a typed,
+deployment-scoped report. Route/status counts and the two latest projection pointers are bounded by
+their closed vocabularies. Every variable diagnostic reports its complete total plus a sample capped
+by the one typed `UGM_OPERATIONAL_SAMPLE_LIMIT` setting: DLQ rows, DLQ stage/error/version groups,
+poison targets, the component versions observed for each sampled poison target, and currency-ledger
+mismatches. Error class is derived once from the last non-empty traceback line; complete tracebacks
+and payloads remain available on sampled rows.
+
+`WorkLedger.replay_dead_letter` owns the only replay mutation. It locks one deployment-owned DLQ
+row, refuses any other status, preserves consumed attempts and `last_error`, grants an explicit
+additional attempt allowance, validates an optional lane against the immutable stage, and returns
+the authoritative committed route and due time. A thin service announces that result through the
+ordinary queue port after commit; there is no bulk replay controller or second work ledger.
+
+The existing worker exception boundary emits one provider-neutral `worker.run` event after each
+committed success, failure, or budget park and emits nothing for `NO_WORK`. Exception export receives
+the original exception object and exporter failures propagate. Self-hosting can write one JSON line
+per event with the full exception cause chain; tests use an in-memory recorder. `ugm ops inspect`,
+`replay`, and `rebuild` are thin local admin commands. Rebuild selects the existing production
+`GraphRebuildWorker` or `CorpusFsBuilder`, so the drill cannot diverge into a recovery-only path.

@@ -1,0 +1,36 @@
+schema_version: 1
+id: ops_operational_correctness_surfaces
+type: deterministic
+description: Typed bounded inspection, one-row DLQ replay, strict worker telemetry, and existing P2/P3 rebuild CLI wiring pass their focused proofs.
+tags: [ops, D7, D60, D61]
+script: |
+  import json
+  import os
+  from pathlib import Path
+  import subprocess
+  import sys
+
+  context = json.loads(Path(sys.argv[1]).read_text())
+  root = Path(context["project_root"])
+  if not os.environ.get("UGM_DATABASE_URL"):
+      print("UGM_DATABASE_URL must name an isolated PostgreSQL test database")
+      sys.exit(1)
+  result = subprocess.run(
+      [
+          "uv",
+          "run",
+          "pytest",
+          "src/tests/adapters/test_telemetry.py",
+          "src/tests/spine/test_operations.py",
+          "src/tests/surfaces/test_ops_cli.py",
+          "-q",
+          "--tb=short",
+      ],
+      cwd=root,
+      text=True,
+      capture_output=True,
+  )
+  print(result.stdout)
+  if result.stderr:
+      print(result.stderr, file=sys.stderr)
+  sys.exit(result.returncode)

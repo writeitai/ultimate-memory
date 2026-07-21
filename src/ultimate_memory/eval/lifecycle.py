@@ -41,6 +41,7 @@ from ultimate_memory.eval.harness import EvalHarness
 from ultimate_memory.model import CanaryCase
 from ultimate_memory.model import EvalSuite
 from ultimate_memory.model import LifecycleReport
+from ultimate_memory.spine.lifecycle import CURRENCY_CACHE_MISMATCH_SQL
 
 
 def run_lifecycle_suite(
@@ -213,22 +214,7 @@ _INVARIANTS: tuple[tuple[str, bool, TextClause], ...] = (
         # ledger is exactly the corruption this exists to catch.
         "currency_cache_matches_ledger",
         False,
-        text(
-            """
-            SELECT cl.claim_id
-            FROM claims cl
-            LEFT JOIN LATERAL (
-                SELECT e.became_current
-                FROM testimony_currency_events e
-                WHERE e.claim_id = cl.claim_id
-                ORDER BY e.occurred_at DESC, e.event_id DESC
-                LIMIT 1
-            ) last ON true
-            WHERE cl.deployment_id = :deployment_id
-              AND cl.is_current_testimony
-                  <> coalesce(last.became_current, true)
-            """
-        ),
+        text(CURRENCY_CACHE_MISMATCH_SQL),
     ),
     (
         # D54: BOTH cached counts must equal a recompute (quiescent only —
