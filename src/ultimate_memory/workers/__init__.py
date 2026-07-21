@@ -46,6 +46,7 @@ from ultimate_memory.workers.knowledge_writer import KnowledgeProseCompiler
 from ultimate_memory.workers.knowledge_writer import KnowledgeWriterError
 from ultimate_memory.workers.knowledge_writer import KnowledgeWriterSession
 from ultimate_memory.workers.knowledge_writer import KnowledgeWriterSettings
+from ultimate_memory.workers.operations import DeadLetterReplayer
 from ultimate_memory.workers.p1 import EmbedClaimsHandler
 from ultimate_memory.workers.p1 import FACT_LABEL_VERSION
 from ultimate_memory.workers.p1 import LabelFactsHandler
@@ -127,6 +128,7 @@ __all__ = (
     "SnapshotValidationError",
     "CycleFinalizer",
     "DeletionService",
+    "DeadLetterReplayer",
     "ReconcileHandler",
     "RECONCILE_VERSION",
     "StructureHandler",

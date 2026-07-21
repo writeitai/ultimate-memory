@@ -1,14 +1,15 @@
 """The ``ugm`` CLI: a dependency-light client plus optional local admin commands.
 
 Query, ingest, connector management, and MCP all talk to the deployment HTTP
-API. ``ugm review`` and ``ugm budget`` import the server extra and connect to
-the spine.
+API. ``ugm review``, ``ugm budget``, and ``ugm ops`` import the server extra
+and connect to the spine.
 """
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from importlib import import_module
 import json
 from pathlib import Path
 import sys
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_review(args)
         if args.command == "budget":
             return _run_budget(args)
+        if args.command == "ops":
+            return _run_ops(args)
         if args.command == "query":
             return _run_query(args)
         if args.command == "ingest":
@@ -109,6 +112,54 @@ def _run_budget(args: argparse.Namespace) -> int:
         return _inspect_budgets(ledger=ledger, deployment_id=args.deployment)
     finally:
         engine.dispose()
+
+
+def _run_ops(args: argparse.Namespace) -> int:
+    """Compose bounded local inspection, one-row replay, or an existing rebuild."""
+    try:
+        from ultimate_memory.model import ProcessingLane
+        from ultimate_memory.model import WorkLedgerError
+
+        operations_type = import_module(
+            "ultimate_memory.profiles.selfhost_operations"
+        ).SelfHostOperations
+    except ModuleNotFoundError:
+        print(
+            "error: ops commands require the 'ultimate-memory[server]' extra",
+            file=sys.stderr,
+        )
+        return 1
+
+    operations = operations_type.from_settings()
+    try:
+        if args.ops_command == "inspect":
+            report = operations.inspect(deployment_id=args.deployment)
+            print(report.model_dump_json())
+            return 0
+        if args.ops_command == "replay":
+            replayed = operations.replay(
+                deployment_id=args.deployment,
+                processing_id=args.processing_id,
+                attempt_allowance=args.attempts,
+                lane=None if args.lane is None else ProcessingLane(args.lane),
+                not_before=args.not_before,
+            )
+            print(replayed.model_dump_json())
+            return 0
+        result = operations.rebuild(
+            plane=args.plane,
+            deployment_id=args.deployment,
+            snapshot_root=args.snapshot_root,
+            workdir=args.workdir,
+            version=args.version,
+        )
+        print(json.dumps(result, default=str, sort_keys=True))
+        return 0
+    except (WorkLedgerError, ValueError, OSError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        operations.close()
 
 
 def _run_query(args: argparse.Namespace) -> int:
@@ -315,6 +366,34 @@ def _build_parser() -> argparse.ArgumentParser:
         "inspect", help="current spend, tier attribution, and parked work"
     )
     inspect.add_argument("--deployment", type=UUID, required=True)
+
+    ops = commands.add_parser(
+        "ops", help="inspect durable state, replay one DLQ row, or rebuild"
+    )
+    ops_commands = ops.add_subparsers(dest="ops_command", required=True)
+    ops_inspect = ops_commands.add_parser(
+        "inspect", help="bounded pipeline, DLQ, projection, and currency report"
+    )
+    ops_inspect.add_argument("--deployment", type=UUID, required=True)
+    replay = ops_commands.add_parser("replay", help="reopen one dead-letter row")
+    replay.add_argument("processing_id", type=UUID)
+    replay.add_argument("--deployment", type=UUID, required=True)
+    replay.add_argument(
+        "--attempts",
+        type=int,
+        default=1,
+        help="additional handler attempts to grant (default: 1)",
+    )
+    replay.add_argument("--lane", choices=("steady", "backfill"))
+    replay.add_argument("--not-before", type=datetime.fromisoformat)
+    rebuild = ops_commands.add_parser(
+        "rebuild", help="invoke the existing P2 or P3 full-rebuild path"
+    )
+    rebuild.add_argument("--plane", choices=("p2", "p3"), required=True)
+    rebuild.add_argument("--deployment", type=UUID, required=True)
+    rebuild.add_argument("--snapshot-root", type=Path, required=True)
+    rebuild.add_argument("--workdir", type=Path, required=True)
+    rebuild.add_argument("--version", required=True)
 
     query = commands.add_parser("query", help="query deployment recipes")
     query_commands = query.add_subparsers(dest="query_command", required=True)

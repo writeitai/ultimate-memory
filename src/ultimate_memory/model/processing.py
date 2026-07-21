@@ -212,6 +212,10 @@ class WorkNotRunningError(WorkLedgerError):
     """An operation that requires a running attempt hit a non-running row."""
 
 
+class WorkNotDeadLetterError(WorkLedgerError):
+    """An operation that requires a dead-letter row hit another status."""
+
+
 class NonRetryableHandlerError(Exception):
     """A handler failure classified as permanent: the work dead-letters immediately."""
 

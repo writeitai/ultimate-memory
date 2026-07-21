@@ -218,6 +218,17 @@ from ultimate_memory.model.object_store import ObjectKey
 from ultimate_memory.model.object_store import ObjectKeyEscapesRootError
 from ultimate_memory.model.operational_scale import OperationalScaleMeasurement
 from ultimate_memory.model.operational_scale import OperationalScaleReport
+from ultimate_memory.model.operations import CurrencyLedgerAudit
+from ultimate_memory.model.operations import CurrencyMismatch
+from ultimate_memory.model.operations import DeadLetterGroup
+from ultimate_memory.model.operations import DeadLetterRecord
+from ultimate_memory.model.operations import DeadLetterReplayResult
+from ultimate_memory.model.operations import DeadLetterReport
+from ultimate_memory.model.operations import OperationalReport
+from ultimate_memory.model.operations import PipelineRouteStatus
+from ultimate_memory.model.operations import PoisonTargetRecord
+from ultimate_memory.model.operations import PoisonTargetReport
+from ultimate_memory.model.operations import ProjectionSnapshotState
 from ultimate_memory.model.processing import BackfillNotDrainedError
 from ultimate_memory.model.processing import BackfillSeedRequest
 from ultimate_memory.model.processing import BackfillSeedResult
@@ -238,6 +249,7 @@ from ultimate_memory.model.processing import RecordCall
 from ultimate_memory.model.processing import RunResultOutcome
 from ultimate_memory.model.processing import UnknownStageHandlerError
 from ultimate_memory.model.processing import WorkLedgerError
+from ultimate_memory.model.processing import WorkNotDeadLetterError
 from ultimate_memory.model.processing import WorkNotFoundError
 from ultimate_memory.model.processing import WorkNotRunningError
 from ultimate_memory.model.queue import PipelineStage
@@ -309,6 +321,8 @@ __all__ = (
     "CostBudget",
     "CostBudgetStatus",
     "CostTierSpend",
+    "CurrencyLedgerAudit",
+    "CurrencyMismatch",
     "ConnectorNotFoundError",
     "ContextPrefix",
     "ConversionError",
@@ -322,6 +336,10 @@ __all__ = (
     "DecisionRecord",
     "DecisionType",
     "DeferReason",
+    "DeadLetterGroup",
+    "DeadLetterRecord",
+    "DeadLetterReplayResult",
+    "DeadLetterReport",
     "DeploymentBootstrapConflictError",
     "DeploymentBootstrapInput",
     "DeploymentBootstrapResult",
@@ -373,6 +391,7 @@ __all__ = (
     "ObservationVerdict",
     "OperationalScaleMeasurement",
     "OperationalScaleReport",
+    "OperationalReport",
     "OtherPredicateGrammarError",
     "P1ChunkRow",
     "P1ClaimRow",
@@ -382,9 +401,13 @@ __all__ = (
     "PerimeterCredential",
     "PipelineComponent",
     "PipelineStage",
+    "PipelineRouteStatus",
+    "PoisonTargetRecord",
+    "PoisonTargetReport",
     "ProcessingLane",
     "ProcessingStatus",
     "ProcessingTarget",
+    "ProjectionSnapshotState",
     "ProviderAccountingError",
     "ProviderCallUsage",
     "PublishedMounts",
@@ -538,6 +561,7 @@ __all__ = (
     "UploadRecord",
     "Validity",
     "WorkLedgerError",
+    "WorkNotDeadLetterError",
     "WorkNotFoundError",
     "WorkNotRunningError",
     "merge_authored_review_payloads",

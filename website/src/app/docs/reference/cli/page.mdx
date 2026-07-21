@@ -1,7 +1,7 @@
 export const metadata = {
   title: "CLI Reference",
   description:
-    "The client-first ugm command line: query, ingest, manage connectors, inspect budgets, serve MCP, and drive the local review queue.",
+    "The client-first ugm command line: query, ingest, manage connectors, inspect operations and budgets, serve MCP, and drive the local review queue.",
 };
 
 # CLI Reference
@@ -110,6 +110,58 @@ Use `null` for an unlaned K/P route. A route absent from the list is unlimited.
 When spend reaches its ceiling, due work is parked until the aligned window
 ends without consuming a handler attempt or becoming a failure; the same row
 then resumes normally.
+
+## `ugm ops`
+
+Operational commands require the `[server]` extra and `UGM_DATABASE_URL`. They
+are direct, local admin tools over the durable PostgreSQL state — not a
+dashboard or hosted control plane.
+
+### `ugm ops inspect`
+
+```bash
+ugm ops inspect --deployment <deployment-uuid>
+```
+
+Prints one typed JSON report containing route/status counts, DLQ totals and
+groups, a poison-target summary, the current P2/P3 snapshot pointers, and a
+currency-ledger audit. Variable-size evidence is returned as a bounded sample;
+its complete total is reported separately. `UGM_OPERATIONAL_SAMPLE_LIMIT`
+sets the shared cap (default 20, maximum 1000).
+
+### `ugm ops replay`
+
+```bash
+ugm ops replay <processing-uuid> \
+  --deployment <deployment-uuid> \
+  --attempts 1 \
+  [--lane steady|backfill] \
+  [--not-before 2026-07-22T08:00:00+00:00]
+```
+
+Reopens exactly one row whose current status is `dead_letter`. Attempts already
+consumed and the full previous traceback remain intact; `--attempts` grants
+only that many additional handler executions. The stage is immutable, an
+optional lane must be valid for it, and the committed row is then announced
+through the normal delivery port. Replaying a non-DLQ row fails rather than
+silently duplicating work.
+
+### `ugm ops rebuild`
+
+```bash
+ugm ops rebuild \
+  --plane p2 \
+  --deployment <deployment-uuid> \
+  --snapshot-root ./snapshots \
+  --workdir ./rebuild-work \
+  --version drill-2026-07-21
+```
+
+`--plane p2` invokes the production full graph rebuild; `--plane p3` invokes
+the production corpus-filesystem builder. Both publish immutable snapshots
+through the same validation and pointer-swap path used normally. The command
+adds no separate recovery implementation. `--workdir` is consumed by P2 and
+accepted uniformly for P3.
 
 ## `ugm review`
 

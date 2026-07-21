@@ -28,6 +28,9 @@ from ultimate_memory.spine.observation_adjudication import (
 )
 from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
 from ultimate_memory.spine.observation_adjudication import ObservationSettings
+from ultimate_memory.spine.operations import error_class_from_traceback
+from ultimate_memory.spine.operations import OperationalCatalog
+from ultimate_memory.spine.operations import OperationalSettings
 from ultimate_memory.spine.projection import ProjectionCatalog
 from ultimate_memory.spine.recipes import CANONICAL_RECIPES
 from ultimate_memory.spine.recipes import RecipeRegistry
@@ -62,6 +65,9 @@ __all__ = (
     "OBSERVATION_ADJUDICATOR_VERSION",
     "ObservationAdjudicator",
     "ObservationSettings",
+    "OperationalCatalog",
+    "OperationalSettings",
+    "error_class_from_traceback",
     "RESOLVER_VERSION",
     "LifecycleCatalog",
     "KnowledgeCompilationError",

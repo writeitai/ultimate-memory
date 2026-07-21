@@ -10,6 +10,7 @@ running row and callers can never supply it.
 
 from dataclasses import dataclass
 from datetime import datetime
+from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from typing import Self
@@ -21,6 +22,7 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from sqlalchemy import bindparam
 from sqlalchemy import Connection
+from sqlalchemy import DateTime
 from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -31,12 +33,15 @@ from ultimate_memory.model import ClaimedWork
 from ultimate_memory.model import CostBudget
 from ultimate_memory.model import CostBudgetStatus
 from ultimate_memory.model import CostTierSpend
+from ultimate_memory.model import DeadLetterReplayResult
 from ultimate_memory.model import EnqueueOutcome
 from ultimate_memory.model import EnqueueWork
 from ultimate_memory.model import LaneRouteError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.model import QueueRoute
 from ultimate_memory.model import RecordCall
+from ultimate_memory.model import WorkNotDeadLetterError
 from ultimate_memory.model import WorkNotFoundError
 from ultimate_memory.model import WorkNotRunningError
 from ultimate_memory.spine.catalog_contract import lane_is_valid
@@ -304,6 +309,80 @@ class WorkLedger:
         """
         with self._engine.begin() as connection:
             connection.execute(_WAKE, {"processing_id": str(processing_id)})
+
+    def replay_dead_letter(
+        self,
+        *,
+        deployment_id: UUID,
+        processing_id: UUID,
+        attempt_allowance: int = 1,
+        lane: ProcessingLane | None = None,
+        not_before: datetime | None = None,
+    ) -> DeadLetterReplayResult:
+        """Reopen exactly one deployment-owned dead letter for explicit replay.
+
+        The transition preserves the attempts already consumed and the complete
+        previous error. It grants only the requested additional attempt budget,
+        defaults to due now, and may reroute only to a lane accepted by the
+        row's immutable stage. Delivery is announced separately after commit.
+        """
+        if attempt_allowance < 1:
+            raise ValueError("dead-letter replay requires at least one new attempt")
+        if not_before is not None and (
+            not_before.tzinfo is None or not_before.utcoffset() != timedelta(0)
+        ):
+            raise ValueError("dead-letter replay not_before must be UTC")
+        with self._engine.begin() as connection:
+            existing = (
+                connection.execute(
+                    _SELECT_DEAD_LETTER_FOR_REPLAY,
+                    {"deployment_id": deployment_id, "processing_id": processing_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is None:
+                raise WorkNotFoundError(
+                    f"processing row {processing_id} does not exist in deployment "
+                    f"{deployment_id}"
+                )
+            if existing["status"] != "dead_letter":
+                raise WorkNotDeadLetterError(
+                    f"processing row {processing_id} has status {existing['status']}; "
+                    "only dead-letter rows can be replayed"
+                )
+            stage = PipelineStage(existing["stage"])
+            replay_lane = (
+                None
+                if existing["lane"] is None and lane is None
+                else lane or ProcessingLane(existing["lane"])
+            )
+            _require_valid_lane(stage=stage, lane=replay_lane)
+            attempts = int(existing["attempts"])
+            if attempts + attempt_allowance > 32_767:
+                raise ValueError("dead-letter replay attempt budget exceeds smallint")
+            replayed = (
+                connection.execute(
+                    _REPLAY_DEAD_LETTER,
+                    {
+                        "processing_id": processing_id,
+                        "lane": replay_lane,
+                        "attempt_allowance": attempt_allowance,
+                        "not_before": not_before,
+                    },
+                )
+                .mappings()
+                .one()
+            )
+        return DeadLetterReplayResult(
+            processing_id=processing_id,
+            route=QueueRoute(
+                deployment_id=deployment_id, stage=stage, lane=replay_lane
+            ),
+            not_before=replayed["not_before"],
+            attempts=int(replayed["attempts"]),
+            max_attempts=int(replayed["max_attempts"]),
+        )
 
     def record_call(self, *, call: RecordCall) -> bool:
         """Attribute one billed call to the running attempt; idempotent per call key.
@@ -611,6 +690,35 @@ _PARK_BUDGET = text(
     WHERE processing_id = :processing_id AND status IN ('pending', 'failed')
     """
 )
+
+_SELECT_DEAD_LETTER_FOR_REPLAY = text(
+    """
+    SELECT status, stage, lane, attempts
+    FROM processing_state
+    WHERE deployment_id = :deployment_id
+      AND processing_id = :processing_id
+    FOR UPDATE
+    """
+)
+
+_REPLAY_DEAD_LETTER = text(
+    """
+    UPDATE processing_state
+    SET status = 'pending',
+        lane = :lane,
+        defer_reason = CASE
+            WHEN :not_before IS NOT NULL AND :not_before > now()
+                THEN 'scheduled'::processing_defer_reason
+            ELSE NULL
+        END,
+        not_before = COALESCE(:not_before, now()),
+        max_attempts = attempts + :attempt_allowance,
+        finished_at = NULL
+    WHERE processing_id = :processing_id
+      AND status = 'dead_letter'
+    RETURNING attempts, max_attempts, not_before
+    """
+).bindparams(bindparam("not_before", type_=DateTime(timezone=True)))
 
 _BUDGET_WINDOW_SPEND = text(
     """

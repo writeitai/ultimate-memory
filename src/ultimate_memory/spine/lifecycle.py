@@ -19,6 +19,23 @@ from sqlalchemy.engine import Engine
 from ultimate_memory.model import CurrencyTransition
 from ultimate_memory.model import ReconciliationDelta
 
+CURRENCY_CACHE_MISMATCH_SQL = """
+    SELECT cl.claim_id,
+           cl.is_current_testimony AS cached_current,
+           coalesce(last.became_current, true) AS ledger_current
+    FROM claims cl
+    LEFT JOIN LATERAL (
+        SELECT e.became_current
+        FROM testimony_currency_events e
+        WHERE e.claim_id = cl.claim_id
+        ORDER BY e.occurred_at DESC, e.event_id DESC
+        LIMIT 1
+    ) last ON true
+    WHERE cl.deployment_id = :deployment_id
+      AND cl.is_current_testimony <> coalesce(last.became_current, true)
+"""
+"""Single source for the D33 currency-cache versus append-only-ledger invariant."""
+
 
 class LifecycleCatalog:
     """Currency transitions, the D54 recount, per-shape closure, deletion."""
