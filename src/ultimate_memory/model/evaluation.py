@@ -15,7 +15,8 @@ class EvalSuite(StrEnum):
     GROUNDING = "grounding"
     RETRIEVAL = "retrieval"
     CONTRADICTION = "contradiction"
-    LIFECYCLE = "lifecycle"  # appended (ALTER TYPE ADD VALUE lands last)
+    LIFECYCLE = "lifecycle"
+    OPERATIONAL = "operational"
 
 
 class CanaryCase(BaseModel):

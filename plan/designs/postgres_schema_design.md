@@ -173,7 +173,7 @@ CREATE TYPE review_verdict         AS ENUM ('merge','not_merge','split','retype'
 -- 'uncertain' leaves the fact standing with its support:withdrawn marker (visibly unresolved).
 CREATE TYPE golden_label           AS ENUM ('match','no_match');
 CREATE TYPE golden_hardness        AS ENUM ('hard_positive','hard_negative','easy');
-CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding','retrieval','contradiction');
+CREATE TYPE eval_suite             AS ENUM ('resolution','selection','grounding','retrieval','contradiction','lifecycle','operational');
 CREATE TYPE selection_outcome      AS ENUM ('keep','rewrite','drop','kept_flagged');
 
 CREATE TYPE document_status        AS ENUM ('ingesting','converting','structuring','ready','failed','deleted');
@@ -928,7 +928,7 @@ COMMENT ON TABLE golden_claim_labels IS
 CREATE TABLE eval_runs (
   eval_run_id     uuid PRIMARY KEY,
   deployment_id   uuid NOT NULL REFERENCES deployments,
-  suite           eval_suite NOT NULL,         -- resolution | selection | grounding | retrieval | contradiction
+  suite           eval_suite NOT NULL,         -- includes lifecycle correctness + operational scale batteries
   component_version text NOT NULL,             -- LOGICAL FK → pipeline_component_versions / resolver_versions; what was measured
   metrics         jsonb NOT NULL,              -- per-tier/per-type P/R with Wilson CIs; recall@k per recipe; rerank weights; per-fact false-drop
   passed          boolean,                     -- did the canary regression pass for this version?
