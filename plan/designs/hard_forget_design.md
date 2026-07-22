@@ -55,8 +55,8 @@ a typed conflict.
 `ForgetManifestPort` has only two responsibilities: append one immutable manifest and enumerate
 manifests for a deployment. Its storage must be outside the ordinary data-restore set it protects.
 The self-host adapter uses a dedicated append-only local root; the cloud implementation and its
-durability live in `ultimate-memory-cloud`. WP-7.7 export/import carries the same manifest format
-and imports manifests before data becomes readable.
+durability live in `ultimate-memory-cloud`. D75/WP-7.7 require operators to transfer this separate
+manifest root before restored data can become readable; the library does not own byte transport.
 
 The erasure capabilities are narrow protocols implemented by the already-selected adapters:
 `ObjectPurgePort`, `P1PurgePort`, `ProjectionPurgePort`, and `KGitPurgePort`. Each takes a typed

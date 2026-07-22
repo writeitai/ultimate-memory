@@ -1752,7 +1752,8 @@ ships the mechanisms required for correctness, portability, and one-deployment s
 does not absorb the hosted service's operating policy. The library therefore owns resumable
 backfill/reprocessing, reproducible scale batteries, provider-neutral I/O batching, cost metering
 and configurable budget parking, typed telemetry plus CLI inspection, the deletion contract and
-adapter hooks, release artifacts, and export/import. Real corpus forecasts, monetary ceilings,
+adapter hooks, release artifacts, and a portable-state/restore contract. Real corpus forecasts,
+monetary ceilings,
 HA/failover topology, dashboard backends, backup schedules, fleet capacity, on-call runbooks, and
 vendor-specific topology tuning belong to the deployment operator or `ultimate-memory-cloud` and
 are not OSS implementation gates. Reference adapters remain in this repo; operating the reference
@@ -1852,9 +1853,10 @@ architecture is hexagonal with mechanically enforced arrows**: `model/core/spine
 adapters/llm/workers/surfaces/eval/profiles`; core is pure and infra-free; SQL only in
 `spine/`; vendor SDKs only in `adapters/`; **import-linter contracts fail CI on illegal
 imports** (architecture erosion fails loudly); profiles are explicit composition roots — no DI
-framework. **Export/import rides rebuild-first (D7)**: portable state = Postgres dump + raw/
-artifacts buckets + the K repo; projections rebuild on import — the cloud↔self-host migration
-path in both directions.
+framework. **Portability rides rebuild-first (D7, refined by D75)**: portable state = Postgres +
+raw/artifact objects + the K repo + the separately durable D74 manifest root; native operator tools
+move the authoritative stores, readiness re-honors deletion before serving, and projections rebuild
+after restore — the cloud↔self-host migration path in both directions without a transport subsystem.
 
 **Context.** Fills D60's deliverable and D61's profile mechanics. Redis/arq was considered for
 the self-host queue and not chosen for maintenance: a second stateful service in every
@@ -1864,7 +1866,7 @@ framing dissolves the push-vs-pull asymmetry the two shells would otherwise leak
 application code.
 
 **Consequences.** Roadmap §3 and Phases 0/5/7 updated (port interfaces + self-host adapters +
-compose in Phase 0; PyPI packaging in Phase 5; release engineering + export/import drill in
+compose in Phase 0; PyPI packaging in Phase 5; release engineering + portable restore drill in
 Phase 7). The remaining stack-convention slots (package manager, lint, CI provider, secrets)
 still gate WP-0.1. `questions.md` §11a's packaging item closes; the rename + CLA gates stay
 open there.
@@ -2489,6 +2491,44 @@ idempotent stages, and a temporary serving/ordinary-work barrier (with the forge
 explicitly authorized) are intentionally less available but much smaller and easier to prove.
 
 **Consequences.** Gate #24 is resolved and WP-7.5 may implement the design. The OSS adds one
-portable manifest port and exact purge hooks, not a hosted operations layer. WP-7.7 exports/imports
-the same manifests before data. S55 activates only when WP-7.5's deterministic active-store and
+portable manifest port and exact purge hooks, not a hosted operations layer. D75/WP-7.7 require
+the operator to carry the same separate manifest root before restored data becomes readable; the
+library does not transport stores. S55 activates only when WP-7.5's deterministic active-store and
 restore canary is green; design resolution alone does not pretend the runtime contract is shipped.
+
+## D75. Portability is a state-and-ordering contract; operators move bytes (refines D60, D62, D74)
+
+**Decision.** The OSS library defines which deployment state is authoritative and the only safe
+restore order; it does not implement `ugm export` / `ugm import`, a universal archive format, or a
+backup coordinator. Portable state is the PostgreSQL database, raw and artifact objects, the K Git
+repository, and the separately durable D74 hard-forget manifest root. Operators transfer those
+stores with their native tools while preserving the deployment id. P1, P2, and P3 are derived state
+and are rebuilt through their normal production paths after restore rather than copied as portable
+state.
+
+The manifest root is transferred and verified first. After the other authoritative stores are
+restored and ordinary schema migrations run, the existing hard-forget readiness pass must
+rematerialize and re-honor every manifest before any public or ordinary-work admission opens. Only
+then do the ordinary P1/P2/P3 builders run and the S55/control canaries gate traffic. Omission or loss
+of the manifest root is an unsafe restore and fails closed. Snapshot consistency, credentials,
+provider-specific copy commands, progress, retries, retention, and backup scheduling remain
+operator or `ultimate-memory-cloud` responsibilities under D60.
+
+**Context.** D62 correctly made rebuild-first portability part of the no-lock-in promise but
+over-specified a pair of library CLI commands. Coordinating PostgreSQL, arbitrary object providers,
+and Git behind one command would require an archive protocol, partial-failure and resume state,
+credential handling, consistency policy, and provider-specific transport behavior. Mature native
+tools already own those jobs. D74 supplies the only extra correctness mechanism the memory system
+itself must own: portable forget intent that survives an older data restore.
+
+**Rejected alternatives.** A library-managed multi-store archive; a backup scheduler or migration
+control plane; exporting P1/P2/P3 bytes; embedding provider credentials; and treating a
+database-only dump as complete portable state. Each either duplicates operator tooling, crosses the
+D60 boundary, or can resurrect forgotten content.
+
+**Consequences.** WP-7.7 becomes a contract-and-drill work package, not a runtime feature. Its
+acceptance composes the existing real PostgreSQL forget-catalog proof with the logical whole-store
+and real self-host independent-restore canaries from WP-7.5, plus the already-shipped production
+P2/P3 rebuild drills. This proves preserved control data, manifest-first replay, normal projection
+rebuild, and forgotten-data non-resurrection without new ports, schema, settings, services, or
+public CLI commands.

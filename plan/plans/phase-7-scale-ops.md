@@ -5,7 +5,7 @@
 
 **Goal:** finish the mechanisms a complete single-deployment OSS library must own: resumable
 backfill, reproducible scale checks, enforced configurable budgets, visible failures, portable
-deletion, releases, and export/import.
+deletion, releases, and a restore-safe portability contract.
 
 **Scope boundary (D60):** this phase ships library behavior, adapter contracts, self-host
 surfaces, and deterministic drills. It does **not** choose or operate a hosted corpus capacity,
@@ -23,8 +23,8 @@ WP-7.5 implementation; rename/clearance + CLA gate WP-7.6 only.
 **Exit criteria:** fixed synthetic scale profiles exercise the D23 shapes and portable batching;
 a fixture budget parks and later resumes work without loss; telemetry/admin surfaces expose
 pipeline and DLQ state; rebuild and forget drills pass; S55 is green across active serving stores
-and a restore cannot resurrect a forgotten identity; release and export/import artifacts pass
-their round trips.
+and a restore cannot resurrect a forgotten identity; release artifacts pass their round trips;
+the operator-driven portable restore drill is green without a library transport subsystem.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
@@ -34,7 +34,7 @@ their round trips.
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
 | WP-7.5 | **Hard-delete end-to-end**: purge active P1/P2/P3/K surfaces and prevent restore resurrection through the D74 portable manifest/adapter contract | hard-forget design; lifecycle §8; k_layers §10; S55 | D74 (gate #24 resolved) | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | done |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
-| WP-7.7 | **Export/import round-trip**: `ugm export`/`import` (Postgres dump + buckets + K repo + deletion state; projections rebuild on import) | packaging §6; D7, D62 | WP-7.1, WP-7.5 | export/import CLI | round-trip drill → no forgotten-data resurrection + S-battery subset green | planned |
+| WP-7.7 | **Portable state + restore round-trip**: define the authoritative store set and fail-closed restore order; operators move bytes with native tools and projections rebuild normally | packaging §6; D7, D60, D74–D75 | WP-7.1, WP-7.5 | portability contract + deterministic drill | whole/independent restore canaries → no forgotten-data resurrection + independent control green | done |
 
 ## WP-7.1 implementation
 
@@ -138,3 +138,21 @@ Authored pages and compiled-page curation sidecars must be owner-redacted before
 keeps D46 intact without introducing a human-only gate: the accountable owner may be an agent, but
 the library never invents replacement authored prose. The normative record, ordering, adapter
 hooks, scope boundaries, and S55/restore canary are in `plan/designs/hard_forget_design.md`.
+
+## WP-7.7 implementation
+
+Portability is a contract over the existing sources of truth, not a new archive format or CLI.
+The operator transfers Postgres, raw/artifact objects, and the K repository with their native
+tools while carrying the separately durable D74 manifest root first. The deployment id is
+preserved; migrations and the ordinary hard-forget readiness pass run before serving; P1/P2/P3
+are rebuilt through their production paths. Backup schedules, consistency policy, credentials,
+progress reporting, retries, and provider-specific transfer mechanics remain operator/cloud scope.
+
+The deterministic drill is the existing composed WP-7.5 evidence rather than a duplicate backup
+engine. `test_s55_hard_forget.py` restores the whole logical serving state and each channel
+independently while retaining portable intent. `test_s55_selfhost_restore.py` performs the same
+proof over real LocalFS object/manifest stores, Lance, projection caches, and Git history.
+`test_forget_catalog.py` proves the authoritative PostgreSQL inventory and scrub while preserving
+independent control evidence; WP-7.4's P2/P3 rebuild drills already exercise the normal production
+builders. Together they fail if portable intent is omitted, readiness trusts a local completion
+bit, a restored store retains forgotten content, or unrelated memory is damaged.

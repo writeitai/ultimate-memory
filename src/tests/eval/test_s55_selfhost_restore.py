@@ -1,4 +1,4 @@
-"""S55 canary over real LocalFS, Lance, projection-cache, and Git adapters."""
+"""S55/WP-7.7 restore drill over LocalFS, Lance, projections, and Git."""
 
 from datetime import datetime
 from datetime import timezone
@@ -257,7 +257,7 @@ def _negative(*, token: str) -> Envelope:
 
 
 def test_real_selfhost_stores_rehonor_independent_restores(tmp_path: Path) -> None:
-    """Restore every active store independently; readiness must purge it again."""
+    """Restore whole and independent stores; readiness must purge them again."""
     objects = LocalFSObjectStore(root=tmp_path / "objects")
     snapshots = LocalFSObjectStore(root=tmp_path / "snapshots")
     lance = LanceChunkIndex(root=tmp_path / "lance")

@@ -206,7 +206,7 @@ ports and published extension points, keeping it portable off GCP too.
 - Profile choice is configuration consumed by `profiles/`; no code path branches on "am I on
   GCP" outside adapters.
 
-## 6. Releases, upgrades, export
+## 6. Releases, upgrades, portability
 
 - **Versioning**: semantic versioning on the package and images (same version string);
   every release publishes PyPI + GHCR images + the compose file pinned to that tag.
@@ -216,19 +216,38 @@ ports and published extension points, keeping it portable off GCP too.
   of truth; migrations implement it). Processing-version stamps (D7/D12) mean code upgrades
   never silently invalidate derived state — reprocessing is explicit, per version filters,
   through the Phase-7 lanes.
-- **Export / import — rebuild-first makes this cheap (D7)**: a deployment's portable state is
-  exactly its **sources of truth** — the Postgres database (dump), the raw + artifacts
-  buckets (object sync), and the K git repo (clone). Projections (P1/P2/P3) are *not*
-  exported: they rebuild from the spine on import by the standard cycle. `ugm export` /
-  `ugm import` wrap those three + a manifest (versions, deployment id, and D74's portable
-  hard-forget manifests, imported before serving); this doubles as the cloud↔self-host
-  migration path in both directions (no lock-in — a D60 credibility requirement).
+- **Portability is a state-and-ordering contract, not a transport subsystem (D75)**: a
+  deployment's portable state is exactly its **sources of truth** — the Postgres database,
+  raw + artifact objects, the K git repository, and the separately durable D74 hard-forget
+  manifest root. Operators move those stores with their native tools (`pg_dump`/`pg_restore`,
+  provider object copy, and ordinary Git); the library does not wrap them in `ugm export` /
+  `ugm import`, define a universal archive, or schedule backups. P1/P2/P3 are derived and are
+  rebuilt after restore rather than transported. This is the cloud↔self-host migration
+  contract in both directions without turning the OSS library into an operations product.
+
+The portable restore order is deliberately small and fail-closed:
+
+1. Quiesce writes and capture a consistent operator-managed snapshot of Postgres, objects, and
+   the K repository while preserving the deployment id.
+2. Transfer and verify the deployment's hard-forget manifest root **first**, through the
+   separate durability channel required by D74.
+3. Restore Postgres, raw/artifact objects, and the K repository with their native tools, then run
+   normal schema migrations.
+4. Run the ordinary hard-forget readiness pass before any serving surface opens. It rematerializes
+   missing local intent and re-honors every manifest against every restored store.
+5. Rebuild P1/P2/P3 through their normal production builders, run the S55/control canaries, and
+   only then admit traffic.
+
+Credentials, provider configuration, backup retention, transfer progress, retries, and
+cross-store snapshot policy remain operator or `ultimate-memory-cloud` responsibilities. Losing
+or omitting the manifest root makes a restore unsafe; the library must fail closed rather than
+claim success.
 
 ## 7. Decision interactions
 
 | Decision | Effect |
 |---|---|
-| D60 (OSS boundary) | *implements*: the complete-single-deployment deliverable becomes concrete artifacts; export/import keeps self-hosting a first-class exit |
+| D60 (OSS boundary) | *implements*: the complete-single-deployment state contract keeps self-hosting a first-class exit while byte transport and backup operations stay operator-owned |
 | D61 (ports) | *refines the queue row*: queue = delivery-only announcements over `processing_state` truth; self-host adapter confirmed as the Postgres shell; test-tier adapter named |
 | D12 (idempotency, DLQ) | *load-bearing*: at-least-once + idempotent handlers is the uniform execution contract; handler starts count attempts; DLQ stays Postgres rows on both shells |
 | D67 (normalized queue state) | *owns the reconciliation*: nullable lane, `not_before`, defer reason, attempt/DLQ transitions, lane-attributed cost, and due-work claim index have one Postgres home |
@@ -245,9 +264,10 @@ ports and published extension points, keeping it portable off GCP too.
    granularity — measure under Phase 7's fixed portable scale profiles.
 3. **Compose quickstart UX**: measure the cold-start-to-first-query time; it is a release
    gate (target: minutes).
-4. **Export/import round-trip drill** (after D74/WP-7.5): self-host → export → import →
-   projections rebuild → deletion state reapplied → forgotten-data non-resurrection canary +
-   S-battery subset green; belongs in Phase 7's drills.
+4. **Portable restore round-trip drill** (after D74/WP-7.5): retain the manifest root, restore
+   operator-managed source-of-truth state, run readiness, rebuild projections, then prove the
+   forgotten-data non-resurrection canary and an independent control green. This is a correctness
+   drill over existing tools and adapters, not a library transport feature.
 5. **MCP server distribution**: whether the MCP server also ships as a standalone binary/uvx
    target for harnesses that don't want a Python env — decide with the first external users.
 

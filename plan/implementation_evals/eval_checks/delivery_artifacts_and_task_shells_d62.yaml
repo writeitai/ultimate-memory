@@ -25,8 +25,10 @@ instructions: |
      authority; the self-host shell wakes on LISTEN/NOTIFY and claims with SKIP LOCKED
      (enqueue transactional with the caller's state writes); the reference shell is Cloud
      Tasks push; a janitor sweep re-announces lost deliveries on both.
-  5. Export/import rides rebuild-first: portable state = Postgres dump + raw/artifacts buckets
-     + the K repo; projections rebuild on import.
+  5. Portability rides rebuild-first without a library transport subsystem: authoritative state
+     is Postgres + raw/artifact objects + the K repo + the separately durable D74 manifest root;
+     operators move bytes with native tools, manifest replay gates serving, and P1/P2/P3 rebuild
+     after restore. No `ugm export` / `ugm import`, universal archive, or backup coordinator exists.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together
