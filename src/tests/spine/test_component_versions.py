@@ -130,7 +130,7 @@ def test_fresh_registration_commits_exact_default_owned_row_and_resolves(
     assert resolved.configured_at == row["configured_at"]
 
 
-def test_all_twenty_two_pipeline_components_register_against_real_enum(
+def test_all_twenty_three_pipeline_components_register_against_real_enum(
     database_engine: Engine,
 ) -> None:
     """Register every binding pipeline_component value under one deployment."""

@@ -41,6 +41,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import ObservationAdjudicator
 from ultimate_memory.spine import ObservationSettings
 from ultimate_memory.spine import RESOLVER_VERSION
@@ -76,6 +77,17 @@ _PARAMS = ChunkerParams(token_budget=400)
 _SOURCE = (
     "Alice Novak joined Acme in 2024. Alice Novak works for Acme as an engineer.\n"
 )
+
+
+class _OpenBoundary:
+    """Keep the retrieval fixture open across readiness and admission checks."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        return ()
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        pass
+
 
 _PAYLOADS: dict[str, dict[str, object]] = {
     "ContextPrefix": {"prefix": "Sits in the staffing note."},
@@ -195,7 +207,11 @@ class _ApiRig:
                 retry_backoff_base_s=0.0, retry_backoff_max_s=0.0
             ),
         )
-        self.ingestor = UploadIngestor(catalog=document_catalog, raw_store=raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=document_catalog,
+            raw_store=raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         generation = chunker_version(params=_PARAMS)
         registry = HandlerRegistry()
         registry.register(
@@ -309,6 +325,8 @@ class _ApiRig:
                     embedding_model=P1Settings().embedding_model,
                 ),
                 deployment_id=_DEPLOYMENT_ID,
+                admission=_OpenBoundary(),
+                readiness=_OpenBoundary(),
                 ingest=self.ingestor,
             )
         )

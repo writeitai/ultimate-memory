@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 import sqlalchemy
 
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import settings as settings_module
 from ultimate_memory.surfaces import cli_main
 from ultimate_memory.workers import CorpusFsBuilder
@@ -40,6 +41,9 @@ def test_ops_rebuild_invokes_the_existing_builder(
     calls: list[dict[str, object]] = []
     monkeypatch.setattr(settings_module, "load_database_settings", lambda: _Settings())
     monkeypatch.setattr(sqlalchemy, "create_engine", lambda _url: engine)
+    monkeypatch.setattr(
+        ForgetCatalog, "assert_available", lambda _self, *, deployment_id: None
+    )
 
     def rebuild(
         _self: GraphRebuildWorker,

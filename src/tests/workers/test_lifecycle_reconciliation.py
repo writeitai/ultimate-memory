@@ -54,6 +54,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import LifecycleCatalog
 from ultimate_memory.spine import ObservationAdjudicator
 from ultimate_memory.spine import ObservationSettings
@@ -224,7 +225,11 @@ class _LifecycleRig:
         self.sync = SyncCatalog(engine=engine)
         self.finalizer = CycleFinalizer(catalog=self.lifecycle)
         self.deletion = DeletionService(catalog=self.lifecycle)
-        self.ingestor = UploadIngestor(catalog=document_catalog, raw_store=raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=document_catalog,
+            raw_store=raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         self.lance = LanceChunkIndex(root=root / "lance")
         registry = HandlerRegistry()
         registry.register(

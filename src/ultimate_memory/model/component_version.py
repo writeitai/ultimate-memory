@@ -47,6 +47,7 @@ class PipelineComponent(StrEnum):
     KNOWLEDGE_REFLECTOR = "knowledge_reflector"
     KNOWLEDGE_LINTER = "knowledge_linter"
     JUDGE = "judge"
+    FORGETTER = "forgetter"
 
 
 class RegisterComponentVersionInput(BaseModel):

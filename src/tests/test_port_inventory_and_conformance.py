@@ -1,4 +1,4 @@
-"""Contract tests for the seven D61 seams and representative structural fakes."""
+"""Inventory tests for D61 substrate seams plus D74 store capabilities."""
 
 from datetime import datetime
 from datetime import timezone
@@ -35,10 +35,12 @@ from ultimate_memory.ports import ObjectStorePort
 from ultimate_memory.ports import TaskQueuePort
 from ultimate_memory.ports import TelemetryPort
 import ultimate_memory.ports.auth as auth_module
+import ultimate_memory.ports.forget as forget_module
 import ultimate_memory.ports.git as git_module
 import ultimate_memory.ports.model_provider as model_provider_module
 import ultimate_memory.ports.mounts as mounts_module
 import ultimate_memory.ports.object_store as object_store_module
+import ultimate_memory.ports.purge as purge_module
 import ultimate_memory.ports.queue as queue_module
 import ultimate_memory.ports.telemetry as telemetry_module
 
@@ -46,19 +48,26 @@ ResponseT = TypeVar("ResponseT", bound=StructuredResponseModel)
 
 _PORT_MODULES: tuple[ModuleType, ...] = (
     auth_module,
+    forget_module,
     git_module,
     model_provider_module,
     mounts_module,
     object_store_module,
     queue_module,
+    purge_module,
     telemetry_module,
 )
 _PORT_EXPORTS = {
     "AuthPerimeterPort",
+    "ForgetManifestPort",
+    "KGitPurgePort",
     "KGitRemotePort",
     "ModelProviderPort",
     "MountPublisherPort",
     "ObjectStorePort",
+    "ObjectPurgePort",
+    "P1PurgePort",
+    "ProjectionPurgePort",
     "TaskQueuePort",
     "TelemetryPort",
 }
@@ -217,11 +226,11 @@ def _defined_protocols() -> set[type[object]]:
     return result
 
 
-def test_inventory_exports_exactly_seven_defined_protocols() -> None:
-    """Keep the D61 interface inventory explicit, complete, and exactly seven."""
+def test_inventory_exports_exactly_twelve_defined_protocols() -> None:
+    """Keep seven D61 seams plus five D74 capabilities explicit and complete."""
     assert set(ports.__all__) == _PORT_EXPORTS
     assert {protocol.__name__ for protocol in _defined_protocols()} == _PORT_EXPORTS
-    assert len(_defined_protocols()) == 7
+    assert len(_defined_protocols()) == 12
 
 
 def test_representative_fakes_conform_structurally() -> None:

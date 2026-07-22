@@ -37,6 +37,7 @@ from ultimate_memory.model import SectionTreeRecord
 from ultimate_memory.model import SnappedSection
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
@@ -105,7 +106,11 @@ class _E0Rig:
                 retry_backoff_base_s=0.0, retry_backoff_max_s=0.0
             ),
         )
-        self.ingestor = UploadIngestor(catalog=self.catalog, raw_store=self.raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=self.catalog,
+            raw_store=self.raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         router = ConversionRouter(
             routes={
                 "text/markdown": MarkdownPassthroughConverter(),

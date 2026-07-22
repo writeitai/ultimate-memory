@@ -56,6 +56,16 @@ _DEPLOYMENT_ID = UUID("54000000-0000-0000-0000-000000000001")
 _OTHER_DEPLOYMENT = UUID("54000000-0000-0000-0000-0000000000ff")
 
 
+class _OpenBoundary:
+    """Keep surface fixtures open across readiness and admission checks."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        return ()
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        pass
+
+
 class _NullSearchIndex:
     """Unused P1 stub."""
 
@@ -157,7 +167,11 @@ class _Deployment:
         )
         self.mcp = RecipeMcpServer(surface=self.surface)
         self.app = build_api(
-            engine=query_engine, deployment_id=_DEPLOYMENT_ID, surface=self.surface
+            engine=query_engine,
+            deployment_id=_DEPLOYMENT_ID,
+            admission=_OpenBoundary(),
+            readiness=_OpenBoundary(),
+            surface=self.surface,
         )
         self.client = TestClient(self.app)
 
@@ -282,6 +296,8 @@ def test_the_auth_perimeter_gates_every_endpoint(deployment: _Deployment) -> Non
             embedding_model="toy",
         ),
         deployment_id=_DEPLOYMENT_ID,
+        admission=_OpenBoundary(),
+        readiness=_OpenBoundary(),
         surface=deployment.surface,
         auth=_FakeAuth(),
     )
@@ -350,6 +366,8 @@ def test_the_api_and_surface_must_serve_one_deployment(deployment: _Deployment) 
                 embedding_model="toy",
             ),
             deployment_id=_DEPLOYMENT_ID,
+            admission=_OpenBoundary(),
+            readiness=_OpenBoundary(),
             surface=mismatched,
         )
 

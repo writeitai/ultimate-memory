@@ -41,6 +41,7 @@ class PipelineStage(StrEnum):
     LINT_KNOWLEDGE = "lint_knowledge"
     RECONCILE = "reconcile"
     DISPATCH_KNOWLEDGE = "dispatch_knowledge"  # appended by WP-6.6
+    HARD_FORGET = "hard_forget"
 
 
 class ProcessingLane(StrEnum):

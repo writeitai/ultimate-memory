@@ -31,6 +31,17 @@ from ultimate_memory.surfaces.remote_mcp import serve_mcp_stdio
 _DEPLOYMENT_ID = UUID("57000000-0000-0000-0000-000000000001")
 
 
+class _OpenBoundary:
+    """Keep the SDK fixture open while satisfying readiness and admission."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        assert deployment_id == _DEPLOYMENT_ID
+        return ()
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        assert deployment_id == _DEPLOYMENT_ID
+
+
 class _Ingest:
     """Record which E0 entry point the HTTP API selects."""
 
@@ -105,9 +116,12 @@ def client_surface() -> tuple[MemoryClient, _Ingest, _Connectors]:
     """Compose only the capabilities under test; query methods stay unused."""
     ingest = _Ingest()
     connectors = _Connectors()
+    boundary = _OpenBoundary()
     app = build_api(
         engine=cast("QueryEngine", object()),
         deployment_id=_DEPLOYMENT_ID,
+        admission=boundary,
+        readiness=boundary,
         ingest=ingest,
         connectors=connectors,
     )

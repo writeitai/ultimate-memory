@@ -109,6 +109,16 @@ from ultimate_memory.model.evaluation import CaseFailure
 from ultimate_memory.model.evaluation import EvalSuite
 from ultimate_memory.model.evaluation import LifecycleReport
 from ultimate_memory.model.evaluation import SuiteReport
+from ultimate_memory.model.forget import ForgetError
+from ultimate_memory.model.forget import ForgetInProgressError
+from ultimate_memory.model.forget import ForgetManifest
+from ultimate_memory.model.forget import ForgetManifestConflictError
+from ultimate_memory.model.forget import ForgetManifestNotFoundError
+from ultimate_memory.model.forget import ForgetManifestRecord
+from ultimate_memory.model.forget import ForgetManifestStatus
+from ultimate_memory.model.forget import ForgetRedactionRequiredError
+from ultimate_memory.model.forget import ForgetTargetNotFoundError
+from ultimate_memory.model.forget import ForgottenSourceError
 from ultimate_memory.model.git import KRevision
 from ultimate_memory.model.knowledge import CommunityRuleParams
 from ultimate_memory.model.knowledge import DocSetRuleParams
@@ -366,6 +376,16 @@ __all__ = (
     "FactLabelResponse",
     "FactResult",
     "FactSupport",
+    "ForgetError",
+    "ForgetInProgressError",
+    "ForgetManifest",
+    "ForgetManifestConflictError",
+    "ForgetManifestNotFoundError",
+    "ForgetManifestRecord",
+    "ForgetManifestStatus",
+    "ForgetRedactionRequiredError",
+    "ForgetTargetNotFoundError",
+    "ForgottenSourceError",
     "Freshness",
     "Grain",
     "IdentityRegime",

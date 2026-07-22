@@ -30,6 +30,7 @@ from ultimate_memory.spine import ChunkCatalog
 from ultimate_memory.spine import ClaimCatalog
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import WorkLedger
 from ultimate_memory.spine import WorkLedgerSettings
 from ultimate_memory.spine.settings import load_database_settings
@@ -171,7 +172,11 @@ class _E2Rig:
                 retry_backoff_base_s=0.0, retry_backoff_max_s=0.0
             ),
         )
-        self.ingestor = UploadIngestor(catalog=document_catalog, raw_store=raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=document_catalog,
+            raw_store=raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         registry = HandlerRegistry()
         registry.register(
             stage=PipelineStage.CONVERT,

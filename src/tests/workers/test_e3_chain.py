@@ -34,6 +34,7 @@ from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import DocumentCatalog
 from ultimate_memory.spine import EntityRegistry
 from ultimate_memory.spine import FactCatalog
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import ObservationAdjudicator
 from ultimate_memory.spine import ObservationSettings
 from ultimate_memory.spine import RESOLVER_VERSION
@@ -204,7 +205,11 @@ class _E3Rig:
                 retry_backoff_base_s=0.0, retry_backoff_max_s=0.0
             ),
         )
-        self.ingestor = UploadIngestor(catalog=document_catalog, raw_store=raw_store)
+        self.ingestor = UploadIngestor(
+            catalog=document_catalog,
+            raw_store=raw_store,
+            admission=ForgetCatalog(engine=engine),
+        )
         self.lance = LanceChunkIndex(root=root / "lance")
         self.normalize_handler = NormalizeRelationsHandler(
             claim_catalog=claim_catalog,

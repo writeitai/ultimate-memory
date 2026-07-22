@@ -36,6 +36,7 @@ from ultimate_memory.model import CostTierSpend
 from ultimate_memory.model import DeadLetterReplayResult
 from ultimate_memory.model import EnqueueOutcome
 from ultimate_memory.model import EnqueueWork
+from ultimate_memory.model import ForgetInProgressError
 from ultimate_memory.model import LaneRouteError
 from ultimate_memory.model import PipelineStage
 from ultimate_memory.model import ProcessingLane
@@ -44,6 +45,7 @@ from ultimate_memory.model import RecordCall
 from ultimate_memory.model import WorkNotDeadLetterError
 from ultimate_memory.model import WorkNotFoundError
 from ultimate_memory.model import WorkNotRunningError
+from ultimate_memory.spine.admission import active_forget_id_on
 from ultimate_memory.spine.catalog_contract import lane_is_valid
 
 
@@ -119,6 +121,15 @@ class WorkLedger:
         """
         _require_valid_lane(stage=stage, lane=lane)
         with self._engine.begin() as connection:
+            if stage is not PipelineStage.HARD_FORGET:
+                active_forget = active_forget_id_on(
+                    connection=connection, deployment_id=deployment_id
+                )
+                if active_forget is not None:
+                    raise ForgetInProgressError(
+                        f"deployment {deployment_id} is honoring forget_id"
+                        f" {active_forget}"
+                    )
             row = (
                 connection.execute(
                     _CLAIM_SELECT,

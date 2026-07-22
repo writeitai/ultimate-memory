@@ -13,6 +13,7 @@ from ultimate_memory.adapters.selfhost import SelfHostTaskQueue
 from ultimate_memory.model import DeadLetterReplayResult
 from ultimate_memory.model import OperationalReport
 from ultimate_memory.model import ProcessingLane
+from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine import OperationalCatalog
 from ultimate_memory.spine import OperationalSettings
 from ultimate_memory.spine import ProjectionCatalog
@@ -58,6 +59,7 @@ class SelfHostOperations:
         not_before: datetime | None,
     ) -> DeadLetterReplayResult:
         """Compose the authoritative replay transition with local delivery."""
+        ForgetCatalog(engine=self._engine).assert_available(deployment_id=deployment_id)
         ledger = WorkLedger(engine=self._engine, settings=WorkLedgerSettings())
         return DeadLetterReplayer(
             ledger=ledger, queue=SelfHostTaskQueue(ledger=ledger)
@@ -79,6 +81,7 @@ class SelfHostOperations:
         version: str,
     ) -> dict[str, object]:
         """Invoke the existing whole-rebuild implementation for P2 or P3."""
+        ForgetCatalog(engine=self._engine).assert_available(deployment_id=deployment_id)
         catalog = ProjectionCatalog(engine=self._engine)
         store = LocalFSObjectStore(root=snapshot_root)
         if plane == "p2":

@@ -27,6 +27,7 @@ from ultimate_memory.core.extension_packs import ExtensionPack
 from ultimate_memory.core.extension_packs import PackEntityType
 from ultimate_memory.core.extension_packs import PackPredicate
 from ultimate_memory.core.extension_packs import WORK_PACK
+from ultimate_memory.core.forget import source_identity_hash
 from ultimate_memory.core.knowledge_authored import authored_declaration_is_empty
 from ultimate_memory.core.knowledge_authored import knowledge_citation_reference
 from ultimate_memory.core.knowledge_authored import KnowledgeAuthoredDeclarationError
@@ -90,6 +91,7 @@ __all__ = (
     "normalized_block_text",
     "HOT_MIME_PREFIXES",
     "storage_class_for",
+    "source_identity_hash",
     "SECTION_ROLES",
     "snap_sections",
     "DEFAULT_EVIDENCE_COUNT_WEIGHT",

@@ -50,6 +50,61 @@ class LocalFSObjectStore:
         marker = marker.with_name(f"{marker.name}.storage-class")
         return marker.read_text(encoding="utf-8") if marker.exists() else None
 
+    def purge_objects(
+        self, *, keys: tuple[ObjectKey, ...], prefixes: tuple[ObjectKey, ...]
+    ) -> None:
+        """Idempotently erase exact keys, storage markers, and prefix matches."""
+        exact_paths = tuple(self._path_for(key=key) for key in keys)
+        normalized_prefixes = tuple(
+            self._path_for(key=prefix).relative_to(self._root).as_posix()
+            for prefix in prefixes
+        )
+        for path in exact_paths:
+            path.unlink(missing_ok=True)
+            path.with_name(f"{path.name}.storage-class").unlink(missing_ok=True)
+        if normalized_prefixes:
+            for path in tuple(self._root.rglob("*")):
+                if not (path.is_file() or path.is_symlink()):
+                    continue
+                relative = path.relative_to(self._root).as_posix()
+                if any(
+                    relative == prefix.rstrip("/")
+                    or relative.startswith(f"{prefix.rstrip('/')}/")
+                    for prefix in normalized_prefixes
+                ):
+                    path.unlink(missing_ok=True)
+        self._remove_empty_directories()
+
+    def verify_objects_purged(
+        self, *, keys: tuple[ObjectKey, ...], prefixes: tuple[ObjectKey, ...]
+    ) -> None:
+        """Prove exact keys and prefix-boundary descendants are absent."""
+        remaining = [
+            key.root
+            for key in keys
+            if self._path_for(key=key).exists()
+            or self._path_for(key=key)
+            .with_name(f"{self._path_for(key=key).name}.storage-class")
+            .exists()
+        ]
+        normalized_prefixes = tuple(
+            self._path_for(key=prefix).relative_to(self._root).as_posix().rstrip("/")
+            for prefix in prefixes
+        )
+        for path in self._root.rglob("*"):
+            if not (path.is_file() or path.is_symlink()):
+                continue
+            relative = path.relative_to(self._root).as_posix()
+            if any(
+                relative == prefix or relative.startswith(f"{prefix}/")
+                for prefix in normalized_prefixes
+            ):
+                remaining.append(relative)
+        if remaining:
+            raise RuntimeError(
+                f"object purge verification found: {sorted(remaining)!r}"
+            )
+
     def _path_for(self, *, key: ObjectKey) -> Path:
         """Resolve a key to a path strictly inside the root (no traversal)."""
         candidate = (self._root / key.root).resolve()
@@ -58,3 +113,18 @@ class LocalFSObjectStore:
                 f"object key {key.root!r} escapes the store root"
             )
         return candidate
+
+    def _remove_empty_directories(self) -> None:
+        """Prune empty object-key parents without ever removing the store root."""
+        directories = sorted(
+            (
+                path
+                for path in self._root.rglob("*")
+                if path.is_dir() and not path.is_symlink()
+            ),
+            key=lambda path: len(path.parts),
+            reverse=True,
+        )
+        for directory in directories:
+            if not any(directory.iterdir()):
+                directory.rmdir()
