@@ -34,7 +34,7 @@ the operator-driven portable restore drill is green without a library transport 
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
 | WP-7.5 | **Hard-delete end-to-end**: purge active P1/P2/P3/K surfaces and prevent restore resurrection through the D74 portable manifest/adapter contract | hard-forget design; lifecycle §8; k_layers §10; S55 | D74 (gate #24 resolved) | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | done |
 | WP-7.6 | **Release engineering**: semver across PyPI + GHCR images + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62 | WP-7.1, rename/CLA gate | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | blocked(rename-gate) |
-| WP-7.7 | **Portable state + restore round-trip**: define the authoritative store set and fail-closed restore order; operators move bytes with native tools and projections rebuild normally | packaging §6; D7, D60, D74–D75 | WP-7.1, WP-7.5 | portability contract + deterministic drill | whole/independent restore canaries → no forgotten-data resurrection + independent control green | done |
+| WP-7.7 | **Portable state + restore round-trip**: define the authoritative store set and fail-closed restore order; operators move bytes with native tools and projections rebuild normally | packaging §6; D7, D60, D74–D75 | WP-7.1, WP-7.5 | portability contract + deterministic drill | real PostgreSQL restore plus whole/independent external-store canaries → no resurrection + control green | done |
 
 ## WP-7.1 implementation
 
@@ -148,11 +148,16 @@ preserved; migrations and the ordinary hard-forget readiness pass run before ser
 are rebuilt through their production paths. Backup schedules, consistency policy, credentials,
 progress reporting, retries, and provider-specific transfer mechanics remain operator/cloud scope.
 
-The deterministic drill is the existing composed WP-7.5 evidence rather than a duplicate backup
-engine. `test_s55_hard_forget.py` restores the whole logical serving state and each channel
-independently while retaining portable intent. `test_s55_selfhost_restore.py` performs the same
-proof over real LocalFS object/manifest stores, Lance, projection caches, and Git history.
-`test_forget_catalog.py` proves the authoritative PostgreSQL inventory and scrub while preserving
-independent control evidence; WP-7.4's P2/P3 rebuild drills already exercise the normal production
-builders. Together they fail if portable intent is omitted, readiness trusts a local completion
-bit, a restored store retains forgotten content, or unrelated memory is damaged.
+The deterministic drill reuses the WP-7.5 machinery rather than adding a backup engine.
+`test_forget_catalog.py` restores the fixed pre-forget PostgreSQL fixture after local completion,
+proves the local barrier row is absent, then exercises the readiness coordinator and portable
+rematerialization against real SQL while preserving independent control evidence.
+`test_s55_hard_forget.py` restores the whole logical serving state and each channel independently;
+`test_s55_selfhost_restore.py` performs the external-store proof over real LocalFS
+object/manifest stores, Lance, projection caches, and Git history. WP-7.4/WP-7.5 separately prove
+that the forget rebuilder delegates to the production P2/P3 builders; that is an existing
+dependency, not claimed as one composed restore test. Together the drills fail if portable intent
+is omitted, readiness trusts a local completion bit, restored PostgreSQL or an external store
+retains forgotten content, or unrelated memory is damaged. Preserving the deployment id and
+verifying the transferred manifest root are explicit operator obligations, not drill-proven
+identity conversion or loss detection.

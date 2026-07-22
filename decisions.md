@@ -2506,13 +2506,17 @@ stores with their native tools while preserving the deployment id. P1, P2, and P
 and are rebuilt through their normal production paths after restore rather than copied as portable
 state.
 
-The manifest root is transferred and verified first. After the other authoritative stores are
-restored and ordinary schema migrations run, the existing hard-forget readiness pass must
+The manifest root is transferred and verified first. Preserving the deployment id is an operator
+precondition; changing deployment identity is outside this portability contract. After the other
+authoritative stores are restored and ordinary schema migrations run, the existing hard-forget
+readiness pass must
 rematerialize and re-honor every manifest before any public or ordinary-work admission opens. Only
 then do the ordinary P1/P2/P3 builders run and the S55/control canaries gate traffic. Omission or loss
-of the manifest root is an unsafe restore and fails closed. Snapshot consistency, credentials,
-provider-specific copy commands, progress, retries, retention, and backup scheduling remain
-operator or `ultimate-memory-cloud` responsibilities under D60.
+of the manifest root is an unsafe restore. An unavailable or unprovisioned root fails readiness;
+a reachable empty replacement cannot disclose lost manifests, so transfer verification remains an
+operator obligation. Snapshot consistency, credentials, provider-specific copy commands, progress,
+retries, retention, and backup scheduling remain operator or `ultimate-memory-cloud`
+responsibilities under D60.
 
 **Context.** D62 correctly made rebuild-first portability part of the no-lock-in promise but
 over-specified a pair of library CLI commands. Coordinating PostgreSQL, arbitrary object providers,
@@ -2527,8 +2531,10 @@ database-only dump as complete portable state. Each either duplicates operator t
 D60 boundary, or can resurrect forgotten content.
 
 **Consequences.** WP-7.7 becomes a contract-and-drill work package, not a runtime feature. Its
-acceptance composes the existing real PostgreSQL forget-catalog proof with the logical whole-store
-and real self-host independent-restore canaries from WP-7.5, plus the already-shipped production
-P2/P3 rebuild drills. This proves preserved control data, manifest-first replay, normal projection
-rebuild, and forgotten-data non-resurrection without new ports, schema, settings, services, or
-public CLI commands.
+acceptance adds a real PostgreSQL old-state restore/rematerialization proof and composes it with the
+logical whole-store and real self-host independent-external-store canaries from WP-7.5. The
+already-shipped WP-7.4/WP-7.5 contracts separately prove delegation to the production P2/P3
+builders; they are dependencies rather than a claimed composed restore test. The result proves
+preserved control data, manifest-first replay, and forgotten-data non-resurrection without new
+ports, schema, settings, services, or public CLI commands. Deployment-id preservation and
+manifest-root transfer verification remain explicit operator preconditions.

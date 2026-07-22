@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from datetime import UTC
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 from alembic import command
@@ -16,10 +17,15 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
 from ultimate_memory.model import DeploymentBootstrapInput
+from ultimate_memory.model import ForgetManifest
 from ultimate_memory.model import ForgetManifestStatus
+from ultimate_memory.ports import ForgetManifestPort
 from ultimate_memory.spine import DeploymentBootstrapper
 from ultimate_memory.spine import ForgetCatalog
 from ultimate_memory.spine.settings import load_database_settings
+from ultimate_memory.workers import HardForgetHandler
+from ultimate_memory.workers import HardForgetReadiness
+from ultimate_memory.workers import HardForgetService
 
 _ROOT = Path(__file__).resolve().parents[3]
 _NOW = datetime(2026, 7, 21, tzinfo=UTC)
@@ -75,7 +81,68 @@ def database_engine() -> Iterator[Engine]:
 @pytest.fixture()
 def seeded_engine(database_engine: Engine) -> Engine:
     """Give the proof a fresh deployment with target and independent control data."""
-    with database_engine.begin() as connection:
+    _restore_pre_forget_postgres(engine=database_engine)
+    return database_engine
+
+
+class _PortableManifestStore:
+    """Retain one D74 manifest outside the restored PostgreSQL state."""
+
+    def __init__(self, *, manifest: ForgetManifest) -> None:
+        """Bind the immutable portable intent used by the restore drill."""
+        self._manifest = manifest
+
+    def append(self, *, manifest: ForgetManifest) -> None:
+        """Reject an unexpected attempt to replace the retained intent."""
+        assert manifest == self._manifest
+
+    def manifests(self, *, deployment_id: UUID) -> tuple[ForgetManifest, ...]:
+        """Enumerate the retained intent only for its original deployment."""
+        if deployment_id == self._manifest.deployment_id:
+            return (self._manifest,)
+        return ()
+
+
+class _NoPreparingRequest:
+    """Refuse request admission in a restore with no local preparation row."""
+
+    def request(self, **_: object) -> ForgetManifest:
+        """Fail if readiness invents a new request instead of materializing intent."""
+        raise AssertionError("portable restore has no preparing request")
+
+
+class _PostgresRestoreHandler:
+    """Run only the real PostgreSQL leg of the independently composed restore drill."""
+
+    def __init__(self, *, catalog: ForgetCatalog) -> None:
+        """Bind the real catalog used by readiness rematerialization."""
+        self._catalog = catalog
+
+    def honor(self, *, manifest: ForgetManifest) -> None:
+        """Scrub, verify, and complete the rematerialized PostgreSQL intent."""
+        self._catalog.scrub_postgres(manifest=manifest)
+        self._catalog.verify_postgres_scrubbed(manifest=manifest)
+        self._catalog.mark_complete(manifest=manifest)
+
+
+def _postgres_restore_readiness(
+    *, engine: Engine, manifest: ForgetManifest
+) -> HardForgetReadiness:
+    """Compose real PostgreSQL readiness with already-covered external store ports."""
+    catalog = ForgetCatalog(engine=engine)
+    return HardForgetReadiness(
+        catalog=catalog,
+        manifest_store=cast(
+            ForgetManifestPort, _PortableManifestStore(manifest=manifest)
+        ),
+        request_service=cast(HardForgetService, _NoPreparingRequest()),
+        handler=cast(HardForgetHandler, _PostgresRestoreHandler(catalog=catalog)),
+    )
+
+
+def _restore_pre_forget_postgres(*, engine: Engine) -> None:
+    """Replace local state with the fixed pre-forget PostgreSQL snapshot."""
+    with engine.begin() as connection:
         connection.execute(
             text(
                 "TRUNCATE TABLE mentions, resolution_decisions, chunks,"
@@ -84,7 +151,7 @@ def seeded_engine(database_engine: Engine) -> Engine:
                 " observation_evidence, deployments CASCADE"
             )
         )
-    DeploymentBootstrapper(engine=database_engine).bootstrap_deployment(
+    DeploymentBootstrapper(engine=engine).bootstrap_deployment(
         deployment_input=DeploymentBootstrapInput(
             deployment_id=_DEPLOYMENT_ID,
             slug="hard-forget",
@@ -96,11 +163,10 @@ def seeded_engine(database_engine: Engine) -> Engine:
             knowledge_repo_uri="mem://knowledge.git",
         )
     )
-    with database_engine.begin() as connection:
+    with engine.begin() as connection:
         _seed_documents(connection=connection)
         _seed_evidence(connection=connection)
         _seed_knowledge_and_residuals(connection=connection)
-    return database_engine
 
 
 def test_inventory_scrub_and_verification_preserve_independent_evidence(
@@ -141,6 +207,42 @@ def test_inventory_scrub_and_verification_preserve_independent_evidence(
     catalog.verify_postgres_scrubbed(manifest=manifest)
     catalog.mark_complete(manifest=manifest)
 
+    record = catalog.record_for_doc(deployment_id=_DEPLOYMENT_ID, doc_id=_TARGET_DOC_ID)
+    assert record is not None
+    assert record.status is ForgetManifestStatus.COMPLETE
+    _assert_scrubbed_and_control_survives(engine=seeded_engine)
+
+
+def test_readiness_rehonors_manifest_after_old_postgres_restore(
+    seeded_engine: Engine,
+) -> None:
+    """Restore pre-forget PostgreSQL; portable readiness must scrub it again."""
+    catalog = ForgetCatalog(engine=seeded_engine)
+    catalog.prepare(
+        deployment_id=_DEPLOYMENT_ID, doc_id=_TARGET_DOC_ID, forget_id=_FORGET_ID
+    )
+    manifest = catalog.inventory_and_store_manifest(
+        deployment_id=_DEPLOYMENT_ID,
+        doc_id=_TARGET_DOC_ID,
+        forget_id=_FORGET_ID,
+        requested_at=_NOW,
+    )
+    catalog.accept_and_enqueue(manifest=manifest)
+    catalog.scrub_postgres(manifest=manifest)
+    catalog.verify_postgres_scrubbed(manifest=manifest)
+    catalog.mark_complete(manifest=manifest)
+
+    _restore_pre_forget_postgres(engine=seeded_engine)
+    assert (
+        catalog.record_for_doc(deployment_id=_DEPLOYMENT_ID, doc_id=_TARGET_DOC_ID)
+        is None
+    )
+
+    honored = _postgres_restore_readiness(
+        engine=seeded_engine, manifest=manifest
+    ).ensure_ready(deployment_id=_DEPLOYMENT_ID)
+
+    assert honored == (_FORGET_ID,)
     record = catalog.record_for_doc(deployment_id=_DEPLOYMENT_ID, doc_id=_TARGET_DOC_ID)
     assert record is not None
     assert record.status is ForgetManifestStatus.COMPLETE

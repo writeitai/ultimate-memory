@@ -238,10 +238,11 @@ The portable restore order is deliberately small and fail-closed:
 5. Rebuild P1/P2/P3 through their normal production builders, run the S55/control canaries, and
    only then admit traffic.
 
-Credentials, provider configuration, backup retention, transfer progress, retries, and
-cross-store snapshot policy remain operator or `ultimate-memory-cloud` responsibilities. Losing
-or omitting the manifest root makes a restore unsafe; the library must fail closed rather than
-claim success.
+Credentials, provider configuration, backup retention, transfer progress, retries, manifest-root
+verification, and cross-store snapshot policy remain operator or `ultimate-memory-cloud`
+responsibilities. Losing or omitting the manifest root makes a restore unsafe. An unavailable or
+unprovisioned root fails readiness; a reachable empty replacement cannot disclose what was lost and
+must be rejected by the operator's transfer verification.
 
 ## 7. Decision interactions
 
@@ -264,10 +265,11 @@ claim success.
    granularity — measure under Phase 7's fixed portable scale profiles.
 3. **Compose quickstart UX**: measure the cold-start-to-first-query time; it is a release
    gate (target: minutes).
-4. **Portable restore round-trip drill** (after D74/WP-7.5): retain the manifest root, restore
-   operator-managed source-of-truth state, run readiness, rebuild projections, then prove the
-   forgotten-data non-resurrection canary and an independent control green. This is a correctness
-   drill over existing tools and adapters, not a library transport feature.
+4. **Portable restore round-trip drill — completed by WP-7.7**: retain the manifest root, restore
+   the pre-forget PostgreSQL fixture and independently restore external stores, run readiness, then
+   prove forgotten-data non-resurrection and an independent control green. Production-builder
+   delegation remains the separately green WP-7.4/WP-7.5 contract. No library transport feature is
+   involved.
 5. **MCP server distribution**: whether the MCP server also ships as a standalone binary/uvx
    target for harnesses that don't want a Python env — decide with the first external users.
 
