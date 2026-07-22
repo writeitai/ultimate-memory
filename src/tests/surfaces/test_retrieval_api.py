@@ -7,7 +7,6 @@ against the live spine (D48), every answer carrying the D49 envelope.
 
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import Mock
 from uuid import UUID
 from uuid import uuid4
 
@@ -78,6 +77,17 @@ _PARAMS = ChunkerParams(token_budget=400)
 _SOURCE = (
     "Alice Novak joined Acme in 2024. Alice Novak works for Acme as an engineer.\n"
 )
+
+
+class _OpenBoundary:
+    """Keep the retrieval fixture open across readiness and admission checks."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        return ()
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        pass
+
 
 _PAYLOADS: dict[str, dict[str, object]] = {
     "ContextPrefix": {"prefix": "Sits in the staffing note."},
@@ -315,8 +325,8 @@ class _ApiRig:
                     embedding_model=P1Settings().embedding_model,
                 ),
                 deployment_id=_DEPLOYMENT_ID,
-                admission=Mock(),
-                readiness=Mock(),
+                admission=_OpenBoundary(),
+                readiness=_OpenBoundary(),
                 ingest=self.ingestor,
             )
         )

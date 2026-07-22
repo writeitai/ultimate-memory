@@ -19,7 +19,6 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import cast
-from unittest.mock import Mock
 from uuid import UUID
 from uuid import uuid4
 
@@ -55,6 +54,16 @@ from ultimate_memory.surfaces.cli import query_run
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("54000000-0000-0000-0000-000000000001")
 _OTHER_DEPLOYMENT = UUID("54000000-0000-0000-0000-0000000000ff")
+
+
+class _OpenBoundary:
+    """Keep surface fixtures open across readiness and admission checks."""
+
+    def ensure_ready(self, *, deployment_id: UUID) -> tuple[UUID, ...]:
+        return ()
+
+    def assert_available(self, *, deployment_id: UUID) -> None:
+        pass
 
 
 class _NullSearchIndex:
@@ -160,8 +169,8 @@ class _Deployment:
         self.app = build_api(
             engine=query_engine,
             deployment_id=_DEPLOYMENT_ID,
-            admission=Mock(),
-            readiness=Mock(),
+            admission=_OpenBoundary(),
+            readiness=_OpenBoundary(),
             surface=self.surface,
         )
         self.client = TestClient(self.app)
@@ -287,8 +296,8 @@ def test_the_auth_perimeter_gates_every_endpoint(deployment: _Deployment) -> Non
             embedding_model="toy",
         ),
         deployment_id=_DEPLOYMENT_ID,
-        admission=Mock(),
-        readiness=Mock(),
+        admission=_OpenBoundary(),
+        readiness=_OpenBoundary(),
         surface=deployment.surface,
         auth=_FakeAuth(),
     )
@@ -357,8 +366,8 @@ def test_the_api_and_surface_must_serve_one_deployment(deployment: _Deployment) 
                 embedding_model="toy",
             ),
             deployment_id=_DEPLOYMENT_ID,
-            admission=Mock(),
-            readiness=Mock(),
+            admission=_OpenBoundary(),
+            readiness=_OpenBoundary(),
             surface=mismatched,
         )
 
