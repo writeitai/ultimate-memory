@@ -1,6 +1,7 @@
 .idea/
 _additional_context/
 _feature_planning/
+.env
 
 # python
 .venv/

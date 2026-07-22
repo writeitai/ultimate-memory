@@ -1,0 +1,85 @@
+export const metadata = {
+  title: "Self-host Deployment",
+  description:
+    "Run the fresh-deployment Docker Compose skeleton with PostgreSQL, MinIO, the API, and E0 workers.",
+};
+
+# Self-host Deployment
+
+The repository ships a Docker Compose skeleton for a **fresh, single-deployment**
+self-host. It starts PostgreSQL, MinIO, the HTTP API, and separate conversion and
+structure workers. The one-shot `setup` service applies every migration before
+the API or workers start, provisions the three object buckets, bootstraps the
+deployment, and seeds the canonical retrieval recipes.
+
+This is a pre-release infrastructure proof. It processes a Markdown upload
+through conversion and deterministic structure, then leaves its chunk work
+pending. Later pipeline workers, the full restore/hard-forget composition, pinned
+release images, and the public `remember` names belong to the remaining release
+work. Do not expose this stack to untrusted traffic.
+
+## Start the stack
+
+Docker Engine with Compose v2 is required.
+
+```bash
+cp .env.example .env
+docker compose up --build --detach --wait
+```
+
+The example file contains local-only PostgreSQL and MinIO credentials. Replace
+every secret before using the stack outside an isolated development machine.
+It also contains an OpenRouter placeholder so the provider adapter can be
+constructed without making a model request. Replace it with a real key before
+processing a corpus; the short smoke upload below makes no LLM or embedding call.
+
+Check the API and the deployment-seeded recipe registry:
+
+```bash
+curl --fail http://localhost:8000/healthz
+curl --fail http://localhost:8000/recipes
+```
+
+## Ingest the smoke document
+
+Create a short Markdown document and push it through the ordinary E0 API:
+
+```bash
+printf '# Hello\n\nRemember this deployment.\n' > /tmp/remember-smoke.md
+curl --fail \
+  --data-binary @/tmp/remember-smoke.md \
+  'http://localhost:8000/ingest?filename=remember-smoke.md&mime=text%2Fmarkdown'
+```
+
+The response names the deployment, document, and version. Both E0 workers use
+the normal PostgreSQL work ledger: `convert` and `structure` become `succeeded`,
+and the next `chunk` row remains visibly `pending` because this skeleton does not
+pretend the later worker topology is composed.
+
+```bash
+docker compose exec postgres psql -U ugm -d ugm -c \
+  "SELECT stage, status FROM processing_state ORDER BY created_at"
+```
+
+The original bytes and derived Markdown/sidecars are in the MinIO buckets. The
+MinIO console is available at `http://localhost:9001` with the credentials from
+`.env`.
+
+## Stop and reset
+
+Stop containers while retaining state:
+
+```bash
+docker compose down
+```
+
+To erase this local deployment completely, including PostgreSQL, MinIO, Lance,
+and the separately mounted forget-manifest directory:
+
+```bash
+docker compose down --volumes
+```
+
+The second command is destructive. It is appropriate only for this disposable
+quickstart deployment—not for backup or restore. Production portability uses
+native store tools and preserves the hard-forget manifest root first.

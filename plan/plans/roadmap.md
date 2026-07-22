@@ -95,7 +95,7 @@ needs to restate it:
 
 | Phase | Name | Builds | Keyed to designs | Status |
 |---|---|---|---|---|
-| 0 | Foundations + harness | scaffolding, migrations, tenancy, `processing_state`/`cost_ledger`, queues, **eval harness + golden-set tooling**, blockizer golden corpus | schema; orchestration §1–2; D22 | done (exit criteria met 2026-07-18; WP-0.4b/0.4c + WP-0.6 carried per the phase file) |
+| 0 | Foundations + harness | scaffolding, migrations, tenancy, `processing_state`/`cost_ledger`, queues, **eval harness + golden-set tooling**, blockizer golden corpus | schema; orchestration §1–2; D22 | done (exit criteria met 2026-07-18; WP-0.4c completed 2026-07-22; WP-0.4b + WP-0.6 remain carried per the phase file) |
 | 1 | Walking skeleton | one document end-to-end, everything minimal; 4 retrieval primitives + envelope core | e0, e1, e2_e3, observations, retrieval §2–3 | done (exit criteria met 2026-07-18; PRs #81-#87 — see the phase file) |
 | 2 | Truth machinery | full ER cascade + registries + review queue; supersession; observation adjudication; thresholds measured | registries, e2_e3 §5, observations | done (exit criteria met 2026-07-19; PRs #88-#94 — see the phase file) |
 | 3 | Evidence lifecycle | lineages/versions, Drive connector + sync cycles, currency + counting + reconciliation, chunk reuse, deletion grains, full PageIndex route | evidence_lifecycle, e1 §7, e0 | done (exit criteria met 2026-07-19; PRs #95-#99 — see the phase file) |

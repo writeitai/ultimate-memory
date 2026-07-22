@@ -42,6 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 server = [
     "alembic>=1.16",
+    "boto3>=1.42",
     "fastapi>=0.139.2",
     "ladybug>=0.18.2",
     "lancedb>=0.34.0",
@@ -50,6 +51,7 @@ server = [
     "onnxruntime>=1.24.1; python_version >= '3.14'",
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
+    "uvicorn>=0.37",
 ]
 # The watched-directory connector uses only the standard library. Other
 # connector extras are added with their adapters, rather than speculatively.
@@ -68,6 +70,7 @@ Issues = "https://github.com/writeitai/ultimate-memory/issues"
 [dependency-groups]
 dev = [
     "alembic>=1.16",
+    "boto3>=1.42",
     "fastapi>=0.139.2",
     "import-linter>=2.13",
     "ladybug>=0.18.2",
@@ -82,6 +85,7 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.4",
     "sqlalchemy>=2.0",
+    "uvicorn>=0.37",
 ]
 
 [tool.hatch.build.targets.wheel]
