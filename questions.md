@@ -94,7 +94,7 @@ Keep this current: when something here is decided, move it to a decision and pru
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
-      compose profiles, release/upgrade/export policy. Still gating here: the mechanical
+      compose profiles, release/upgrade/portable-restore policy. Still gating here: the mechanical
       **rename** and the **CLA** (above).
     - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
       `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —
