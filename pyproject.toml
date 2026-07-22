@@ -28,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
@@ -46,6 +47,7 @@ server = [
     "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",
+    "onnxruntime>=1.24.1; python_version >= '3.14'",
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
 ]
@@ -72,6 +74,7 @@ dev = [
     "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",
+    "onnxruntime>=1.24.1; python_version >= '3.14'",
     "psycopg[binary]>=3.2",
     "pyright>=1.1",
     "pytest>=8.3",
