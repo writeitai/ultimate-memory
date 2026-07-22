@@ -56,7 +56,8 @@ Keep this current: when something here is decided, move it to a decision and pru
    management, hosted perimeter mechanics, and audit-review cadence belong to the operator/cloud.
 9. ~~**Postgres HA appetite**~~ **ROUTED OUT OF OSS DESIGN (D60).** Replicas, failover, acceptable
    downtime, and PITR operation belong to the deployment operator/cloud. The library owns schema,
-   migrations, portable export, and restore-safe correctness contracts.
+   migrations, the portable-state definition, and fail-closed restore/non-resurrection contracts;
+   operators move bytes with native tools (D75).
 10. ~~**Observability stack**~~ **RESOLVED AT THE LIBRARY BOUNDARY (D60/D61).** OSS emits typed
     telemetry through the telemetry port and exposes durable state through agent/admin surfaces.
     Grafana, GCP-native monitoring, retention, alert routing, and dashboards are operator/cloud
@@ -93,7 +94,7 @@ Keep this current: when something here is decided, move it to a decision and pru
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
-      compose profiles, release/upgrade/export policy. Still gating here: the mechanical
+      compose profiles, release/upgrade/portable-restore policy. Still gating here: the mechanical
       **rename** and the **CLA** (above).
     - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
       `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —

@@ -1,4 +1,4 @@
-"""S55 deterministic hard-forget and independent-store restore canary."""
+"""S55/WP-7.7 deterministic whole- and independent-store restore canary."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -248,7 +248,7 @@ def _assert_s55(state: _ServingState) -> None:
 
 
 def test_s55_survives_whole_and_independent_external_store_restores() -> None:
-    """Every readiness re-honors portable intent without an LLM or network call."""
+    """Operator restores stay closed until readiness re-honors portable intent."""
     state = _ServingState.before_forget()
     readiness, catalog = _readiness(state=state)
 

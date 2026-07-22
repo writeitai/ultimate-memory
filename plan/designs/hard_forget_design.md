@@ -55,8 +55,8 @@ a typed conflict.
 `ForgetManifestPort` has only two responsibilities: append one immutable manifest and enumerate
 manifests for a deployment. Its storage must be outside the ordinary data-restore set it protects.
 The self-host adapter uses a dedicated append-only local root; the cloud implementation and its
-durability live in `ultimate-memory-cloud`. WP-7.7 export/import carries the same manifest format
-and imports manifests before data becomes readable.
+durability live in `ultimate-memory-cloud`. D75/WP-7.7 require operators to transfer this separate
+manifest root before restored data can become readable; the library does not own byte transport.
 
 The erasure capabilities are narrow protocols implemented by the already-selected adapters:
 `ObjectPurgePort`, `P1PurgePort`, `ProjectionPurgePort`, and `KGitPurgePort`. Each takes a typed
@@ -196,7 +196,7 @@ table or deletion-specific scheduler is added.
 If any adapter throws or verification fails, the original exception remains visible, the work row
 retries/dead-letters normally, and the barrier remains closed. There is no partial-success response.
 
-## 5. Restore and import non-resurrection
+## 5. Restore non-resurrection
 
 Every serving composition has one readiness step before it accepts traffic:
 
@@ -220,10 +220,12 @@ PostgreSQL dump, object bucket, P1 dataset, P2/P3 snapshot, K remote, or any com
 forgotten data queryable: the append-only manifest lives outside that restore and re-closes the
 barrier first. The restore path is not special purge machinery; it feeds the same worker.
 
-An operator that omits or loses the manifest store cannot truthfully claim safe restore. The OSS
-surface reports that as a hard readiness failure rather than guessing. Provider backup deletion and
-expiry remain operational obligations, but no provider backup may be mounted as an active serving
-store without this replay gate.
+An operator that omits or loses the manifest store cannot truthfully claim safe restore. An
+unavailable or unprovisioned store is a hard readiness failure. A reachable but wrongly substituted
+empty root cannot reveal the manifests it lost, so verifying the transferred manifest root remains
+an operator obligation under D75. Provider backup deletion and expiry remain operational
+obligations, but no provider backup may be mounted as an active serving store without this replay
+gate.
 
 ## 6. Rejected complexity and explicit limitations
 
