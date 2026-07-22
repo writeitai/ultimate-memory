@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     services:
       postgres:
         image: ghcr.io/dbsystel/postgresql-partman@sha256:bf9d2331aaeb3e33a4e6e73b4c024ca618d4d1ea050bbab978125ff63b83385a

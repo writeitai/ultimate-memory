@@ -81,7 +81,7 @@ needs to restate it:
     use `test_*.py` under [`src/tests/`](../../src/tests/). This records scaffold naming only:
     D62's hexagonal package directories and import boundaries remain the separate, planned
     WP-0.4 deliverable, and the release-gate rename remains open.
-  - **CI provider:** GitHub Actions runs the locked environment on Python 3.12 and 3.13, with
+  - **CI provider:** GitHub Actions runs the locked environment on Python 3.12, 3.13, and 3.14, with
     Ruff lint/format, Pyright, pytest/coverage, and the combined coverage report defined in
     [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
   - **Configuration and secrets:** runtime configuration enters only through typed
