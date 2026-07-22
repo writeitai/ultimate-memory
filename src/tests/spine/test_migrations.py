@@ -233,7 +233,7 @@ def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> N
         "observation_evidence": 64,
         "relation_evidence": 64,
     }
-    assert len(fresh_inventory.tables) == 59
+    assert len(fresh_inventory.tables) == 60
     assert fresh_inventory.empty_tables == (
         "deployments",
         "entity_types",
@@ -260,5 +260,5 @@ def test_postgresql_fresh_downgrade_reupgrade_mutation_and_noop_lifecycle() -> N
     head_before_noop = _head_revision(database_url=database_url)
     command.upgrade(config=config, revision="head")
     head_after_noop = _head_revision(database_url=database_url)
-    assert head_before_noop == head_after_noop == "p7_02_0016"
+    assert head_before_noop == head_after_noop == "p7_05_0017"
     assert _inventory(database_url=database_url) == restored_inventory
