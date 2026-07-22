@@ -1,0 +1,98 @@
+name: ultimate-memory
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ultimate-memory:local
+  environment:
+    UGM_DATABASE_URL: postgresql+psycopg://${UGM_POSTGRES_USER}:${UGM_POSTGRES_PASSWORD}@postgres:5432/${UGM_POSTGRES_DB}
+    UGM_MINIO_ENDPOINT_URL: http://minio:9000
+    UGM_MINIO_ACCESS_KEY: ${UGM_MINIO_ACCESS_KEY}
+    UGM_MINIO_SECRET_KEY: ${UGM_MINIO_SECRET_KEY}
+    UGM_OPENROUTER_API_KEY: ${UGM_OPENROUTER_API_KEY}
+    UGM_SELFHOST_DEPLOYMENT_ID: ${UGM_SELFHOST_DEPLOYMENT_ID}
+    UGM_SELFHOST_DEPLOYMENT_SLUG: ${UGM_SELFHOST_DEPLOYMENT_SLUG}
+    UGM_SELFHOST_DEPLOYMENT_NAME: ${UGM_SELFHOST_DEPLOYMENT_NAME}
+    UGM_SELFHOST_API_PORT: "8000"
+  volumes:
+    - app-state:/var/lib/ultimate-memory
+    - forget-manifests:/var/lib/ultimate-memory/forget-manifests
+
+services:
+  postgres:
+    image: ghcr.io/dbsystel/postgresql-partman@sha256:bf9d2331aaeb3e33a4e6e73b4c024ca618d4d1ea050bbab978125ff63b83385a
+    environment:
+      POSTGRES_USER: ${UGM_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${UGM_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${UGM_POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${UGM_POSTGRES_USER} -d ${UGM_POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${UGM_MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${UGM_MINIO_SECRET_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  setup:
+    <<: *app
+    command: ["setup"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command: ["api"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "${UGM_SELFHOST_API_PORT}:8000"
+
+  worker-convert:
+    <<: *app
+    command: ["worker", "--stage", "convert"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-structure:
+    <<: *app
+    command: ["worker", "--stage", "structure"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+volumes:
+  app-state:
+  forget-manifests:
+  minio-data:
+  postgres-data:

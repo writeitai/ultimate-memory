@@ -1,0 +1,15 @@
+.git
+.github
+.pytest_cache
+.venv
+.coverage*
+**/__pycache__
+**/*.pyc
+dist
+htmlcov
+plan
+src/tests
+website
+_prompts
+.loopy_loop
+.eval-banana

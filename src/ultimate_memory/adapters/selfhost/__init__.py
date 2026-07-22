@@ -1,8 +1,11 @@
 """Self-host adapters: pg delivery shell, local-FS object store, local mounts (WP-0.4a)."""
 
+from typing import TYPE_CHECKING
+
 from ultimate_memory.adapters.selfhost.forget import LocalFSForgetManifestStore
 from ultimate_memory.adapters.selfhost.git import LocalGitRepository
-from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
+from ultimate_memory.adapters.selfhost.minio import MinIOObjectStore
+from ultimate_memory.adapters.selfhost.minio import MinIOSettings
 from ultimate_memory.adapters.selfhost.mounts import AuditedRawReader
 from ultimate_memory.adapters.selfhost.mounts import LocalMountPublisher
 from ultimate_memory.adapters.selfhost.mounts import RawAccessDenied
@@ -17,6 +20,9 @@ from ultimate_memory.adapters.selfhost.queue import TokenBucket
 from ultimate_memory.adapters.selfhost.telemetry import JsonLineTelemetry
 from ultimate_memory.adapters.selfhost.watcher import LocalDirectoryWatcher
 
+if TYPE_CHECKING:
+    from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
+
 __all__ = (
     "LanceChunkIndex",
     "LocalFSForgetManifestStore",
@@ -26,6 +32,8 @@ __all__ = (
     "LocalFSObjectStore",
     "AuditedRawReader",
     "LocalMountPublisher",
+    "MinIOObjectStore",
+    "MinIOSettings",
     "RawAccessDenied",
     "storage_class_for",
     "ObjectAlreadyExistsError",
@@ -35,3 +43,12 @@ __all__ = (
     "SelfHostWorkerLoop",
     "TokenBucket",
 )
+
+
+def __getattr__(name: str) -> object:
+    """Load the heavy LanceDB adapter only when a composition actually needs it."""
+    if name == "LanceChunkIndex":
+        from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
+
+        return LanceChunkIndex
+    raise AttributeError(name)

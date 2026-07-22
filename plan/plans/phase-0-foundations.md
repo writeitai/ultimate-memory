@@ -24,7 +24,7 @@ scaffold exists with ≥1 seeded doc.
 | WP-0.4 | **The D61 port interfaces** (`ports/` Protocols: object store, task queue, mounts, git remote, model provider, telemetry, auth) + import-linter contracts in CI | packaging §3–4; D61, D62 | WP-0.1 | `ports/` + CI architecture checks | illegal import fails CI (proven by a deliberate violation) | done |
 | WP-0.4a | **Self-host adapters**: pg-queue delivery shell (`LISTEN/NOTIFY` + `SKIP LOCKED`, transactional enqueue, token-bucket rate limits), local-FS object store, local mount publisher, `adapters/testing` tier (MinIO wiring lands with WP-0.4c) | packaging §3, §5; D62 | WP-0.4, WP-0.3 | `adapters/selfhost` + `adapters/testing` | demo chain runs against real Postgres with zero GCP deps; transactional-enqueue crash test | done |
 | WP-0.4b | **Reference adapters**: Cloud Tasks push shell + dispatch server, GCS store, gcsfuse publisher; **the janitor sweep** (shared, port-agnostic) | packaging §3; orchestration §2–3; D61 | WP-0.4 | `adapters/gcp` + janitor job | same demo chain on the GCP profile; janitor re-announces a killed delivery on BOTH profiles | planned |
-| WP-0.4c | **Compose self-host profile** (postgres + minio + api + worker; `profiles/selfhost`) — the quickstart skeleton | packaging §5 | WP-0.4a | docker-compose + profile module | `docker compose up` → demo ingest → state rows; CI-run | planned |
+| WP-0.4c | **Compose self-host profile** (postgres + minio + api + worker; `profiles/selfhost`) — the quickstart skeleton | packaging §5 | WP-0.4a | docker-compose + profile module | `docker compose up` → demo ingest → state rows; CI-run | done |
 | WP-0.5 | **Eval harness skeleton** (questions #14 — this WP owns it): golden-set storage (`golden_pairs`, `golden_claim_labels`, `canary_cases`, `eval_runs`), suite runner, CI wiring | schema §5; D22; registries §10 | WP-0.2 | harness package + `eval` CI job | empty suites run; a seeded canary fails deliberately and blocks CI | done |
 | WP-0.6 | Golden-set labeling tooling (LLM-propose / human-adjudicate loop, circularity guard) | D22; registries §11.1 | WP-0.5 | labeling CLI | 20 seed pairs labeled end-to-end | planned |
 | WP-0.7 | Blockizer golden corpus scaffold (expected block-hash regression per `blockizer_version`) | e1 §2 (D57) | WP-0.5 | corpus + CI check | seeded doc's hashes locked; a deliberate parser change trips CI | done |
@@ -99,6 +99,17 @@ enqueue delivers exactly its row's wake — the schema trigger's by-construction
 announce re-delivery, and the demo chain draining through the loop with zero GCP dependencies.
 MinIO wiring lands with WP-0.4c per the sequencing amendment.
 
+**WP-0.4c complete (2026-07-22):** the fresh-deployment Compose skeleton wires the
+real `profiles/selfhost` composition to pinned PostgreSQL 16 + pg_partman and MinIO images,
+one migration/bootstrap service, the HTTP API, and separate `convert`/`structure` workers.
+The MinIO adapter preserves write-once object semantics, path boundaries, routing metadata,
+and hard-forget purge verification. A real Compose acceptance started from empty named volumes,
+served health + recipes, ingested Markdown through MinIO, and observed `convert=succeeded`,
+`structure=succeeded`, and `chunk=pending` in the authoritative work ledger with zero cost rows
+(no provider call). CI repeats that proof in a job parallel to the Python matrix. This remains a
+fresh, pre-release infrastructure skeleton: later-stage workers, authentication, restore
+recovery, published GHCR images, and the public rename stay in their owning release work.
+
 
 **WP-0.5 + WP-0.7 complete (2026-07-18):** the eval-harness skeleton lands in `eval/harness.py`
 (suites over `canary_cases`, runs recorded in `eval_runs`, per-suite evaluator registration;
@@ -116,7 +127,7 @@ the edited block, offsets slice document.md exactly.
 cleanly (WP-0.2); the no-op worker runs end-to-end through the task-queue delivery port with
 `processing_state` + `cost_ledger` rows (WP-0.3 + WP-0.4a, per the sequencing amendment); the
 eval harness runs empty suites in CI (WP-0.5); the blockizer golden corpus exists with a seeded
-doc (WP-0.7). Carried forward, not exit-blocking: WP-0.4b/0.4c (GCP parity + compose,
+doc (WP-0.7). Carried forward, not exit-blocking: WP-0.4b (GCP parity,
 Phase-1-parallel) and WP-0.6 (golden-set labeling tooling, needed by Phase 2's measured
 thresholds).
 
