@@ -1,0 +1,7 @@
+services:
+  setup:
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - |
+        until [ -f /tmp/rememberstack-upgrade-release ]; do sleep 0.1; done
+        exec python -m rememberstack.profiles.selfhost setup

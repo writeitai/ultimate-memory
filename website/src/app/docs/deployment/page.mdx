@@ -14,10 +14,11 @@ deployment, and seeds the canonical retrieval recipes.
 
 This is a pre-release infrastructure proof. It processes a Markdown upload
 through conversion and deterministic structure, then leaves its chunk work
-pending. Later pipeline workers are not yet wired into this quickstart; public
-PyPI/GHCR artifacts and digest-pinned Compose remain release work. The
-RememberStack, `rememberstack`, and `remember` names used here are final. Do not
-expose this stack to untrusted traffic.
+pending. Later pipeline workers are not yet wired into this quickstart. The
+release workflow and tag-pinned Compose contract exist, but no public PyPI or
+GHCR artifact has been released while the owner-side release gates remain open.
+The RememberStack, `rememberstack`, and `remember` names used here are final. Do
+not expose this stack to untrusted traffic.
 
 ## Start the stack
 
@@ -27,6 +28,11 @@ Docker Engine with Compose v2 is required.
 cp .env.example .env
 docker compose up --build --detach --wait
 ```
+
+`--build` deliberately tests the checked-out source. A public tagged release
+will also ship this Compose file pinned to the matching
+`ghcr.io/writeitai/remember-stack` version; release consumers use
+`--no-build --pull always` so Compose cannot fall back to a local source build.
 
 The example file contains local-only PostgreSQL and MinIO credentials. Replace
 every secret before using the stack outside an isolated development machine.

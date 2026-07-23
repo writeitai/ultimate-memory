@@ -1837,9 +1837,10 @@ a separately restored store.
 corpus), **one PyPI package positioned as the client** (base install = typed SDK + CLI + MCP
 server; extras `[server]`, `[connectors-*]`, `[k]`; the original 2026-07-13 naming was later
 superseded by D76: dist/import `rememberstack`, CLI `remember`, product RememberStack, canonical
-home `remember.dev`; the mechanical rename executes at the release gate), and
-**container images on GHCR + a CI-tested docker-compose self-host profile** (Postgres + MinIO +
-api + worker; the ten-minute quickstart is a release gate). The **client surface** is: query
+home `remember.dev`; the pre-release mechanical rename is complete), and
+**one shared container image on GHCR + a CI-tested docker-compose self-host profile** (Postgres +
+MinIO + api + worker; one image runs the API, worker, or setup command because those processes
+share the same package and dependencies; the ten-minute quickstart is a release gate). The **client surface** is: query
 (SDK/CLI/MCP), **lineage-aware ingest** (`source_kind/source_ref/source_modified_at/
 versioning_mode` optional on push — external feeders get full D54–D56 lifecycle semantics;
 writes always through E0), **connector management never execution** (connectors run
@@ -1880,20 +1881,21 @@ creation and `NOTIFY` in one transaction; the delivery port never creates the ro
 > **Superseding note (2026-07-17) — `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` /
 > WP-0.1.** The final historical sentence above no longer describes the repository: the
 > formerly open package-manager, lint/format, layout/naming, CI-provider, and secrets/config
-> slots now have merged implementations or binding enforcement. [PR #39](https://github.com/writeitai/rememberstack/pull/39)
-> (merge [`eccc693`](https://github.com/writeitai/rememberstack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+> slots now have merged implementations or binding enforcement. [PR #39](https://github.com/writeitai/remember-stack/pull/39)
+> (merge [`eccc693`](https://github.com/writeitai/remember-stack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
 > established `uv` with a committed [`uv.lock`](uv.lock), Hatchling in
 > [`pyproject.toml`](pyproject.toml), the single-package [`src/rememberstack/`](src/rememberstack/)
 > layout and test naming, Ruff/Pyright/pytest/coverage, and GitHub Actions
-> [CI](.github/workflows/ci.yml). [PR #41](https://github.com/writeitai/rememberstack/pull/41)
-> (merge [`ec5ce3a`](https://github.com/writeitai/rememberstack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+> [CI](.github/workflows/ci.yml). [PR #41](https://github.com/writeitai/remember-stack/pull/41)
+> (merge [`ec5ce3a`](https://github.com/writeitai/remember-stack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
 > established the typed pydantic-settings/`SecretStr`/`SecretBytes` convention and Ruff's ban
 > on direct environment access. That evidence supersedes only D62's obsolete WP-0.1 gate
 > claim: it closes the roadmap stack-conventions gate and records WP-0.1 done. It does **not**
 > claim that D61 ports, the two delivery shells, the intended hexagonal package directories,
 > or import-linter contracts are implemented; those remain the planned
-> [WP-0.4](plan/plans/phase-0-foundations.md). The mechanical release rename, attorney
-> clearance, and bounded CLA also remain open in [`questions.md` §1 item 11a](questions.md#1-open-decisions-undecided--answers-shape-the-design).
+> [WP-0.4](plan/plans/phase-0-foundations.md). D76 later closed the mechanical release rename;
+> attorney clearance and the bounded CLA remain open in
+> [`questions.md` §1 item 11a](questions.md#1-open-decisions-undecided--answers-shape-the-design).
 
 ## D63. The embedding model is port configuration; default `qwen3-embedding-8b` via OpenRouter — the E1 branch resolves to conventional + prefix
 
@@ -2542,15 +2544,19 @@ manifest-root transfer verification remain explicit operator preconditions.
 
 **Decision.** The public product mark is **RememberStack** and its canonical website is
 `https://remember.dev`. Public attribution may read “RememberStack by WriteIt.ai.” The repository
-is `writeitai/rememberstack`, the single PyPI distribution and Python import are `rememberstack`,
-the container is `ghcr.io/writeitai/rememberstack`, and the deliberately shorter CLI executable is
+is `writeitai/remember-stack`, the single PyPI distribution and Python import are `rememberstack`,
+the container is `ghcr.io/writeitai/remember-stack`, and the deliberately shorter CLI executable is
 `remember`. Product prose, help/version output, package metadata, and release artifacts identify
 the product as RememberStack; `remember` is a command name, not a second product mark.
 
 The pre-release working identifiers (`Ultimate Memory`, `ultimate-memory`, `ultimate_memory`,
-`ugm`, and `UGM_*`) receive one clean mechanical rename before the first public release. Runtime
+`ugm`, and `UGM_*`) received one clean mechanical rename before the first public release. Runtime
 configuration uses the `REMEMBERSTACK_*` prefix. Because no public artifact exists, the project
 ships no compatibility package, import, CLI alias, or duplicate environment variables.
+
+The repository and container paths use the readable slug `remember-stack`; the hyphen is URL
+punctuation, not part of the product mark. Python keeps the conventional unhyphenated
+distribution/import `rememberstack`.
 
 **Context.** The 2026-07-13 decision to use `remember.dev` as both address and brand left the
 generic word “remember” carrying the whole identity and exposed a close in-category neighbour,
@@ -2570,8 +2576,9 @@ work; `RememberOS` overstates the product; and separate names for the OSS librar
 service add complexity before either has earned it. Using `rememberstack` as the executable was
 also rejected: the verb-shaped `remember` command is clearer and no compatibility alias is needed.
 
-**Consequences.** The release-gate rename in D62/WP-7.6 now has exact targets and can execute
-mechanically. `remember.dev` is the canonical URL in website metadata and deployment
-documentation; alternate website hosts redirect there. The repository rename, domain/DNS setup,
-PyPI Trusted Publisher, and public GHCR visibility are account-level release steps. The bounded
-CLA and focused legal clearance remain the only owner-side gates before public release.
+**Consequences.** The release-gate rename in D62/WP-7.6 executed mechanically against these exact
+targets. `remember.dev` is the canonical URL in website metadata and deployment
+documentation; alternate website hosts redirect there. The repository rename is complete.
+Domain/DNS setup, PyPI Trusted Publisher, and public GHCR visibility are account-level release
+steps. The bounded CLA and focused legal clearance remain the only owner-side gates before public
+release.
