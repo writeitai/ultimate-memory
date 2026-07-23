@@ -1,8 +1,9 @@
 # Releasing RememberStack
 
 The `Release` workflow publishes one version to PyPI and GHCR, then creates a GitHub release
-containing the Python distributions, the same version-pinned `compose.yaml`, and `.env.example`.
-It accepts only tags exactly matching `vMAJOR.MINOR.PATCH`.
+containing the Python distributions, the same version-pinned `compose.yaml`, and the example
+environment as `default.env.example` (GitHub's public asset name for the source
+`.env.example`). It accepts only tags exactly matching `vMAJOR.MINOR.PATCH`.
 
 ## One-time owner setup
 
@@ -71,11 +72,12 @@ PyPI and GHCR do not support an atomic cross-registry transaction. Never reuse a
 version after a partial failure: fix the cause, complete the missing publish when safe, or cut the
 next patch version.
 
-## First-release GHCR step
+## GHCR visibility
 
-The first container package may be private. After the first successful image push, open the
-`remember-stack` package settings in GitHub and change its visibility to **public** so anonymous
-Compose pulls work. GitHub warns that a public package cannot be made private again.
+The `remember-stack` container package was made public after the `v0.1.0` image push, so later
+versions in the same package support anonymous Compose pulls without another visibility step. A
+new package namespace would default to private and require the same one-time review. GitHub warns
+that a public package cannot be made private again.
 
 The image carries standard OCI source labels generated from the repository metadata, which links
 the package back to this repository. Docker Hub is intentionally not a second publication target.
@@ -88,8 +90,8 @@ Run these checks from a clean machine or temporary directory:
 uvx --from rememberstack==0.1.0 remember --version
 docker pull ghcr.io/writeitai/remember-stack:0.1.0
 gh release download v0.1.0 --repo writeitai/remember-stack \
-  --pattern compose.yaml --pattern .env.example
-cp .env.example .env
+  --pattern compose.yaml --pattern default.env.example
+cp default.env.example .env
 docker compose --env-file .env up --no-build --pull always --detach --wait
 curl --fail http://localhost:8000/healthz
 docker compose --env-file .env down --volumes

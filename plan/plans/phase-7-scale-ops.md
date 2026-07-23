@@ -20,12 +20,25 @@ self-host and reference adapters.
 
 **Entry gates:** none. Work-package-local gates remain explicit: #24 was resolved by D74 before
 WP-7.5 implementation. WP-7.6 engineering, account-level registry setup, and D77 governance
-activation are complete. The first public tag remains the artifact proof.
+activation are complete. The public `v0.1.0` tag supplied the artifact proof.
 **Exit criteria:** fixed synthetic scale profiles exercise the D23 shapes and portable batching;
 a fixture budget parks and later resumes work without loss; telemetry/admin surfaces expose
 pipeline and DLQ state; rebuild and forget drills pass; S55 is green across active serving stores
 and a restore cannot resurrect a forgotten identity; release artifacts pass their round trips;
 the operator-driven portable restore drill is green without a library transport subsystem.
+
+**Exit evidence (2026-07-23):** WP-7.1–WP-7.7 are merged in PRs
+[#120](https://github.com/writeitai/remember-stack/pull/120),
+[#122](https://github.com/writeitai/remember-stack/pull/122),
+[#123](https://github.com/writeitai/remember-stack/pull/123),
+[#124](https://github.com/writeitai/remember-stack/pull/124),
+[#126](https://github.com/writeitai/remember-stack/pull/126),
+[#128](https://github.com/writeitai/remember-stack/pull/128), and
+[#131](https://github.com/writeitai/remember-stack/pull/131). The
+[`v0.1.0` release run](https://github.com/writeitai/remember-stack/actions/runs/30009101734)
+passed its architecture, style, type, full-suite, and build steps plus its PyPI, GHCR, and
+GitHub Release jobs;
+the published GHCR manifest is anonymously readable.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
@@ -34,7 +47,7 @@ the operator-driven portable restore drill is green without a library transport 
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | done |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
 | WP-7.5 | **Hard-delete end-to-end**: purge active P1/P2/P3/K surfaces and prevent restore resurrection through the D74 portable manifest/adapter contract | hard-forget design; lifecycle §8; k_layers §10; S55 | D74 (gate #24 resolved) | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | done |
-| WP-7.6 | **Release engineering**: semver across PyPI + the shared GHCR image + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62, D76–D77 | WP-7.1, owner release gates | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | implemented (first-tag artifact proof remains) |
+| WP-7.6 | **Release engineering**: semver across PyPI + the shared GHCR image + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62, D76–D77 | WP-7.1, owner release gates | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | done |
 | WP-7.7 | **Portable state + restore round-trip**: define the authoritative store set and fail-closed restore order; operators move bytes with native tools and projections rebuild normally | packaging §6; D7, D60, D74–D75 | WP-7.1, WP-7.5 | portability contract + deterministic drill | real PostgreSQL restore plus whole/independent external-store canaries → no resurrection + control green | done |
 
 ## WP-7.1 implementation
@@ -165,8 +178,7 @@ a reachable health endpoint.
 [`RELEASING.md`](../../RELEASING.md) records the deliberately manual owner steps and the clean
 verification commands. The repository rename, D77 risk acceptance, PyPI environment/pending
 publisher, release-tag protection, and bounded-CLA enforcement are complete. The first tag now
-supplies the artifact proof. Making the newly created GHCR package public remains the one
-post-publish owner step rather than an OSS runtime feature.
+supplies the artifact proof, and the versioned GHCR package is public for anonymous pulls.
 
 ## WP-7.7 implementation
 

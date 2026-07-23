@@ -17,8 +17,8 @@ through conversion and deterministic structure, then leaves its chunk work
 pending. Later pipeline workers are not yet wired into this quickstart. The
 release workflow and tag-pinned Compose contract exist and trusted publishing is
 configured. The bounded contributor agreement is enforced as a required `main`
-check. No public PyPI or GHCR artifact exists yet because the first tag has not
-been created.
+check. The public `v0.1.0` release is available from PyPI, GHCR, and GitHub
+Releases.
 The RememberStack, `rememberstack`, and `remember` names used here are final. Do
 not expose this stack to untrusted traffic.
 
@@ -31,9 +31,9 @@ cp .env.example .env
 docker compose up --build --detach --wait
 ```
 
-`--build` deliberately tests the checked-out source. A public tagged release
-will also ship this Compose file pinned to the matching
-`ghcr.io/writeitai/remember-stack` version; release consumers use
+`--build` deliberately tests the checked-out source. The public `v0.1.0` release
+also ships this Compose file pinned to
+`ghcr.io/writeitai/remember-stack:0.1.0`; release consumers use
 `--no-build --pull always` so Compose cannot fall back to a local source build.
 
 The example file contains local-only PostgreSQL and MinIO credentials. Replace
