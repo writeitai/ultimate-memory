@@ -20,3 +20,4 @@ htmlcov/
 .loopy_loop/state.json.lock
 .loopy_loop/state.json.archive_*.json
 .eval-banana/results/
+.benchmark-runs/

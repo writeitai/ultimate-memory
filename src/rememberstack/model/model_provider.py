@@ -50,6 +50,7 @@ class ModelRequest(BaseModel):
 
     model: _NonEmptyText
     prompt: _NonEmptyText
+    temperature: float | None = Field(default=None, ge=0, le=2)
 
 
 class EmbeddingRequest(BaseModel):

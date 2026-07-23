@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "tier": "smoke",
+  "dataset_commit": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+  "dataset_sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+  "item_ids": [
+    "conv-26/qa/0000",
+    "conv-26/qa/0001",
+    "conv-26/qa/0002",
+    "conv-26/qa/0003",
+    "conv-26/qa/0004",
+    "conv-26/qa/0014",
+    "conv-26/qa/0082",
+    "conv-26/qa/0083"
+  ],
+  "item_ids_sha256": "11a01af3170db35f6fe3c2cc670e57af814addd849cba1e1d979470630a86c60"
+}

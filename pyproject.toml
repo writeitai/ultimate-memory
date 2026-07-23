@@ -58,6 +58,10 @@ server = [
 connectors-watched-directory = []
 # K ships as repository-native data in Phase 6; this names its install surface.
 k = []
+benchmark = [
+    "nltk>=3.9",
+    "regex>=2024.11.6",
+]
 
 [project.scripts]
 remember = "rememberstack.surfaces.cli:main"
@@ -78,6 +82,7 @@ dev = [
     "lancedb>=0.34.0",
     "markdown-it-py>=4.2.0",
     "markitdown>=0.1.6",
+    "nltk>=3.9",
     "onnxruntime>=1.24.1; python_version >= '3.14'",
     "psycopg[binary]>=3.2",
     "pyright>=1.1",
@@ -85,6 +90,7 @@ dev = [
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
     "ruff>=0.4",
+    "regex>=2024.11.6",
     "sqlalchemy>=2.0",
     "uvicorn>=0.37",
 ]
@@ -94,7 +100,7 @@ packages = ["src/rememberstack"]
 
 # Ruff config copied from the writeitai house style (team-harness / loopy-loop).
 [tool.ruff]
-src = ["src"]
+src = ["src", "benchmarks"]
 target-version = "py312"
 line-length = 88
 
@@ -132,8 +138,8 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
-include = ["src"]
-extraPaths = ["src"]
+include = ["src", "benchmarks"]
+extraPaths = ["src", "."]
 exclude = ["**/.venv", "**/virtualenvs", "tmp/"]
 
 # Test code has different ergonomics (poking internals, monkeypatching) — relaxed
@@ -145,7 +151,7 @@ reportPrivateUsage = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["src/tests"]
 
 [tool.coverage.run]

@@ -1,0 +1,303 @@
+"""Typed dataset, protocol, checkpoint, and result values for RS-LoCoMo-v1."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Annotated
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import model_validator
+
+from rememberstack.model import ProviderCallUsage
+
+NonEmpty = Annotated[str, Field(min_length=1)]
+Category = Literal[1, 2, 3, 4, 5]
+RetainedCategory = Literal[1, 2, 3, 4]
+Tier = Literal["smoke", "development", "publication"]
+FailureKind = Literal[
+    "retrieval", "reader", "judge", "accounting", "invalid_response", "missing"
+]
+
+
+class FrozenModel(BaseModel):
+    """Strict immutable base for every durable benchmark boundary."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class LoCoMoTurn(FrozenModel):
+    """One source dialogue turn."""
+
+    speaker: NonEmpty
+    dia_id: NonEmpty
+    text: str
+    blip_caption: str | None = None
+    image_urls: tuple[str, ...] = ()
+    image_query: str | None = None
+
+
+class LoCoMoQuestion(FrozenModel):
+    """One question with a positional ID stable against the pinned bytes."""
+
+    item_id: NonEmpty
+    sample_id: NonEmpty
+    question: NonEmpty
+    answer: str | None
+    evidence: tuple[str, ...]
+    category: Category
+
+
+class LoCoMoSession(FrozenModel):
+    """One timestamped conversation session."""
+
+    ordinal: int = Field(ge=1)
+    session_id: NonEmpty
+    timestamp: NonEmpty
+    turns: Annotated[tuple[LoCoMoTurn, ...], Field(min_length=1)]
+
+
+class LoCoMoSample(FrozenModel):
+    """One isolated LoCoMo conversation."""
+
+    sample_id: NonEmpty
+    speaker_a: NonEmpty
+    speaker_b: NonEmpty
+    sessions: Annotated[tuple[LoCoMoSession, ...], Field(min_length=1)]
+    questions: Annotated[tuple[LoCoMoQuestion, ...], Field(min_length=1)]
+
+
+class LoCoMoDataset(FrozenModel):
+    """The ordered parsed dataset."""
+
+    sha256: NonEmpty
+    samples: Annotated[tuple[LoCoMoSample, ...], Field(min_length=1)]
+
+    def question_map(self) -> dict[str, LoCoMoQuestion]:
+        """Return the globally unique positional question map."""
+        return {
+            question.item_id: question
+            for sample in self.samples
+            for question in sample.questions
+        }
+
+    def sample_map(self) -> dict[str, LoCoMoSample]:
+        """Return samples by official ID."""
+        return {sample.sample_id: sample for sample in self.samples}
+
+
+class QuestionManifest(FrozenModel):
+    """One committed exact item selection."""
+
+    version: Literal[1] = 1
+    tier: Tier
+    dataset_commit: NonEmpty
+    dataset_sha256: NonEmpty
+    item_ids: Annotated[tuple[NonEmpty, ...], Field(min_length=1)]
+    item_ids_sha256: NonEmpty
+
+
+class RunConfiguration(FrozenModel):
+    """Immutable identity of one prepared benchmark run."""
+
+    protocol_name: Literal["RS-LoCoMo-v1"] = "RS-LoCoMo-v1"
+    adapter_version: NonEmpty
+    prepared_at: datetime
+    repository_revision: NonEmpty
+    dataset_path: NonEmpty
+    dataset_commit: NonEmpty
+    dataset_sha256: NonEmpty
+    tier: Tier
+    manifest_sha256: NonEmpty
+    item_ids_sha256: NonEmpty
+    documents_sha256: NonEmpty
+    item_count: int = Field(ge=1)
+    sample_ids: Annotated[tuple[NonEmpty, ...], Field(min_length=1)]
+    top_k: Literal[30] = 30
+    reader_model: Literal["openai/gpt-4o-mini"] = "openai/gpt-4o-mini"
+    judge_model: Literal["openai/gpt-4o-mini"] = "openai/gpt-4o-mini"
+    reader_temperature: float = Field(default=0.0, ge=0, le=2)
+    judge_temperature: float = Field(default=0.0, ge=0, le=2)
+    judge_repetitions: Literal[1] = 1
+    reader_prompt_sha256: NonEmpty
+    judge_prompt_sha256: NonEmpty
+    reader_schema_sha256: NonEmpty
+    judge_schema_sha256: NonEmpty
+    protocol_fingerprint: NonEmpty
+
+
+class PreparedDocument(FrozenModel):
+    """One rendered session ready for public SDK ingestion."""
+
+    sample_id: NonEmpty
+    session_id: NonEmpty
+    session_ordinal: int = Field(ge=1)
+    timestamp: NonEmpty
+    relative_path: NonEmpty
+    filename: NonEmpty
+    content_sha256: NonEmpty
+    byte_size: int = Field(ge=0)
+    source_kind: Literal["locomo"] = "locomo"
+    source_ref: NonEmpty
+    source_version_ref: NonEmpty
+
+
+class IngestRecord(FrozenModel):
+    """One successful public SDK ingestion response."""
+
+    sample_id: NonEmpty
+    session_id: NonEmpty
+    source_ref: NonEmpty
+    content_sha256: NonEmpty
+    deployment_id: UUID
+    doc_id: UUID
+    version_id: UUID
+    created: bool
+
+
+class RetrievedClaim(FrozenModel):
+    """One rank-preserving public evidence-grain result."""
+
+    rank: int = Field(ge=1)
+    claim_id: UUID
+    doc_id: UUID
+    chunk_id: UUID
+    claim_text: str
+    source_span: str
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    is_attributed: bool
+    is_current_testimony: bool
+    session_id: str | None = None
+
+
+class BenchmarkFailure(FrozenModel):
+    """A bounded, denominator-preserving per-item failure."""
+
+    kind: FailureKind
+    message: NonEmpty
+
+
+class ReaderOutput(FrozenModel):
+    """The complete strict reader response: one non-empty answer."""
+
+    answer: NonEmpty
+
+
+class JudgeOutput(FrozenModel):
+    """The complete strict judge response."""
+
+    label: Literal["CORRECT", "WRONG"]
+
+
+class AnswerRecord(FrozenModel):
+    """Retrieval plus reader outcome for one manifest item."""
+
+    item_id: NonEmpty
+    sample_id: NonEmpty
+    category: RetainedCategory
+    question: NonEmpty
+    gold_answer: str
+    gold_evidence: tuple[str, ...]
+    claims: tuple[RetrievedClaim, ...] = ()
+    dropped_by_hydration: int = Field(default=0, ge=0)
+    retrieval_succeeded: bool
+    retrieval_latency_ms: int = Field(ge=0)
+    reader_called: bool
+    reader_latency_ms: int | None = Field(default=None, ge=0)
+    generated_answer: str | None = None
+    reader_usage: ProviderCallUsage | None = None
+    failure: BenchmarkFailure | None = None
+
+    @model_validator(mode="after")
+    def require_answer_xor_failure(self) -> "AnswerRecord":
+        """A terminal record is either a generated answer or a visible failure."""
+        if (self.generated_answer is None) == (self.failure is None):
+            raise ValueError("answer record requires exactly one of answer or failure")
+        if self.generated_answer == "":
+            raise ValueError("generated answer must be non-empty")
+        if self.generated_answer is not None and not self.reader_called:
+            raise ValueError("a generated answer requires a reader call")
+        if self.reader_usage is not None and not self.reader_called:
+            raise ValueError("reader usage requires a reader call")
+        return self
+
+
+class JudgeRecord(FrozenModel):
+    """One terminal judge result, including local wrongs for upstream failures."""
+
+    item_id: NonEmpty
+    label: Literal["CORRECT", "WRONG"]
+    model_called: bool
+    usage: ProviderCallUsage | None = None
+    latency_ms: int | None = Field(default=None, ge=0)
+    failure: BenchmarkFailure | None = None
+
+    @model_validator(mode="after")
+    def usage_matches_call(self) -> "JudgeRecord":
+        """Usage requires a call; a failed attempted call may have no usage."""
+        if self.usage is not None and not self.model_called:
+            raise ValueError("judge usage requires a model call")
+        if self.failure is None and self.model_called and self.usage is None:
+            raise ValueError("a successful judge call requires usage")
+        return self
+
+
+class RunState(BaseModel):
+    """Atomically replaced mutable checkpoint for one immutable run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ingests: dict[str, IngestRecord] = Field(default_factory=dict)
+    answers: dict[str, AnswerRecord] = Field(default_factory=dict)
+    judges: dict[str, JudgeRecord] = Field(default_factory=dict)
+    evaluator_cost_usd: Decimal = Field(default=Decimal(0), ge=Decimal(0))
+
+
+class CategorySummary(FrozenModel):
+    """One retained category's transparent numerator/denominator metrics."""
+
+    category: RetainedCategory
+    questions: int = Field(ge=0)
+    judge_correct: int = Field(ge=0)
+    judge_percent: float = Field(ge=0, le=100)
+    official_f1: float = Field(ge=0, le=1)
+
+
+class SessionDiagnosticSummary(FrozenModel):
+    """Coarse session-grain retrieval diagnostic."""
+
+    scorable_questions: int = Field(ge=0)
+    malformed_evidence_fields: int = Field(ge=0)
+    mean_session_recall: float = Field(ge=0, le=1)
+    complete_session_success: float = Field(ge=0, le=1)
+    warning: Literal["session-grain diagnostic; not turn Recall@k"] = (
+        "session-grain diagnostic; not turn Recall@k"
+    )
+
+
+class RunSummary(FrozenModel):
+    """Publication-ready local aggregate with no hidden denominator."""
+
+    protocol_name: Literal["RS-LoCoMo-v1"] = "RS-LoCoMo-v1"
+    protocol_fingerprint: NonEmpty
+    tier: Tier
+    questions: int = Field(ge=1)
+    judge_correct: int = Field(ge=0)
+    judge_percent: float = Field(ge=0, le=100)
+    official_f1: float = Field(ge=0, le=1)
+    categories: tuple[CategorySummary, ...]
+    session_diagnostic: SessionDiagnosticSummary
+    failures: dict[str, int]
+    reader_calls: int = Field(ge=0)
+    judge_calls: int = Field(ge=0)
+    tokens_in: int = Field(ge=0)
+    tokens_out: int = Field(ge=0)
+    evaluator_cost_usd: Decimal = Field(ge=Decimal(0))
+    ingestion_cost_source: Literal[
+        "deployment cost ledger; not available through benchmark SDK"
+    ] = "deployment cost ledger; not available through benchmark SDK"

@@ -12,13 +12,13 @@ install:
 	uv sync
 
 lint:
-	uv run ruff check src/
+	uv run ruff check src/ benchmarks/
 
 format:
-	uv run ruff format src/
+	uv run ruff format src/ benchmarks/
 
 typecheck:
-	uv run pyright src/
+	uv run pyright src/ benchmarks/
 
 test:
 	uv run pytest src/tests -v --tb=short --cov --cov-report=term

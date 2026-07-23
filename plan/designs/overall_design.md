@@ -2,7 +2,7 @@
 
 The architecture that satisfies `plan/requirements/requirements_v3.md`. This document is the
 map; per-layer designs (this directory) are the territory. Decision rationale lives in
-`decisions.md` (root, cited as D1–D74); supporting research in `plan/analysis/`.
+`decisions.md` (root, cited as D1–D78); supporting research in `plan/analysis/`.
 
 ## 1. System overview: three planes (D14)
 
@@ -244,6 +244,7 @@ PG: FTS, entity registry       (projected graphs, D10)   → GCS bytes
 | `media_design.md` | media (images/audio/video): converter routes, source locators, derivation disclosure, media search (D65) | **current** |
 | `docs_site_design.md` | public docs site: in-repo Next.js/MDX static module + same-PR truthfulness contract (D66) | **current** |
 | `hard_forget_design.md` | lineage hard-forget, active-store purge, and restore non-resurrection (D74) | **current** |
+| `locomo_benchmark_design.md` | pinned `RS-LoCoMo-v1 J@30` external benchmark adapter and guarded run protocol (D78) | **current** |
 
 ## 10. Open questions
 

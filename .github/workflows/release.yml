@@ -48,9 +48,9 @@ jobs:
       - name: Verify architecture, style, and types
         run: |
           uv run lint-imports
-          uv run ruff check src/
-          uv run ruff format --check src/
-          uv run pyright src/ --pythonversion 3.14
+          uv run ruff check src/ benchmarks/
+          uv run ruff format --check src/ benchmarks/
+          uv run pyright src/ benchmarks/ --pythonversion 3.14
 
       - name: Run the release test suite
         run: uv run pytest src/tests -q

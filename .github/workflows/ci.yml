@@ -189,13 +189,13 @@ jobs:
         run: uv run lint-imports
 
       - name: Ruff lint
-        run: uv run ruff check src/
+        run: uv run ruff check src/ benchmarks/
 
       - name: Ruff format check
-        run: uv run ruff format --check src/
+        run: uv run ruff format --check src/ benchmarks/
 
       - name: Pyright type check
-        run: uv run pyright src/ --pythonversion ${{ matrix.python-version }}
+        run: uv run pyright src/ benchmarks/ --pythonversion ${{ matrix.python-version }}
 
       - name: Real PostgreSQL Alembic lifecycle
         run: uv run pytest src/tests/spine/test_migrations.py -v --tb=short

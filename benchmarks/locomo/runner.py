@@ -1,0 +1,1133 @@
+"""Staged, guarded, checkpointed execution for RS-LoCoMo-v1."""
+
+from __future__ import annotations
+
+from collections import Counter
+from datetime import datetime
+from datetime import timezone
+from decimal import Decimal
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+from typing import Final
+from uuid import UUID
+
+from pydantic import BaseModel
+from pydantic import ValidationError
+
+from benchmarks.locomo.dataset import DATASET_COMMIT
+from benchmarks.locomo.dataset import DATASET_SHA256
+from benchmarks.locomo.dataset import item_ids_hash
+from benchmarks.locomo.dataset import load_dataset
+from benchmarks.locomo.dataset import load_manifest
+from benchmarks.locomo.dataset import manifest_bytes_hash
+from benchmarks.locomo.dataset import validate_manifest
+from benchmarks.locomo.model import AnswerRecord
+from benchmarks.locomo.model import BenchmarkFailure
+from benchmarks.locomo.model import CategorySummary
+from benchmarks.locomo.model import FailureKind
+from benchmarks.locomo.model import IngestRecord
+from benchmarks.locomo.model import JudgeOutput
+from benchmarks.locomo.model import JudgeRecord
+from benchmarks.locomo.model import LoCoMoDataset
+from benchmarks.locomo.model import LoCoMoQuestion
+from benchmarks.locomo.model import PreparedDocument
+from benchmarks.locomo.model import QuestionManifest
+from benchmarks.locomo.model import ReaderOutput
+from benchmarks.locomo.model import RetainedCategory
+from benchmarks.locomo.model import RetrievedClaim
+from benchmarks.locomo.model import RunConfiguration
+from benchmarks.locomo.model import RunState
+from benchmarks.locomo.model import RunSummary
+from benchmarks.locomo.model import SessionDiagnosticSummary
+from benchmarks.locomo.protocol import ADAPTER_VERSION
+from benchmarks.locomo.protocol import JUDGE_MODEL
+from benchmarks.locomo.protocol import JUDGE_PROMPT_TEMPLATE
+from benchmarks.locomo.protocol import official_f1
+from benchmarks.locomo.protocol import prompt_sha256
+from benchmarks.locomo.protocol import PROTOCOL_NAME
+from benchmarks.locomo.protocol import READER_MODEL
+from benchmarks.locomo.protocol import READER_PROMPT_TEMPLATE
+from benchmarks.locomo.protocol import render_judge_prompt
+from benchmarks.locomo.protocol import render_reader_prompt
+from benchmarks.locomo.protocol import render_session
+from benchmarks.locomo.protocol import schema_sha256
+from benchmarks.locomo.protocol import session_diagnostic
+from benchmarks.locomo.protocol import TEMPERATURE
+from benchmarks.locomo.protocol import TOP_K
+from rememberstack.adapters.openrouter import OpenRouterProviderError
+from rememberstack.model import Grain
+from rememberstack.model import ModelRequest
+from rememberstack.model import ProviderAccountingError
+from rememberstack.model import ProviderCallUsage
+from rememberstack.ports import ModelProviderPort
+from rememberstack.surfaces.sdk import MemoryApiError
+from rememberstack.surfaces.sdk import MemoryClient
+
+_RUN_FILE: Final = "run.json"
+_MANIFEST_FILE: Final = "manifest.json"
+_DOCUMENTS_FILE: Final = "documents.json"
+_STATE_FILE: Final = "state.json"
+_SUMMARY_FILE: Final = "summary.json"
+
+
+class BenchmarkRunError(RuntimeError):
+    """A prepared run is invalid or inconsistent."""
+
+
+class ExecutionGuardError(BenchmarkRunError):
+    """A remote stage lacks an exact execution/cost/isolation acknowledgement."""
+
+
+def prepare_run(*, dataset_path: Path, tier: str, output: Path) -> RunConfiguration:
+    """Validate, fingerprint, and render a local run without remote calls."""
+    dataset = load_dataset(dataset_path)
+    manifest = load_manifest(tier)
+    questions = validate_manifest(dataset=dataset, manifest=manifest)
+    if output.exists() and any(output.iterdir()):
+        raise BenchmarkRunError(f"output directory is not empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    sample_ids = tuple(
+        sample.sample_id
+        for sample in dataset.samples
+        if any(question.sample_id == sample.sample_id for question in questions)
+    )
+    documents = _prepare_documents(
+        run_dir=output, dataset=dataset, sample_ids=sample_ids
+    )
+    revision = _repository_revision()
+    base = {
+        "protocol_name": PROTOCOL_NAME,
+        "adapter_version": ADAPTER_VERSION,
+        "repository_revision": revision,
+        "dataset_commit": DATASET_COMMIT,
+        "dataset_sha256": dataset.sha256,
+        "tier": manifest.tier,
+        "manifest_sha256": manifest_bytes_hash(manifest=manifest),
+        "item_ids_sha256": manifest.item_ids_sha256,
+        "documents_sha256": _models_hash(values=documents),
+        "item_count": len(manifest.item_ids),
+        "sample_ids": sample_ids,
+        "top_k": TOP_K,
+        "reader_model": READER_MODEL,
+        "judge_model": JUDGE_MODEL,
+        "reader_temperature": TEMPERATURE,
+        "judge_temperature": TEMPERATURE,
+        "judge_repetitions": 1,
+        "reader_prompt_sha256": prompt_sha256(template=READER_PROMPT_TEMPLATE),
+        "judge_prompt_sha256": prompt_sha256(template=JUDGE_PROMPT_TEMPLATE),
+        "reader_schema_sha256": schema_sha256(model=ReaderOutput),
+        "judge_schema_sha256": schema_sha256(model=JudgeOutput),
+    }
+    configuration = RunConfiguration(
+        **base,
+        prepared_at=datetime.now(timezone.utc),
+        dataset_path=str(dataset_path.resolve()),
+        protocol_fingerprint=_canonical_hash(base),
+    )
+    _atomic_model(path=output / _RUN_FILE, value=configuration)
+    _atomic_model(path=output / _MANIFEST_FILE, value=manifest)
+    _atomic_models(path=output / _DOCUMENTS_FILE, values=documents)
+    _atomic_model(path=output / _STATE_FILE, value=RunState())
+    return configuration
+
+
+def ingest_sample(
+    *,
+    run_dir: Path,
+    sample_id: str,
+    max_documents: int,
+    execute: bool,
+    isolated_deployment_confirmation: str | None,
+    client: MemoryClient,
+) -> tuple[IngestRecord, ...]:
+    """Upload one conversation's sessions through the public SDK."""
+    context = _load_run(run_dir=run_dir)
+    _guard_remote(
+        context=context,
+        execute=execute,
+        sample_id=sample_id,
+        confirmation=isolated_deployment_confirmation,
+        confirmation_name="confirm-isolated-deployment",
+    )
+    documents = tuple(
+        document for document in context.documents if document.sample_id == sample_id
+    )
+    if max_documents < len(documents):
+        raise ExecutionGuardError(
+            f"max-documents {max_documents} is below prepared count {len(documents)}"
+        )
+    for document in documents:
+        existing = context.state.ingests.get(document.source_ref)
+        if existing is not None:
+            if existing.content_sha256 != document.content_sha256:
+                raise BenchmarkRunError(
+                    f"stored ingest hash changed for {document.source_ref}"
+                )
+            continue
+        path = _document_path(run_dir=run_dir, document=document)
+        _require_file_hash(path=path, expected=document.content_sha256)
+        ingested = client.ingest(
+            path,
+            mime="text/markdown",
+            title=f"LoCoMo {sample_id} — session {document.session_id}",
+            source_kind=document.source_kind,
+            source_ref=document.source_ref,
+            versioning_mode="snapshot",
+            source_version_ref=document.source_version_ref,
+        )
+        if ingested.content_hash != document.content_sha256:
+            raise BenchmarkRunError(
+                f"API content hash mismatch for {document.source_ref}: "
+                f"{ingested.content_hash}"
+            )
+        deployment_ids = {
+            record.deployment_id
+            for record in context.state.ingests.values()
+            if record.sample_id == sample_id
+        }
+        if deployment_ids and deployment_ids != {ingested.deployment_id}:
+            raise ExecutionGuardError(
+                f"{sample_id} ingest responses span multiple deployments"
+            )
+        context.state.ingests[document.source_ref] = IngestRecord(
+            sample_id=sample_id,
+            session_id=document.session_id,
+            source_ref=document.source_ref,
+            content_sha256=document.content_sha256,
+            deployment_id=ingested.deployment_id,
+            doc_id=ingested.doc_id,
+            version_id=ingested.version_id,
+            created=ingested.created,
+        )
+        _save_state(run_dir=run_dir, state=context.state)
+    return tuple(context.state.ingests[document.source_ref] for document in documents)
+
+
+def answer_sample(
+    *,
+    run_dir: Path,
+    sample_id: str,
+    max_questions: int,
+    max_reader_calls: int,
+    max_evaluator_cost_usd: Decimal,
+    execute: bool,
+    index_ready_confirmation: str | None,
+    client: MemoryClient,
+    provider: ModelProviderPort,
+) -> tuple[AnswerRecord, ...]:
+    """Retrieve and answer one isolated conversation's selected questions."""
+    context = _load_run(run_dir=run_dir)
+    _guard_remote(
+        context=context,
+        execute=execute,
+        sample_id=sample_id,
+        confirmation=index_ready_confirmation,
+        confirmation_name="confirm-index-ready",
+    )
+    questions = _sample_questions(context=context, sample_id=sample_id)
+    if max_questions < context.configuration.item_count:
+        raise ExecutionGuardError(
+            f"max-questions {max_questions} is below run count "
+            f"{context.configuration.item_count}"
+        )
+    _require_sample_ingested(context=context, sample_id=sample_id)
+    remaining = tuple(
+        question
+        for question in questions
+        if question.item_id not in context.state.answers
+    )
+    called = sum(record.reader_called for record in context.state.answers.values())
+    if called + len(remaining) > max_reader_calls:
+        raise ExecutionGuardError(
+            f"max-reader-calls {max_reader_calls} cannot cover at most "
+            f"{called + len(remaining)} run calls"
+        )
+    _require_cost_ceiling(
+        spent=context.state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
+    )
+    doc_sessions = {
+        record.doc_id: record.session_id
+        for record in context.state.ingests.values()
+        if record.sample_id == sample_id
+    }
+    for question in remaining:
+        record = _answer_one(
+            question=question,
+            client=client,
+            provider=provider,
+            doc_sessions=doc_sessions,
+            state=context.state,
+            max_reader_calls=max_reader_calls,
+            max_evaluator_cost_usd=max_evaluator_cost_usd,
+        )
+        context.state.answers[question.item_id] = record
+        _save_state(run_dir=run_dir, state=context.state)
+    return tuple(context.state.answers[question.item_id] for question in questions)
+
+
+def judge_sample(
+    *,
+    run_dir: Path,
+    sample_id: str,
+    max_judge_calls: int,
+    max_evaluator_cost_usd: Decimal,
+    execute: bool,
+    provider: ModelProviderPort,
+) -> tuple[JudgeRecord, ...]:
+    """Judge one conversation's terminal answer records exactly once."""
+    context = _load_run(run_dir=run_dir)
+    _guard_remote(
+        context=context,
+        execute=execute,
+        sample_id=sample_id,
+        confirmation=sample_id,
+        confirmation_name="sample",
+    )
+    questions = _sample_questions(context=context, sample_id=sample_id)
+    missing = tuple(
+        question.item_id
+        for question in questions
+        if question.item_id not in context.state.answers
+    )
+    if missing:
+        raise ExecutionGuardError(
+            f"answer stage is incomplete for {sample_id}: {len(missing)} missing"
+        )
+    remaining_calls = sum(
+        context.state.answers[question.item_id].failure is None
+        and question.item_id not in context.state.judges
+        for question in questions
+    )
+    called = sum(record.model_called for record in context.state.judges.values())
+    if called + remaining_calls > max_judge_calls:
+        raise ExecutionGuardError(
+            f"max-judge-calls {max_judge_calls} cannot cover "
+            f"{called + remaining_calls} run calls"
+        )
+    _require_cost_ceiling(
+        spent=context.state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
+    )
+    for question in questions:
+        if question.item_id in context.state.judges:
+            continue
+        answer = context.state.answers[question.item_id]
+        if answer.failure is not None:
+            judge = JudgeRecord(
+                item_id=question.item_id, label="WRONG", model_called=False
+            )
+        else:
+            judge = _judge_one(
+                question=question,
+                answer=answer,
+                provider=provider,
+                state=context.state,
+                max_judge_calls=max_judge_calls,
+                max_evaluator_cost_usd=max_evaluator_cost_usd,
+            )
+        context.state.judges[question.item_id] = judge
+        _save_state(run_dir=run_dir, state=context.state)
+    return tuple(context.state.judges[question.item_id] for question in questions)
+
+
+def summarize_run(*, run_dir: Path) -> RunSummary:
+    """Aggregate the full manifest; absent or failed records score zero."""
+    context = _load_run(run_dir=run_dir)
+    questions = context.questions
+    judge_values: list[int] = []
+    f1_values: list[float] = []
+    category_judge: dict[int, list[int]] = {category: [] for category in range(1, 5)}
+    category_f1: dict[int, list[float]] = {category: [] for category in range(1, 5)}
+    diagnostic_recalls: list[float] = []
+    diagnostic_complete: list[float] = []
+    malformed_fields = 0
+    failures: Counter[str] = Counter()
+    for question in questions:
+        answer = context.state.answers.get(question.item_id)
+        judge = context.state.judges.get(question.item_id)
+        generated = answer.generated_answer if answer is not None else None
+        f1_value = official_f1(
+            prediction=generated,
+            gold_answer=question.answer or "",
+            category=_retained_category(question=question),
+        )
+        correct = int(judge is not None and judge.label == "CORRECT")
+        judge_values.append(correct)
+        f1_values.append(f1_value)
+        category_judge[question.category].append(correct)
+        category_f1[question.category].append(f1_value)
+        if answer is None:
+            failures["missing_answer"] += 1
+        elif answer.failure is not None:
+            failures[f"answer_{answer.failure.kind}"] += 1
+        if judge is None:
+            failures["missing_judge"] += 1
+        elif judge.failure is not None:
+            failures[f"judge_{judge.failure.kind}"] += 1
+        diagnostic = session_diagnostic(
+            gold_evidence=question.evidence,
+            retrieved_sessions=(
+                {
+                    claim.session_id
+                    for claim in answer.claims
+                    if claim.session_id is not None
+                }
+                if answer is not None and answer.retrieval_succeeded
+                else set()
+            ),
+        )
+        malformed_fields += diagnostic.malformed_fields
+        if diagnostic.recall is not None and diagnostic.complete is not None:
+            diagnostic_recalls.append(diagnostic.recall)
+            diagnostic_complete.append(float(diagnostic.complete))
+    usages = _all_usages(state=context.state)
+    summary = RunSummary(
+        protocol_fingerprint=context.configuration.protocol_fingerprint,
+        tier=context.configuration.tier,
+        questions=len(questions),
+        judge_correct=sum(judge_values),
+        judge_percent=100 * sum(judge_values) / len(judge_values),
+        official_f1=sum(f1_values) / len(f1_values),
+        categories=tuple(
+            CategorySummary(
+                category=_category_literal(category),
+                questions=len(category_judge[category]),
+                judge_correct=sum(category_judge[category]),
+                judge_percent=(
+                    100 * sum(category_judge[category]) / len(category_judge[category])
+                    if category_judge[category]
+                    else 0
+                ),
+                official_f1=(
+                    sum(category_f1[category]) / len(category_f1[category])
+                    if category_f1[category]
+                    else 0
+                ),
+            )
+            for category in range(1, 5)
+        ),
+        session_diagnostic=SessionDiagnosticSummary(
+            scorable_questions=len(diagnostic_recalls),
+            malformed_evidence_fields=malformed_fields,
+            mean_session_recall=(
+                sum(diagnostic_recalls) / len(diagnostic_recalls)
+                if diagnostic_recalls
+                else 0
+            ),
+            complete_session_success=(
+                sum(diagnostic_complete) / len(diagnostic_complete)
+                if diagnostic_complete
+                else 0
+            ),
+        ),
+        failures=dict(sorted(failures.items())),
+        reader_calls=sum(
+            record.reader_called for record in context.state.answers.values()
+        ),
+        judge_calls=sum(
+            record.model_called for record in context.state.judges.values()
+        ),
+        tokens_in=sum(usage.tokens_in for usage in usages),
+        tokens_out=sum(usage.tokens_out for usage in usages),
+        evaluator_cost_usd=context.state.evaluator_cost_usd,
+    )
+    _atomic_model(path=run_dir / _SUMMARY_FILE, value=summary)
+    return summary
+
+
+class _RunContext:
+    """Validated in-memory view of a prepared run."""
+
+    def __init__(
+        self,
+        *,
+        configuration: RunConfiguration,
+        manifest: QuestionManifest,
+        documents: tuple[PreparedDocument, ...],
+        state: RunState,
+        dataset: LoCoMoDataset,
+        questions: tuple[LoCoMoQuestion, ...],
+    ) -> None:
+        """Retain the values validated together by ``_load_run``."""
+        self.configuration = configuration
+        self.manifest = manifest
+        self.documents = documents
+        self.state = state
+        self.dataset = dataset
+        self.questions = questions
+
+
+def _prepare_documents(
+    *, run_dir: Path, dataset: LoCoMoDataset, sample_ids: tuple[str, ...]
+) -> tuple[PreparedDocument, ...]:
+    """Render and atomically persist every selected sample's sessions."""
+    documents: list[PreparedDocument] = []
+    samples = dataset.sample_map()
+    for sample_id in sample_ids:
+        sample = samples[sample_id]
+        for session in sample.sessions:
+            content = render_session(sample=sample, session=session).encode()
+            relative = (
+                Path("documents") / sample_id / f"{session.session_id.lower()}.md"
+            )
+            path = run_dir / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_bytes(path=path, content=content)
+            documents.append(
+                PreparedDocument(
+                    sample_id=sample_id,
+                    session_id=session.session_id,
+                    session_ordinal=session.ordinal,
+                    timestamp=session.timestamp,
+                    relative_path=relative.as_posix(),
+                    filename=path.name,
+                    content_sha256=hashlib.sha256(content).hexdigest(),
+                    byte_size=len(content),
+                    source_ref=(f"{DATASET_COMMIT}/{sample_id}/{session.session_id}"),
+                    source_version_ref=DATASET_COMMIT,
+                )
+            )
+    return tuple(documents)
+
+
+def _load_run(*, run_dir: Path) -> _RunContext:
+    """Load every persisted boundary and reject protocol or state drift."""
+    configuration = RunConfiguration.model_validate_json(
+        (run_dir / _RUN_FILE).read_text(encoding="utf-8")
+    )
+    manifest = QuestionManifest.model_validate_json(
+        (run_dir / _MANIFEST_FILE).read_text(encoding="utf-8")
+    )
+    documents_json = json.loads((run_dir / _DOCUMENTS_FILE).read_text(encoding="utf-8"))
+    documents = tuple(PreparedDocument.model_validate(item) for item in documents_json)
+    state = RunState.model_validate_json(
+        (run_dir / _STATE_FILE).read_text(encoding="utf-8")
+    )
+    dataset = load_dataset(Path(configuration.dataset_path))
+    questions = validate_manifest(dataset=dataset, manifest=manifest)
+    _validate_run(
+        run_dir=run_dir,
+        configuration=configuration,
+        manifest=manifest,
+        documents=documents,
+        dataset=dataset,
+        questions=questions,
+    )
+    _validate_state(state=state, documents=documents, questions=questions)
+    return _RunContext(
+        configuration=configuration,
+        manifest=manifest,
+        documents=documents,
+        state=state,
+        dataset=dataset,
+        questions=questions,
+    )
+
+
+def _validate_run(
+    *,
+    run_dir: Path,
+    configuration: RunConfiguration,
+    manifest: QuestionManifest,
+    documents: tuple[PreparedDocument, ...],
+    dataset: LoCoMoDataset,
+    questions: tuple[LoCoMoQuestion, ...],
+) -> None:
+    """Recompute immutable run identity before any local or remote stage."""
+    if configuration.dataset_sha256 != DATASET_SHA256:
+        raise BenchmarkRunError("run dataset hash is not RS-LoCoMo-v1")
+    if item_ids_hash(item_ids=manifest.item_ids) != manifest.item_ids_sha256:
+        raise BenchmarkRunError("run manifest item hash changed")
+    if manifest_bytes_hash(manifest=manifest) != configuration.manifest_sha256:
+        raise BenchmarkRunError("run manifest hash changed")
+    if manifest.item_ids_sha256 != configuration.item_ids_sha256:
+        raise BenchmarkRunError("run item ID hash changed")
+    if manifest.tier != configuration.tier:
+        raise BenchmarkRunError("run manifest tier changed")
+    if configuration.dataset_commit != DATASET_COMMIT:
+        raise BenchmarkRunError("run dataset commit is not RS-LoCoMo-v1")
+    if configuration.adapter_version != ADAPTER_VERSION:
+        raise BenchmarkRunError("run adapter version differs from current code")
+    if (
+        configuration.reader_temperature != TEMPERATURE
+        or configuration.judge_temperature != TEMPERATURE
+    ):
+        raise BenchmarkRunError("run temperature differs from RS-LoCoMo-v1")
+    if _models_hash(values=documents) != configuration.documents_sha256:
+        raise BenchmarkRunError("prepared document manifest changed")
+    if len(questions) != configuration.item_count:
+        raise BenchmarkRunError("run question count changed")
+    expected_samples = tuple(
+        sample_id
+        for sample_id in configuration.sample_ids
+        if any(question.sample_id == sample_id for question in questions)
+    )
+    if expected_samples != configuration.sample_ids:
+        raise BenchmarkRunError("run sample selection changed")
+    base = {
+        "protocol_name": configuration.protocol_name,
+        "adapter_version": configuration.adapter_version,
+        "repository_revision": configuration.repository_revision,
+        "dataset_commit": configuration.dataset_commit,
+        "dataset_sha256": configuration.dataset_sha256,
+        "tier": configuration.tier,
+        "manifest_sha256": configuration.manifest_sha256,
+        "item_ids_sha256": configuration.item_ids_sha256,
+        "documents_sha256": configuration.documents_sha256,
+        "item_count": configuration.item_count,
+        "sample_ids": configuration.sample_ids,
+        "top_k": configuration.top_k,
+        "reader_model": configuration.reader_model,
+        "judge_model": configuration.judge_model,
+        "reader_temperature": configuration.reader_temperature,
+        "judge_temperature": configuration.judge_temperature,
+        "judge_repetitions": configuration.judge_repetitions,
+        "reader_prompt_sha256": configuration.reader_prompt_sha256,
+        "judge_prompt_sha256": configuration.judge_prompt_sha256,
+        "reader_schema_sha256": configuration.reader_schema_sha256,
+        "judge_schema_sha256": configuration.judge_schema_sha256,
+    }
+    if _canonical_hash(base) != configuration.protocol_fingerprint:
+        raise BenchmarkRunError("run protocol fingerprint changed")
+    current_hashes = {
+        "reader_prompt_sha256": prompt_sha256(template=READER_PROMPT_TEMPLATE),
+        "judge_prompt_sha256": prompt_sha256(template=JUDGE_PROMPT_TEMPLATE),
+        "reader_schema_sha256": schema_sha256(model=ReaderOutput),
+        "judge_schema_sha256": schema_sha256(model=JudgeOutput),
+    }
+    for field, actual in current_hashes.items():
+        if getattr(configuration, field) != actual:
+            raise BenchmarkRunError(f"current {field} differs from prepared run")
+    _validate_documents(
+        run_dir=run_dir,
+        configuration=configuration,
+        dataset=dataset,
+        documents=documents,
+    )
+
+
+def _validate_documents(
+    *,
+    run_dir: Path,
+    configuration: RunConfiguration,
+    dataset: LoCoMoDataset,
+    documents: tuple[PreparedDocument, ...],
+) -> None:
+    """Require the exact current deterministic session rendering."""
+    expected: list[PreparedDocument] = []
+    samples = dataset.sample_map()
+    for sample_id in configuration.sample_ids:
+        sample = samples[sample_id]
+        for session in sample.sessions:
+            content = render_session(sample=sample, session=session).encode()
+            relative = (
+                Path("documents") / sample_id / f"{session.session_id.lower()}.md"
+            )
+            expected.append(
+                PreparedDocument(
+                    sample_id=sample_id,
+                    session_id=session.session_id,
+                    session_ordinal=session.ordinal,
+                    timestamp=session.timestamp,
+                    relative_path=relative.as_posix(),
+                    filename=relative.name,
+                    content_sha256=hashlib.sha256(content).hexdigest(),
+                    byte_size=len(content),
+                    source_ref=(f"{DATASET_COMMIT}/{sample_id}/{session.session_id}"),
+                    source_version_ref=DATASET_COMMIT,
+                )
+            )
+    if tuple(expected) != documents:
+        raise BenchmarkRunError(
+            "prepared document identities differ from deterministic rendering"
+        )
+    for document in documents:
+        _require_file_hash(
+            path=_document_path(run_dir=run_dir, document=document),
+            expected=document.content_sha256,
+        )
+
+
+def _validate_state(
+    *,
+    state: RunState,
+    documents: tuple[PreparedDocument, ...],
+    questions: tuple[LoCoMoQuestion, ...],
+) -> None:
+    """Reject unknown, mismatched, or unaccounted checkpoint records."""
+    document_map = {document.source_ref: document for document in documents}
+    question_map = {question.item_id: question for question in questions}
+    if not set(state.ingests) <= set(document_map):
+        raise BenchmarkRunError("run state contains an unknown ingest source ref")
+    if not set(state.answers) <= set(question_map):
+        raise BenchmarkRunError("run state contains an unknown answer item")
+    if not set(state.judges) <= set(question_map):
+        raise BenchmarkRunError("run state contains an unknown judge item")
+    if not set(state.judges) <= set(state.answers):
+        raise BenchmarkRunError("run state contains a judge without an answer")
+    for source_ref, record in state.ingests.items():
+        document = document_map[source_ref]
+        if (
+            record.source_ref != source_ref
+            or record.sample_id != document.sample_id
+            or record.session_id != document.session_id
+            or record.content_sha256 != document.content_sha256
+        ):
+            raise BenchmarkRunError(f"ingest state changed for {source_ref}")
+    for item_id, answer in state.answers.items():
+        question = question_map[item_id]
+        if (
+            answer.item_id != item_id
+            or answer.sample_id != question.sample_id
+            or answer.question != question.question
+            or answer.gold_answer != (question.answer or "")
+            or answer.gold_evidence != question.evidence
+            or answer.category != question.category
+        ):
+            raise BenchmarkRunError(f"answer state changed for {item_id}")
+        if tuple(claim.rank for claim in answer.claims) != tuple(
+            range(1, len(answer.claims) + 1)
+        ):
+            raise BenchmarkRunError(f"claim ranks changed for {item_id}")
+    for item_id, judge in state.judges.items():
+        if judge.item_id != item_id:
+            raise BenchmarkRunError(f"judge state changed for {item_id}")
+    accounted = sum(
+        (usage.cost_usd for usage in _all_usages(state=state)), start=Decimal(0)
+    )
+    if accounted != state.evaluator_cost_usd:
+        raise BenchmarkRunError(
+            "persisted evaluator cost differs from successful call usage"
+        )
+
+
+def _guard_remote(
+    *,
+    context: _RunContext,
+    execute: bool,
+    sample_id: str,
+    confirmation: str | None,
+    confirmation_name: str,
+) -> None:
+    """Require opt-in, sample acknowledgement, revision, and cleanliness."""
+    if not execute:
+        raise ExecutionGuardError("remote benchmark stage requires --execute")
+    if sample_id not in context.configuration.sample_ids:
+        raise ExecutionGuardError(f"sample {sample_id!r} is not selected")
+    if confirmation != sample_id:
+        raise ExecutionGuardError(
+            f"--{confirmation_name} must exactly equal {sample_id!r}"
+        )
+    revision = _repository_revision()
+    if revision != context.configuration.repository_revision:
+        raise ExecutionGuardError("repository revision differs from the prepared run")
+    if _repository_dirty():
+        raise ExecutionGuardError("real benchmark stages require a clean worktree")
+
+
+def _require_sample_ingested(*, context: _RunContext, sample_id: str) -> None:
+    """Require one complete sample mapped to exactly one deployment."""
+    source_refs = {
+        document.source_ref
+        for document in context.documents
+        if document.sample_id == sample_id
+    }
+    missing = source_refs - set(context.state.ingests)
+    if missing:
+        raise ExecutionGuardError(
+            f"{sample_id} has {len(missing)} session documents without ingest records"
+        )
+    deployment_ids = {
+        record.deployment_id
+        for record in context.state.ingests.values()
+        if record.sample_id == sample_id
+    }
+    if len(deployment_ids) != 1:
+        raise ExecutionGuardError(
+            f"{sample_id} ingest records do not identify one deployment"
+        )
+
+
+def _answer_one(
+    *,
+    question: LoCoMoQuestion,
+    client: MemoryClient,
+    provider: ModelProviderPort,
+    doc_sessions: dict[UUID, str],
+    state: RunState,
+    max_reader_calls: int,
+    max_evaluator_cost_usd: Decimal,
+) -> AnswerRecord:
+    """Retrieve and invoke the reader once, returning one terminal record."""
+    started = time.monotonic_ns()
+    try:
+        envelope = client.search_claims(query=question.question, k=TOP_K)
+    except MemoryApiError as error:
+        return _failed_answer(
+            question=question,
+            kind="retrieval",
+            message=str(error),
+            retrieval_latency_ms=_elapsed_ms(started),
+            retrieval_succeeded=False,
+            reader_called=False,
+        )
+    retrieval_latency = _elapsed_ms(started)
+    if envelope.grain is not Grain.EVIDENCE:
+        return _failed_answer(
+            question=question,
+            kind="invalid_response",
+            message=f"claim search returned grain {envelope.grain}",
+            retrieval_latency_ms=retrieval_latency,
+            retrieval_succeeded=False,
+            reader_called=False,
+        )
+    if len(envelope.evidence) > TOP_K or any(
+        not claim.is_current_testimony for claim in envelope.evidence
+    ):
+        return _failed_answer(
+            question=question,
+            kind="invalid_response",
+            message=("claim search exceeded top-k or returned non-current testimony"),
+            retrieval_latency_ms=retrieval_latency,
+            retrieval_succeeded=False,
+            reader_called=False,
+        )
+    claims = tuple(
+        RetrievedClaim(
+            rank=rank,
+            claim_id=claim.claim_id,
+            doc_id=claim.doc_id,
+            chunk_id=claim.chunk_id,
+            claim_text=claim.claim_text,
+            source_span=claim.source_span,
+            char_start=claim.char_start,
+            char_end=claim.char_end,
+            is_attributed=claim.is_attributed,
+            is_current_testimony=claim.is_current_testimony,
+            session_id=doc_sessions.get(claim.doc_id),
+        )
+        for rank, claim in enumerate(envelope.evidence, start=1)
+    )
+    called = sum(record.reader_called for record in state.answers.values())
+    if called >= max_reader_calls:
+        raise ExecutionGuardError("reader call ceiling reached before next call")
+    _require_cost_before_call(
+        spent=state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
+    )
+    prompt = render_reader_prompt(question=question.question, claims=claims)
+    reader_started = time.monotonic_ns()
+    try:
+        response = provider.generate(
+            request=ModelRequest(
+                model=READER_MODEL, prompt=prompt, temperature=TEMPERATURE
+            ),
+            response_type=ReaderOutput,
+        )
+    except ProviderAccountingError as error:
+        return _failed_answer(
+            question=question,
+            kind="accounting",
+            message=str(error),
+            retrieval_latency_ms=retrieval_latency,
+            retrieval_succeeded=True,
+            reader_called=True,
+            reader_latency_ms=_elapsed_ms(reader_started),
+            claims=claims,
+            dropped_by_hydration=envelope.dropped_by_hydration,
+        )
+    except ValidationError as error:
+        return _failed_answer(
+            question=question,
+            kind="invalid_response",
+            message=str(error),
+            retrieval_latency_ms=retrieval_latency,
+            retrieval_succeeded=True,
+            reader_called=True,
+            reader_latency_ms=_elapsed_ms(reader_started),
+            claims=claims,
+            dropped_by_hydration=envelope.dropped_by_hydration,
+        )
+    except OpenRouterProviderError as error:
+        return _failed_answer(
+            question=question,
+            kind="reader",
+            message=str(error),
+            retrieval_latency_ms=retrieval_latency,
+            retrieval_succeeded=True,
+            reader_called=True,
+            reader_latency_ms=_elapsed_ms(reader_started),
+            claims=claims,
+            dropped_by_hydration=envelope.dropped_by_hydration,
+        )
+    state.evaluator_cost_usd += response.usage.cost_usd
+    return AnswerRecord(
+        item_id=question.item_id,
+        sample_id=question.sample_id,
+        category=_retained_category(question=question),
+        question=question.question,
+        gold_answer=question.answer or "",
+        gold_evidence=question.evidence,
+        claims=claims,
+        dropped_by_hydration=envelope.dropped_by_hydration,
+        retrieval_succeeded=True,
+        retrieval_latency_ms=retrieval_latency,
+        reader_called=True,
+        reader_latency_ms=_elapsed_ms(reader_started),
+        generated_answer=response.output.answer,
+        reader_usage=response.usage,
+    )
+
+
+def _judge_one(
+    *,
+    question: LoCoMoQuestion,
+    answer: AnswerRecord,
+    provider: ModelProviderPort,
+    state: RunState,
+    max_judge_calls: int,
+    max_evaluator_cost_usd: Decimal,
+) -> JudgeRecord:
+    """Invoke the judge once; every call failure becomes a visible wrong."""
+    called = sum(record.model_called for record in state.judges.values())
+    if called >= max_judge_calls:
+        raise ExecutionGuardError("judge call ceiling reached before next call")
+    _require_cost_before_call(
+        spent=state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
+    )
+    started = time.monotonic_ns()
+    try:
+        response = provider.generate(
+            request=ModelRequest(
+                model=JUDGE_MODEL,
+                prompt=render_judge_prompt(
+                    question=question.question,
+                    gold_answer=question.answer or "",
+                    generated_answer=answer.generated_answer or "",
+                ),
+                temperature=TEMPERATURE,
+            ),
+            response_type=JudgeOutput,
+        )
+    except ProviderAccountingError as error:
+        return JudgeRecord(
+            item_id=question.item_id,
+            label="WRONG",
+            model_called=True,
+            latency_ms=_elapsed_ms(started),
+            failure=_failure(kind="accounting", message=str(error)),
+        )
+    except (OpenRouterProviderError, ValidationError) as error:
+        return JudgeRecord(
+            item_id=question.item_id,
+            label="WRONG",
+            model_called=True,
+            latency_ms=_elapsed_ms(started),
+            failure=_failure(kind="judge", message=str(error)),
+        )
+    state.evaluator_cost_usd += response.usage.cost_usd
+    return JudgeRecord(
+        item_id=question.item_id,
+        label=response.output.label,
+        model_called=True,
+        usage=response.usage,
+        latency_ms=_elapsed_ms(started),
+    )
+
+
+def _failed_answer(
+    *,
+    question: LoCoMoQuestion,
+    kind: FailureKind,
+    message: str,
+    retrieval_latency_ms: int,
+    retrieval_succeeded: bool,
+    reader_called: bool,
+    reader_latency_ms: int | None = None,
+    claims: tuple[RetrievedClaim, ...] = (),
+    dropped_by_hydration: int = 0,
+) -> AnswerRecord:
+    """Build a bounded terminal failure without erasing retrieval evidence."""
+    return AnswerRecord(
+        item_id=question.item_id,
+        sample_id=question.sample_id,
+        category=_retained_category(question=question),
+        question=question.question,
+        gold_answer=question.answer or "",
+        gold_evidence=question.evidence,
+        claims=claims,
+        dropped_by_hydration=dropped_by_hydration,
+        retrieval_succeeded=retrieval_succeeded,
+        retrieval_latency_ms=retrieval_latency_ms,
+        reader_called=reader_called,
+        reader_latency_ms=reader_latency_ms,
+        failure=_failure(kind=kind, message=message),
+    )
+
+
+def _failure(*, kind: FailureKind, message: str) -> BenchmarkFailure:
+    """Normalize an external error into a bounded durable failure."""
+    bounded = " ".join(message.split())[:500] or "unspecified failure"
+    return BenchmarkFailure.model_validate({"kind": kind, "message": bounded})
+
+
+def _sample_questions(
+    *, context: _RunContext, sample_id: str
+) -> tuple[LoCoMoQuestion, ...]:
+    """Return one sample's manifest-ordered retained questions."""
+    selected = tuple(
+        question for question in context.questions if question.sample_id == sample_id
+    )
+    if not selected:
+        raise ExecutionGuardError(f"sample {sample_id!r} has no selected questions")
+    return selected
+
+
+def _require_cost_ceiling(*, spent: Decimal, ceiling: Decimal) -> None:
+    """Require a positive run ceiling no lower than persisted spend."""
+    if ceiling <= 0:
+        raise ExecutionGuardError("max-evaluator-cost-usd must be positive")
+    if ceiling < spent:
+        raise ExecutionGuardError(
+            f"cost ceiling {ceiling} is below already recorded spend {spent}"
+        )
+
+
+def _require_cost_before_call(*, spent: Decimal, ceiling: Decimal) -> None:
+    """Stop before a provider call once the run ceiling is reached."""
+    _require_cost_ceiling(spent=spent, ceiling=ceiling)
+    if spent >= ceiling:
+        raise ExecutionGuardError(
+            f"evaluator spend {spent} has reached run ceiling {ceiling}"
+        )
+
+
+def _all_usages(*, state: RunState) -> tuple[ProviderCallUsage, ...]:
+    """Collect successful reader and judge usage records exactly once."""
+    return tuple(
+        usage
+        for usage in (
+            *(record.reader_usage for record in state.answers.values()),
+            *(record.usage for record in state.judges.values()),
+        )
+        if usage is not None
+    )
+
+
+def _retained_category(*, question: LoCoMoQuestion) -> RetainedCategory:
+    """Narrow a manifest question to the retained category type."""
+    if question.category not in {1, 2, 3, 4}:
+        raise BenchmarkRunError(
+            f"excluded category reached execution: {question.category}"
+        )
+    return _category_literal(question.category)
+
+
+def _category_literal(category: int) -> RetainedCategory:
+    """Narrow a runtime integer to one retained literal."""
+    if category == 1:
+        return 1
+    if category == 2:
+        return 2
+    if category == 3:
+        return 3
+    if category == 4:
+        return 4
+    raise BenchmarkRunError(f"invalid retained category {category}")
+
+
+def _repository_revision() -> str:
+    """Read the exact Git commit used in the protocol fingerprint."""
+    result = subprocess.run(
+        ("git", "rev-parse", "HEAD"), check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
+def _repository_dirty() -> bool:
+    """Return whether non-ignored files differ from the prepared revision."""
+    result = subprocess.run(
+        ("git", "status", "--porcelain"), check=True, capture_output=True, text=True
+    )
+    return bool(result.stdout.strip())
+
+
+def _canonical_hash(value: object) -> str:
+    """Hash a JSON-canonical protocol value."""
+    canonical = json.dumps(
+        value, default=str, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _models_hash(*, values: tuple[BaseModel, ...]) -> str:
+    """Hash an ordered tuple of strict Pydantic boundaries."""
+    return _canonical_hash(
+        [value.model_dump(mode="json", exclude_none=False) for value in values]
+    )
+
+
+def _document_path(*, run_dir: Path, document: PreparedDocument) -> Path:
+    """Resolve a path while refusing traversal outside the run directory."""
+    path = (run_dir / document.relative_path).resolve()
+    root = run_dir.resolve()
+    if root not in path.parents:
+        raise BenchmarkRunError(
+            f"prepared document escapes run directory: {document.relative_path}"
+        )
+    return path
+
+
+def _require_file_hash(*, path: Path, expected: str) -> None:
+    """Reject a local file whose exact bytes changed after preparation."""
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected:
+        raise BenchmarkRunError(f"file hash changed for {path}: {actual}")
+
+
+def _save_state(*, run_dir: Path, state: RunState) -> None:
+    """Atomically checkpoint the one mutable run-state document."""
+    _atomic_model(path=run_dir / _STATE_FILE, value=state)
+
+
+def _atomic_models(*, path: Path, values: tuple[BaseModel, ...]) -> None:
+    """Persist an ordered model list as stable readable JSON."""
+    content = (
+        json.dumps(
+            [value.model_dump(mode="json") for value in values],
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ).encode()
+        + b"\n"
+    )
+    _atomic_bytes(path=path, content=content)
+
+
+def _atomic_model(*, path: Path, value: BaseModel) -> None:
+    """Persist one model as stable readable JSON."""
+    content = (
+        json.dumps(
+            value.model_dump(mode="json"), ensure_ascii=False, indent=2, sort_keys=True
+        )
+        + "\n"
+    ).encode()
+    _atomic_bytes(path=path, content=content)
+
+
+def _atomic_bytes(*, path: Path, content: bytes) -> None:
+    """Flush, fsync, and replace without a partial destination."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    with temporary.open("wb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
+def _elapsed_ms(started_ns: int) -> int:
+    """Convert a monotonic start instant to elapsed milliseconds."""
+    return (time.monotonic_ns() - started_ns) // 1_000_000
