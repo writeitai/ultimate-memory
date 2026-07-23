@@ -14,9 +14,23 @@ end to end.
 
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
-| WP-8.1 | **Benchmark landscape survey** — the field moves; select at execution time. Candidates to evaluate (verify currency then): LoCoMo, LongMemEval, DMR-class conversational-memory suites; multi-hop QA (HotpotQA/MultiHop-RAG-class) for graph strengths; latency/cost protocols the competitors publish | — (web survey; D22 for fit) | phase gates | selection memo (analysis/) | chosen suites + rationale + baseline list | planned |
+| WP-8.1 | **Benchmark landscape survey** — the field moves; select at execution time. Candidates to evaluate (verify currency then): LoCoMo, LongMemEval, DMR-class conversational-memory suites; multi-hop QA (HotpotQA/MultiHop-RAG-class) for graph strengths; latency/cost protocols the competitors publish | — (web survey; D22 for fit) | phase gates | selection memo (analysis/) | chosen suites + rationale + baseline list | done |
 | WP-8.2 | Adapter layer: the system as a memory backend behind each benchmark's protocol (ingest/query interfaces, session semantics) | retrieval §3–7; benchmark specs | WP-8.1 | adapters | benchmark harness runs end-to-end on a sample | planned |
-| WP-8.3 | Baselines: competitor systems (Mem0/Zep-class per survey) + a naive-RAG floor, same corpora, same models where fair | WP-8.1 memo | WP-8.2 | baseline runs | reproducible baseline numbers | planned |
+| WP-8.3 | Baselines: Mem0 OSS + Graphiti OSS from the survey, plus BM25 and dense-RAG floors; hosted/vendor numbers are contextual only | WP-8.1 memo | WP-8.2 | baseline runs | reproducible baseline numbers | planned |
 | WP-8.4 | Metrics + instrumentation: accuracy per suite, latency (P50/P95), token + $ cost per op (cost_ledger), ingestion throughput | schema §2; retrieval §10 | WP-8.2 | metrics pipeline | one reproducible metrics artifact per run | planned |
 | WP-8.5 | **Capability benchmark** (ours, from the S-battery): the differentiators competitors lack — bi-temporal as-of (S9/S10/S15), contradiction surfacing (S23), provenance hydration (S5), watched-source lifecycle (edit/retract/delete), forget (S55) | retrieval_scenarios.md | WP-8.2 | capability suite + narrative doc | each capability demonstrated + scripted | planned |
 | WP-8.6 | Methodology + results publication (honest: include losses; pin versions; publish configs) | all above | WP-8.3–8.5 | report | reviewed; reproducible by a third party | planned |
+
+## WP-8.1 selection
+
+The current landscape survey and binding handoff are in
+[`phase_8_benchmark_selection.md`](../analysis/phase_8_benchmark_selection.md). The initial
+portfolio is LoCoMo QA, LongMemEval-S, MemoryAgentBench FactConsolidation-SH/MH, and
+MultiHop-RAG retrieval. Regular development uses committed deterministic subsets; full runs are
+publication events with an explicit preflight cap. Retrieval scoring runs before any shared
+reader or judge, and every report separates one-time build cost from serving cost.
+
+The matched baseline set is BM25, minimal dense RAG, Mem0 OSS, and Graphiti OSS. DMR is rejected
+as saturated; LongMemEval-V2 and the agent-environment suites remain watch/deferred items rather
+than expanding WP-8.2. The reusable prompt for independent external research is
+[`phase_8_deep_research_prompt.md`](../analysis/phase_8_deep_research_prompt.md).
