@@ -10,4 +10,4 @@
 
 Signing on behalf of a legal entity (leave blank if accepting individually):
 
-- [ ] I have read and agree to the [RememberStack Contributor License Agreement v1.0](https://github.com/writeitai/remember-stack/blob/main/CLA.md).
+- [ ] I have read and agree to the [RememberStack Contributor License Agreement v1.0](https://github.com/writeitai/remember-stack/blob/9e403b25a6d5b0e280cb54dbdfbe900625325940/CLA.md).

@@ -16,9 +16,9 @@ This is a pre-release infrastructure proof. It processes a Markdown upload
 through conversion and deterministic structure, then leaves its chunk work
 pending. Later pipeline workers are not yet wired into this quickstart. The
 release workflow and tag-pinned Compose contract exist and trusted publishing is
-configured. The bounded contributor-agreement workflow still needs activation as
-a required `main` check before the first public tag is created, so no public PyPI
-or GHCR artifact exists yet.
+configured. The bounded contributor agreement is enforced as a required `main`
+check. No public PyPI or GHCR artifact exists yet because the first tag has not
+been created.
 The RememberStack, `rememberstack`, and `remember` names used here are final. Do
 not expose this stack to untrusted traffic.
 

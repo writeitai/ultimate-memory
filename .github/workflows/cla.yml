@@ -29,7 +29,8 @@ jobs:
           expected = (
               "- [x] I have read and agree to the "
               "[RememberStack Contributor License Agreement v1.0]"
-              "(https://github.com/writeitai/remember-stack/blob/main/CLA.md)."
+              "(https://github.com/writeitai/remember-stack/blob/"
+              "9e403b25a6d5b0e280cb54dbdfbe900625325940/CLA.md)."
           )
           lines = {
               line.strip().casefold()
