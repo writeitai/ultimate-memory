@@ -1,0 +1,78 @@
+"""Validate the single version shared by RememberStack release artifacts."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import tomllib
+
+_SEMVER = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
+_IMAGE = "ghcr.io/writeitai/remember-stack"
+
+
+def main() -> None:
+    """Validate the repository release contract and an optional Git tag."""
+    arguments = _parser().parse_args()
+    root = Path(__file__).resolve().parents[1]
+    version = _package_version(root=root)
+    _validate_semver(version=version)
+    _validate_compose_pin(root=root, version=version)
+    if arguments.tag is not None:
+        _validate_tag(tag=arguments.tag, version=version)
+    print(f"release contract valid for RememberStack {version}")
+
+
+def _parser() -> argparse.ArgumentParser:
+    """Build the small release-contract command-line parser."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--tag",
+        help="release tag to compare with the package version, for example v0.1.0",
+    )
+    return parser
+
+
+def _package_version(*, root: Path) -> str:
+    """Read the authoritative distribution version from pyproject.toml."""
+    with (root / "pyproject.toml").open("rb") as pyproject:
+        document = tomllib.load(pyproject)
+    project = document.get("project")
+    if not isinstance(project, dict):
+        raise TypeError("project must be a table")
+    version = project.get("version")
+    if not isinstance(version, str):
+        raise TypeError("project.version must be a string")
+    return version
+
+
+def _validate_semver(*, version: str) -> None:
+    """Require the deliberately small MAJOR.MINOR.PATCH release vocabulary."""
+    if _SEMVER.fullmatch(version) is None:
+        raise ValueError(
+            f"project.version must be semantic MAJOR.MINOR.PATCH, found {version!r}"
+        )
+
+
+def _validate_compose_pin(*, root: Path, version: str) -> None:
+    """Require Compose to name the same fixed release coordinate as PyPI."""
+    expected = f"image: {_IMAGE}:{version}"
+    compose = (root / "compose.yaml").read_text(encoding="utf-8")
+    matches = [
+        line.strip()
+        for line in compose.splitlines()
+        if line.strip().startswith("image:")
+    ]
+    if expected not in matches:
+        raise ValueError(f"compose.yaml must contain {expected!r}")
+
+
+def _validate_tag(*, tag: str, version: str) -> None:
+    """Require a release tag to be exactly v plus the package version."""
+    expected = f"v{version}"
+    if tag != expected:
+        raise ValueError(f"release tag must be {expected!r}, found {tag!r}")
+
+
+if __name__ == "__main__":
+    main()

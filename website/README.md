@@ -1,6 +1,6 @@
-# rememberstack docs site
+# RememberStack docs site
 
-The public documentation for [rememberstack](https://github.com/writeitai/rememberstack),
+The public documentation for [RememberStack](https://github.com/writeitai/remember-stack),
 published at **[remember.dev](https://remember.dev)**.
 
 It is a self-contained static site: a Next.js App-Router app whose pages are authored

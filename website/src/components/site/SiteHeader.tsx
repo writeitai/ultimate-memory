@@ -23,7 +23,7 @@ export function SiteHeader() {
             Docs
           </Link>
           <a
-            href="https://github.com/writeitai/rememberstack"
+            href="https://github.com/writeitai/remember-stack"
             target="_blank"
             rel="noreferrer"
             className="text-muted-foreground hover:text-foreground"

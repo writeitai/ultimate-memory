@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
+    env:
+      QUICKSTART_TARGET_SECONDS: "600"
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +25,14 @@ jobs:
         run: docker compose --env-file .env.example config --quiet
 
       - name: Start fresh self-host deployment
-        run: docker compose --env-file .env.example up --build --detach --wait
+        run: |
+          started_at="$(date +%s)"
+          docker compose --env-file .env.example up --build --detach --wait
+          curl --fail http://localhost:8000/recipes
+          elapsed_seconds="$(($(date +%s) - started_at))"
+          echo "Quickstart cold start to first query: ${elapsed_seconds}s / ${QUICKSTART_TARGET_SECONDS}s target" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$elapsed_seconds" -le "$QUICKSTART_TARGET_SECONDS"
 
       - name: Prove MinIO conditional create
         run: |
@@ -61,6 +70,73 @@ jobs:
           test "$observed" = '1|1|1'
           test "$(docker compose --env-file .env.example exec -T postgres \
             psql -U rememberstack -d rememberstack -Atc 'SELECT count(*) FROM cost_ledger')" = '0'
+
+      - name: Stage an upgrade from the prior schema
+        run: |
+          docker compose --env-file .env.example stop \
+            api worker-convert worker-structure
+          docker compose --env-file .env.example run --rm --no-deps \
+            --entrypoint alembic setup downgrade p7_02_0016
+          test "$(docker compose --env-file .env.example exec -T postgres \
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT version_num FROM alembic_version')" = 'p7_02_0016'
+          test "$(docker compose --env-file .env.example exec -T postgres \
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT count(*) FROM deployments')" = '1'
+          docker compose --env-file .env.example rm --force setup
+
+      - name: Run migrations before application processes restart
+        run: |
+          compose_args=(
+            --env-file .env.example
+            --file compose.yaml
+            --file .github/compose/upgrade-gate.yaml
+          )
+          docker compose "${compose_args[@]}" up --detach --wait &
+          compose_pid="$!"
+          release_gate() {
+            docker compose "${compose_args[@]}" exec -T setup \
+              touch /tmp/rememberstack-upgrade-release
+          }
+          trap 'release_gate || true' EXIT
+
+          setup_running=''
+          for attempt in {1..30}; do
+            setup_running="$(
+              docker compose "${compose_args[@]}" ps --status running --services setup
+            )"
+            if [ "$setup_running" = 'setup' ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$setup_running" = 'setup'
+
+          running_services="$(
+            docker compose "${compose_args[@]}" ps --status running --services
+          )"
+          test -z "$(printf '%s\n' "$running_services" \
+            | grep -E '^(api|worker-convert|worker-structure)$' || true)"
+          test "$(docker compose "${compose_args[@]}" exec -T postgres \
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT version_num FROM alembic_version')" = 'p7_02_0016'
+
+          release_gate
+          wait "$compose_pid"
+          trap - EXIT
+          test "$(docker compose --env-file .env.example exec -T postgres \
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT version_num FROM alembic_version')" = 'p7_05_0017'
+          test "$(docker compose --env-file .env.example exec -T postgres \
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT count(*) FROM deployments')" = '1'
+          running_services="$(
+            docker compose "${compose_args[@]}" ps --status running --services
+          )"
+          for service in api worker-convert worker-structure; do
+            printf '%s\n' "$running_services" | grep -qx "$service"
+          done
+          curl --fail http://localhost:8000/healthz
 
       - name: Show service logs after failure
         if: failure()

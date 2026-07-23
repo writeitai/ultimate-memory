@@ -80,10 +80,10 @@ Keep this current: when something here is decided, move it to a decision and pru
     - ~~"Ultimate Memory" is a working title — a rename gates public release~~ **NAME DECIDED
       (D76, 2026-07-23): product `RememberStack`, canonical home `remember.dev`, attribution
       “RememberStack by WriteIt.ai.”** The release identifiers are repository
-      `writeitai/rememberstack`, distribution/import `rememberstack`, CLI `remember`, container
-      `ghcr.io/writeitai/rememberstack`, and configuration prefix `REMEMBERSTACK_*`. The domain
+      `writeitai/remember-stack`, distribution/import `rememberstack`, CLI `remember`, container
+      `ghcr.io/writeitai/remember-stack`, and configuration prefix `REMEMBERSTACK_*`. The domain
       remains the canonical public address; the full product mark appears in product prose and
-      metadata. The pre-release working identifiers receive one clean rename with no compatibility
+      metadata. The pre-release working identifiers received one clean rename with no compatibility
       aliases. **Still gating public release:** focused attorney clearance against the close
       in-category Recallstack and Remembra names, plus the bounded CLA before outside
       contributions. Preliminary availability research is not legal clearance.
@@ -91,17 +91,17 @@ Keep this current: when something here is decided, move it to a decision and pru
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
-      compose profiles, release/upgrade/portable-restore policy. D76 supplies the exact mechanical
-      rename; focused clearance and the **CLA** remain owner-side gates above.
+      compose profiles, release/upgrade/portable-restore policy. D76 supplied the exact targets
+      and the mechanical rename is complete; focused clearance and the **CLA** remain owner-side
+      gates above.
     - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
       `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —
-      [PR #39](https://github.com/writeitai/rememberstack/pull/39) merged `uv`/Hatchling,
+      [PR #39](https://github.com/writeitai/remember-stack/pull/39) merged `uv`/Hatchling,
       Ruff, the single-package `src` layout and naming, and GitHub Actions CI;
-      [PR #41](https://github.com/writeitai/rememberstack/pull/41) merged the typed
+      [PR #41](https://github.com/writeitai/remember-stack/pull/41) merged the typed
       pydantic-settings/secret convention and direct-environment-access lint guard. The
-      roadmap now links each choice to the exact repository evidence. This resolution does
-      not perform the release rename, supply attorney clearance, or create the bounded CLA;
-      those release/governance gates remain open above.
+      roadmap now links each choice to the exact repository evidence. The release rename is
+      now complete; attorney clearance and the bounded CLA remain open above.
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 

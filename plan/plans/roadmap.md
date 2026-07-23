@@ -64,10 +64,10 @@ needs to restate it:
   **enforced by import-linter in CI** (core is pure; SQL only in `spine/`; vendor SDKs only in
   `adapters/`); explicit constructor-injection profiles, no DI framework.
 - **WP-0.1 scaffold conventions — resolved from merged evidence (2026-07-17):** these are
-  repository-wide choices, not owner-input placeholders. [PR #39](https://github.com/writeitai/rememberstack/pull/39)
-  (merge [`eccc693`](https://github.com/writeitai/rememberstack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
-  established the scaffold and [PR #41](https://github.com/writeitai/rememberstack/pull/41)
-  (merge [`ec5ce3a`](https://github.com/writeitai/rememberstack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+  repository-wide choices, not owner-input placeholders. [PR #39](https://github.com/writeitai/remember-stack/pull/39)
+  (merge [`eccc693`](https://github.com/writeitai/remember-stack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+  established the scaffold and [PR #41](https://github.com/writeitai/remember-stack/pull/41)
+  (merge [`ec5ce3a`](https://github.com/writeitai/remember-stack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
   established the configuration/secrets convention:
   - **Package, dependency, and build management:** `uv` owns environment/dependency resolution
     and the committed lock ([`uv.lock`](../../uv.lock)); Hatchling is the build backend and
@@ -100,7 +100,7 @@ needs to restate it:
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | done (exit criteria met 2026-07-19; PRs #100-#104 — see the phase file) |
 | 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | done (exit criteria met 2026-07-20; PRs #105–#111 — see the phase file) |
 | 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, K1 + K2 purpose scopes | k_layers | done (exit criteria met 2026-07-21; PRs #112–#117; former WP-6.7 removed by D73) |
-| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, portable restore | orchestration, packaging, schema §12–13 | in progress (WP-7.1–7.5 and WP-7.7 done; WP-7.6 blocked on the rename/CLA gate) |
+| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, portable restore | orchestration, packaging, schema §12–13 | in progress (WP-7.1–7.5 and WP-7.7 done; WP-7.6 implemented, with its public tag waiting on owner release gates) |
 | 8 | Competitive benchmarks | external benchmark harness, adapters, baselines (Mem0/Zep-class), capability benchmark, published methodology + results | D22 (internal) + `phase-8` survey | planned |
 
 Sequencing calls already argued (see the phase files for the rest): **K after retrieval**
@@ -114,8 +114,8 @@ as usual):
 
 | Gate | Blocks | What must be decided |
 |---|---|---|
-| stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/rememberstack/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/rememberstack/pull/41); §3 maps every former slot to its exact repository evidence. |
-| name + CLA (`questions.md` §11a; D76) | Phase 7 WP-7.6 (release), first outside PR | RememberStack mechanical rename; focused attorney clearance; CLA before external contributions |
+| stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/remember-stack/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/remember-stack/pull/41); §3 maps every former slot to its exact repository evidence. |
+| public-release governance (`questions.md` §11a; D76) | first public tag, first outside PR | focused attorney clearance before release; bounded CLA before external contributions |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |

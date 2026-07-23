@@ -32,7 +32,7 @@ await the owner-provided stack conventions (roadmap §3).
 |---|---|---|
 | **The GitHub repository** | contributors, evaluators | source + the `plan/` design corpus (itself a differentiator: the architecture rationale ships with the code) |
 | **The PyPI package** — dist/import **`rememberstack`**, CLI **`remember`** (product **RememberStack**, canonical home **`remember.dev`**; D76) | **agent harnesses and their operators** — positioned as *the client* | base install = the **client surface** (§2): typed SDK, CLI, MCP server. Extras: `[server]` (workers, spine, adapters), `[connectors-gdrive]` etc. (per-connector, server-side), `[k]` (the K compile machine's driver dependencies) |
-| **Container images + compose profiles** (published on **GHCR** — same org as the repo, no second registry account) | self-hosters, CI, benchmarks | `api` and `worker` images; `docker compose up` brings up the **self-host profile**: Postgres + MinIO + api + worker(s). The ten-minute quickstart is a release-gating, CI-tested artifact — an infrastructure-shaped OSS that cannot be *tried* quickly dies |
+| **One container image + compose profile** (published on **GHCR** — same org as the repo, no second registry account) | self-hosters, CI, benchmarks | one shared image runs `api`, `worker`, or one-shot `setup` commands; `docker compose up` brings up the **self-host profile**: Postgres + MinIO + api + worker(s). API and workers execute the same package and dependency set, so separate images would duplicate publication without creating an isolation boundary. The ten-minute quickstart is a release-gating, CI-tested artifact — an infrastructure-shaped OSS that cannot be *tried* quickly dies |
 
 One package, not a package family: the same distribution contains client and server code;
 extras select dependency weight. The *positioning* is what differs: the README sells
@@ -208,8 +208,8 @@ ports and published extension points, keeping it portable off GCP too.
 
 ## 6. Releases, upgrades, portability
 
-- **Versioning**: semantic versioning on the package and images (same version string);
-  every release publishes PyPI + GHCR images + the compose file pinned to that tag.
+- **Versioning**: semantic versioning on the package and shared image (same version string);
+  every release publishes PyPI + the GHCR image + the compose file pinned to that tag.
   *(D76: product RememberStack; dist/import/container `rememberstack`; CLI `remember`; canonical
   home `remember.dev`.)*
 - **Upgrades**: Alembic migrations run **before** workers roll (the schema doc is the source

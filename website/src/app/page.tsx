@@ -30,7 +30,7 @@ export default function Home() {
           <ArrowRight className="h-4 w-4" />
         </Link>
         <a
-          href="https://github.com/writeitai/rememberstack"
+          href="https://github.com/writeitai/remember-stack"
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-md border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"

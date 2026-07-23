@@ -1,18 +1,20 @@
 # RememberStack
 
-[![CI](https://github.com/writeitai/rememberstack/actions/workflows/ci.yml/badge.svg)](https://github.com/writeitai/rememberstack/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/writeitai/rememberstack/python-coverage-comment-action-data/endpoint.json)](https://github.com/writeitai/rememberstack/tree/python-coverage-comment-action-data)
+[![CI](https://github.com/writeitai/remember-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/writeitai/remember-stack/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/writeitai/remember-stack/python-coverage-comment-action-data/endpoint.json)](https://github.com/writeitai/remember-stack/tree/python-coverage-comment-action-data)
 
 A memory system for AI agents, designed to ingest **millions** of heterogeneous documents and
 distill them into progressively more abstract, navigable knowledge — while keeping everything
 auditable by humans. Scale is a requirement, not an aspiration: it is meant to still be useful
 at a million documents.
 
-> **Pre-release software.** Phases 0–6 and most of Phase 7 are implemented and tested, but no
-> public package or container release exists yet. The fresh-deployment Docker Compose skeleton
-> is documented under [Self-host deployment](website/src/app/docs/deployment/page.mdx); it proves
-> PostgreSQL, MinIO, API ingestion, and the first two E0 worker stages, not a production rollout.
-> The build follows [plan/plans/roadmap.md](plan/plans/roadmap.md).
+> **Pre-release software.** Phases 0–6 and most of Phase 7 are implemented and tested. Release
+> automation exists, but the owner-side legal, governance, and registry setup gates are not
+> complete, so no public package or container release exists yet. The fresh-deployment Docker
+> Compose skeleton is documented under
+> [Self-host deployment](website/src/app/docs/deployment/page.mdx); it proves PostgreSQL, MinIO,
+> API ingestion, and the first two E0 worker stages, not a production rollout. The build follows
+> [plan/plans/roadmap.md](plan/plans/roadmap.md).
 
 ## TL;DR
 
@@ -166,3 +168,4 @@ the same PR, and the full-scope design intent stays here in `plan/`.
 | [plan/designs/docs_site_design.md](plan/designs/docs_site_design.md) | Public docs site: in-repo Next.js/MDX static module + same-PR truthfulness contract (D66) |
 | [decisions.md](decisions.md) | Architecture decision log (D1–D66) with rationale |
 | [questions.md](questions.md) | Open questions to resolve before building |
+| [RELEASING.md](RELEASING.md) | Maintainer setup, release procedure, and public-artifact verification |
