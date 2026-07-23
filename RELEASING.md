@@ -6,11 +6,13 @@ It accepts only tags exactly matching `vMAJOR.MINOR.PATCH`.
 
 ## One-time owner setup
 
-Complete these steps in order:
+The owner setup is in its final activation step:
 
-1. Finish the focused name clearance and put the bounded CLA in place. These are governance
-   gates, not release-workflow features.
-2. Confirm the GitHub repository is `writeitai/remember-stack`, then update each existing clone:
+1. D77 records explicit acceptance of the preliminary naming risk. `CLA.md`, the trademark policy,
+   pull-request template, and `CLA` workflow land together; after merge, make the emitted `CLA`
+   status a required `main` check with administrator enforcement before accepting an outside
+   contribution or creating the first release tag.
+2. The GitHub repository is `writeitai/remember-stack`. Update each existing clone if needed:
 
    ```bash
    git remote set-url origin git@github.com:writeitai/remember-stack.git
@@ -20,9 +22,9 @@ Complete these steps in order:
    RememberStack and the Python distribution/import remain `rememberstack`. GitHub redirects
    ordinary repository and Git traffic after a rename, but the final name must be in place before
    configuring PyPI because the trusted identity includes the repository name.
-3. In the GitHub repository, create an environment named `pypi`. Add yourself as a required
-   reviewer so a tag cannot publish to PyPI without an explicit approval.
-4. Create a PyPI account, enable two-factor authentication, and add a
+3. The GitHub environment `pypi` requires an owner review, so a tag cannot publish to PyPI without
+   explicit approval.
+4. The PyPI account uses two-factor authentication and has a
    [pending Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
    with these exact values:
 
@@ -36,7 +38,8 @@ Complete these steps in order:
 
    A pending publisher does not reserve the PyPI name. Configure it only after the repository
    rename and publish promptly once the release gates are clear.
-5. Protect tags matching `v*` so only maintainers can create or update release tags.
+5. The active `Protect release tags` ruleset restricts creation, update, and deletion of tags
+   matching `v*` to repository administrators.
 
 No PyPI password or long-lived API token belongs in GitHub secrets. The workflow requests a
 short-lived OpenID Connect credential and grants `id-token: write` only to the PyPI job.

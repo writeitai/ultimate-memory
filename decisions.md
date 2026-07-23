@@ -1893,9 +1893,9 @@ creation and `NOTIFY` in one transaction; the delivery port never creates the ro
 > claim: it closes the roadmap stack-conventions gate and records WP-0.1 done. It does **not**
 > claim that D61 ports, the two delivery shells, the intended hexagonal package directories,
 > or import-linter contracts are implemented; those remain the planned
-> [WP-0.4](plan/plans/phase-0-foundations.md). D76 later closed the mechanical release rename;
-> attorney clearance and the bounded CLA remain open in
-> [`questions.md` §1 item 11a](questions.md#1-open-decisions-undecided--answers-shape-the-design).
+> [WP-0.4](plan/plans/phase-0-foundations.md). D76 later closed the mechanical release rename,
+> and D77 closed the remaining owner governance gate through explicit risk acceptance and the
+> repository-native bounded CLA.
 
 ## D63. The embedding model is port configuration; default `qwen3-embedding-8b` via OpenRouter — the E1 branch resolves to conventional + prefix
 
@@ -2580,5 +2580,51 @@ also rejected: the verb-shaped `remember` command is clearer and no compatibilit
 targets. `remember.dev` is the canonical URL in website metadata and deployment
 documentation; alternate website hosts redirect there. The repository rename is complete.
 Domain/DNS setup, PyPI Trusted Publisher, and public GHCR visibility are account-level release
-steps. The bounded CLA and focused legal clearance remain the only owner-side gates before public
-release.
+steps. The former legal-clearance and CLA gates are resolved by D77.
+
+## D77. Public release proceeds with an in-repository, self-hosting-bounded CLA
+
+**Decision.** The owner accepts the documented naming risk around Recallstack and Remembra and
+chooses to release RememberStack without making focused attorney clearance a blocking gate. This
+is a risk acceptance, not a finding of trademark availability or legal clearance.
+
+Before the first outside contribution, the repository enforces the RememberStack Contributor
+License Agreement v1.0. Contributors retain their copyright. They grant WriteIt.ai s.r.o. the
+copyright and patent rights needed to maintain, distribute, and relicense their contributions, but
+the outbound grant is bounded: every future license must keep the corresponding source available
+without a license fee and permit personal, research, nonprofit, and internal commercial
+self-hosting without seat, instance, data-volume, or duration limits. A future license may restrict
+offering RememberStack as a hosted or managed service to third parties. Apache-2.0 remains the
+launch license, and versions already published under it stay Apache-2.0.
+
+Acceptance is deliberately repository-native. Each human-authored pull request contains an exact
+versioned assent checkbox, and a metadata-only `pull_request_target` workflow fails the `CLA`
+status unless it is checked. The workflow never checks out or executes pull-request code.
+Agreement revisions are versioned, require fresh assent, and do not retroactively enlarge an
+earlier grant. Known dependency/automation bots are exempt because they cannot assent; maintainers
+remain responsible for the provenance of bot-authored changes.
+
+The repository also ships a narrow trademark policy. Copyright permissions remain broad:
+truthful references, interoperability identifiers, unmodified redistribution, and clearly
+distinguished "based on RememberStack" forks need no permission. The policy reserves product,
+service, package, domain, logo, and endorsement uses that could imply an official source. It does
+not claim that the marks are registered.
+
+**Context.** D60's governance analysis rejected a plain DCO because it would not preserve the
+option to adopt a source-available license if a competing hosted offering becomes material. An
+unbounded CLA would solve that business problem by creating a larger contributor-trust problem.
+The bounded grant makes the intended trade explicit. It is adapted from the Harmony Contributor
+Agreement Template rather than invented from a blank page.
+
+The owner chose not to add a hosted CLA service, OAuth application, or separate signatory
+database. GitHub's authenticated identity, pull-request body, edit history, and required status
+form the acceptance record. This is the smallest mechanism that enforces the project decision
+inside the public repository. Legal review remains advisable, particularly before an actual
+relicense, but is no longer a release gate.
+
+**Consequences.** `CLA.md`, `TRADEMARKS.md`, `CONTRIBUTING.md`, the pull-request template, and the
+`CLA` workflow ship together. The `CLA` status becomes a required `main` check with administrator
+enforcement after the workflow lands. The PyPI pending publisher, matching protected GitHub
+environment, and protected `v*` tag ruleset are already configured. The first GHCR push creates
+the container package; making that package public is the only post-publish owner action. WP-7.6
+may proceed to its first tagged artifact proof after CLA activation.
