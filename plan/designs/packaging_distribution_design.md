@@ -275,7 +275,7 @@ must be rejected by the operator's transfer verification.
 
 ## References
 
-Decisions: **D62** (this design), D7, D12, D48–D56, D60–D61 (`decisions.md`). Cloud-side
+Decisions: **D62** (this design), D7, D12, D48–D56, D60–D61, D76–D77 (`decisions.md`). Cloud-side
 analyses: `ultimate-memory-cloud/analysis/oss_cloud_split/` (synthesis + licensing/naming).
 Plans: `plan/plans/roadmap.md` §3 (stack), phases 0/5/7 (the WPs realizing this design).
-Open governance items (name, CLA): `questions.md` §11a.
+Resolved governance record (name, bounded CLA): `questions.md` §11a.

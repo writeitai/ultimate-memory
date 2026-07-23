@@ -1,0 +1,44 @@
+name: Contributor agreement
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  cla:
+    name: CLA
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Security invariant: pull_request_target evaluates only event metadata. It must
+      # never check out, import, or execute code from the untrusted pull-request ref.
+      - name: Verify contributor assent
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'PY'
+          import os
+
+          author = os.environ.get("PR_AUTHOR", "")
+          if author in {"dependabot[bot]", "github-actions[bot]"}:
+              raise SystemExit(0)
+
+          expected = (
+              "- [x] I have read and agree to the "
+              "[RememberStack Contributor License Agreement v1.0]"
+              "(https://github.com/writeitai/remember-stack/blob/main/CLA.md)."
+          )
+          lines = {
+              line.strip().casefold()
+              for line in os.environ.get("PR_BODY", "").splitlines()
+          }
+          if expected.casefold() not in lines:
+              print(
+                  "::error::Read CLA.md and check the exact contributor-agreement "
+                  "box in the pull-request body."
+              )
+              raise SystemExit(1)
+          PY

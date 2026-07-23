@@ -115,7 +115,7 @@ as usual):
 | Gate | Blocks | What must be decided |
 |---|---|---|
 | stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/remember-stack/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/remember-stack/pull/41); §3 maps every former slot to its exact repository evidence. |
-| public-release governance (`questions.md` §11a; D76) | first public tag, first outside PR | focused attorney clearance before release; bounded CLA before external contributions |
+| public-release governance (`questions.md` §11a; **decided 2026-07-23 → D77; activation pending**) | first public tag, first outside PR | Owner accepted the documented naming risk and selected the repository-native, self-hosting-bounded CLA plus narrow trademark policy; close the implementation gate by making the emitted `CLA` status required on `main`. |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |
