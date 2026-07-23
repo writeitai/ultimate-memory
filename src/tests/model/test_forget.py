@@ -7,11 +7,11 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ForgetManifestRecord
-from ultimate_memory.model import ForgetManifestStatus
-from ultimate_memory.model import ForgetRedactionRequiredError
-from ultimate_memory.model import ObjectKey
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ForgetManifestRecord
+from rememberstack.model import ForgetManifestStatus
+from rememberstack.model import ForgetRedactionRequiredError
+from rememberstack.model import ObjectKey
 
 _FORGET_ID = UUID("74000000-0000-0000-0000-000000000001")
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000002")

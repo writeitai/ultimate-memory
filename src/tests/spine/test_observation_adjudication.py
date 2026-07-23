@@ -15,16 +15,16 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.eval import run_contradiction_suite
-from ultimate_memory.eval import seed_contradiction_cases
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import ObservationAssertion
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import OBSERVATION_ADJUDICATOR_VERSION
-from ultimate_memory.spine import ObservationAdjudicator
-from ultimate_memory.spine import ObservationSettings
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.eval import run_contradiction_suite
+from rememberstack.eval import seed_contradiction_cases
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import ObservationAssertion
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import OBSERVATION_ADJUDICATOR_VERSION
+from rememberstack.spine import ObservationAdjudicator
+from rememberstack.spine import ObservationSettings
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("f0000000-0000-0000-0000-000000000001")
@@ -76,7 +76,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL D43 proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL D43 proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -414,7 +416,7 @@ def test_contradiction_eval_gate_records_and_blocks(database_engine: Engine) -> 
 def test_s9_headcount_as_of_mid_window(database_engine: Engine) -> None:
     """S9: after the 500 -> 600 supersession, an as-of read inside O1's
     window answers 500 (the capped time-slice)."""
-    from ultimate_memory.surfaces import QueryEngine
+    from rememberstack.surfaces import QueryEngine
 
     class _NullSearch:
         def search_claims(self, **_: object) -> tuple[str, ...]:

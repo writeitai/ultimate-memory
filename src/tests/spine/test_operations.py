@@ -17,30 +17,30 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import RecordingTaskQueue
-from ultimate_memory.adapters.testing import RecordingTelemetry
-from ultimate_memory.model import CostBudget
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EnqueueWork
-from ultimate_memory.model import LaneRouteError
-from ultimate_memory.model import NonRetryableHandlerError
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ProcessingTarget
-from ultimate_memory.model import RecordCall
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.model import WorkNotDeadLetterError
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import error_class_from_traceback
-from ultimate_memory.spine import OperationalCatalog
-from ultimate_memory.spine import OperationalSettings
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import DeadLetterReplayer
-from ultimate_memory.workers import HandlerOutcome
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import Worker
+from rememberstack.adapters.testing import RecordingTaskQueue
+from rememberstack.adapters.testing import RecordingTelemetry
+from rememberstack.model import CostBudget
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EnqueueWork
+from rememberstack.model import LaneRouteError
+from rememberstack.model import NonRetryableHandlerError
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ProcessingTarget
+from rememberstack.model import RecordCall
+from rememberstack.model import RunResultOutcome
+from rememberstack.model import WorkNotDeadLetterError
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import error_class_from_traceback
+from rememberstack.spine import OperationalCatalog
+from rememberstack.spine import OperationalSettings
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import DeadLetterReplayer
+from rememberstack.workers import HandlerOutcome
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
@@ -52,7 +52,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real operational proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real operational proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

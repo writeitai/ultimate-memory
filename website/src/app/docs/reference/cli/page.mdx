@@ -1,37 +1,42 @@
 export const metadata = {
   title: "CLI Reference",
   description:
-    "The client-first ugm command line: query, ingest, manage connectors, inspect operations and budgets, serve MCP, and drive the local review queue.",
+    "The client-first remember command line: query, ingest, manage connectors, inspect operations and budgets, serve MCP, and drive the local review queue.",
 };
 
 # CLI Reference
 
-The `ugm` command ships in the dependency-light base wheel. Query, ingest,
-connector management, and MCP all talk to the deployment API at `UGM_API_URL`
-(default `http://127.0.0.1:8000`). Set `UGM_API_AUTHORIZATION` to the complete
+The `remember` command ships in the dependency-light base wheel. Query, ingest,
+connector management, and MCP all talk to the deployment API at `REMEMBERSTACK_API_URL`
+(default `http://127.0.0.1:8000`). Set `REMEMBERSTACK_API_AUTHORIZATION` to the complete
 `Authorization` header value when the deployment has an auth perimeter. The
 CLI carries no provider adapters: connector execution and E0 processing stay
 in the deployment. One deployment is one trust domain.
 
-## `ugm query`
+```bash
+remember --version
+# RememberStack 0.1.0
+```
+
+## `remember query`
 
 Because query renders the same recipe surface the API and MCP do, all three
 are always in lockstep.
 
-### `ugm query list`
+### `remember query list`
 
 ```bash
-ugm query list
+remember query list
 ```
 
 Prints the deployment's recipe tool list — one JSON object per line, each with
 `name`, `description`, `input_schema`, `output_grain`, and `answer_intent`.
 This is exactly the API's `GET /recipes`.
 
-### `ugm query run`
+### `remember query run`
 
 ```bash
-ugm query run relation_current \
+remember query run relation_current \
   --arg subject_entity_id=<entity-uuid> \
   --arg predicate=works_for
 ```
@@ -41,10 +46,10 @@ JSON. Arguments are coerced by the recipe's declared types. An unknown recipe
 or a missing required argument prints the API's error to stderr and exits
 nonzero.
 
-## `ugm ingest`
+## `remember ingest`
 
 ```bash
-ugm ingest ./notes/project.md \
+remember ingest ./notes/project.md \
   --source-kind custom-feeder \
   --source-ref workspace/project \
   --source-version-ref revision-17 \
@@ -58,16 +63,16 @@ optional when it can be inferred from the filename. `--source-kind` and
 creates a new immutable version of the same document lineage; replaying the
 same bytes is a no-op. Omit the pair for a one-shot upload lineage.
 
-## `ugm connectors`
+## `remember connectors`
 
 ```bash
-ugm connectors add watched-directory \
+remember connectors add watched-directory \
   --name notes \
   --config path=/sources/notes \
   --credential-ref deployment-secret://notes
-ugm connectors list
-ugm connectors status <connector-uuid>
-ugm connectors pause <connector-uuid>
+remember connectors list
+remember connectors status <connector-uuid>
+remember connectors pause <connector-uuid>
 ```
 
 These commands configure connectors on a deployment that composes connector
@@ -77,19 +82,19 @@ credentials are not connector configuration. This package layer defines the
 typed client/API composition port; a deployment must supply its persistent
 connector manager.
 
-## `ugm mcp`
+## `remember mcp`
 
 Runs the base wheel's MCP stdio server. It discovers recipes from the remote
 deployment and proxies `tools/call` to the same HTTP recipe endpoint used by
-`ugm query`.
+`remember query`.
 
-## `ugm budget inspect`
+## `remember budget inspect`
 
 Budget inspection requires the `[server]` extra and connects directly to the
-deployment's PostgreSQL spine through `UGM_DATABASE_URL`:
+deployment's PostgreSQL spine through `REMEMBERSTACK_DATABASE_URL`:
 
 ```bash
-ugm budget inspect --deployment <deployment-uuid>
+remember budget inspect --deployment <deployment-uuid>
 ```
 
 Each output line is one configured route ceiling with its aligned window,
@@ -98,12 +103,12 @@ grouped by the recorded cascade tier. Both enforcement and inspection read the
 same `processing_state` and `cost_ledger` rows; the CLI is not a billing system
 or a second source of pipeline truth.
 
-Ceilings are optional typed configuration in `UGM_WORK_BUDGETS`. The value is a
+Ceilings are optional typed configuration in `REMEMBERSTACK_WORK_BUDGETS`. The value is a
 JSON list; each item explicitly names the deployment, stage, lane, window size,
 and USD ceiling:
 
 ```bash
-export UGM_WORK_BUDGETS='[{"deployment_id":"<deployment-uuid>","stage":"extract_claims","lane":"steady","window_seconds":86400,"ceiling_usd":"10.00"}]'
+export REMEMBERSTACK_WORK_BUDGETS='[{"deployment_id":"<deployment-uuid>","stage":"extract_claims","lane":"steady","window_seconds":86400,"ceiling_usd":"10.00"}]'
 ```
 
 Use `null` for an unlaned K/P route. A route absent from the list is unlimited.
@@ -111,28 +116,28 @@ When spend reaches its ceiling, due work is parked until the aligned window
 ends without consuming a handler attempt or becoming a failure; the same row
 then resumes normally.
 
-## `ugm ops`
+## `remember ops`
 
-Operational commands require the `[server]` extra and `UGM_DATABASE_URL`. They
+Operational commands require the `[server]` extra and `REMEMBERSTACK_DATABASE_URL`. They
 are direct, local admin tools over the durable PostgreSQL state — not a
 dashboard or hosted control plane.
 
-### `ugm ops inspect`
+### `remember ops inspect`
 
 ```bash
-ugm ops inspect --deployment <deployment-uuid>
+remember ops inspect --deployment <deployment-uuid>
 ```
 
 Prints one typed JSON report containing route/status counts, DLQ totals and
 groups, a poison-target summary, the current P2/P3 snapshot pointers, and a
 currency-ledger audit. Variable-size evidence is returned as a bounded sample;
-its complete total is reported separately. `UGM_OPERATIONAL_SAMPLE_LIMIT`
+its complete total is reported separately. `REMEMBERSTACK_OPERATIONAL_SAMPLE_LIMIT`
 sets the shared cap (default 20, maximum 1000).
 
-### `ugm ops replay`
+### `remember ops replay`
 
 ```bash
-ugm ops replay <processing-uuid> \
+remember ops replay <processing-uuid> \
   --deployment <deployment-uuid> \
   --attempts 1 \
   [--lane steady|backfill] \
@@ -146,10 +151,10 @@ optional lane must be valid for it, and the committed row is then announced
 through the normal delivery port. Replaying a non-DLQ row fails rather than
 silently duplicating work.
 
-### `ugm ops rebuild`
+### `remember ops rebuild`
 
 ```bash
-ugm ops rebuild \
+remember ops rebuild \
   --plane p2 \
   --deployment <deployment-uuid> \
   --snapshot-root ./snapshots \
@@ -163,16 +168,16 @@ through the same validation and pointer-swap path used normally. The command
 adds no separate recovery implementation. `--workdir` is consumed by P2 and
 accepted uniformly for P3.
 
-## `ugm review`
+## `remember review`
 
 The review commands require the `[server]` extra. They connect directly to the
-deployment's PostgreSQL spine via `UGM_DATABASE_URL` (a SQLAlchemy/psycopg
+deployment's PostgreSQL spine via `REMEMBERSTACK_DATABASE_URL` (a SQLAlchemy/psycopg
 URL); the deployment id is an explicit argument.
 
-## `ugm review list`
+## `remember review list`
 
 ```bash
-ugm review list --deployment <deployment-uuid>
+remember review list --deployment <deployment-uuid>
 ```
 
 Prints the deployment's open review items — one JSON object per line — ranked
@@ -186,10 +191,10 @@ item first. Items come from two sources:
   re-derived after a toolchain upgrade re-read the *unchanged* source; no
   mechanical verdict is derivable, so a reviewer decides.
 
-## `ugm review decide`
+## `remember review decide`
 
 ```bash
-ugm review decide <review-id> \
+remember review decide <review-id> \
   --deployment <deployment-uuid> \
   --verdict <verdict> \
   --reviewer <handle> \

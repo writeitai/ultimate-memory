@@ -1,7 +1,7 @@
-# ultimate-memory docs site
+# rememberstack docs site
 
-The public documentation for [ultimate-memory](https://github.com/writeitai/ultimate-memory),
-published at **[ultimate-memory.writeit.ai](https://ultimate-memory.writeit.ai)**.
+The public documentation for [rememberstack](https://github.com/writeitai/rememberstack),
+published at **[remember.dev](https://remember.dev)**.
 
 It is a self-contained static site: a Next.js App-Router app whose pages are authored
 as MDX, exported to static HTML, and served by GitHub Pages. The stack replicates the
@@ -98,12 +98,17 @@ The workflow publishes the artifact, but the Pages site and its custom domain mu
 provisioned once in the repository — the `public/CNAME` file does **not** configure the
 domain on its own for an Actions-based deployment:
 
-1. **Settings → Pages → Build and deployment → Source:** select **GitHub Actions**.
-2. **Settings → Pages → Custom domain:** enter `ultimate-memory.writeit.ai` and save (this is
+1. **Organization Settings → Pages:** verify `remember.dev` with GitHub's TXT record
+   and leave that record in DNS.
+2. **Repository Settings → Pages → Build and deployment → Source:** select
+   **GitHub Actions**.
+3. **Repository Settings → Pages → Custom domain:** enter `remember.dev` and save (this is
    what actually binds the domain; the committed `CNAME` file just records the intent).
-3. **DNS** (in the `writeit.ai` zone): add `ultimate-memory.writeit.ai CNAME writeitai.github.io.`
-4. Once DNS resolves, enable **Enforce HTTPS** in Settings → Pages.
+4. **DNS** (in the `remember.dev` zone): point the apex at GitHub Pages with the
+   GitHub-documented `A` records (or an `ALIAS`/`ANAME` to `writeitai.github.io`) and
+   point `www` to `writeitai.github.io` with a `CNAME`. Do not add a wildcard record.
+5. Once DNS resolves, enable **Enforce HTTPS** in Settings → Pages.
 
 Until the custom domain is bound, the site would be served under
-`https://writeitai.github.io/ultimate-memory/`, where the root-relative `/_next/` and
+`https://writeitai.github.io/rememberstack/`, where the root-relative `/_next/` and
 `/pagefind/` URLs do not resolve — so complete the steps above before sharing the link.

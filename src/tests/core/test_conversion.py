@@ -2,10 +2,10 @@
 
 import pytest
 
-from ultimate_memory.core import ConversionRouter
-from ultimate_memory.core import MarkdownPassthroughConverter
-from ultimate_memory.model import ConversionError
-from ultimate_memory.model import UnroutableMimeError
+from rememberstack.core import ConversionRouter
+from rememberstack.core import MarkdownPassthroughConverter
+from rememberstack.model import ConversionError
+from rememberstack.model import UnroutableMimeError
 
 
 def test_router_returns_the_configured_route() -> None:

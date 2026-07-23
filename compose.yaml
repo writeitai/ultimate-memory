@@ -1,33 +1,33 @@
-name: ultimate-memory
+name: rememberstack
 
 x-app: &app
   build:
     context: .
     dockerfile: Dockerfile
-  image: ultimate-memory:local
+  image: rememberstack:local
   environment:
-    UGM_DATABASE_URL: postgresql+psycopg://${UGM_POSTGRES_USER}:${UGM_POSTGRES_PASSWORD}@postgres:5432/${UGM_POSTGRES_DB}
-    UGM_MINIO_ENDPOINT_URL: http://minio:9000
-    UGM_MINIO_ACCESS_KEY: ${UGM_MINIO_ACCESS_KEY}
-    UGM_MINIO_SECRET_KEY: ${UGM_MINIO_SECRET_KEY}
-    UGM_OPENROUTER_API_KEY: ${UGM_OPENROUTER_API_KEY}
-    UGM_SELFHOST_DEPLOYMENT_ID: ${UGM_SELFHOST_DEPLOYMENT_ID}
-    UGM_SELFHOST_DEPLOYMENT_SLUG: ${UGM_SELFHOST_DEPLOYMENT_SLUG}
-    UGM_SELFHOST_DEPLOYMENT_NAME: ${UGM_SELFHOST_DEPLOYMENT_NAME}
-    UGM_SELFHOST_API_PORT: "8000"
+    REMEMBERSTACK_DATABASE_URL: postgresql+psycopg://${REMEMBERSTACK_POSTGRES_USER}:${REMEMBERSTACK_POSTGRES_PASSWORD}@postgres:5432/${REMEMBERSTACK_POSTGRES_DB}
+    REMEMBERSTACK_MINIO_ENDPOINT_URL: http://minio:9000
+    REMEMBERSTACK_MINIO_ACCESS_KEY: ${REMEMBERSTACK_MINIO_ACCESS_KEY}
+    REMEMBERSTACK_MINIO_SECRET_KEY: ${REMEMBERSTACK_MINIO_SECRET_KEY}
+    REMEMBERSTACK_OPENROUTER_API_KEY: ${REMEMBERSTACK_OPENROUTER_API_KEY}
+    REMEMBERSTACK_SELFHOST_DEPLOYMENT_ID: ${REMEMBERSTACK_SELFHOST_DEPLOYMENT_ID}
+    REMEMBERSTACK_SELFHOST_DEPLOYMENT_SLUG: ${REMEMBERSTACK_SELFHOST_DEPLOYMENT_SLUG}
+    REMEMBERSTACK_SELFHOST_DEPLOYMENT_NAME: ${REMEMBERSTACK_SELFHOST_DEPLOYMENT_NAME}
+    REMEMBERSTACK_SELFHOST_API_PORT: "8000"
   volumes:
-    - app-state:/var/lib/ultimate-memory
-    - forget-manifests:/var/lib/ultimate-memory/forget-manifests
+    - app-state:/var/lib/rememberstack
+    - forget-manifests:/var/lib/rememberstack/forget-manifests
 
 services:
   postgres:
     image: ghcr.io/dbsystel/postgresql-partman@sha256:bf9d2331aaeb3e33a4e6e73b4c024ca618d4d1ea050bbab978125ff63b83385a
     environment:
-      POSTGRES_USER: ${UGM_POSTGRES_USER}
-      POSTGRES_PASSWORD: ${UGM_POSTGRES_PASSWORD}
-      POSTGRES_DB: ${UGM_POSTGRES_DB}
+      POSTGRES_USER: ${REMEMBERSTACK_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${REMEMBERSTACK_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${REMEMBERSTACK_POSTGRES_DB}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${UGM_POSTGRES_USER} -d ${UGM_POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${REMEMBERSTACK_POSTGRES_USER} -d ${REMEMBERSTACK_POSTGRES_DB}"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -38,8 +38,8 @@ services:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data --console-address :9001
     environment:
-      MINIO_ROOT_USER: ${UGM_MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${UGM_MINIO_SECRET_KEY}
+      MINIO_ROOT_USER: ${REMEMBERSTACK_MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${REMEMBERSTACK_MINIO_SECRET_KEY}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 2s
@@ -75,7 +75,7 @@ services:
       timeout: 5s
       retries: 30
     ports:
-      - "${UGM_SELFHOST_API_PORT}:8000"
+      - "${REMEMBERSTACK_SELFHOST_API_PORT}:8000"
 
   worker-convert:
     <<: *app

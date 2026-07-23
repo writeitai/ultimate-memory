@@ -9,31 +9,31 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.adapters.selfhost import LanceChunkIndex
-from ultimate_memory.adapters.selfhost import LocalFSForgetManifestStore
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.selfhost import LocalGitRepository
-from ultimate_memory.adapters.selfhost import ObjectAlreadyExistsError
-from ultimate_memory.adapters.selfhost import SelfHostProjectionPurger
-from ultimate_memory.model import Envelope
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import Freshness
-from ultimate_memory.model import Grain
-from ultimate_memory.model import Negative
-from ultimate_memory.model import NegativeKind
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.model import P1ChunkRow
-from ultimate_memory.model import P1ClaimRow
-from ultimate_memory.model import P1EntityRow
-from ultimate_memory.model import P1FactRow
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import ProjectionCatalog
-from ultimate_memory.workers import DeletionService
-from ultimate_memory.workers import ForgetKnowledgeRebuilder
-from ultimate_memory.workers import ForgetProjectionRebuilder
-from ultimate_memory.workers import HardForgetHandler
-from ultimate_memory.workers import HardForgetReadiness
-from ultimate_memory.workers import HardForgetService
+from rememberstack.adapters.selfhost import LanceChunkIndex
+from rememberstack.adapters.selfhost import LocalFSForgetManifestStore
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.selfhost import LocalGitRepository
+from rememberstack.adapters.selfhost import ObjectAlreadyExistsError
+from rememberstack.adapters.selfhost import SelfHostProjectionPurger
+from rememberstack.model import Envelope
+from rememberstack.model import ForgetManifest
+from rememberstack.model import Freshness
+from rememberstack.model import Grain
+from rememberstack.model import Negative
+from rememberstack.model import NegativeKind
+from rememberstack.model import ObjectKey
+from rememberstack.model import P1ChunkRow
+from rememberstack.model import P1ClaimRow
+from rememberstack.model import P1EntityRow
+from rememberstack.model import P1FactRow
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import ProjectionCatalog
+from rememberstack.workers import DeletionService
+from rememberstack.workers import ForgetKnowledgeRebuilder
+from rememberstack.workers import ForgetProjectionRebuilder
+from rememberstack.workers import HardForgetHandler
+from rememberstack.workers import HardForgetReadiness
+from rememberstack.workers import HardForgetService
 
 _DEPLOYMENT_ID = UUID("55500000-0000-0000-0000-000000000001")
 _DOC_ID = UUID("55500000-0000-0000-0000-000000000002")
@@ -282,8 +282,8 @@ def test_real_selfhost_stores_rehonor_independent_restores(tmp_path: Path) -> No
     git = LocalGitRepository(
         repository=repository,
         path_catalog=_Paths(),
-        author_name="Ultimate Memory",
-        author_email="ugm@example.test",
+        author_name="RememberStack",
+        author_email="rememberstack@example.test",
     )
     catalog = _Catalog()
     handler = HardForgetHandler(
@@ -364,10 +364,10 @@ def test_real_selfhost_stores_rehonor_independent_restores(tmp_path: Path) -> No
             "--quiet",
             "--force",
             str(backup),
-            "refs/heads/main:refs/ugm/restore",
+            "refs/heads/main:refs/rememberstack/restore",
         )
-        _git("-C", str(repository), "reset", "--hard", "refs/ugm/restore")
-        _git("-C", str(repository), "update-ref", "-d", "refs/ugm/restore")
+        _git("-C", str(repository), "reset", "--hard", "refs/rememberstack/restore")
+        _git("-C", str(repository), "update-ref", "-d", "refs/rememberstack/restore")
 
     restorers = (restore_objects, restore_p1, restore_projections, restore_git)
     for restore in restorers:

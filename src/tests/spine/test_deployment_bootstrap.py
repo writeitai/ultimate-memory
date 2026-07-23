@@ -18,12 +18,12 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from ultimate_memory.core import CORE_MANIFEST
-from ultimate_memory.model import CoreManifestConflictError
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import DeploymentConflictError
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.core import CORE_MANIFEST
+from rememberstack.model import CoreManifestConflictError
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import DeploymentConflictError
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("20000000-0000-0000-0000-000000000001")
@@ -35,7 +35,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL bootstrap proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL bootstrap proofs"
+        )
 
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
@@ -378,7 +380,7 @@ def test_mid_transaction_postgresql_failure_rolls_back_then_retry_succeeds(
         connection.execute(
             statement=text(
                 """
-                CREATE FUNCTION ugm_test_fail_core_predicate_insert()
+                CREATE FUNCTION rememberstack_test_fail_core_predicate_insert()
                 RETURNS trigger
                 LANGUAGE plpgsql
                 AS $$
@@ -392,10 +394,10 @@ def test_mid_transaction_postgresql_failure_rolls_back_then_retry_succeeds(
         connection.execute(
             statement=text(
                 """
-                CREATE TRIGGER tr_ugm_test_fail_core_predicate_insert
+                CREATE TRIGGER tr_rememberstack_test_fail_core_predicate_insert
                 BEFORE INSERT ON predicates
                 FOR EACH ROW
-                EXECUTE FUNCTION ugm_test_fail_core_predicate_insert()
+                EXECUTE FUNCTION rememberstack_test_fail_core_predicate_insert()
                 """
             )
         )
@@ -410,11 +412,13 @@ def test_mid_transaction_postgresql_failure_rolls_back_then_retry_succeeds(
         with database_engine.begin() as connection:
             connection.execute(
                 statement=text(
-                    "DROP TRIGGER tr_ugm_test_fail_core_predicate_insert ON predicates"
+                    "DROP TRIGGER tr_rememberstack_test_fail_core_predicate_insert ON predicates"
                 )
             )
             connection.execute(
-                statement=text("DROP FUNCTION ugm_test_fail_core_predicate_insert()")
+                statement=text(
+                    "DROP FUNCTION rememberstack_test_fail_core_predicate_insert()"
+                )
             )
 
     result = bootstrapper.bootstrap_deployment(deployment_input=_deployment_input())

@@ -7,12 +7,12 @@ from pydantic import SecretBytes
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.model import EmbeddingResponse
-from ultimate_memory.model import GeneratedResponse
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.model import PerimeterCredential
-from ultimate_memory.model import ProviderCallUsage
-from ultimate_memory.model import PublishedMounts
+from rememberstack.model import EmbeddingResponse
+from rememberstack.model import GeneratedResponse
+from rememberstack.model import ObjectKey
+from rememberstack.model import PerimeterCredential
+from rememberstack.model import ProviderCallUsage
+from rememberstack.model import PublishedMounts
 
 
 class _Output(BaseModel):

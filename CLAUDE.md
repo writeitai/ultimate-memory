@@ -1,8 +1,8 @@
 # CLAUDE.md — working agreement for this repo
 
-`ugm` (Ultimate General Memory) is a layered, scale-oriented memory system. It is in the
-**design phase**: the repository is currently documents, not code. The planning hierarchy lives
-in `plan/` and is described in `README.md` — read it first:
+RememberStack is open memory infrastructure for AI agents. Its implementation and binding design
+corpus live together in this repository. The planning hierarchy is described in `README.md` —
+read it first:
 
 - `plan/requirements/` — *what* the system must do (highest abstraction, mostly bullets)
 - `plan/designs/` — *how* it works (binding architecture)
@@ -69,7 +69,7 @@ silently. When writing any design or decision:
 ## The docs site ships with the code (D66)
 
 `website/` is the public documentation site (Next.js + MDX, statically exported to
-GitHub Pages at `ultimate-memory.writeit.ai`). Two standing obligations when implementing:
+GitHub Pages at `remember.dev`). Two standing obligations when implementing:
 
 - **Same-PR docs.** Any PR that changes user-facing behavior — CLI commands, API/MCP
   surface, configuration, mounts, connectors, deployment, the consumption skill — updates

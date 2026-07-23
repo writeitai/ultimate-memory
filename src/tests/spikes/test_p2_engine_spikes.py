@@ -1,7 +1,7 @@
 """WP-4.1: the D44 spike battery against the DEPLOYED LadybugDB engine.
 
 Question #20a's six spikes, executable. Each runs CI-sized for correctness;
-the perf-shaped ones scale with ``UGM_SPIKE_SCALE`` (rows) for the recorded
+the perf-shaped ones scale with ``REMEMBERSTACK_SPIKE_SCALE`` (rows) for the recorded
 local measurements in `plan/analysis/p2_spike_battery.md`. The battery
 doubles as a capability canary: every verdict is asserted in a way that
 FLIPS if a future engine version changes the behavior (the enum-only
@@ -32,9 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine import make_url
 
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("f2000000-0000-0000-0000-000000000001")
@@ -43,7 +43,7 @@ _DEPLOYMENT_ID = UUID("f2000000-0000-0000-0000-000000000001")
 class _SpikeSettings(BaseSettings):
     """The battery's scale knob (rows); bump locally for the recorded run."""
 
-    model_config = SettingsConfigDict(env_prefix="UGM_SPIKE_")
+    model_config = SettingsConfigDict(env_prefix="REMEMBERSTACK_SPIKE_")
 
     scale: int = Field(default=2000, ge=100)
 
@@ -73,7 +73,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL spike runs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL spike runs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -274,7 +276,7 @@ def test_spike_d2_hop_bound_cap(graph_connection: ladybug.Connection) -> None:
 
 def test_spike_d3_frontier_predicate_cost(graph_connection: ladybug.Connection) -> None:
     """(d) per-edge evaluator cost under a REAL frontier: a hub with
-    UGM_SPIKE_SCALE outgoing edges, every edge's predicate evaluated in one
+    REMEMBERSTACK_SPIKE_SCALE outgoing edges, every edge's predicate evaluated in one
     2-hop as-of expansion. Half the edges fail the filter, so the count
     also re-checks discrimination at scale. Timed for the report."""
     conn = graph_connection
@@ -323,7 +325,7 @@ def test_spike_b_attach_capability_reproduction(seeded_deployment: Engine) -> No
     """
     parsed = make_url(load_database_settings().sqlalchemy_url())
     admin = create_engine(parsed.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    scratch = "ugm_spike_attach"
+    scratch = "rememberstack_spike_attach"
     with admin.connect() as connection:
         connection.execute(text(f"DROP DATABASE IF EXISTS {scratch} WITH (FORCE)"))
         connection.execute(text(f"CREATE DATABASE {scratch}"))

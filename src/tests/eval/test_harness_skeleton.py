@@ -15,11 +15,11 @@ from sqlalchemy import JSON
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.eval import EvalHarness
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EvalSuite
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.eval import EvalHarness
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EvalSuite
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("50000000-0000-0000-0000-000000000001")
@@ -32,7 +32,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL harness proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL harness proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

@@ -15,18 +15,18 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from ultimate_memory.client import ConnectorCreate
-from ultimate_memory.client import ConnectorDescriptor
-from ultimate_memory.client import ConnectorNotFoundError
-from ultimate_memory.client import MemoryApiError
-from ultimate_memory.client import MemoryClient
-from ultimate_memory.model import DocumentUpload
-from ultimate_memory.model import IngestedVersion
-from ultimate_memory.surfaces import build_api
-from ultimate_memory.surfaces import cli_main
-from ultimate_memory.surfaces import QueryEngine
-from ultimate_memory.surfaces.remote_mcp import RemoteRecipeMcpServer
-from ultimate_memory.surfaces.remote_mcp import serve_mcp_stdio
+from rememberstack.client import ConnectorCreate
+from rememberstack.client import ConnectorDescriptor
+from rememberstack.client import ConnectorNotFoundError
+from rememberstack.client import MemoryApiError
+from rememberstack.client import MemoryClient
+from rememberstack.model import DocumentUpload
+from rememberstack.model import IngestedVersion
+from rememberstack.surfaces import build_api
+from rememberstack.surfaces import cli_main
+from rememberstack.surfaces import QueryEngine
+from rememberstack.surfaces.remote_mcp import RemoteRecipeMcpServer
+from rememberstack.surfaces.remote_mcp import serve_mcp_stdio
 
 _DEPLOYMENT_ID = UUID("57000000-0000-0000-0000-000000000001")
 

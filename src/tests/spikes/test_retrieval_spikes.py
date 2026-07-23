@@ -1,7 +1,7 @@
 """WP-5.6: executable retrieval measurements from retrieval design §13.
 
-CI runs capability-sized data. ``UGM_RETRIEVAL_SPIKE_LANCE_ROWS`` and
-``UGM_RETRIEVAL_SPIKE_HUB_EDGES`` scale the same battery for the recorded
+CI runs capability-sized data. ``REMEMBERSTACK_RETRIEVAL_SPIKE_LANCE_ROWS`` and
+``REMEMBERSTACK_RETRIEVAL_SPIKE_HUB_EDGES`` scale the same battery for the recorded
 10^7-row / 10^5-edge local run. Timings are observations, never CI gates;
 correct filtering, lossless continuation, selected constants, and the single
 complete ``eval_runs`` record are the gates.
@@ -36,36 +36,36 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost.lance import LANCE_NPROBES
-from ultimate_memory.adapters.selfhost.lance import LANCE_TARGET_PARTITION_ROWS
-from ultimate_memory.adapters.selfhost.lance import LanceChunkIndex
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.core import DEFAULT_EVIDENCE_COUNT_WEIGHT
-from ultimate_memory.core import DEFAULT_GRAPH_DISTANCE_WEIGHT
-from ultimate_memory.core import DEFAULT_RRF_K
-from ultimate_memory.core import reciprocal_rank_fusion
-from ultimate_memory.core import rerank_by_weighted_signals
-from ultimate_memory.eval import record_retrieval_spike_report
-from ultimate_memory.eval import RETRIEVAL_SPIKE_VERSION
-from ultimate_memory.model import CoMember
-from ultimate_memory.model import Contradiction
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import Envelope
-from ultimate_memory.model import FactResult
-from ultimate_memory.model import Freshness
-from ultimate_memory.model import Grain
-from ultimate_memory.model import RankedItem
-from ultimate_memory.model import RetrievalSpikeMeasurement
-from ultimate_memory.model import RetrievalSpikeReport
-from ultimate_memory.model import Validity
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import GraphQueries
-from ultimate_memory.surfaces import QueryEngine
-from ultimate_memory.surfaces.graph_queries import DEFAULT_NEIGHBORHOOD_CAP
-from ultimate_memory.surfaces.query_engine import CONTRADICTION_COMEMBER_CAP
-from ultimate_memory.surfaces.query_engine import INTERACTIVE_HYDRATION_BATCH_SIZE
-from ultimate_memory.surfaces.query_engine import RESOLVE_CONTEXT_LIMIT
+from rememberstack.adapters.selfhost.lance import LANCE_NPROBES
+from rememberstack.adapters.selfhost.lance import LANCE_TARGET_PARTITION_ROWS
+from rememberstack.adapters.selfhost.lance import LanceChunkIndex
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.core import DEFAULT_EVIDENCE_COUNT_WEIGHT
+from rememberstack.core import DEFAULT_GRAPH_DISTANCE_WEIGHT
+from rememberstack.core import DEFAULT_RRF_K
+from rememberstack.core import reciprocal_rank_fusion
+from rememberstack.core import rerank_by_weighted_signals
+from rememberstack.eval import record_retrieval_spike_report
+from rememberstack.eval import RETRIEVAL_SPIKE_VERSION
+from rememberstack.model import CoMember
+from rememberstack.model import Contradiction
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import Envelope
+from rememberstack.model import FactResult
+from rememberstack.model import Freshness
+from rememberstack.model import Grain
+from rememberstack.model import RankedItem
+from rememberstack.model import RetrievalSpikeMeasurement
+from rememberstack.model import RetrievalSpikeReport
+from rememberstack.model import Validity
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import GraphQueries
+from rememberstack.surfaces import QueryEngine
+from rememberstack.surfaces.graph_queries import DEFAULT_NEIGHBORHOOD_CAP
+from rememberstack.surfaces.query_engine import CONTRADICTION_COMEMBER_CAP
+from rememberstack.surfaces.query_engine import INTERACTIVE_HYDRATION_BATCH_SIZE
+from rememberstack.surfaces.query_engine import RESOLVE_CONTEXT_LIMIT
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("56000000-0000-0000-0000-000000000001")
@@ -80,7 +80,7 @@ _HYDRATION_SAMPLES = 40
 class _SpikeSettings(BaseSettings):
     """Scale knobs: small in CI, binding sizes in the recorded local run."""
 
-    model_config = SettingsConfigDict(env_prefix="UGM_RETRIEVAL_SPIKE_")
+    model_config = SettingsConfigDict(env_prefix="REMEMBERSTACK_RETRIEVAL_SPIKE_")
 
     lance_rows: int = Field(default=20_000, ge=1_000)
     hub_edges: int = Field(default=2_000, ge=1_001)
@@ -122,7 +122,7 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for retrieval spike runs")
+        pytest.skip("REMEMBERSTACK_DATABASE_URL is required for retrieval spike runs")
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

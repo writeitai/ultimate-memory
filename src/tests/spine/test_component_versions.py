@@ -19,15 +19,15 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import SQLAlchemyError
 
-from ultimate_memory.model import ComponentVersionConflictError
-from ultimate_memory.model import ComponentVersionError
-from ultimate_memory.model import ComponentVersionNotFoundError
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import PipelineComponent
-from ultimate_memory.model import RegisterComponentVersionInput
-from ultimate_memory.spine import ComponentVersionRegistrar
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.model import ComponentVersionConflictError
+from rememberstack.model import ComponentVersionError
+from rememberstack.model import ComponentVersionNotFoundError
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import PipelineComponent
+from rememberstack.model import RegisterComponentVersionInput
+from rememberstack.spine import ComponentVersionRegistrar
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("30000000-0000-0000-0000-000000000001")
@@ -41,7 +41,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL catalog proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL catalog proofs"
+        )
 
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
@@ -317,7 +319,7 @@ def test_real_post_insert_failure_rolls_back_then_same_input_succeeds(
         connection.execute(
             statement=text(
                 """
-                CREATE FUNCTION ugm_test_fail_component_version_insert()
+                CREATE FUNCTION rememberstack_test_fail_component_version_insert()
                 RETURNS trigger
                 LANGUAGE plpgsql
                 AS $$
@@ -331,10 +333,10 @@ def test_real_post_insert_failure_rolls_back_then_same_input_succeeds(
         connection.execute(
             statement=text(
                 """
-                CREATE TRIGGER tr_ugm_test_fail_component_version_insert
+                CREATE TRIGGER tr_rememberstack_test_fail_component_version_insert
                 AFTER INSERT ON pipeline_component_versions
                 FOR EACH ROW
-                EXECUTE FUNCTION ugm_test_fail_component_version_insert()
+                EXECUTE FUNCTION rememberstack_test_fail_component_version_insert()
                 """
             )
         )
@@ -350,12 +352,14 @@ def test_real_post_insert_failure_rolls_back_then_same_input_succeeds(
         with database_engine.begin() as connection:
             connection.execute(
                 statement=text(
-                    "DROP TRIGGER tr_ugm_test_fail_component_version_insert "
+                    "DROP TRIGGER tr_rememberstack_test_fail_component_version_insert "
                     "ON pipeline_component_versions"
                 )
             )
             connection.execute(
-                statement=text("DROP FUNCTION ugm_test_fail_component_version_insert()")
+                statement=text(
+                    "DROP FUNCTION rememberstack_test_fail_component_version_insert()"
+                )
             )
 
     result = registrar.register_component_version(

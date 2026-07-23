@@ -7,11 +7,11 @@ from uuid import UUID
 import pytest
 import sqlalchemy
 
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import settings as settings_module
-from ultimate_memory.surfaces import cli_main
-from ultimate_memory.workers import CorpusFsBuilder
-from ultimate_memory.workers import GraphRebuildWorker
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import settings as settings_module
+from rememberstack.surfaces import cli_main
+from rememberstack.workers import CorpusFsBuilder
+from rememberstack.workers import GraphRebuildWorker
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 

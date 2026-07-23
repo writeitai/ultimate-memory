@@ -14,8 +14,8 @@ COPY pyproject.toml uv.lock README.md LICENSE alembic.ini ./
 
 RUN addgroup --system app \
     && adduser --system --ingroup app app \
-    && mkdir -p /var/lib/ultimate-memory/forget-manifests \
-    && chown -R app:app /var/lib/ultimate-memory \
+    && mkdir -p /var/lib/rememberstack/forget-manifests \
+    && chown -R app:app /var/lib/rememberstack \
     && uv sync --locked --no-dev --extra server --no-install-project
 
 COPY src ./src
@@ -24,5 +24,5 @@ RUN uv sync --locked --no-dev --extra server
 
 USER app
 
-ENTRYPOINT ["python", "-m", "ultimate_memory.profiles.selfhost"]
+ENTRYPOINT ["python", "-m", "rememberstack.profiles.selfhost"]
 CMD ["api"]

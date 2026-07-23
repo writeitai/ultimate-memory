@@ -13,7 +13,7 @@ export default function Home() {
       </h1>
 
       <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-        <span className="font-semibold text-foreground">Ultimate Memory</span>{" "}
+        <span className="font-semibold text-foreground">RememberStack</span>{" "}
         ingests heterogeneous documents — files, mail, recordings, images — and
         distills them into progressively more abstract, navigable knowledge:
         immutable evidence, adjudicated facts, and compiled understanding. Every
@@ -30,7 +30,7 @@ export default function Home() {
           <ArrowRight className="h-4 w-4" />
         </Link>
         <a
-          href="https://github.com/writeitai/ultimate-memory"
+          href="https://github.com/writeitai/rememberstack"
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 rounded-md border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"

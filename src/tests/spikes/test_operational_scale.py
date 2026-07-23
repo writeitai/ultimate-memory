@@ -1,7 +1,7 @@
 """WP-7.2: reproducible provider-neutral scale and batching measurements.
 
 CI uses a capability-sized fixed profile. The same ungated synthetic shape
-scales through ``UGM_OPERATIONAL_SCALE_*`` settings. Timings are recorded
+scales through ``REMEMBERSTACK_OPERATIONAL_SCALE_*`` settings. Timings are recorded
 observations only; structural correctness and bounded I/O counts are gates.
 """
 
@@ -26,25 +26,25 @@ from sqlalchemy import event
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.eval import OPERATIONAL_SCALE_VERSION
-from ultimate_memory.eval import record_operational_scale_report
-from ultimate_memory.model import CurrencyTransition
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import ObservationAssertion
-from ultimate_memory.model import OperationalScaleMeasurement
-from ultimate_memory.model import OperationalScaleReport
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine.catalog_contract import CatalogInventory
-from ultimate_memory.spine.catalog_contract import EXPECTED_HASH_PARENTS
-from ultimate_memory.spine.catalog_contract import EXPECTED_RANGE_PARENTS
-from ultimate_memory.spine.catalog_contract import verify_schema
-from ultimate_memory.spine.lifecycle import LifecycleCatalog
-from ultimate_memory.spine.observation_adjudication import ObservationAdjudicator
-from ultimate_memory.spine.observation_adjudication import ObservationSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import QueryEngine
-from ultimate_memory.surfaces.query_engine import INTERACTIVE_HYDRATION_BATCH_SIZE
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.eval import OPERATIONAL_SCALE_VERSION
+from rememberstack.eval import record_operational_scale_report
+from rememberstack.model import CurrencyTransition
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import ObservationAssertion
+from rememberstack.model import OperationalScaleMeasurement
+from rememberstack.model import OperationalScaleReport
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine.catalog_contract import CatalogInventory
+from rememberstack.spine.catalog_contract import EXPECTED_HASH_PARENTS
+from rememberstack.spine.catalog_contract import EXPECTED_RANGE_PARENTS
+from rememberstack.spine.catalog_contract import verify_schema
+from rememberstack.spine.lifecycle import LifecycleCatalog
+from rememberstack.spine.observation_adjudication import ObservationAdjudicator
+from rememberstack.spine.observation_adjudication import ObservationSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import QueryEngine
+from rememberstack.surfaces.query_engine import INTERACTIVE_HYDRATION_BATCH_SIZE
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("72000000-0000-0000-0000-000000000001")
@@ -59,7 +59,7 @@ ResultT = TypeVar("ResultT")
 class _ScaleSettings(BaseSettings):
     """Portable fixed-profile sizes; larger local runs use the same test."""
 
-    model_config = SettingsConfigDict(env_prefix="UGM_OPERATIONAL_SCALE_")
+    model_config = SettingsConfigDict(env_prefix="REMEMBERSTACK_OPERATIONAL_SCALE_")
 
     profile: str = "ci"
     hub_aliases: int = Field(default=2_000, ge=100)
@@ -124,7 +124,7 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for operational scale runs")
+        pytest.skip("REMEMBERSTACK_DATABASE_URL is required for operational scale runs")
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

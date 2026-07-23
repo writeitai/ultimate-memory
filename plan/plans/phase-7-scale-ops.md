@@ -45,7 +45,7 @@ transaction copies the latest immutable target input into the existing D12 enque
 table, scheduler, or second pipeline exists.
 
 Initial corpus loads use that same pipeline by selecting `backfill` at the upload boundary or via
-the typed `UGM_SYNC_LANE` setting. Steady work keeps its distinct claim route and still promotes
+the typed `REMEMBERSTACK_SYNC_LANE` setting. Steady work keeps its distinct claim route and still promotes
 a pending/failed duplicate under the D67 rule. After seeding has completed and all deployment
 backfill rows are terminal, `BackfillFinalizer` invokes the portable P1 maintenance port; it
 refuses the explicit Lance index build while any backfill row remains unresolved.
@@ -57,7 +57,7 @@ The `operational` eval suite records one complete four-part fixed-profile report
 HASH-64 D23 parents, unpartitioned registry blocking targets and their GIN/Daitch-Mokotoff/btree
 indexes (including measured index sizes), a 2,000-alias entity hub, and a lineage fanning out to
 1,000 relations plus 1,000 observations. The same ungated shape scales through typed
-`UGM_OPERATIONAL_SCALE_*` settings; no corpus forecast or hosted target is embedded in the
+`REMEMBERSTACK_OPERATIONAL_SCALE_*` settings; no corpus forecast or hosted target is embedded in the
 library.
 
 Lifecycle currency application and relation/observation recount are set-based: each remains one
@@ -76,7 +76,7 @@ time is recorded as a machine-specific measurement, never an OSS SLA or topology
 
 ## WP-7.3 implementation
 
-Operators declare no implicit monetary policy. An optional typed `UGM_WORK_BUDGETS` list supplies
+Operators declare no implicit monetary policy. An optional typed `REMEMBERSTACK_WORK_BUDGETS` list supplies
 explicit ceilings keyed by deployment, stage, lane, and aligned fixed window; an omitted route is
 unlimited. After locking one due row, the existing claim transaction sums the deduplicated
 `cost_ledger` range for that route. Exhaustion moves the row to durable `pending` / `budget` state
@@ -84,7 +84,7 @@ until the window boundary without starting a handler, consuming an attempt, chan
 error, or creating a second scheduling ledger. The worker re-announces that existing row through
 the delivery port with the stored resume time.
 
-`WorkLedger.budget_status` and `ugm budget inspect` read the same two authoritative Postgres
+`WorkLedger.budget_status` and `remember budget inspect` read the same two authoritative Postgres
 tables. They expose configured ceiling, current-window spend, remaining amount, tier attribution,
 aligned bounds, and parked-work count; they do not add a dashboard, hosted billing policy, cache,
 or control plane. The PostgreSQL acceptance fixture records two attributed calls, proves an
@@ -103,7 +103,7 @@ the same production attribution path without network calls.
 `OperationalCatalog.inspect` reads one repeatable PostgreSQL snapshot and emits a typed,
 deployment-scoped report. Route/status counts and the two latest projection pointers are bounded by
 their closed vocabularies. Every variable diagnostic reports its complete total plus a sample capped
-by the one typed `UGM_OPERATIONAL_SAMPLE_LIMIT` setting: DLQ rows, DLQ stage/error/version groups,
+by the one typed `REMEMBERSTACK_OPERATIONAL_SAMPLE_LIMIT` setting: DLQ rows, DLQ stage/error/version groups,
 poison targets, the component versions observed for each sampled poison target, and currency-ledger
 mismatches. Error class is derived once from the last non-empty traceback line; complete tracebacks
 and payloads remain available on sampled rows.
@@ -117,7 +117,7 @@ ordinary queue port after commit; there is no bulk replay controller or second w
 The existing worker exception boundary emits one provider-neutral `worker.run` event after each
 committed success, failure, or budget park and emits nothing for `NO_WORK`. Exception export receives
 the original exception object and exporter failures propagate. Self-hosting can write one JSON line
-per event with the full exception cause chain; tests use an in-memory recorder. `ugm ops inspect`,
+per event with the full exception cause chain; tests use an in-memory recorder. `remember ops inspect`,
 `replay`, and `rebuild` are thin local admin commands. Rebuild selects the existing production
 `GraphRebuildWorker` or `CorpusFsBuilder`, so the drill cannot diverge into a recovery-only path.
 

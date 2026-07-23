@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ultimate-memory"
+name = "rememberstack"
 version = "0.1.0"
-description = "A layered, scale-oriented memory system for AI agents."
+description = "Open memory infrastructure for AI agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -60,12 +60,13 @@ connectors-watched-directory = []
 k = []
 
 [project.scripts]
-ugm = "ultimate_memory.surfaces.cli:main"
+remember = "rememberstack.surfaces.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/writeitai/ultimate-memory"
-Repository = "https://github.com/writeitai/ultimate-memory"
-Issues = "https://github.com/writeitai/ultimate-memory/issues"
+Homepage = "https://remember.dev"
+Documentation = "https://remember.dev/docs"
+Repository = "https://github.com/writeitai/rememberstack"
+Issues = "https://github.com/writeitai/rememberstack/issues"
 
 [dependency-groups]
 dev = [
@@ -89,7 +90,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ultimate_memory"]
+packages = ["src/rememberstack"]
 
 # Ruff config copied from the writeitai house style (team-harness / loopy-loop).
 [tool.ruff]
@@ -115,7 +116,7 @@ extend-select = ["I", "B", "A", "ERA", "TID251"]
 case-sensitive = false
 force-single-line = true
 force-sort-within-sections = true
-known-first-party = ["ultimate_memory"]
+known-first-party = ["rememberstack"]
 order-by-type = false
 relative-imports-order = "closest-to-furthest"
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
@@ -136,7 +137,7 @@ extraPaths = ["src"]
 exclude = ["**/.venv", "**/virtualenvs", "tmp/"]
 
 # Test code has different ergonomics (poking internals, monkeypatching) — relaxed
-# per-directory, so src/ultimate_memory stays at full standard.
+# per-directory, so src/rememberstack stays at full standard.
 [[tool.pyright.executionEnvironments]]
 root = "src/tests"
 reportPrivateUsage = false
@@ -148,7 +149,7 @@ pythonpath = ["src"]
 testpaths = ["src/tests"]
 
 [tool.coverage.run]
-source = ["src/ultimate_memory"]
+source = ["src/rememberstack"]
 branch = true
 relative_files = true # required by the coverage-comment action
 

@@ -6,10 +6,10 @@ from uuid import uuid4
 
 import pytest
 
-from ultimate_memory.adapters import CodexCLIWriterAdapter
-from ultimate_memory.adapters import CodexWriterAdapterSettings
-from ultimate_memory.model import KnowledgeWriterSessionRequest
-from ultimate_memory.model import PublishedMounts
+from rememberstack.adapters import CodexCLIWriterAdapter
+from rememberstack.adapters import CodexWriterAdapterSettings
+from rememberstack.model import KnowledgeWriterSessionRequest
+from rememberstack.model import PublishedMounts
 
 
 def _request() -> KnowledgeWriterSessionRequest:

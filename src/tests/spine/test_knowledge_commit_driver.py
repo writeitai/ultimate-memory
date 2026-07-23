@@ -17,31 +17,31 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.core import knowledge_content_hash
-from ultimate_memory.core import KnowledgeAuthoredDeclarationError
-from ultimate_memory.core import KnowledgePageValidationError
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import KnowledgeArtifactCreate
-from ultimate_memory.model import KnowledgeCommitCycleResult
-from ultimate_memory.model import KnowledgeCompilationWrite
-from ultimate_memory.model import KnowledgeLayer
-from ultimate_memory.model import KnowledgeMovePageProposal
-from ultimate_memory.model import KnowledgePageCompileOutput
-from ultimate_memory.model import KnowledgePageCompileRequest
-from ultimate_memory.model import KnowledgePageKind
-from ultimate_memory.model import KnowledgePlanRunKind
-from ultimate_memory.model import KnowledgePlanRunStatus
-from ultimate_memory.model import KnowledgePlanRunWrite
-from ultimate_memory.model import KnowledgePlanTrigger
-from ultimate_memory.model import KRevision
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import KnowledgeCommitBusyError
-from ultimate_memory.spine import KnowledgeCompilationError
-from ultimate_memory.spine import KnowledgeControlPlane
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import KnowledgeAuthoredSynchronizer
-from ultimate_memory.workers import KnowledgeCommitDriver
-from ultimate_memory.workers import KnowledgeCommitSettings
+from rememberstack.core import knowledge_content_hash
+from rememberstack.core import KnowledgeAuthoredDeclarationError
+from rememberstack.core import KnowledgePageValidationError
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import KnowledgeArtifactCreate
+from rememberstack.model import KnowledgeCommitCycleResult
+from rememberstack.model import KnowledgeCompilationWrite
+from rememberstack.model import KnowledgeLayer
+from rememberstack.model import KnowledgeMovePageProposal
+from rememberstack.model import KnowledgePageCompileOutput
+from rememberstack.model import KnowledgePageCompileRequest
+from rememberstack.model import KnowledgePageKind
+from rememberstack.model import KnowledgePlanRunKind
+from rememberstack.model import KnowledgePlanRunStatus
+from rememberstack.model import KnowledgePlanRunWrite
+from rememberstack.model import KnowledgePlanTrigger
+from rememberstack.model import KRevision
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import KnowledgeCommitBusyError
+from rememberstack.spine import KnowledgeCompilationError
+from rememberstack.spine import KnowledgeControlPlane
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import KnowledgeAuthoredSynchronizer
+from rememberstack.workers import KnowledgeCommitDriver
+from rememberstack.workers import KnowledgeCommitSettings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("62000000-0000-0000-0000-000000000002")
@@ -53,7 +53,7 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real Plane-K proofs")
+        pytest.skip("REMEMBERSTACK_DATABASE_URL is required for real Plane-K proofs")
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

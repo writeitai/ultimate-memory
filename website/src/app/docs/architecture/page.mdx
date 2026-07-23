@@ -1,12 +1,12 @@
 export const metadata = {
   title: "Architecture",
   description:
-    "How Ultimate Memory's three planes fit together: the evidence pipeline (E0–E3), the knowledge plane (K), and the projections (P1–P3) agents actually consume.",
+    "How RememberStack's three planes fit together: the evidence pipeline (E0–E3), the knowledge plane (K), and the projections (P1–P3) agents actually consume.",
 };
 
 # Architecture
 
-Ultimate Memory is organized as **three planes** — Evidence, Knowledge, and Projections. The plane a component lives in determines its rules: what triggers it, whether it is a source of truth, and whether it can be thrown away and rebuilt. This page walks the system end to end.
+RememberStack is organized as **three planes** — Evidence, Knowledge, and Projections. The plane a component lives in determines its rules: what triggers it, whether it is a source of truth, and whether it can be thrown away and rebuilt. This page walks the system end to end.
 
 ```
   inputs (files, mail, web, audio, video, images)
@@ -54,4 +54,4 @@ There is deliberately **no LLM on the query path**: retrieval is fast, determini
 
 ## Where the full detail lives
 
-This page is the map. The binding design — every mechanism, schema, and decision with its rationale — lives in the repository under [`plan/`](https://github.com/writeitai/ultimate-memory/tree/main/plan), anchored by the [architecture decision log](https://github.com/writeitai/ultimate-memory/blob/main/decisions.md). As implementation lands, each subsystem gets its own page here.
+This page is the map. The binding design — every mechanism, schema, and decision with its rationale — lives in the repository under [`plan/`](https://github.com/writeitai/rememberstack/tree/main/plan), anchored by the [architecture decision log](https://github.com/writeitai/rememberstack/blob/main/decisions.md). As implementation lands, each subsystem gets its own page here.

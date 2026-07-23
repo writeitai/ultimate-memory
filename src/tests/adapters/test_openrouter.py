@@ -4,8 +4,8 @@ from decimal import Decimal
 
 import pytest
 
-from ultimate_memory.adapters.openrouter import _usage
-from ultimate_memory.model import ProviderAccountingError
+from rememberstack.adapters.openrouter import _usage
+from rememberstack.model import ProviderAccountingError
 
 
 def test_usage_keeps_exact_cost_and_defaults_embedding_output_tokens() -> None:

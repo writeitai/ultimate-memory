@@ -7,10 +7,10 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.adapters.selfhost import LocalFSForgetManifestStore
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ForgetManifestConflictError
-from ultimate_memory.ports import ForgetManifestPort
+from rememberstack.adapters.selfhost import LocalFSForgetManifestStore
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ForgetManifestConflictError
+from rememberstack.ports import ForgetManifestPort
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 _OTHER_DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000002")

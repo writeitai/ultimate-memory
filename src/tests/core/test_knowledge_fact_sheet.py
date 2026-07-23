@@ -7,12 +7,12 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.core import compose_knowledge_page
-from ultimate_memory.core import render_knowledge_fact_sheet
-from ultimate_memory.model import KnowledgeFactFingerprint
-from ultimate_memory.model import KnowledgeFactSheetFact
-from ultimate_memory.model import KnowledgeFactSheetSnapshot
-from ultimate_memory.model import KnowledgeInputSnapshot
+from rememberstack.core import compose_knowledge_page
+from rememberstack.core import render_knowledge_fact_sheet
+from rememberstack.model import KnowledgeFactFingerprint
+from rememberstack.model import KnowledgeFactSheetFact
+from rememberstack.model import KnowledgeFactSheetSnapshot
+from rememberstack.model import KnowledgeInputSnapshot
 
 _ARTIFACT_ID = UUID("63000000-0000-0000-0000-000000000001")
 _DEPLOYMENT_ID = UUID("63000000-0000-0000-0000-000000000002")

@@ -11,12 +11,12 @@ import random
 
 import pytest
 
-from ultimate_memory.core import blockize
-from ultimate_memory.core import SECTION_ROLES
-from ultimate_memory.core import snap_sections
-from ultimate_memory.model import Block
-from ultimate_memory.model import ProposedSection
-from ultimate_memory.model import SnappedSection
+from rememberstack.core import blockize
+from rememberstack.core import SECTION_ROLES
+from rememberstack.core import snap_sections
+from rememberstack.model import Block
+from rememberstack.model import ProposedSection
+from rememberstack.model import SnappedSection
 
 _DOCUMENT = "\n\n".join(
     (
@@ -247,7 +247,7 @@ def test_the_catalog_refuses_a_disconnected_tree() -> None:
 
     from pydantic import ValidationError
 
-    from ultimate_memory.model import SectionTreeRecord
+    from rememberstack.model import SectionTreeRecord
 
     root = SnappedSection(
         node_path="0",

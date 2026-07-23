@@ -1,20 +1,20 @@
 export const metadata = {
   title: "Introduction",
   description:
-    "Ultimate Memory is a memory system for AI agents: millions of heterogeneous documents distilled into auditable evidence, adjudicated facts, and compiled knowledge.",
+    "RememberStack is a memory system for AI agents: millions of heterogeneous documents distilled into auditable evidence, adjudicated facts, and compiled knowledge.",
 };
 
 # Introduction
 
-**Ultimate Memory** is a memory system for AI agents. It ingests heterogeneous inputs — documents, email, web pages, audio recordings, video, images — and distills them into progressively more abstract, navigable knowledge, while keeping every step auditable by humans. Scale is a requirement, not an aspiration: the system is designed to still be useful at a **million documents**.
+**RememberStack** is a memory system for AI agents. It ingests heterogeneous inputs — documents, email, web pages, audio recordings, video, images — and distills them into progressively more abstract, navigable knowledge, while keeping every step auditable by humans. Scale is a requirement, not an aspiration: the system is designed to still be useful at a **million documents**.
 
-> **Status: in development.** The design came first and is complete — requirements, architecture, research, and a decision log — and implementation is under way, following the [public roadmap](https://github.com/writeitai/ultimate-memory/blob/main/plan/plans/roadmap.md). There is no installable release yet. This site documents the system as it ships, page by page; the [Project Status](/docs/project-status) page tracks what exists today.
+> **Status: in development.** The design came first and is complete — requirements, architecture, research, and a decision log — and implementation is under way, following the [public roadmap](https://github.com/writeitai/rememberstack/blob/main/plan/plans/roadmap.md). There is no installable release yet. This site documents the system as it ships, page by page; the [Project Status](/docs/project-status) page tracks what exists today.
 
 ## The problem it solves
 
 Pour a million documents into a system and you want to ask more than *"where did I read this?"* You want to ask *"what do we actually know — and what changed our mind?"*
 
-Most retrieval systems answer the first question: they find passages. Ultimate Memory is built for the second. It separates **what sources said** from **what the system currently holds true**, keeps both queryable, and records how every conclusion was reached — so an agent (or a human) can always drill from a summary down to the exact sentence, page, or second of audio that supports it.
+Most retrieval systems answer the first question: they find passages. RememberStack is built for the second. It separates **what sources said** from **what the system currently holds true**, keeps both queryable, and records how every conclusion was reached — so an agent (or a human) can always drill from a summary down to the exact sentence, page, or second of audio that supports it.
 
 ## The three planes
 

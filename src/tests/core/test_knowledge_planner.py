@@ -6,20 +6,20 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.core import knowledge_planning_input_hash
-from ultimate_memory.core import primary_knowledge_plan_trigger
-from ultimate_memory.core import route_knowledge_plan
-from ultimate_memory.model import EntityRuleParams
-from ultimate_memory.model import KnowledgeConvertKindProposal
-from ultimate_memory.model import KnowledgeCreatePageProposal
-from ultimate_memory.model import KnowledgeLayer
-from ultimate_memory.model import KnowledgeOrphanAggregate
-from ultimate_memory.model import KnowledgePageKind
-from ultimate_memory.model import KnowledgePlanBand
-from ultimate_memory.model import KnowledgePlannedPage
-from ultimate_memory.model import KnowledgePlanningSnapshot
-from ultimate_memory.model import KnowledgePlanRunKind
-from ultimate_memory.model import KnowledgePlanTrigger
+from rememberstack.core import knowledge_planning_input_hash
+from rememberstack.core import primary_knowledge_plan_trigger
+from rememberstack.core import route_knowledge_plan
+from rememberstack.model import EntityRuleParams
+from rememberstack.model import KnowledgeConvertKindProposal
+from rememberstack.model import KnowledgeCreatePageProposal
+from rememberstack.model import KnowledgeLayer
+from rememberstack.model import KnowledgeOrphanAggregate
+from rememberstack.model import KnowledgePageKind
+from rememberstack.model import KnowledgePlanBand
+from rememberstack.model import KnowledgePlannedPage
+from rememberstack.model import KnowledgePlanningSnapshot
+from rememberstack.model import KnowledgePlanRunKind
+from rememberstack.model import KnowledgePlanTrigger
 
 _DEPLOYMENT_ID = UUID("65000000-0000-0000-0000-000000000001")
 _ENTITY_ID = UUID("65000000-0000-0000-0000-000000000002")

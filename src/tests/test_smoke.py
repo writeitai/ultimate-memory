@@ -2,13 +2,13 @@
 
 from importlib.resources import files
 
-import ultimate_memory
+import rememberstack
 
 
 def test_package_imports_and_has_version() -> None:
-    assert isinstance(ultimate_memory.__version__, str)
-    assert ultimate_memory.__version__ != ""
+    assert isinstance(rememberstack.__version__, str)
+    assert rememberstack.__version__ != ""
 
 
 def test_package_ships_py_typed_marker() -> None:
-    assert files("ultimate_memory").joinpath("py.typed").is_file()
+    assert files("rememberstack").joinpath("py.typed").is_file()

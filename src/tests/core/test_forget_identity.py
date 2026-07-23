@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from ultimate_memory.core import source_identity_hash
+from rememberstack.core import source_identity_hash
 
 
 def test_source_identity_hash_is_stable_unambiguous_and_deployment_scoped() -> None:

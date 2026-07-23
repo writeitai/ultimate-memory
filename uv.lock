@@ -1173,6 +1173,91 @@ wheels = [
 ]
 
 [[package]]
+name = "rememberstack"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+
+[package.optional-dependencies]
+server = [
+    { name = "alembic" },
+    { name = "boto3" },
+    { name = "fastapi" },
+    { name = "ladybug" },
+    { name = "lancedb" },
+    { name = "markdown-it-py" },
+    { name = "markitdown" },
+    { name = "onnxruntime", marker = "python_full_version >= '3.14'" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "sqlalchemy" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "alembic" },
+    { name = "boto3" },
+    { name = "fastapi" },
+    { name = "import-linter" },
+    { name = "ladybug" },
+    { name = "lancedb" },
+    { name = "markdown-it-py" },
+    { name = "markitdown" },
+    { name = "onnxruntime", marker = "python_full_version >= '3.14'" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.16" },
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.42" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.139.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "ladybug", marker = "extra == 'server'", specifier = ">=0.18.2" },
+    { name = "lancedb", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "markdown-it-py", marker = "extra == 'server'", specifier = ">=4.2.0" },
+    { name = "markitdown", marker = "extra == 'server'", specifier = ">=0.1.6" },
+    { name = "onnxruntime", marker = "python_full_version >= '3.14' and extra == 'server'", specifier = ">=1.24.1" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'server'", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "pydantic-settings", specifier = ">=2.10" },
+    { name = "sqlalchemy", marker = "extra == 'server'", specifier = ">=2.0" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.37" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "alembic", specifier = ">=1.16" },
+    { name = "boto3", specifier = ">=1.42" },
+    { name = "fastapi", specifier = ">=0.139.2" },
+    { name = "import-linter", specifier = ">=2.13" },
+    { name = "ladybug", specifier = ">=0.18.2" },
+    { name = "lancedb", specifier = ">=0.34.0" },
+    { name = "markdown-it-py", specifier = ">=4.2.0" },
+    { name = "markitdown", specifier = ">=0.1.6" },
+    { name = "onnxruntime", marker = "python_full_version >= '3.14'", specifier = ">=1.24.1" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pyright", specifier = ">=1.1" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.25" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "ruff", specifier = ">=0.4" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "uvicorn", specifier = ">=0.37" },
+]
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1349,91 +1434,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/92/ff/5a28bdfd8c3ebec42564ac7d0e54ca3db65044a9314a97f9564fa7a1e926/tzdata-2026.3.tar.gz", hash = "sha256:4a1518b8993086a7982523e071643f3c0e5f213e75b21318e78bcabfff9d1415", size = 198674 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/6d/b53b99a9f2766d095985947a5782f1702cabb129a34f7a802d7197af832f/tzdata-2026.3-py2.py3-none-any.whl", hash = "sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931", size = 348168 },
-]
-
-[[package]]
-name = "ultimate-memory"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-]
-
-[package.optional-dependencies]
-server = [
-    { name = "alembic" },
-    { name = "boto3" },
-    { name = "fastapi" },
-    { name = "ladybug" },
-    { name = "lancedb" },
-    { name = "markdown-it-py" },
-    { name = "markitdown" },
-    { name = "onnxruntime", marker = "python_full_version >= '3.14'" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "sqlalchemy" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "alembic" },
-    { name = "boto3" },
-    { name = "fastapi" },
-    { name = "import-linter" },
-    { name = "ladybug" },
-    { name = "lancedb" },
-    { name = "markdown-it-py" },
-    { name = "markitdown" },
-    { name = "onnxruntime", marker = "python_full_version >= '3.14'" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "sqlalchemy" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.16" },
-    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.42" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.139.2" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "ladybug", marker = "extra == 'server'", specifier = ">=0.18.2" },
-    { name = "lancedb", marker = "extra == 'server'", specifier = ">=0.34.0" },
-    { name = "markdown-it-py", marker = "extra == 'server'", specifier = ">=4.2.0" },
-    { name = "markitdown", marker = "extra == 'server'", specifier = ">=0.1.6" },
-    { name = "onnxruntime", marker = "python_full_version >= '3.14' and extra == 'server'", specifier = ">=1.24.1" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'server'", specifier = ">=3.2" },
-    { name = "pydantic", specifier = ">=2.11" },
-    { name = "pydantic-settings", specifier = ">=2.10" },
-    { name = "sqlalchemy", marker = "extra == 'server'", specifier = ">=2.0" },
-    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.37" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "alembic", specifier = ">=1.16" },
-    { name = "boto3", specifier = ">=1.42" },
-    { name = "fastapi", specifier = ">=0.139.2" },
-    { name = "import-linter", specifier = ">=2.13" },
-    { name = "ladybug", specifier = ">=0.18.2" },
-    { name = "lancedb", specifier = ">=0.34.0" },
-    { name = "markdown-it-py", specifier = ">=4.2.0" },
-    { name = "markitdown", specifier = ">=0.1.6" },
-    { name = "onnxruntime", marker = "python_full_version >= '3.14'", specifier = ">=1.24.1" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pyright", specifier = ">=1.1" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=0.25" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "ruff", specifier = ">=0.4" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "uvicorn", specifier = ">=0.37" },
 ]
 
 [[package]]

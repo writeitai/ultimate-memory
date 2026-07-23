@@ -5,11 +5,11 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.model import DocumentUpload
-from ultimate_memory.model import ForgottenSourceError
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.spine.document_catalog import DocumentCatalog
-from ultimate_memory.workers.e0 import UploadIngestor
+from rememberstack.model import DocumentUpload
+from rememberstack.model import ForgottenSourceError
+from rememberstack.model import ObjectKey
+from rememberstack.spine.document_catalog import DocumentCatalog
+from rememberstack.workers.e0 import UploadIngestor
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 

@@ -6,9 +6,9 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.adapters.selfhost import LocalGitRepository
-from ultimate_memory.ports import KGitPurgePort
-from ultimate_memory.ports import KGitRemotePort
+from rememberstack.adapters.selfhost import LocalGitRepository
+from rememberstack.ports import KGitPurgePort
+from rememberstack.ports import KGitRemotePort
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 _DOC_ID = UUID("74000000-0000-0000-0000-000000000002")
@@ -62,8 +62,8 @@ def test_local_git_purge_erases_affected_history_and_keeps_clean_current(
     adapter = LocalGitRepository(
         repository=repository,
         path_catalog=PathCatalog(paths=("K1/affected.md",)),
-        author_name="Ultimate Memory",
-        author_email="ugm@example.test",
+        author_name="RememberStack",
+        author_email="rememberstack@example.test",
     )
     purge: KGitPurgePort = adapter
 
@@ -126,7 +126,12 @@ def test_local_git_purge_erases_affected_history_and_keeps_clean_current(
         == 2
     )
     assert (
-        _output("-C", str(repository), "rev-parse", f"refs/ugm/forget/{_FORGET_ID}")
+        _output(
+            "-C",
+            str(repository),
+            "rev-parse",
+            f"refs/rememberstack/forget/{_FORGET_ID}",
+        )
         == first_head
     )
     assert _output("-C", str(repository), "rev-parse", "HEAD") == first_head
@@ -148,8 +153,8 @@ def test_local_git_remote_checkout_and_publish_update_truth(tmp_path: Path) -> N
     adapter: KGitRemotePort = LocalGitRepository(
         repository=repository,
         path_catalog=PathCatalog(paths=()),
-        author_name="Ultimate Memory",
-        author_email="ugm@example.test",
+        author_name="RememberStack",
+        author_email="rememberstack@example.test",
     )
     checkout = tmp_path / "checkout"
     before = adapter.checkout(destination=checkout)
@@ -169,8 +174,8 @@ def test_local_git_purge_rejects_traversing_catalog_paths(tmp_path: Path) -> Non
     adapter = LocalGitRepository(
         repository=repository,
         path_catalog=PathCatalog(paths=("../outside.md",)),
-        author_name="Ultimate Memory",
-        author_email="ugm@example.test",
+        author_name="RememberStack",
+        author_email="rememberstack@example.test",
     )
 
     with pytest.raises(ValueError):

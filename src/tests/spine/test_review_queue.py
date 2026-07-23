@@ -15,13 +15,13 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import ReviewDecisionError
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import ReviewQueue
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import cli_main
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import ReviewDecisionError
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import ReviewQueue
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import cli_main
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("a1000000-0000-0000-0000-000000000001")
@@ -33,7 +33,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL review proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL review proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -394,7 +396,7 @@ def test_uncertain_leaves_the_marker_standing(database_engine: Engine) -> None:
 def test_cli_lists_and_decides_through_the_same_paths(
     database_engine: Engine, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The ugm CLI is a thin veneer: list ranks, decide applies the verdict."""
+    """The remember CLI is a thin veneer: list ranks, decide applies the verdict."""
     survivor = _entity(engine=database_engine, name="CLI Survivor")
     absorbed = _entity(engine=database_engine, name="CLI Absorbed")
     review_id = _queued_merge(

@@ -2,15 +2,15 @@
 
 from uuid import UUID
 
-from ultimate_memory.core import CONSUMPTION_SKILL_VERSION
-from ultimate_memory.core import render_consumption_skill
-from ultimate_memory.model import ConsumptionDeployment
-from ultimate_memory.model import ConsumptionRecipe
-from ultimate_memory.model import ConsumptionScope
-from ultimate_memory.model import ConsumptionSkillContext
-from ultimate_memory.model import Grain
-from ultimate_memory.model import PublishedMounts
-from ultimate_memory.model import RecipeAnswerIntent
+from rememberstack.core import CONSUMPTION_SKILL_VERSION
+from rememberstack.core import render_consumption_skill
+from rememberstack.model import ConsumptionDeployment
+from rememberstack.model import ConsumptionRecipe
+from rememberstack.model import ConsumptionScope
+from rememberstack.model import ConsumptionSkillContext
+from rememberstack.model import Grain
+from rememberstack.model import PublishedMounts
+from rememberstack.model import RecipeAnswerIntent
 
 _DEPLOYMENT_ID = UUID("55000000-0000-0000-0000-000000000001")
 

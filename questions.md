@@ -78,29 +78,26 @@ Keep this current: when something here is decided, move it to a decision and pru
       Apache forever) while blunting the usual contributor objection. Must exist before the first
       outside PR.
     - ~~"Ultimate Memory" is a working title — a rename gates public release~~ **NAME DECIDED
-      (2026-07-13): the brand is `remember.dev`** — the domain-as-brand pattern (Cal.com/Fly.io;
-      registrable per the *Booking.com* doctrine), extending the author's existing product-domain
-      family (writeit.ai · answerit.ai · askit.dev). The author has acquired the `remember.dev`
-      domain. The full stack: **brand `remember.dev`; CLI `remember`; import `remember`;
-      distribution `remember-dev`** on PyPI/npm (bare `remember` is squatted by dead/unrelated
-      packages; an optional PEP 541 reclaim of PyPI `remember` may be filed). Fallback if counsel
-      advises against the generic+TLD mark: `RememberIt` (family series mark). Verified 2026-07-13:
-      `remember-dev` free on PyPI/npm; no in-category product on remember.ai/.io/.com; three-round
-      candidate exploration recorded in `_feature_planning/naming/` (local, gitignored). **Still
-      gating public release:** attorney clearance (generic+TLD mark backed by the writeit.ai house
-      brand; classes 9/42, EUIPO first) and the mechanical rename of the repo / package / docs —
-      deliberately deferred; development continues under the working title until the release gate.
+      (D76, 2026-07-23): product `RememberStack`, canonical home `remember.dev`, attribution
+      “RememberStack by WriteIt.ai.”** The release identifiers are repository
+      `writeitai/rememberstack`, distribution/import `rememberstack`, CLI `remember`, container
+      `ghcr.io/writeitai/rememberstack`, and configuration prefix `REMEMBERSTACK_*`. The domain
+      remains the canonical public address; the full product mark appears in product prose and
+      metadata. The pre-release working identifiers receive one clean rename with no compatibility
+      aliases. **Still gating public release:** focused attorney clearance against the close
+      in-category Recallstack and Remembra names, plus the bounded CLA before outside
+      contributions. Preliminary availability research is not legal clearance.
     - ~~The packaging/distribution design~~ **RESOLVED (D62)** —
       `plan/designs/packaging_distribution_design.md`: the three artifacts, the client surface
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
-      compose profiles, release/upgrade/portable-restore policy. Still gating here: the mechanical
-      **rename** and the **CLA** (above).
+      compose profiles, release/upgrade/portable-restore policy. D76 supplies the exact mechanical
+      rename; focused clearance and the **CLA** remain owner-side gates above.
     - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
       `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —
-      [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) merged `uv`/Hatchling,
+      [PR #39](https://github.com/writeitai/rememberstack/pull/39) merged `uv`/Hatchling,
       Ruff, the single-package `src` layout and naming, and GitHub Actions CI;
-      [PR #41](https://github.com/writeitai/ultimate-memory/pull/41) merged the typed
+      [PR #41](https://github.com/writeitai/rememberstack/pull/41) merged the typed
       pydantic-settings/secret convention and direct-environment-access lint guard. The
       roadmap now links each choice to the exact repository evidence. This resolution does
       not perform the release rename, supply attorney clearance, or create the bounded CLA;

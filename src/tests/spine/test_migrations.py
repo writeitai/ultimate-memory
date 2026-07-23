@@ -11,14 +11,14 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy import text
 
-from ultimate_memory.spine.catalog_contract import CatalogInventory
-from ultimate_memory.spine.catalog_contract import SchemaContractError
-from ultimate_memory.spine.catalog_contract import verify_schema
-from ultimate_memory.spine.catalog_contract import verify_schema_absent
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.spine.catalog_contract import CatalogInventory
+from rememberstack.spine.catalog_contract import SchemaContractError
+from rememberstack.spine.catalog_contract import verify_schema
+from rememberstack.spine.catalog_contract import verify_schema_absent
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).parents[3]
-_VERSIONS = _ROOT / "src/ultimate_memory/spine/migrations/versions"
+_VERSIONS = _ROOT / "src/rememberstack/spine/migrations/versions"
 
 
 def _database_url() -> str:
@@ -26,7 +26,9 @@ def _database_url() -> str:
     try:
         return load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for the real PostgreSQL lifecycle")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for the real PostgreSQL lifecycle"
+        )
 
 
 def _alembic_config(*, database_url: str) -> Config:

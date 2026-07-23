@@ -18,32 +18,32 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import RecordingTaskQueue
-from ultimate_memory.core import source_identity_hash
-from ultimate_memory.model import ClaimedWork
-from ultimate_memory.model import CostBudget
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EnqueueWork
-from ultimate_memory.model import ForgetInProgressError
-from ultimate_memory.model import ForgottenSourceError
-from ultimate_memory.model import LaneRouteError
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ProcessingTarget
-from ultimate_memory.model import RecordCall
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.model import UnknownStageHandlerError
-from ultimate_memory.model import WorkNotRunningError
-from ultimate_memory.ports.cost_meter import CostMeterPort
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import cli_main
-from ultimate_memory.workers import HandlerOutcome
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import Worker
+from rememberstack.adapters.testing import RecordingTaskQueue
+from rememberstack.core import source_identity_hash
+from rememberstack.model import ClaimedWork
+from rememberstack.model import CostBudget
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EnqueueWork
+from rememberstack.model import ForgetInProgressError
+from rememberstack.model import ForgottenSourceError
+from rememberstack.model import LaneRouteError
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ProcessingTarget
+from rememberstack.model import RecordCall
+from rememberstack.model import RunResultOutcome
+from rememberstack.model import UnknownStageHandlerError
+from rememberstack.model import WorkNotRunningError
+from rememberstack.ports.cost_meter import CostMeterPort
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import cli_main
+from rememberstack.workers import HandlerOutcome
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("30000000-0000-0000-0000-000000000001")
@@ -56,7 +56,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL ledger proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL ledger proofs"
+        )
 
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
@@ -397,7 +399,7 @@ def test_budget_settings_are_unique_and_cli_inspection_uses_them(
         "window_seconds": 3600,
         "ceiling_usd": "2.50",
     }
-    monkeypatch.setenv("UGM_WORK_BUDGETS", json.dumps([configured]))
+    monkeypatch.setenv("REMEMBERSTACK_WORK_BUDGETS", json.dumps([configured]))
     settings = WorkLedgerSettings()
     assert settings.budgets[0].ceiling_usd == Decimal("2.50")
     with pytest.raises(ValidationError, match="only one cost budget"):
@@ -553,7 +555,7 @@ def test_scheduled_retry_is_announced_through_the_queue_port(
     ledger: WorkLedger,
 ) -> None:
     """Codex review 4: retry paths call the port with the scheduled time."""
-    from ultimate_memory.adapters.testing import RecordingTaskQueue
+    from rememberstack.adapters.testing import RecordingTaskQueue
 
     recorder = RecordingTaskQueue()
     registry = HandlerRegistry()

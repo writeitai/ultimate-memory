@@ -16,14 +16,14 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import SupersessionAdjudicator
-from ultimate_memory.spine import SupersessionSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import QueryEngine
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import SupersessionAdjudicator
+from rememberstack.spine import SupersessionSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import QueryEngine
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("e0000000-0000-0000-0000-000000000001")
@@ -47,7 +47,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL cascade proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL cascade proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

@@ -6,25 +6,25 @@ from datetime import timezone
 from typing import cast
 from uuid import UUID
 
-from ultimate_memory.model import Envelope
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import Freshness
-from ultimate_memory.model import Grain
-from ultimate_memory.model import Negative
-from ultimate_memory.model import NegativeKind
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.ports import ForgetManifestPort
-from ultimate_memory.ports import KGitPurgePort
-from ultimate_memory.ports import ObjectPurgePort
-from ultimate_memory.ports import P1PurgePort
-from ultimate_memory.ports import ProjectionPurgePort
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.workers import DeletionService
-from ultimate_memory.workers import ForgetKnowledgeRebuilder
-from ultimate_memory.workers import ForgetProjectionRebuilder
-from ultimate_memory.workers import HardForgetHandler
-from ultimate_memory.workers import HardForgetReadiness
-from ultimate_memory.workers import HardForgetService
+from rememberstack.model import Envelope
+from rememberstack.model import ForgetManifest
+from rememberstack.model import Freshness
+from rememberstack.model import Grain
+from rememberstack.model import Negative
+from rememberstack.model import NegativeKind
+from rememberstack.model import ObjectKey
+from rememberstack.ports import ForgetManifestPort
+from rememberstack.ports import KGitPurgePort
+from rememberstack.ports import ObjectPurgePort
+from rememberstack.ports import P1PurgePort
+from rememberstack.ports import ProjectionPurgePort
+from rememberstack.spine import ForgetCatalog
+from rememberstack.workers import DeletionService
+from rememberstack.workers import ForgetKnowledgeRebuilder
+from rememberstack.workers import ForgetProjectionRebuilder
+from rememberstack.workers import HardForgetHandler
+from rememberstack.workers import HardForgetReadiness
+from rememberstack.workers import HardForgetService
 
 _DEPLOYMENT_ID = UUID("55000000-0000-0000-0000-000000000001")
 _DOC_ID = UUID("55000000-0000-0000-0000-000000000002")

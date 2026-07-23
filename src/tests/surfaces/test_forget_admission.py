@@ -5,9 +5,9 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from ultimate_memory.model import ForgetInProgressError
-from ultimate_memory.surfaces.http_api import build_api
-from ultimate_memory.surfaces.query_engine import QueryEngine
+from rememberstack.model import ForgetInProgressError
+from rememberstack.surfaces.http_api import build_api
+from rememberstack.surfaces.query_engine import QueryEngine
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 

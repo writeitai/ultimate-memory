@@ -22,14 +22,14 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import ProjectionCatalog
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import CorpusFsBuilder
-from ultimate_memory.workers import CorpusFsSettings
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import ObjectKey
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import ProjectionCatalog
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import CorpusFsBuilder
+from rememberstack.workers import CorpusFsSettings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("45000000-0000-0000-0000-000000000001")
@@ -41,7 +41,7 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real corpus-fs proofs")
+        pytest.skip("REMEMBERSTACK_DATABASE_URL is required for real corpus-fs proofs")
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

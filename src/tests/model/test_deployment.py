@@ -5,11 +5,11 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.model import CoreManifestConflictError
-from ultimate_memory.model import DeploymentBootstrapConflictError
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import DeploymentBootstrapResult
-from ultimate_memory.model import DeploymentConflictError
+from rememberstack.model import CoreManifestConflictError
+from rememberstack.model import DeploymentBootstrapConflictError
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import DeploymentBootstrapResult
+from rememberstack.model import DeploymentConflictError
 
 _INPUT_VALUES: dict[str, object] = {
     "deployment_id": "10000000-0000-0000-0000-000000000001",

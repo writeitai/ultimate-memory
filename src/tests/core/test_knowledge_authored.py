@@ -4,12 +4,12 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.core import authored_declaration_is_empty
-from ultimate_memory.core import KnowledgeAuthoredDeclarationError
-from ultimate_memory.core import parse_knowledge_authored_frontmatter
-from ultimate_memory.model import EntityRuleParams
-from ultimate_memory.model import KnowledgeEvidenceRole
-from ultimate_memory.model import PredicateBeatRuleParams
+from rememberstack.core import authored_declaration_is_empty
+from rememberstack.core import KnowledgeAuthoredDeclarationError
+from rememberstack.core import parse_knowledge_authored_frontmatter
+from rememberstack.model import EntityRuleParams
+from rememberstack.model import KnowledgeEvidenceRole
+from rememberstack.model import PredicateBeatRuleParams
 
 _LINEAGE_ID = UUID("66000000-0000-0000-0000-000000000001")
 _RELATION_ID = UUID("66000000-0000-0000-0000-000000000002")

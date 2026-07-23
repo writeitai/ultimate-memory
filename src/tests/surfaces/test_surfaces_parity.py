@@ -31,25 +31,25 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.model import AuthenticatedContext
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import Grain
-from ultimate_memory.model import PerimeterCredential
-from ultimate_memory.model import Recipe
-from ultimate_memory.model import RecipeAnswerIntent
-from ultimate_memory.model import RecipeStep
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import RecipeRegistry
-from ultimate_memory.spine import seed_canonical_recipes
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import build_api
-from ultimate_memory.surfaces import QueryEngine
-from ultimate_memory.surfaces import RecipeExecutor
-from ultimate_memory.surfaces import RecipeMcpServer
-from ultimate_memory.surfaces import RecipeSurface
-from ultimate_memory.surfaces.cli import query_list
-from ultimate_memory.surfaces.cli import query_run
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.model import AuthenticatedContext
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import Grain
+from rememberstack.model import PerimeterCredential
+from rememberstack.model import Recipe
+from rememberstack.model import RecipeAnswerIntent
+from rememberstack.model import RecipeStep
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import RecipeRegistry
+from rememberstack.spine import seed_canonical_recipes
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import build_api
+from rememberstack.surfaces import QueryEngine
+from rememberstack.surfaces import RecipeExecutor
+from rememberstack.surfaces import RecipeMcpServer
+from rememberstack.surfaces import RecipeSurface
+from rememberstack.surfaces.cli import query_list
+from rememberstack.surfaces.cli import query_run
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("54000000-0000-0000-0000-000000000001")
@@ -109,7 +109,7 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real surface proofs")
+        pytest.skip("REMEMBERSTACK_DATABASE_URL is required for real surface proofs")
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -260,7 +260,7 @@ def test_all_three_surfaces_return_the_same_envelope(
 def test_the_cli_query_list_matches_the_api(
     deployment: _Deployment, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`ugm query list` prints exactly the API's recipe tool list."""
+    """`remember query list` prints exactly the API's recipe tool list."""
     assert query_list(client=deployment.client) == 0
     listed = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert {row["name"] for row in listed} == {
@@ -422,7 +422,9 @@ def test_the_cli_reports_an_unreachable_api_as_an_exit_code(
 ) -> None:
     """A query against an API that is not up is a controlled exit code, not a
     traceback (Codex finding)."""
-    from ultimate_memory.surfaces import cli
+    from rememberstack.surfaces import cli
 
-    monkeypatch.setenv("UGM_API_URL", "http://127.0.0.1:9")  # nothing listening
+    monkeypatch.setenv(
+        "REMEMBERSTACK_API_URL", "http://127.0.0.1:9"
+    )  # nothing listening
     assert cli.main(["query", "list"]) == 1
