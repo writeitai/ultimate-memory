@@ -30,7 +30,7 @@ complexity is handled by *decomposition into sub-workers*, each separately idemp
 
 Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
 
-- **raw** — `gs://ugm-<dep>-raw/<doc_id>/<content_hash>/original.<ext>` — immutable source-of-truth
+- **raw** — `gs://rememberstack-<dep>-raw/<doc_id>/<content_hash>/original.<ext>` — immutable source-of-truth
   bytes (D1). Strict per-deployment IAM. **Mounted read-only, but off the navigation path**
   (D51): P3 and the Markdown never *promote* raw — stubs and `document.md` frontmatter carry an
   explicit raw pointer, so reaching an original is always a deliberate act (following a link),
@@ -46,7 +46,7 @@ Two buckets per deployment (storage is per-deployment, like entity spaces, D16):
   acceptable because a deployment is **one trust domain** (D50): every agent that reaches the
   mount is trusted with the deployment's content; data with a different trust boundary belongs
   in a separate deployment, never behind an in-library filter.
-- **artifacts** — `gs://ugm-<dep>-artifacts/<doc_id>/<content_hash>/<representation_id>/`
+- **artifacts** — `gs://rememberstack-<dep>-artifacts/<doc_id>/<content_hash>/<representation_id>/`
   holding `document.md` (clean Markdown — the immutable coordinate system everything
   references by offset, D57), `pageindex.json`, `conversion.json` (source map + route
   manifest + converter metadata), `blocks.json` (the blockizer's block sequence, D57),
@@ -301,7 +301,7 @@ directory tree** that organizes the whole corpus for agent navigation. It is a *
 
 **Rebuild semantics — snapshot + pointer-swap, like P2 (D7).** P3 is a **full snapshot rebuild** by
 default: the projection worker builds the whole tree into
-`gs://ugm-<dep>-corpusfs/snapshots/<version>/`, validates it, then atomically swaps the `latest`
+`gs://rememberstack-<dep>-corpusfs/snapshots/<version>/`, validates it, then atomically swaps the `latest`
 pointer; agent mounts read `latest`. Incremental tree maintenance is permitted only as an *internal
 optimization* that produces the same validated snapshot — never as authority and never a separate
 mutable state. This is the same rebuild-first discipline as P2.
@@ -313,7 +313,7 @@ take K as a structural input — so P3 stays rebuildable from the E spine + arti
 P1/P2 (it does not depend on the non-reproducible K git repo for its shape).
 
 ```
-gs://ugm-<dep>-corpusfs/snapshots/<version>/
+gs://rememberstack-<dep>-corpusfs/snapshots/<version>/
   finance/annual-reports/2023/
     acme-10k-2023.md            # generated stub: frontmatter (doc_id, artifact_uri, content_hash)
     _index.md                   # generated: what's here, summaries, links down + across (+ to K)

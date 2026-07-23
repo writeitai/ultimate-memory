@@ -13,8 +13,8 @@ instructions: |
   Verify ALL of the following:
   1. The package is positioned as the client: base install = typed SDK + CLI + MCP server;
      server/connectors/K machinery live behind extras ([server], [connectors-*], [k]). The
-     RELEASED package ships under the decided names (questions.md §11a): dist remember-dev,
-     CLI remember, import remember (brand remember.dev).
+     RELEASED package ships under the D76 names (questions.md §11a): product RememberStack,
+     dist/import rememberstack, CLI remember, canonical home remember.dev.
   2. Container images are published (GHCR) and a CI-TESTED docker-compose self-host profile
      exists (Postgres + MinIO + api + worker); a quickstart brings up a working deployment
      (the ten-minute quickstart is a release gate).
@@ -28,7 +28,7 @@ instructions: |
   5. Portability rides rebuild-first without a library transport subsystem: authoritative state
      is Postgres + raw/artifact objects + the K repo + the separately durable D74 manifest root;
      operators move bytes with native tools, manifest replay gates serving, and P1/P2/P3 rebuild
-     after restore. No `ugm export` / `ugm import`, universal archive, or backup coordinator exists.
+     after restore. No `remember export` / `remember import`, universal archive, or backup coordinator exists.
 
   Source precedence: the design docs under plan/designs/ are the binding statement of the
   current system; the decision log is its indexed record — read cited decisions together

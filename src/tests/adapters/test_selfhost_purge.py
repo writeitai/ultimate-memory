@@ -6,20 +6,20 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.adapters.selfhost import LanceChunkIndex
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.selfhost import LocalMountPublisher
-from ultimate_memory.adapters.selfhost import SelfHostProjectionPurger
-from ultimate_memory.model import ForgetInProgressError
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.model import P1ChunkRow
-from ultimate_memory.model import P1ClaimRow
-from ultimate_memory.model import P1EntityRow
-from ultimate_memory.model import P1FactRow
-from ultimate_memory.ports import ObjectPurgePort
-from ultimate_memory.ports import P1PurgePort
-from ultimate_memory.ports import ProjectionPurgePort
-from ultimate_memory.spine import ProjectionCatalog
+from rememberstack.adapters.selfhost import LanceChunkIndex
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.selfhost import LocalMountPublisher
+from rememberstack.adapters.selfhost import SelfHostProjectionPurger
+from rememberstack.model import ForgetInProgressError
+from rememberstack.model import ObjectKey
+from rememberstack.model import P1ChunkRow
+from rememberstack.model import P1ClaimRow
+from rememberstack.model import P1EntityRow
+from rememberstack.model import P1FactRow
+from rememberstack.ports import ObjectPurgePort
+from rememberstack.ports import P1PurgePort
+from rememberstack.ports import ProjectionPurgePort
+from rememberstack.spine import ProjectionCatalog
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 _OTHER_DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000002")

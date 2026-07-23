@@ -13,52 +13,52 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost import LanceChunkIndex
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.adapters.testing import NoopCostMeter
-from ultimate_memory.core import chunker_version
-from ultimate_memory.core import ChunkerParams
-from ultimate_memory.core import ConversionRouter
-from ultimate_memory.core import MarkdownPassthroughConverter
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import DocumentUpload
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ResolverConfig
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.spine import CascadeResolver
-from ultimate_memory.spine import ChunkCatalog
-from ultimate_memory.spine import ClaimCatalog
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import DocumentCatalog
-from ultimate_memory.spine import EntityRegistry
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import ObservationAdjudicator
-from ultimate_memory.spine import ObservationSettings
-from ultimate_memory.spine import RESOLVER_VERSION
-from ultimate_memory.spine import SupersessionAdjudicator
-from ultimate_memory.spine import SupersessionSettings
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import AdjudicateSupersessionHandler
-from ultimate_memory.workers import ChunkHandler
-from ultimate_memory.workers import ConvertHandler
-from ultimate_memory.workers import E1Settings
-from ultimate_memory.workers import E2Settings
-from ultimate_memory.workers import E3Settings
-from ultimate_memory.workers import EmbedChunksHandler
-from ultimate_memory.workers import EmbedClaimsHandler
-from ultimate_memory.workers import ExtractClaimsHandler
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import LabelFactsHandler
-from ultimate_memory.workers import NormalizeRelationsHandler
-from ultimate_memory.workers import P1Settings
-from ultimate_memory.workers import StructureHandler
-from ultimate_memory.workers import UploadIngestor
-from ultimate_memory.workers import Worker
+from rememberstack.adapters.selfhost import LanceChunkIndex
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.adapters.testing import NoopCostMeter
+from rememberstack.core import chunker_version
+from rememberstack.core import ChunkerParams
+from rememberstack.core import ConversionRouter
+from rememberstack.core import MarkdownPassthroughConverter
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import DocumentUpload
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ResolverConfig
+from rememberstack.model import RunResultOutcome
+from rememberstack.spine import CascadeResolver
+from rememberstack.spine import ChunkCatalog
+from rememberstack.spine import ClaimCatalog
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import DocumentCatalog
+from rememberstack.spine import EntityRegistry
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import ObservationAdjudicator
+from rememberstack.spine import ObservationSettings
+from rememberstack.spine import RESOLVER_VERSION
+from rememberstack.spine import SupersessionAdjudicator
+from rememberstack.spine import SupersessionSettings
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import AdjudicateSupersessionHandler
+from rememberstack.workers import ChunkHandler
+from rememberstack.workers import ConvertHandler
+from rememberstack.workers import E1Settings
+from rememberstack.workers import E2Settings
+from rememberstack.workers import E3Settings
+from rememberstack.workers import EmbedChunksHandler
+from rememberstack.workers import EmbedClaimsHandler
+from rememberstack.workers import ExtractClaimsHandler
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import LabelFactsHandler
+from rememberstack.workers import NormalizeRelationsHandler
+from rememberstack.workers import P1Settings
+from rememberstack.workers import StructureHandler
+from rememberstack.workers import UploadIngestor
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("90000000-0000-0000-0000-000000000001")
@@ -145,7 +145,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL chain proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL chain proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -437,9 +439,9 @@ def test_rerunning_normalization_replays_without_model_calls(rig: _E3Rig) -> Non
             text("SELECT current_representation_id, version_id FROM document_versions")
         ).one()
 
-    from ultimate_memory.model import ClaimedWork
-    from ultimate_memory.model import ProcessingTarget
-    from ultimate_memory.workers import E3_NORMALIZER_VERSION
+    from rememberstack.model import ClaimedWork
+    from rememberstack.model import ProcessingTarget
+    from rememberstack.workers import E3_NORMALIZER_VERSION
 
     rig.normalize_handler.handle(
         work=ClaimedWork(
@@ -519,9 +521,9 @@ def test_t0_never_resolves_to_a_merged_entity(rig: _E3Rig) -> None:
     active status (redirect-following arrives with the merge machinery)."""
     from uuid import uuid4 as _uuid4
 
-    from ultimate_memory.model import ClaimForNormalization
-    from ultimate_memory.model import EntityRef
-    from ultimate_memory.spine import EntityRegistry as _Registry
+    from rememberstack.model import ClaimForNormalization
+    from rememberstack.model import EntityRef
+    from rememberstack.spine import EntityRegistry as _Registry
 
     survivor, merged = _uuid4(), _uuid4()
     with rig.engine.begin() as connection:
@@ -614,9 +616,9 @@ def test_p1_channels_carry_claims_and_labeled_facts(rig: _E3Rig) -> None:
     calls = len(rig.provider.generated_prompts)
     from uuid import uuid4 as _uuid4
 
-    from ultimate_memory.model import ClaimedWork
-    from ultimate_memory.model import ProcessingTarget
-    from ultimate_memory.workers import FACT_LABEL_VERSION
+    from rememberstack.model import ClaimedWork
+    from rememberstack.model import ProcessingTarget
+    from rememberstack.workers import FACT_LABEL_VERSION
 
     rig.label_handler.handle(
         work=ClaimedWork(

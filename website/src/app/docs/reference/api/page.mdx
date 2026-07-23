@@ -64,7 +64,7 @@ envelope. Arguments are coerced to the types the primitives need (a uuid
 string to a UUID, an ISO-8601 string to an instant):
 
 ```bash
-curl -X POST "$UGM_API_URL/recipe/relation_current" \
+curl -X POST "$REMEMBERSTACK_API_URL/recipe/relation_current" \
   -H "content-type: application/json" \
   -d '{"subject_entity_id": "…", "predicate": "works_for"}'
 ```
@@ -108,7 +108,7 @@ worker, projection, or adapter dependencies:
 ```python
 from pathlib import Path
 
-from ultimate_memory.client import MemoryClient
+from rememberstack.client import MemoryClient
 
 with MemoryClient.from_settings() as memory:
     tools = memory.recipes()
@@ -171,8 +171,8 @@ perimeter is the deployment's infrastructure (network, IAM) to enforce.
 
 ## Configuration
 
-- `UGM_API_URL` — where the SDK, CLI, and MCP client reach the API.
-- `UGM_API_AUTHORIZATION` — optional complete `Authorization` header value.
-- `UGM_API_TIMEOUT_SECONDS` — client request timeout (default 30 seconds).
+- `REMEMBERSTACK_API_URL` — where the SDK, CLI, and MCP client reach the API.
+- `REMEMBERSTACK_API_AUTHORIZATION` — optional complete `Authorization` header value.
+- `REMEMBERSTACK_API_TIMEOUT_SECONDS` — client request timeout (default 30 seconds).
 - The API process composes the query engine (search index, model provider) —
   the surface itself carries no provider adapters.

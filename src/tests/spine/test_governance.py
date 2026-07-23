@@ -14,18 +14,18 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.core import ExtensionPack
-from ultimate_memory.core import PackEntityType
-from ultimate_memory.core import WORK_PACK
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import OtherPredicateGrammarError
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import install_pack
-from ultimate_memory.spine import PackAnchorError
-from ultimate_memory.spine import PackConflictError
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers.e3 import _signature_allows
+from rememberstack.core import ExtensionPack
+from rememberstack.core import PackEntityType
+from rememberstack.core import WORK_PACK
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import OtherPredicateGrammarError
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import install_pack
+from rememberstack.spine import PackAnchorError
+from rememberstack.spine import PackConflictError
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers.e3 import _signature_allows
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("d0000000-0000-0000-0000-000000000001")
@@ -37,7 +37,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL registry proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL registry proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

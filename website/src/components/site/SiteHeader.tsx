@@ -11,7 +11,7 @@ export function SiteHeader() {
             aria-hidden
             className="inline-block h-5 w-5 rounded-full border-2 border-brand"
           />
-          <span>Ultimate Memory</span>
+          <span>RememberStack</span>
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-4">
@@ -23,11 +23,11 @@ export function SiteHeader() {
             Docs
           </Link>
           <a
-            href="https://github.com/writeitai/ultimate-memory"
+            href="https://github.com/writeitai/rememberstack"
             target="_blank"
             rel="noreferrer"
             className="text-muted-foreground hover:text-foreground"
-            aria-label="ultimate-memory on GitHub"
+            aria-label="RememberStack on GitHub"
           >
             <Github className="h-5 w-5" />
           </a>

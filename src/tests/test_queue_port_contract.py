@@ -13,11 +13,11 @@ from pydantic import TypeAdapter
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import QueueRoute
-from ultimate_memory.model import UTCDateTime
-from ultimate_memory.ports import TaskQueuePort
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import QueueRoute
+from rememberstack.model import UTCDateTime
+from rememberstack.ports import TaskQueuePort
 
 _PIPELINE_STAGE_VALUES = (
     "ingest",

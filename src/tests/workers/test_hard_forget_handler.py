@@ -8,27 +8,27 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ForgetManifestRecord
-from ultimate_memory.model import ForgetManifestStatus
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.ports import ForgetManifestPort
-from ultimate_memory.ports import KGitPurgePort
-from ultimate_memory.ports import ObjectPurgePort
-from ultimate_memory.ports import P1PurgePort
-from ultimate_memory.ports import ProjectionPurgePort
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.workers import CorpusFsBuilder
-from ultimate_memory.workers import DeletionService
-from ultimate_memory.workers import ForgetKnowledgeRebuilder
-from ultimate_memory.workers import ForgetProjectionRebuilder
-from ultimate_memory.workers import GraphRebuildWorker
-from ultimate_memory.workers import HardForgetHandler
-from ultimate_memory.workers import HardForgetReadiness
-from ultimate_memory.workers import HardForgetService
-from ultimate_memory.workers import KnowledgeCommitDriver
-from ultimate_memory.workers import KnowledgeCycleForgetRebuilder
-from ultimate_memory.workers import ProjectionPairForgetRebuilder
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ForgetManifestRecord
+from rememberstack.model import ForgetManifestStatus
+from rememberstack.model import ObjectKey
+from rememberstack.ports import ForgetManifestPort
+from rememberstack.ports import KGitPurgePort
+from rememberstack.ports import ObjectPurgePort
+from rememberstack.ports import P1PurgePort
+from rememberstack.ports import ProjectionPurgePort
+from rememberstack.spine import ForgetCatalog
+from rememberstack.workers import CorpusFsBuilder
+from rememberstack.workers import DeletionService
+from rememberstack.workers import ForgetKnowledgeRebuilder
+from rememberstack.workers import ForgetProjectionRebuilder
+from rememberstack.workers import GraphRebuildWorker
+from rememberstack.workers import HardForgetHandler
+from rememberstack.workers import HardForgetReadiness
+from rememberstack.workers import HardForgetService
+from rememberstack.workers import KnowledgeCommitDriver
+from rememberstack.workers import KnowledgeCycleForgetRebuilder
+from rememberstack.workers import ProjectionPairForgetRebuilder
 
 _DEPLOYMENT_ID = UUID("75000000-0000-0000-0000-000000000001")
 _DOC_ID = UUID("75000000-0000-0000-0000-000000000002")

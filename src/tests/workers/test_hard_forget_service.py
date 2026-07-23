@@ -7,14 +7,14 @@ from uuid import UUID
 
 import pytest
 
-from ultimate_memory.model import EnqueueOutcome
-from ultimate_memory.model import ForgetInProgressError
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ForgetManifestRecord
-from ultimate_memory.model import ForgetManifestStatus
-from ultimate_memory.model import ForgetRedactionRequiredError
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.workers import HardForgetService
+from rememberstack.model import EnqueueOutcome
+from rememberstack.model import ForgetInProgressError
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ForgetManifestRecord
+from rememberstack.model import ForgetManifestStatus
+from rememberstack.model import ForgetRedactionRequiredError
+from rememberstack.spine import ForgetCatalog
+from rememberstack.workers import HardForgetService
 
 _DEPLOYMENT_ID = UUID("74000000-0000-0000-0000-000000000001")
 _DOC_ID = UUID("74000000-0000-0000-0000-000000000002")

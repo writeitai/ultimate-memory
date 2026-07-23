@@ -2,13 +2,13 @@
 
 from uuid import UUID
 
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.ports import ForgetManifestPort
-from ultimate_memory.ports import KGitPurgePort
-from ultimate_memory.ports import ObjectPurgePort
-from ultimate_memory.ports import P1PurgePort
-from ultimate_memory.ports import ProjectionPurgePort
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ObjectKey
+from rememberstack.ports import ForgetManifestPort
+from rememberstack.ports import KGitPurgePort
+from rememberstack.ports import ObjectPurgePort
+from rememberstack.ports import P1PurgePort
+from rememberstack.ports import ProjectionPurgePort
 
 
 class RecordingForgetStore:

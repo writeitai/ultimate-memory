@@ -13,25 +13,25 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.eval import EvalHarness
-from ultimate_memory.eval import make_retrieval_evaluator
-from ultimate_memory.eval import make_s58_evaluator
-from ultimate_memory.eval import S58_CANARIES
-from ultimate_memory.eval import seed_s58_canaries
-from ultimate_memory.eval import seed_skeleton_canaries
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EvalSuite
-from ultimate_memory.model import PublishedMounts
-from ultimate_memory.model import S58Answer
-from ultimate_memory.spine import CANONICAL_RECIPES
-from ultimate_memory.spine import ConsumptionCatalog
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import RecipeRegistry
-from ultimate_memory.spine import seed_canonical_recipes
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import ConsumptionSkillSurface
-from ultimate_memory.surfaces import QueryEngine
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.eval import EvalHarness
+from rememberstack.eval import make_retrieval_evaluator
+from rememberstack.eval import make_s58_evaluator
+from rememberstack.eval import S58_CANARIES
+from rememberstack.eval import seed_s58_canaries
+from rememberstack.eval import seed_skeleton_canaries
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EvalSuite
+from rememberstack.model import PublishedMounts
+from rememberstack.model import S58Answer
+from rememberstack.spine import CANONICAL_RECIPES
+from rememberstack.spine import ConsumptionCatalog
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import RecipeRegistry
+from rememberstack.spine import seed_canonical_recipes
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import ConsumptionSkillSurface
+from rememberstack.surfaces import QueryEngine
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("55000000-0000-0000-0000-000000000058")
@@ -65,7 +65,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for the S58 integration proof")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for the S58 integration proof"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

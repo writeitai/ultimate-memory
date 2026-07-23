@@ -10,7 +10,7 @@ The MCP surface exposes the deployment's recipes as MCP tools. It is not a
 second, hand-maintained tool list — **the tool list _is_ the recipe
 registry**. Adding a query pattern is adding a registry row; the tool list
 updates with no code change, exactly as the API's `/recipes` and the CLI's
-`ugm query list` do. All three render the same surface.
+`remember query list` do. All three render the same surface.
 
 ## `tools/list`
 
@@ -67,8 +67,8 @@ registry's grain bar guarantees it).
 
 ## Transport
 
-Run `ugm mcp` to start the dependency-light stdio JSON-RPC server. It reaches
-the deployment at `UGM_API_URL`, uses `UGM_API_AUTHORIZATION` when set, renders
+Run `remember mcp` to start the dependency-light stdio JSON-RPC server. It reaches
+the deployment at `REMEMBERSTACK_API_URL`, uses `REMEMBERSTACK_API_AUTHORIZATION` when set, renders
 `tools/list` from `GET /recipes`, and proxies `tools/call` to
 `POST /recipe/{name}`. The server supports the MCP `initialize`, `tools/list`,
 and `tools/call` lifecycle; notifications produce no response.

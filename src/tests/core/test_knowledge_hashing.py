@@ -9,14 +9,14 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.core import knowledge_inputs_hash
-from ultimate_memory.model import EntityRuleParams
-from ultimate_memory.model import KnowledgeCandidateLayer
-from ultimate_memory.model import KnowledgeClaimFingerprint
-from ultimate_memory.model import KnowledgeFactFingerprint
-from ultimate_memory.model import KnowledgeInputSnapshot
-from ultimate_memory.model import KnowledgeRuleConfiguration
-from ultimate_memory.model import KnowledgeRuleKind
+from rememberstack.core import knowledge_inputs_hash
+from rememberstack.model import EntityRuleParams
+from rememberstack.model import KnowledgeCandidateLayer
+from rememberstack.model import KnowledgeClaimFingerprint
+from rememberstack.model import KnowledgeFactFingerprint
+from rememberstack.model import KnowledgeInputSnapshot
+from rememberstack.model import KnowledgeRuleConfiguration
+from rememberstack.model import KnowledgeRuleKind
 
 
 def _snapshot() -> KnowledgeInputSnapshot:

@@ -1,6 +1,6 @@
 # Goal
 
-Implement the complete Ultimate Memory library described by the binding designs
+Implement the complete RememberStack library described by the binding designs
 and requirements, following the build sequence in `plan/plans/roadmap.md` from
 phase 0 through phase 8.
 

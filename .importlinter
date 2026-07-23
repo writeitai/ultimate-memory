@@ -1,64 +1,64 @@
 [importlinter]
-root_package = ultimate_memory
+root_package = rememberstack
 
 [importlinter:contract:model-is-independent]
-name = Model imports no other ultimate_memory layer
+name = Model imports no other rememberstack layer
 type = forbidden
 source_modules =
-    ultimate_memory.model
+    rememberstack.model
 forbidden_modules =
-    ultimate_memory.core
-    ultimate_memory.spine
-    ultimate_memory.ports
-    ultimate_memory.adapters
-    ultimate_memory.llm
-    ultimate_memory.workers
-    ultimate_memory.surfaces
-    ultimate_memory.eval
-    ultimate_memory.profiles
+    rememberstack.core
+    rememberstack.spine
+    rememberstack.ports
+    rememberstack.adapters
+    rememberstack.llm
+    rememberstack.workers
+    rememberstack.surfaces
+    rememberstack.eval
+    rememberstack.profiles
 
 [importlinter:contract:core-only-depends-on-model]
 name = Core depends only on model
 type = forbidden
 source_modules =
-    ultimate_memory.core
+    rememberstack.core
 forbidden_modules =
-    ultimate_memory.spine
-    ultimate_memory.ports
-    ultimate_memory.adapters
-    ultimate_memory.llm
-    ultimate_memory.workers
-    ultimate_memory.surfaces
-    ultimate_memory.eval
-    ultimate_memory.profiles
+    rememberstack.spine
+    rememberstack.ports
+    rememberstack.adapters
+    rememberstack.llm
+    rememberstack.workers
+    rememberstack.surfaces
+    rememberstack.eval
+    rememberstack.profiles
 
 [importlinter:contract:workers-do-not-import-adapters]
 name = Workers do not import adapters
 type = forbidden
 source_modules =
-    ultimate_memory.workers
+    rememberstack.workers
 forbidden_modules =
-    ultimate_memory.adapters
+    rememberstack.adapters
 
 [importlinter:contract:surfaces-do-not-import-adapters]
 name = Surfaces do not import adapters
 type = forbidden
 source_modules =
-    ultimate_memory.surfaces
+    rememberstack.surfaces
 forbidden_modules =
-    ultimate_memory.adapters
+    rememberstack.adapters
 
 [importlinter:contract:profiles-own-adapter-composition]
 name = Only profiles compose adapters
 type = forbidden
 source_modules =
-    ultimate_memory.model
-    ultimate_memory.core
-    ultimate_memory.spine
-    ultimate_memory.ports
-    ultimate_memory.llm
-    ultimate_memory.workers
-    ultimate_memory.surfaces
-    ultimate_memory.eval
+    rememberstack.model
+    rememberstack.core
+    rememberstack.spine
+    rememberstack.ports
+    rememberstack.llm
+    rememberstack.workers
+    rememberstack.surfaces
+    rememberstack.eval
 forbidden_modules =
-    ultimate_memory.adapters
+    rememberstack.adapters

@@ -64,10 +64,10 @@ needs to restate it:
   **enforced by import-linter in CI** (core is pure; SQL only in `spine/`; vendor SDKs only in
   `adapters/`); explicit constructor-injection profiles, no DI framework.
 - **WP-0.1 scaffold conventions — resolved from merged evidence (2026-07-17):** these are
-  repository-wide choices, not owner-input placeholders. [PR #39](https://github.com/writeitai/ultimate-memory/pull/39)
-  (merge [`eccc693`](https://github.com/writeitai/ultimate-memory/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
-  established the scaffold and [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
-  (merge [`ec5ce3a`](https://github.com/writeitai/ultimate-memory/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+  repository-wide choices, not owner-input placeholders. [PR #39](https://github.com/writeitai/rememberstack/pull/39)
+  (merge [`eccc693`](https://github.com/writeitai/rememberstack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+  established the scaffold and [PR #41](https://github.com/writeitai/rememberstack/pull/41)
+  (merge [`ec5ce3a`](https://github.com/writeitai/rememberstack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
   established the configuration/secrets convention:
   - **Package, dependency, and build management:** `uv` owns environment/dependency resolution
     and the committed lock ([`uv.lock`](../../uv.lock)); Hatchling is the build backend and
@@ -75,12 +75,10 @@ needs to restate it:
   - **Lint, format, typing, and tests:** Ruff supplies lint and formatting, Pyright supplies
     type checking, and pytest + pytest-cov supply tests and coverage. Their binding settings
     and locked development dependencies live in [`pyproject.toml`](../../pyproject.toml).
-  - **Repository layout and names:** one Python distribution uses the `src` layout. The
-    pre-release distribution is `ultimate-memory`, its import root is the lower-snake-case
-    `ultimate_memory` package ([`src/ultimate_memory/`](../../src/ultimate_memory/)), and tests
-    use `test_*.py` under [`src/tests/`](../../src/tests/). This records scaffold naming only:
-    D62's hexagonal package directories and import boundaries remain the separate, planned
-    WP-0.4 deliverable, and the release-gate rename remains open.
+  - **Repository layout and names:** one Python distribution uses the `src` layout. D76 binds
+    distribution/import `rememberstack`, CLI `remember`, product RememberStack, and canonical
+    home `remember.dev`; tests use `test_*.py` under [`src/tests/`](../../src/tests/). D62's
+    hexagonal package directories and import boundaries remain unchanged.
   - **CI provider:** GitHub Actions runs the locked environment on Python 3.12, 3.13, and 3.14, with
     Ruff lint/format, Pyright, pytest/coverage, and the combined coverage report defined in
     [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
@@ -116,8 +114,8 @@ as usual):
 
 | Gate | Blocks | What must be decided |
 |---|---|---|
-| stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/ultimate-memory/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/ultimate-memory/pull/41); §3 maps every former slot to its exact repository evidence. |
-| rename + CLA (`questions.md` §11a) | Phase 7 WP-7.6 (release), first outside PR | `remember.dev` mechanical rename + attorney clearance; CLA before external contributions |
+| stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/rememberstack/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/rememberstack/pull/41); §3 maps every former slot to its exact repository evidence. |
+| name + CLA (`questions.md` §11a; D76) | Phase 7 WP-7.6 (release), first outside PR | RememberStack mechanical rename; focused attorney clearance; CLA before external contributions |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |

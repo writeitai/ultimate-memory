@@ -13,14 +13,14 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.model import ClusterConfig
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import P1EntityRow
-from ultimate_memory.model import UnmergeError
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import EntityClusterer
-from ultimate_memory.spine.entity_registry import normalized_lemma
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.model import ClusterConfig
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import P1EntityRow
+from rememberstack.model import UnmergeError
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import EntityClusterer
+from rememberstack.spine.entity_registry import normalized_lemma
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("c0000000-0000-0000-0000-000000000001")
@@ -67,7 +67,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL cluster proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL cluster proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")

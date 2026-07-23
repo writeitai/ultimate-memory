@@ -5,9 +5,9 @@ from pathlib import Path
 
 from markdown_it import __version__ as markdown_it_version
 
-from ultimate_memory.core import block_hash
-from ultimate_memory.core import blockize
-from ultimate_memory.core import BLOCKIZER_VERSION
+from rememberstack.core import block_hash
+from rememberstack.core import blockize
+from rememberstack.core import BLOCKIZER_VERSION
 
 _CORPUS = Path(__file__).resolve().parents[1] / "blockizer_corpus"
 

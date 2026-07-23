@@ -5,13 +5,13 @@ from io import BytesIO
 from botocore.exceptions import ClientError
 import pytest
 
-from ultimate_memory.adapters.selfhost import MinIOObjectStore
-from ultimate_memory.adapters.selfhost.minio import _GetObjectOutput
-from ultimate_memory.adapters.selfhost.minio import _HeadObjectOutput
-from ultimate_memory.adapters.selfhost.minio import _ListObjectsOutput
-from ultimate_memory.model import ObjectAlreadyExistsError
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.model import ObjectKeyEscapesRootError
+from rememberstack.adapters.selfhost import MinIOObjectStore
+from rememberstack.adapters.selfhost.minio import _GetObjectOutput
+from rememberstack.adapters.selfhost.minio import _HeadObjectOutput
+from rememberstack.adapters.selfhost.minio import _ListObjectsOutput
+from rememberstack.model import ObjectAlreadyExistsError
+from rememberstack.model import ObjectKey
+from rememberstack.model import ObjectKeyEscapesRootError
 
 
 class _Body:

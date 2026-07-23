@@ -1,7 +1,7 @@
-# Ultimate Memory
+# RememberStack
 
-[![CI](https://github.com/writeitai/ultimate-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/writeitai/ultimate-memory/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/writeitai/ultimate-memory/python-coverage-comment-action-data/endpoint.json)](https://github.com/writeitai/ultimate-memory/tree/python-coverage-comment-action-data)
+[![CI](https://github.com/writeitai/rememberstack/actions/workflows/ci.yml/badge.svg)](https://github.com/writeitai/rememberstack/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/writeitai/rememberstack/python-coverage-comment-action-data/endpoint.json)](https://github.com/writeitai/rememberstack/tree/python-coverage-comment-action-data)
 
 A memory system for AI agents, designed to ingest **millions** of heterogeneous documents and
 distill them into progressively more abstract, navigable knowledge — while keeping everything
@@ -124,7 +124,7 @@ analysis says **why we think so**. A change should land at the highest level it 
 and flow downward.
 
 Beside the plan lives **`website/`** — the public documentation site
-([ultimate-memory.writeit.ai](https://ultimate-memory.writeit.ai)), a self-contained Next.js/MDX static app
+([remember.dev](https://remember.dev)), a self-contained Next.js/MDX static app
 that documents the system *as it ships* (D66): user-facing changes update their docs page in
 the same PR, and the full-scope design intent stays here in `plan/`.
 

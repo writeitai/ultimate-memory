@@ -21,16 +21,16 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.model import ClusterConfig
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import P1EntityRow
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import EntityClusterer
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import SupersessionAdjudicator
-from ultimate_memory.spine import SupersessionSettings
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.model import ClusterConfig
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import P1EntityRow
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import EntityClusterer
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import SupersessionAdjudicator
+from rememberstack.spine import SupersessionSettings
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("b1000000-0000-0000-0000-000000000001")
@@ -56,7 +56,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL ripple proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL ripple proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -141,7 +143,7 @@ def test_merged_identity_blocks_across_endpoints_and_unmerge_flags_the_ripple(
     clusterer = EntityClusterer(
         engine=database_engine, entity_index=_StaticIndex(), config=ClusterConfig()
     )
-    from ultimate_memory.spine.clustering import apply_merge
+    from rememberstack.spine.clustering import apply_merge
 
     with database_engine.begin() as connection:
         merge_id = apply_merge(
@@ -209,7 +211,7 @@ def test_same_identity_closures_do_not_ripple(database_engine: Engine) -> None:
     """Codex review: a closure whose BOTH endpoints are the survivor survives
     the un-merge of that survivor's pair without a flag — only closures that
     STRADDLE the split identities ripple."""
-    from ultimate_memory.spine.clustering import apply_merge
+    from rememberstack.spine.clustering import apply_merge
 
     facts = FactCatalog(engine=database_engine)
     survivor = _entity(engine=database_engine, name="Alice")
@@ -267,7 +269,7 @@ def test_same_identity_closures_do_not_ripple(database_engine: Engine) -> None:
 def test_nested_split_members_are_flagged(database_engine: Engine) -> None:
     """Codex review: unmerging B -> A flags a closure whose far side sits on
     C (merged into B) — the ripple scan walks the FULL post-split closures."""
-    from ultimate_memory.spine.clustering import apply_merge
+    from rememberstack.spine.clustering import apply_merge
 
     facts = FactCatalog(engine=database_engine)
     a = _entity(engine=database_engine, name="A Root")

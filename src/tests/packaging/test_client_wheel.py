@@ -85,7 +85,7 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
         capture_output=True,
         text=True,
     )
-    wheel = next(dist.glob("ultimate_memory-*.whl"))
+    wheel = next(dist.glob("rememberstack-*.whl"))
     _assert_dependency_split(wheel=wheel)
     subprocess.run(
         ["uv", "venv", str(environment)], check=True, capture_output=True, text=True
@@ -104,7 +104,7 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
             "-c",
             (
                 "import importlib.util; "
-                "from ultimate_memory.client import MemoryClient; "
+                "from rememberstack.client import MemoryClient; "
                 "assert MemoryClient.__name__ == 'MemoryClient'; "
                 "assert importlib.util.find_spec('sqlalchemy') is None"
             ),
@@ -122,8 +122,13 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        monkeypatch.setenv("UGM_API_URL", f"http://127.0.0.1:{server.server_port}")
-        executable = environment / "bin" / "ugm"
+        monkeypatch.setenv(
+            "REMEMBERSTACK_API_URL", f"http://127.0.0.1:{server.server_port}"
+        )
+        executable = environment / "bin" / "remember"
+        version = subprocess.run(
+            [str(executable), "--version"], check=True, capture_output=True, text=True
+        )
         listing = subprocess.run(
             [str(executable), "query", "list"],
             check=True,
@@ -157,6 +162,7 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
         server.server_close()
         thread.join()
 
+    assert version.stdout.strip() == "RememberStack 0.1.0"
     assert json.loads(listing.stdout)["name"] == "entity_resolve"
     assert json.loads(query.stdout)["grain"] == "fact"
     assert json.loads(ingest.stdout)["created"] is True

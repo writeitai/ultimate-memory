@@ -4,21 +4,21 @@ from datetime import datetime
 from datetime import UTC
 from uuid import UUID
 
-from ultimate_memory.core import cap_knowledge_writer_bundle
-from ultimate_memory.core import knowledge_writer_coverage
-from ultimate_memory.core import render_knowledge_writer_bundle
-from ultimate_memory.model import KnowledgeCitation
-from ultimate_memory.model import KnowledgeClaimFingerprint
-from ultimate_memory.model import KnowledgeEvidenceRole
-from ultimate_memory.model import KnowledgeEvidenceTarget
-from ultimate_memory.model import KnowledgeFactFingerprint
-from ultimate_memory.model import KnowledgeFactSheetFact
-from ultimate_memory.model import KnowledgeFactSheetSnapshot
-from ultimate_memory.model import KnowledgeInputSnapshot
-from ultimate_memory.model import KnowledgeWriterBundle
-from ultimate_memory.model import KnowledgeWriterClaim
-from ultimate_memory.model import KnowledgeWriterClaimGroup
-from ultimate_memory.model import KnowledgeWriterFactReference
+from rememberstack.core import cap_knowledge_writer_bundle
+from rememberstack.core import knowledge_writer_coverage
+from rememberstack.core import render_knowledge_writer_bundle
+from rememberstack.model import KnowledgeCitation
+from rememberstack.model import KnowledgeClaimFingerprint
+from rememberstack.model import KnowledgeEvidenceRole
+from rememberstack.model import KnowledgeEvidenceTarget
+from rememberstack.model import KnowledgeFactFingerprint
+from rememberstack.model import KnowledgeFactSheetFact
+from rememberstack.model import KnowledgeFactSheetSnapshot
+from rememberstack.model import KnowledgeInputSnapshot
+from rememberstack.model import KnowledgeWriterBundle
+from rememberstack.model import KnowledgeWriterClaim
+from rememberstack.model import KnowledgeWriterClaimGroup
+from rememberstack.model import KnowledgeWriterFactReference
 
 _ARTIFACT_ID = UUID("64000000-0000-0000-0000-000000000001")
 _DEPLOYMENT_ID = UUID("64000000-0000-0000-0000-000000000002")

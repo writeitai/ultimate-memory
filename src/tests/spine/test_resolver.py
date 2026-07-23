@@ -13,20 +13,20 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost import LanceChunkIndex
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.eval import run_resolution_suite
-from ultimate_memory.eval import seed_synthetic_golden_pairs
-from ultimate_memory.model import ClaimForNormalization
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EntityRef
-from ultimate_memory.model import ResolverConfig
-from ultimate_memory.model import TypeThresholds
-from ultimate_memory.spine import CascadeResolver
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import RESOLVER_VERSION
-from ultimate_memory.spine import seed_resolver_version
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.adapters.selfhost import LanceChunkIndex
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.eval import run_resolution_suite
+from rememberstack.eval import seed_synthetic_golden_pairs
+from rememberstack.model import ClaimForNormalization
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EntityRef
+from rememberstack.model import ResolverConfig
+from rememberstack.model import TypeThresholds
+from rememberstack.spine import CascadeResolver
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import RESOLVER_VERSION
+from rememberstack.spine import seed_resolver_version
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("b0000000-0000-0000-0000-000000000001")
@@ -61,7 +61,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL cascade proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL cascade proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -317,7 +319,7 @@ def test_resolver_version_definitions_are_immutable(
     """Codex review / D22: the same version string cannot be re-registered
     with different thresholds — a decision's version always names the
     definition that was actually in force."""
-    from ultimate_memory.spine.resolver import ResolverVersionConflictError
+    from rememberstack.spine.resolver import ResolverVersionConflictError
 
     seed_resolver_version(
         engine=database_engine,

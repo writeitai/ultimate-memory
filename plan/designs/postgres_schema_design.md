@@ -1,6 +1,6 @@
 # Postgres Schema Design — the Plane-E Spine
 
-This document specifies the **complete Postgres schema** for `ugm`: every table, column,
+This document specifies the **complete Postgres schema** for `rememberstack`: every table, column,
 primary key, foreign key, index, enum, and the partitioning / deletion / versioning rules that
 tie them together. Postgres is the **single source of truth for plane E** (evidence) and the
 **only home of validity/invalidation state** (D6); every other store (LanceDB, LadybugDB, the
@@ -262,7 +262,7 @@ LLM/embedding spend per stage and lane (`overall_design.md` §8).
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE TABLE deployments (
   deployment_id   uuid PRIMARY KEY,            -- stable instance identity; appears in every scoped FK
-  slug            text NOT NULL UNIQUE,        -- short handle used in GCS bucket names: ugm-<slug>-raw etc.
+  slug            text NOT NULL UNIQUE,        -- short handle used in GCS bucket names: rememberstack-<slug>-raw etc.
   name            text NOT NULL,               -- human label ("Personal assistant", "Acme migration")
   description     text,                        -- what this deployment is for
   default_language text NOT NULL DEFAULT 'en', -- primary corpus language; gates the multilingual matching path (registries §5)

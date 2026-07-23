@@ -49,23 +49,18 @@ package rather than re-deriving them:
   mandatory). The app has its own `package.json`/toolchain and is never published to PyPI —
   it is a delivery artifact beside D62's three (repo, package, images), not part of the
   library.
-- **GitHub Pages at `ultimate-memory.writeit.ai`** (interim; the public home becomes
-  **`docs.remember.dev`** — the author holds the domain and the name is decided,
-  `questions.md` §11a. The bare **`remember.dev` apex belongs to the managed-cloud
-  product** (its D14, decided by the author who owns both programs), so this open-source
-  docs site keeps its own home on the `docs.` subdomain — when the rename gate executes)
-  via `.github/workflows/docs-deploy.yml`: pushes
-  to `main` touching `website/**` build (Next export + Pagefind index) and deploy; PRs run
-  the build as a check only. Pages + custom domain require a one-time provisioning step
-  (Pages source = GitHub Actions; custom domain bound in Settings; a `CNAME` DNS record in
-  the `writeit.ai` zone) — the committed `public/CNAME` records intent but does not bind
-  the domain; the checklist lives in `website/README.md`.
+- **GitHub Pages at canonical `remember.dev`** (D76) via
+  `.github/workflows/docs-deploy.yml`: pushes to `main` touching `website/**` build
+  (Next export + Pagefind index) and deploy; PRs run the build as a check only.
+  Pages + custom domain require a one-time provisioning step (Pages source = GitHub
+  Actions; custom domain bound in Settings; apex DNS records in the `remember.dev` zone)
+  — the committed `public/CNAME` records intent but does not bind the domain; the
+  checklist lives in `website/README.md`.
 - **One trust boundary note (Rule 3):** the site is part of the open-source deliverable —
-  hosting is repo-local (Pages), no private cloud project involved, and nothing
-  correctness-determining lives there. When it moves to `docs.remember.dev`, that DNS
-  record is a **DNS-only / unproxied** entry in the cloud-owned `remember.dev` zone
-  pointing at **this repo's** GitHub Pages target — so open-source docs traffic never
-  routes through the managed-cloud project, preserving this boundary.
+  hosting is repo-local (Pages), no private cloud project is an authority for it, and
+  nothing correctness-determining lives there. A future hosting change may serve the same
+  static artifact differently, but it does not change the canonical domain or move product
+  truth outside this repository.
 
 ## 3. The truthfulness contract — how docs stay current through implementation
 

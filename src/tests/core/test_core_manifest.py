@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from ultimate_memory.core import CORE_MANIFEST
+from rememberstack.core import CORE_MANIFEST
 
 
 def test_core_manifest_has_exact_version_counts_order_and_unique_keys() -> None:

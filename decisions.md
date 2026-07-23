@@ -1835,9 +1835,9 @@ a separately restored store.
 
 **Decision.** The library ships as **three artifacts**: the GitHub repo (source + the design
 corpus), **one PyPI package positioned as the client** (base install = typed SDK + CLI + MCP
-server; extras `[server]`, `[connectors-*]`, `[k]`; name decided 2026-07-13: dist
-`remember-dev`, CLI `remember`, import `remember`, brand `remember.dev` — questions.md §11a;
-the mechanical rename executes at the release gate), and
+server; extras `[server]`, `[connectors-*]`, `[k]`; the original 2026-07-13 naming was later
+superseded by D76: dist/import `rememberstack`, CLI `remember`, product RememberStack, canonical
+home `remember.dev`; the mechanical rename executes at the release gate), and
 **container images on GHCR + a CI-tested docker-compose self-host profile** (Postgres + MinIO +
 api + worker; the ten-minute quickstart is a release gate). The **client surface** is: query
 (SDK/CLI/MCP), **lineage-aware ingest** (`source_kind/source_ref/source_modified_at/
@@ -1880,13 +1880,13 @@ creation and `NOTIFY` in one transaction; the delivery port never creates the ro
 > **Superseding note (2026-07-17) — `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` /
 > WP-0.1.** The final historical sentence above no longer describes the repository: the
 > formerly open package-manager, lint/format, layout/naming, CI-provider, and secrets/config
-> slots now have merged implementations or binding enforcement. [PR #39](https://github.com/writeitai/ultimate-memory/pull/39)
-> (merge [`eccc693`](https://github.com/writeitai/ultimate-memory/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
+> slots now have merged implementations or binding enforcement. [PR #39](https://github.com/writeitai/rememberstack/pull/39)
+> (merge [`eccc693`](https://github.com/writeitai/rememberstack/commit/eccc693a16d3e32305f142f8f6e04273793996e0))
 > established `uv` with a committed [`uv.lock`](uv.lock), Hatchling in
-> [`pyproject.toml`](pyproject.toml), the single-package [`src/ultimate_memory/`](src/ultimate_memory/)
+> [`pyproject.toml`](pyproject.toml), the single-package [`src/rememberstack/`](src/rememberstack/)
 > layout and test naming, Ruff/Pyright/pytest/coverage, and GitHub Actions
-> [CI](.github/workflows/ci.yml). [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
-> (merge [`ec5ce3a`](https://github.com/writeitai/ultimate-memory/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
+> [CI](.github/workflows/ci.yml). [PR #41](https://github.com/writeitai/rememberstack/pull/41)
+> (merge [`ec5ce3a`](https://github.com/writeitai/rememberstack/commit/ec5ce3ac8e3ca3850ac0eab4e3bce7a8dc87d470))
 > established the typed pydantic-settings/`SecretStr`/`SecretBytes` convention and Ruff's ban
 > on direct environment access. That evidence supersedes only D62's obsolete WP-0.1 gate
 > claim: it closes the roadmap stack-conventions gate and records WP-0.1 done. It does **not**
@@ -2068,8 +2068,9 @@ D49 (envelope + boundary); D8/D9/D63 unchanged.
 **Decision.** The project ships a **public documentation site** for humans (developers
 evaluating, installing, operating the system) as a delivery artifact beside D62's three: a
 self-contained static Next.js + MDX app at **`website/`** in this repository, exported to
-plain HTML and served by **GitHub Pages at `ultimate-memory.writeit.ai`** (CNAME in the `writeit.ai`
-zone; deploy via `.github/workflows/docs-deploy.yml` on pushes to main touching
+plain HTML and served by **GitHub Pages at `remember.dev`** (verified custom domain plus
+apex DNS records in the `remember.dev` zone; deploy via
+`.github/workflows/docs-deploy.yml` on pushes to main touching
 `website/**`; PRs build as a check). The stack **replicates the proven WriteIt docs module**
 (loopy-loop's documentation site, itself lifted from orchestra's — the pattern of Next.js's
 own docs), inheriting its argued decisions and its adversarial-review fixes wholesale:
@@ -2102,20 +2103,17 @@ intent; the docs state what is currently true of the artifact).
 target IA: `website/README.md`; CLAUDE.md gains the docs section; roadmap §6 gains the
 same-PR rule; eval check `delivery_docs_site` guards the contract. One-time ops step
 recorded (Pages source + custom domain + DNS) — until bound, the site serves under
-`writeitai.github.io/ultimate-memory/` where root-relative assets do not resolve.
+`writeitai.github.io/rememberstack/` where root-relative assets do not resolve.
 Non-goals: versioned docs, docs SaaS/external search, server-rendered features;
 API-reference pages render from the recipe registry when retrieval ships (D50) rather than
 being hand-maintained.
 
-> **Amended 2026-07-21 (public-home subdomain).** The future public home is
-> **`docs.remember.dev`**, not the bare `remember.dev` apex. The apex was allocated to the
-> managed-cloud product (its D14 — the author owns both programs and decided the split); this
-> open-source docs site keeps its own repo-local GitHub Pages hosting under the `docs.`
-> subdomain. The `docs.remember.dev` record is a DNS-only/unproxied entry in the cloud-owned
-> `remember.dev` zone pointing at this repo's Pages target, so OSS docs never route through the
-> cloud's private project (preserving the D66 trust-boundary note). The live
-> `website/public/CNAME` stays on the interim `ultimate-memory.writeit.ai` until the rename
-> gate executes; only then does it flip to `docs.remember.dev`. Design home:
+> **Amended 2026-07-21, superseded by D76 on 2026-07-23.** The temporary plan to put
+> OSS documentation at `docs.remember.dev` and reserve the apex for the hosted control
+> plane is withdrawn. RememberStack has one canonical public home at `remember.dev`.
+> The current GitHub Pages deployment serves the repo-owned static site there; a future
+> hosting change may add cloud-facing pages without creating a second product identity or
+> making the cloud an authority for OSS documentation. Design home:
 > `plan/designs/docs_site_design.md` §2.
 
 ---
@@ -2355,7 +2353,7 @@ the placement hint, with the deterministic snap (e1 §3) normalizing whatever co
 the block grid. **"PageIndex" names the output shape, not a dependency** — neither the hosted
 PageIndex API nor a vendored self-hosted deployment of the tool is part of the system. The
 seat defaults to the extraction tier (`openai/gpt-5.6-luna`) and is overridden per deployment
-like every other seat (`UGM_STRUCTURER_*`).
+like every other seat (`REMEMBERSTACK_STRUCTURER_*`).
 
 **Context.** Gate #7 asked "hosted API or self-hosted?" — a cost/privacy/rebuild trade.
 Examined against the machinery that had accumulated since the question was posed, both
@@ -2499,7 +2497,8 @@ restore canary is green; design resolution alone does not pretend the runtime co
 ## D75. Portability is a state-and-ordering contract; operators move bytes (refines D60, D62, D74)
 
 **Decision.** The OSS library defines which deployment state is authoritative and the only safe
-restore order; it does not implement `ugm export` / `ugm import`, a universal archive format, or a
+restore order; it does not implement `remember export` / `remember import`, a universal archive
+format, or a
 backup coordinator. Portable state is the PostgreSQL database, raw and artifact objects, the K Git
 repository, and the separately durable D74 hard-forget manifest root. Operators transfer those
 stores with their native tools while preserving the deployment id. P1, P2, and P3 are derived state
@@ -2538,3 +2537,41 @@ builders; they are dependencies rather than a claimed composed restore test. The
 preserved control data, manifest-first replay, and forgotten-data non-resurrection without new
 ports, schema, settings, services, or public CLI commands. Deployment-id preservation and
 manifest-root transfer verification remain explicit operator preconditions.
+
+## D76. RememberStack is the product; remember.dev is its canonical home
+
+**Decision.** The public product mark is **RememberStack** and its canonical website is
+`https://remember.dev`. Public attribution may read “RememberStack by WriteIt.ai.” The repository
+is `writeitai/rememberstack`, the single PyPI distribution and Python import are `rememberstack`,
+the container is `ghcr.io/writeitai/rememberstack`, and the deliberately shorter CLI executable is
+`remember`. Product prose, help/version output, package metadata, and release artifacts identify
+the product as RememberStack; `remember` is a command name, not a second product mark.
+
+The pre-release working identifiers (`Ultimate Memory`, `ultimate-memory`, `ultimate_memory`,
+`ugm`, and `UGM_*`) receive one clean mechanical rename before the first public release. Runtime
+configuration uses the `REMEMBERSTACK_*` prefix. Because no public artifact exists, the project
+ships no compatibility package, import, CLI alias, or duplicate environment variables.
+
+**Context.** The 2026-07-13 decision to use `remember.dev` as both address and brand left the
+generic word “remember” carrying the whole identity and exposed a close in-category neighbour,
+Remembra. A compound product mark preserves the exceptional domain while making the source name
+clearer. RememberStack accurately describes the layered OSS system and can cover both the library
+and a hosted deployment without inventing a second architecture or brand.
+
+Preliminary exact-name checks on 2026-07-22/23 found no in-category RememberStack product or
+package, but did find Recallstack in the same agent-memory category and Remembra remains close.
+Those checks are not legal clearance. The product/domain pairing is adopted for implementation;
+focused attorney clearance against both neighbours remains a release gate rather than a claim
+made by this engineering decision.
+
+**Rejected alternatives.** `RememberKit` is already an active agent-memory package; `RecallStack`
+is already an active product; plain `remember.dev` leaves the generic word doing all trademark
+work; `RememberOS` overstates the product; and separate names for the OSS library and hosted
+service add complexity before either has earned it. Using `rememberstack` as the executable was
+also rejected: the verb-shaped `remember` command is clearer and no compatibility alias is needed.
+
+**Consequences.** The release-gate rename in D62/WP-7.6 now has exact targets and can execute
+mechanically. `remember.dev` is the canonical URL in website metadata and deployment
+documentation; alternate website hosts redirect there. The repository rename, domain/DNS setup,
+PyPI Trusted Publisher, and public GHCR visibility are account-level release steps. The bounded
+CLA and focused legal clearance remain the only owner-side gates before public release.

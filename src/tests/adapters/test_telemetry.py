@@ -5,9 +5,9 @@ from datetime import UTC
 from io import StringIO
 import json
 
-from ultimate_memory.adapters.selfhost import JsonLineTelemetry
-from ultimate_memory.model import TelemetryAttribute
-from ultimate_memory.model import TelemetryEvent
+from rememberstack.adapters.selfhost import JsonLineTelemetry
+from rememberstack.model import TelemetryAttribute
+from rememberstack.model import TelemetryEvent
 
 
 def _event() -> TelemetryEvent:

@@ -20,55 +20,55 @@ from sqlalchemy import event
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost import LanceChunkIndex
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.client import MemoryClient
-from ultimate_memory.core import chunker_version
-from ultimate_memory.core import ChunkerParams
-from ultimate_memory.core import ConversionRouter
-from ultimate_memory.core import MarkdownPassthroughConverter
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import DocumentUpload
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ResolverConfig
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.spine import CascadeResolver
-from ultimate_memory.spine import ChunkCatalog
-from ultimate_memory.spine import ClaimCatalog
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import DocumentCatalog
-from ultimate_memory.spine import EntityRegistry
-from ultimate_memory.spine import FactCatalog
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import ObservationAdjudicator
-from ultimate_memory.spine import ObservationSettings
-from ultimate_memory.spine import RESOLVER_VERSION
-from ultimate_memory.spine import SupersessionAdjudicator
-from ultimate_memory.spine import SupersessionSettings
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.surfaces import build_api
-from ultimate_memory.surfaces import QueryEngine
-import ultimate_memory.surfaces.query_engine as query_engine_module
-from ultimate_memory.workers import AdjudicateSupersessionHandler
-from ultimate_memory.workers import ChunkHandler
-from ultimate_memory.workers import ConvertHandler
-from ultimate_memory.workers import E1Settings
-from ultimate_memory.workers import E2Settings
-from ultimate_memory.workers import E3Settings
-from ultimate_memory.workers import EmbedChunksHandler
-from ultimate_memory.workers import EmbedClaimsHandler
-from ultimate_memory.workers import ExtractClaimsHandler
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import LabelFactsHandler
-from ultimate_memory.workers import NormalizeRelationsHandler
-from ultimate_memory.workers import P1Settings
-from ultimate_memory.workers import StructureHandler
-from ultimate_memory.workers import UploadIngestor
-from ultimate_memory.workers import Worker
+from rememberstack.adapters.selfhost import LanceChunkIndex
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.client import MemoryClient
+from rememberstack.core import chunker_version
+from rememberstack.core import ChunkerParams
+from rememberstack.core import ConversionRouter
+from rememberstack.core import MarkdownPassthroughConverter
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import DocumentUpload
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ResolverConfig
+from rememberstack.model import RunResultOutcome
+from rememberstack.spine import CascadeResolver
+from rememberstack.spine import ChunkCatalog
+from rememberstack.spine import ClaimCatalog
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import DocumentCatalog
+from rememberstack.spine import EntityRegistry
+from rememberstack.spine import FactCatalog
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import ObservationAdjudicator
+from rememberstack.spine import ObservationSettings
+from rememberstack.spine import RESOLVER_VERSION
+from rememberstack.spine import SupersessionAdjudicator
+from rememberstack.spine import SupersessionSettings
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.surfaces import build_api
+from rememberstack.surfaces import QueryEngine
+import rememberstack.surfaces.query_engine as query_engine_module
+from rememberstack.workers import AdjudicateSupersessionHandler
+from rememberstack.workers import ChunkHandler
+from rememberstack.workers import ConvertHandler
+from rememberstack.workers import E1Settings
+from rememberstack.workers import E2Settings
+from rememberstack.workers import E3Settings
+from rememberstack.workers import EmbedChunksHandler
+from rememberstack.workers import EmbedClaimsHandler
+from rememberstack.workers import ExtractClaimsHandler
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import LabelFactsHandler
+from rememberstack.workers import NormalizeRelationsHandler
+from rememberstack.workers import P1Settings
+from rememberstack.workers import StructureHandler
+from rememberstack.workers import UploadIngestor
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("a0000000-0000-0000-0000-000000000001")
@@ -156,7 +156,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL API proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL API proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -742,11 +744,11 @@ def test_wp17_skeleton_eval_suite_runs_green_and_blocks_on_breakage(
     """WP-1.7 acceptance: the S-subset + grain contract wired into the D22
     harness as retrieval-suite canaries — green over the corpus, and a broken
     corpus fails the suite (the CI-blocking signal)."""
-    from ultimate_memory.eval import EvalHarness
-    from ultimate_memory.eval import make_skeleton_evaluator
-    from ultimate_memory.eval import seed_skeleton_canaries
-    from ultimate_memory.model import EvalSuite
-    from ultimate_memory.workers import P1Settings as _P1Settings
+    from rememberstack.eval import EvalHarness
+    from rememberstack.eval import make_skeleton_evaluator
+    from rememberstack.eval import seed_skeleton_canaries
+    from rememberstack.model import EvalSuite
+    from rememberstack.workers import P1Settings as _P1Settings
 
     seed_skeleton_canaries(engine=rig.engine, deployment_id=_DEPLOYMENT_ID)
     seed_skeleton_canaries(  # idempotent: re-seeding never duplicates

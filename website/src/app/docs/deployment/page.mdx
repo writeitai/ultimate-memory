@@ -14,9 +14,10 @@ deployment, and seeds the canonical retrieval recipes.
 
 This is a pre-release infrastructure proof. It processes a Markdown upload
 through conversion and deterministic structure, then leaves its chunk work
-pending. Later pipeline workers, the full restore/hard-forget composition, pinned
-release images, and the public `remember` names belong to the remaining release
-work. Do not expose this stack to untrusted traffic.
+pending. Later pipeline workers are not yet wired into this quickstart; public
+PyPI/GHCR artifacts and digest-pinned Compose remain release work. The
+RememberStack, `rememberstack`, and `remember` names used here are final. Do not
+expose this stack to untrusted traffic.
 
 ## Start the stack
 
@@ -57,7 +58,7 @@ and the next `chunk` row remains visibly `pending` because this skeleton does no
 pretend the later worker topology is composed.
 
 ```bash
-docker compose exec postgres psql -U ugm -d ugm -c \
+docker compose exec postgres psql -U rememberstack -d rememberstack -c \
   "SELECT stage, status FROM processing_state ORDER BY created_at"
 ```
 

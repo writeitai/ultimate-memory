@@ -5,17 +5,17 @@ from uuid import uuid4
 
 import pytest
 
-from ultimate_memory.core import knowledge_compile_order
-from ultimate_memory.core import knowledge_content_hash
-from ultimate_memory.core import KnowledgeCompileGraphError
-from ultimate_memory.core import KnowledgePageValidationError
-from ultimate_memory.core import validate_knowledge_page_output
-from ultimate_memory.model import KnowledgeCitation
-from ultimate_memory.model import KnowledgeCompilationWrite
-from ultimate_memory.model import KnowledgeCompileArtifact
-from ultimate_memory.model import KnowledgeEvidenceRole
-from ultimate_memory.model import KnowledgeEvidenceTarget
-from ultimate_memory.model import KnowledgePageCompileOutput
+from rememberstack.core import knowledge_compile_order
+from rememberstack.core import knowledge_content_hash
+from rememberstack.core import KnowledgeCompileGraphError
+from rememberstack.core import KnowledgePageValidationError
+from rememberstack.core import validate_knowledge_page_output
+from rememberstack.model import KnowledgeCitation
+from rememberstack.model import KnowledgeCompilationWrite
+from rememberstack.model import KnowledgeCompileArtifact
+from rememberstack.model import KnowledgeEvidenceRole
+from rememberstack.model import KnowledgeEvidenceTarget
+from rememberstack.model import KnowledgePageCompileOutput
 
 _DEPLOYMENT_ID = UUID("62000000-0000-0000-0000-000000000001")
 

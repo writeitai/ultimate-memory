@@ -28,8 +28,8 @@ jobs:
       - name: Prove MinIO conditional create
         run: |
           docker compose --env-file .env.example exec -T api python - <<'PY'
-          from ultimate_memory.adapters.selfhost import MinIOObjectStore, MinIOSettings
-          from ultimate_memory.model import ObjectAlreadyExistsError, ObjectKey
+          from rememberstack.adapters.selfhost import MinIOObjectStore, MinIOSettings
+          from rememberstack.model import ObjectAlreadyExistsError, ObjectKey
 
           store = MinIOObjectStore(
               bucket="remember-raw", settings=MinIOSettings.model_validate({})
@@ -51,7 +51,7 @@ jobs:
           observed=''
           for attempt in {1..30}; do
             observed="$(docker compose --env-file .env.example exec -T postgres \
-              psql -U ugm -d ugm -Atc \
+              psql -U rememberstack -d rememberstack -Atc \
               "SELECT count(*) FILTER (WHERE stage='convert' AND status='succeeded'), count(*) FILTER (WHERE stage='structure' AND status='succeeded'), count(*) FILTER (WHERE stage='chunk' AND status='pending') FROM processing_state")"
             if [ "$observed" = '1|1|1' ]; then
               break
@@ -60,7 +60,7 @@ jobs:
           done
           test "$observed" = '1|1|1'
           test "$(docker compose --env-file .env.example exec -T postgres \
-            psql -U ugm -d ugm -Atc 'SELECT count(*) FROM cost_ledger')" = '0'
+            psql -U rememberstack -d rememberstack -Atc 'SELECT count(*) FROM cost_ledger')" = '0'
 
       - name: Show service logs after failure
         if: failure()
@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: read
     env:
-      UGM_DATABASE_URL: postgresql+psycopg://ugm:ugm_test@localhost:5432/ugm_test
+      REMEMBERSTACK_DATABASE_URL: postgresql+psycopg://rememberstack:rememberstack_test@localhost:5432/rememberstack_test
     strategy:
       fail-fast: false
       matrix:
@@ -84,13 +84,13 @@ jobs:
       postgres:
         image: ghcr.io/dbsystel/postgresql-partman@sha256:bf9d2331aaeb3e33a4e6e73b4c024ca618d4d1ea050bbab978125ff63b83385a
         env:
-          POSTGRES_USER: ugm
-          POSTGRES_PASSWORD: ugm_test
-          POSTGRES_DB: ugm_test
+          POSTGRES_USER: rememberstack
+          POSTGRES_PASSWORD: rememberstack_test
+          POSTGRES_DB: rememberstack_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ugm -d ugm_test"
+          --health-cmd "pg_isready -U rememberstack -d rememberstack_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20

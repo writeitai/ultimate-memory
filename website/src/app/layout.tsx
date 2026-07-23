@@ -10,22 +10,22 @@ const hanken = Hanken_Grotesk({
   variable: "--font-hanken",
 });
 
-const siteUrl = "https://ultimate-memory.writeit.ai";
+const siteUrl = "https://remember.dev";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Ultimate Memory — Documentation",
-    template: "%s — Ultimate Memory",
+    default: "RememberStack — Documentation",
+    template: "%s — RememberStack",
   },
   description:
-    "A memory system for AI agents: millions of documents distilled into auditable, navigable knowledge. Documentation for ultimate-memory.",
+    "Open memory infrastructure for AI agents: auditable, navigable knowledge at scale.",
   openGraph: {
-    title: "Ultimate Memory — Documentation",
+    title: "RememberStack — Documentation",
     description:
       "A memory system for AI agents: millions of documents distilled into auditable, navigable knowledge.",
     url: siteUrl,
-    siteName: "Ultimate Memory",
+    siteName: "RememberStack",
     type: "website",
   },
 };

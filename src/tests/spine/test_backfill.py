@@ -12,22 +12,22 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.model import BackfillNotDrainedError
-from ultimate_memory.model import BackfillSeedRequest
-from ultimate_memory.model import ClaimedWork
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EnqueueWork
-from ultimate_memory.model import LaneRouteError
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ProcessingTarget
-from ultimate_memory.spine import BackfillFinalizer
-from ultimate_memory.spine import BackfillSeeder
-from ultimate_memory.spine import BackfillSeederSettings
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
+from rememberstack.model import BackfillNotDrainedError
+from rememberstack.model import BackfillSeedRequest
+from rememberstack.model import ClaimedWork
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EnqueueWork
+from rememberstack.model import LaneRouteError
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ProcessingTarget
+from rememberstack.spine import BackfillFinalizer
+from rememberstack.spine import BackfillSeeder
+from rememberstack.spine import BackfillSeederSettings
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("71000000-0000-0000-0000-000000000001")
@@ -41,7 +41,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL backfill proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL backfill proofs"
+        )
 
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)

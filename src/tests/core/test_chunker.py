@@ -2,12 +2,12 @@
 
 from uuid import uuid4
 
-from ultimate_memory.core import blockize
-from ultimate_memory.core import ChunkerParams
-from ultimate_memory.core import is_anchor
-from ultimate_memory.core import pack_blocks
-from ultimate_memory.model import Block
-from ultimate_memory.model import SectionSpan
+from rememberstack.core import blockize
+from rememberstack.core import ChunkerParams
+from rememberstack.core import is_anchor
+from rememberstack.core import pack_blocks
+from rememberstack.model import Block
+from rememberstack.model import SectionSpan
 
 
 def _root_section(*, block_count: int) -> tuple[SectionSpan, ...]:

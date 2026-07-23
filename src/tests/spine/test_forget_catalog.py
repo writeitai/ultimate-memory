@@ -16,16 +16,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import ForgetManifest
-from ultimate_memory.model import ForgetManifestStatus
-from ultimate_memory.ports import ForgetManifestPort
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import HardForgetHandler
-from ultimate_memory.workers import HardForgetReadiness
-from ultimate_memory.workers import HardForgetService
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import ForgetManifest
+from rememberstack.model import ForgetManifestStatus
+from rememberstack.ports import ForgetManifestPort
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import HardForgetHandler
+from rememberstack.workers import HardForgetReadiness
+from rememberstack.workers import HardForgetService
 
 _ROOT = Path(__file__).resolve().parents[3]
 _NOW = datetime(2026, 7, 21, tzinfo=UTC)
@@ -67,7 +67,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real hard-forget proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real hard-forget proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(config=config, revision="head")

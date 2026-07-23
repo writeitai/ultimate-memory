@@ -6,13 +6,13 @@ from uuid import uuid4
 
 import pytest
 
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.selfhost import LocalMountPublisher
-from ultimate_memory.adapters.selfhost import ObjectAlreadyExistsError
-from ultimate_memory.adapters.selfhost import ObjectKeyEscapesRootError
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.ports.mounts import MountPublisherPort
-from ultimate_memory.ports.object_store import ObjectStorePort
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.selfhost import LocalMountPublisher
+from rememberstack.adapters.selfhost import ObjectAlreadyExistsError
+from rememberstack.adapters.selfhost import ObjectKeyEscapesRootError
+from rememberstack.model import ObjectKey
+from rememberstack.ports.mounts import MountPublisherPort
+from rememberstack.ports.object_store import ObjectStorePort
 
 
 class _OpenAdmission:

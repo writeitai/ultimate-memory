@@ -31,7 +31,7 @@ await the owner-provided stack conventions (roadmap §3).
 | Artifact | Consumer | Contents |
 |---|---|---|
 | **The GitHub repository** | contributors, evaluators | source + the `plan/` design corpus (itself a differentiator: the architecture rationale ships with the code) |
-| **The PyPI package** — dist **`remember-dev`**, CLI **`remember`**, import **`remember`** (brand **`remember.dev`**, decided 2026-07-13 — `questions.md` §11a; the mechanical rename executes at the release gate) | **agent harnesses and their operators** — positioned as *the client* | base install = the **client surface** (§2): typed SDK, CLI, MCP server. Extras: `[server]` (workers, spine, adapters), `[connectors-gdrive]` etc. (per-connector, server-side), `[k]` (the K compile machine's driver dependencies) |
+| **The PyPI package** — dist/import **`rememberstack`**, CLI **`remember`** (product **RememberStack**, canonical home **`remember.dev`**; D76) | **agent harnesses and their operators** — positioned as *the client* | base install = the **client surface** (§2): typed SDK, CLI, MCP server. Extras: `[server]` (workers, spine, adapters), `[connectors-gdrive]` etc. (per-connector, server-side), `[k]` (the K compile machine's driver dependencies) |
 | **Container images + compose profiles** (published on **GHCR** — same org as the repo, no second registry account) | self-hosters, CI, benchmarks | `api` and `worker` images; `docker compose up` brings up the **self-host profile**: Postgres + MinIO + api + worker(s). The ten-minute quickstart is a release-gating, CI-tested artifact — an infrastructure-shaped OSS that cannot be *tried* quickly dies |
 
 One package, not a package family: the same distribution contains client and server code;
@@ -44,14 +44,14 @@ consumers are harnesses (requirements §Retrieval); operators install `[server]`
 - **Query**: the typed SDK + CLI + MCP server over the retrieval API (D48–D51) — primitives,
   recipes, envelopes. The MCP tool list renders from the recipe registry (D50).
 - **Ingest — lineage-aware by contract**: `client.ingest(bytes|path, *, source_kind=…,
-  source_ref=…, source_modified_at=…, versioning_mode=…)` / `ugm ingest …`. Writes always
+  source_ref=…, source_modified_at=…, versioning_mode=…)` / `remember ingest …`. Writes always
   enter through E0 (D60 invariant — no surface writes around the pipeline). The optional
   lineage fields are the load-bearing part: a caller that pushes the same logical document
   repeatedly with a stable `source_ref` creates **versions of one lineage** with full D54–D56
   lifecycle semantics (currency, reuse, retraction) — which is how third parties build
   *push-style feeders* for sources the deployment cannot poll (behind-firewall systems),
   without us shipping their connector. Omitted lineage fields = a one-shot upload lineage.
-- **Connector management, never execution**: `ugm connectors add|list|pause|status`.
+- **Connector management, never execution**: `remember connectors add|list|pause|status`.
   Connectors (Drive, mailboxes, URLs) execute **deployment-side** as workers — they own sync
   cycles, debounce, and deletion detection (`connector_sync_cycles`, D55), semantics that
   must not depend on a client process staying alive. The client configures them; credentials
@@ -154,7 +154,7 @@ This is the implementation map; each row has one canonical owner and a delivery-
 ## 4. Code architecture — hexagonal, with the arrows enforced in CI
 
 ```
-ugm/
+rememberstack/
   model/       # typed domain objects (Pydantic at boundaries; TypedDict/enum/Literal inside) — imports nothing
   core/        # PURE logic, zero I/O: blockizer, packer, snap algorithm, grounding checks,
                # counting rules, currency rules, envelope assembly — unit-testable with no infra
@@ -210,8 +210,8 @@ ports and published extension points, keeping it portable off GCP too.
 
 - **Versioning**: semantic versioning on the package and images (same version string);
   every release publishes PyPI + GHCR images + the compose file pinned to that tag.
-  *(Names decided — dist `remember-dev`, CLI `remember`, brand `remember.dev`; container
-  images follow the dist name when the rename gate executes — `questions.md` §11a.)*
+  *(D76: product RememberStack; dist/import/container `rememberstack`; CLI `remember`; canonical
+  home `remember.dev`.)*
 - **Upgrades**: Alembic migrations run **before** workers roll (the schema doc is the source
   of truth; migrations implement it). Processing-version stamps (D7/D12) mean code upgrades
   never silently invalidate derived state — reprocessing is explicit, per version filters,
@@ -220,8 +220,8 @@ ports and published extension points, keeping it portable off GCP too.
   deployment's portable state is exactly its **sources of truth** — the Postgres database,
   raw + artifact objects, the K git repository, and the separately durable D74 hard-forget
   manifest root. Operators move those stores with their native tools (`pg_dump`/`pg_restore`,
-  provider object copy, and ordinary Git); the library does not wrap them in `ugm export` /
-  `ugm import`, define a universal archive, or schedule backups. P1/P2/P3 are derived and are
+  provider object copy, and ordinary Git); the library does not wrap them in `remember export` /
+  `remember import`, define a universal archive, or schedule backups. P1/P2/P3 are derived and are
   rebuilt after restore rather than transported. This is the cloud↔self-host migration
   contract in both directions without turning the OSS library into an operations product.
 

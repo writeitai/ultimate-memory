@@ -12,8 +12,8 @@ script: |
 
   context = json.loads(Path(sys.argv[1]).read_text())
   root = Path(context["project_root"])
-  if not os.environ.get("UGM_DATABASE_URL"):
-      print("UGM_DATABASE_URL must name an isolated PostgreSQL test database")
+  if not os.environ.get("REMEMBERSTACK_DATABASE_URL"):
+      print("REMEMBERSTACK_DATABASE_URL must name an isolated PostgreSQL test database")
       sys.exit(1)
   result = subprocess.run(
       [

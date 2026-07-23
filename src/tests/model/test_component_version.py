@@ -7,13 +7,13 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from ultimate_memory.model import ComponentVersionConflictError
-from ultimate_memory.model import ComponentVersionError
-from ultimate_memory.model import ComponentVersionNotFoundError
-from ultimate_memory.model import ComponentVersionRecord
-from ultimate_memory.model import PipelineComponent
-from ultimate_memory.model import RegisterComponentVersionInput
-from ultimate_memory.model import RegisterComponentVersionResult
+from rememberstack.model import ComponentVersionConflictError
+from rememberstack.model import ComponentVersionError
+from rememberstack.model import ComponentVersionNotFoundError
+from rememberstack.model import ComponentVersionRecord
+from rememberstack.model import PipelineComponent
+from rememberstack.model import RegisterComponentVersionInput
+from rememberstack.model import RegisterComponentVersionResult
 
 _DEPLOYMENT_ID = UUID("30000000-0000-0000-0000-000000000001")
 _PROMPT_HASH = "a" * 64

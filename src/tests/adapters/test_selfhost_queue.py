@@ -16,26 +16,26 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters.selfhost import SelfHostTaskQueue
-from ultimate_memory.adapters.selfhost import SelfHostWorkerLoop
-from ultimate_memory.adapters.selfhost import TokenBucket
-from ultimate_memory.model import ClaimedWork
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import EnqueueWork
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ProcessingTarget
-from ultimate_memory.model import QueueRoute
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.ports.cost_meter import CostMeterPort
-from ultimate_memory.ports.queue import TaskQueuePort
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import HandlerOutcome
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import Worker
+from rememberstack.adapters.selfhost import SelfHostTaskQueue
+from rememberstack.adapters.selfhost import SelfHostWorkerLoop
+from rememberstack.adapters.selfhost import TokenBucket
+from rememberstack.model import ClaimedWork
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import EnqueueWork
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ProcessingTarget
+from rememberstack.model import QueueRoute
+from rememberstack.model import RunResultOutcome
+from rememberstack.ports.cost_meter import CostMeterPort
+from rememberstack.ports.queue import TaskQueuePort
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import HandlerOutcome
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("40000000-0000-0000-0000-000000000001")
@@ -48,7 +48,9 @@ def database_url() -> str:
     try:
         return load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL shell proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL shell proofs"
+        )
 
 
 @pytest.fixture(scope="module")

@@ -5,8 +5,8 @@ before anything tunable exists — the evaluation harness. Nothing user-visible 
 
 **Entry gate (closed 2026-07-17):** stack conventions. The choices and exact repository
 evidence are recorded in [roadmap §3](roadmap.md#3-technology-stack-binding-for-all-phases):
-[PR #39](https://github.com/writeitai/ultimate-memory/pull/39) merged the package scaffold,
-tooling, layout/naming, and GitHub Actions CI; [PR #41](https://github.com/writeitai/ultimate-memory/pull/41)
+[PR #39](https://github.com/writeitai/rememberstack/pull/39) merged the package scaffold,
+tooling, layout/naming, and GitHub Actions CI; [PR #41](https://github.com/writeitai/rememberstack/pull/41)
 merged the typed configuration/secrets convention and direct-environment-access lint guard.
 This closes only the entry gate and WP-0.1; Phase 0 remains incomplete until every exit
 criterion below is evidenced.
@@ -36,8 +36,8 @@ janitor (WP-0.4b) and the compose quickstart (WP-0.4c) land as early Phase-1-par
 The original "through Cloud Tasks" exit wording is amended above accordingly.
 
 **WP-0.2 complete (2026-07-18; `P0-L05-WP02-ALEMBIC-FULL-SCHEMA` revision 2):**
-[PR #71](https://github.com/writeitai/ultimate-memory/pull/71) implementation head
-[`ec5cb279944d`](https://github.com/writeitai/ultimate-memory/commit/ec5cb279944db138e093439136bc3237bfd545fd)
+[PR #71](https://github.com/writeitai/rememberstack/pull/71) implementation head
+[`ec5cb279944d`](https://github.com/writeitai/rememberstack/commit/ec5cb279944db138e093439136bc3237bfd545fd)
 adds the six-revision structural-only Alembic chain, the executable catalog contract, and the
 pinned PostgreSQL/pg_partman CI service. On PostgreSQL 16.14 with pg_partman 5.2.4, the focused
 lifecycle proved clean base → fresh head, exact catalog shape (six extensions, 54 enums, 57 UGM
@@ -46,36 +46,36 @@ seven final views, 57 table comments, 438 parent-column comments, and constraint
 `c=26/f=106/p=57/u=28/x=1`), zero deployment/core registry rows, downgrade cleanup, clean
 re-upgrade, and a no-op at head. Its meaningful negative proof removed
 `relation_evidence_p63`, observed the contract failure, and restored the final green catalog.
-[CI run 29629128266](https://github.com/writeitai/ultimate-memory/actions/runs/29629128266)
+[CI run 29629128266](https://github.com/writeitai/rememberstack/actions/runs/29629128266)
 kept the required Python 3.12, Python 3.13, and coverage jobs green. Per D66, this internal
 schema-shape leaf has no usable public workflow or user-visible behavior, so no public
 documentation surface is changed; public documentation remains deferred to the first usable
 slice. Phase 0 remains incomplete and no WP-0.3+ bootstrap/runtime behavior is included.
 
 **WP-0.3 deployment-bootstrap slice in progress (2026-07-18; `P0-L07-WP03-DEPLOYMENT-BOOTSTRAP`):**
-[PR #72](https://github.com/writeitai/ultimate-memory/pull/72) implementation commit
-[`4e67a17`](https://github.com/writeitai/ultimate-memory/commit/4e67a17f6cf2376bf1bbe84249153c66f40e010d)
+[PR #72](https://github.com/writeitai/rememberstack/pull/72) implementation commit
+[`4e67a17`](https://github.com/writeitai/rememberstack/commit/4e67a17f6cf2376bf1bbe84249153c66f40e010d)
 adds the explicit-Engine, one-transaction D69 library bootstrap, exact immutable `core-v1`
 8/16/116 manifest, typed deployment/core conflicts, and PostgreSQL retry/no-mutation/rollback
 proofs. Python 3.12, Python 3.13, and coverage were green on implementation-head
-[CI run 29631003226](https://github.com/writeitai/ultimate-memory/actions/runs/29631003226).
+[CI run 29631003226](https://github.com/writeitai/rememberstack/actions/runs/29631003226).
 This bounded slice exposes no CLI, profile, configuration, deployment workflow, or other public
 surface, so D66 requires no website edit. Worker-state/handler behavior remains unimplemented;
 WP-0.3 therefore stays `in-progress` and Phase 0 remains incomplete.
 
 **WP-0.3 component-version registry slice in progress (2026-07-18; `P0-L08-WP03-COMPONENT-VERSION-REGISTRY`):**
-[PR #73](https://github.com/writeitai/ultimate-memory/pull/73) implementation commit
-[`5b9e168`](https://github.com/writeitai/ultimate-memory/commit/5b9e168121873200347d707a5e020c099c6f014a)
+[PR #73](https://github.com/writeitai/rememberstack/pull/73) implementation commit
+[`5b9e168`](https://github.com/writeitai/rememberstack/commit/5b9e168121873200347d707a5e020c099c6f014a)
 adds the exact typed 22-component catalog boundary and explicit-Engine transactional
 register/resolve operation, with real-PostgreSQL no-op, conflict, key-independence, FK, and rollback
 proofs. Python 3.12, Python 3.13, and coverage passed in
-[CI run 29635472800](https://github.com/writeitai/ultimate-memory/actions/runs/29635472800).
+[CI run 29635472800](https://github.com/writeitai/rememberstack/actions/runs/29635472800).
 This library-only slice exposes no CLI/API/MCP/configuration/mount/connector/deployment surface,
 so D66 requires no website edit. Processing-state, cost, handler, and worker behavior remains
 unimplemented; WP-0.3 stays `in-progress` and Phase 0 remains incomplete.
 
 
-**WP-0.3 complete (2026-07-18):** [PR #76](https://github.com/writeitai/ultimate-memory/pull/76)
+**WP-0.3 complete (2026-07-18):** [PR #76](https://github.com/writeitai/rememberstack/pull/76)
 adds the work ledger (`spine/work_ledger.py`), the handler-registration model + worker runner
 (`workers/base.py`), and typed processing records. Real-PostgreSQL proofs cover the full
 acceptance: idempotent enqueue with the D67 steady-promotes-backfill rule, lane pairing enforced
@@ -135,13 +135,13 @@ thresholds).
 `P0-L03-D61-PORT-PROTOCOLS`):** the first slice added the ten behavior-empty D62 package
 homes, the locked [import-linter configuration](../../.importlinter), and the required
 [CI architecture gate](../../.github/workflows/ci.yml) in
-[PR #63](https://github.com/writeitai/ultimate-memory/pull/63). A deliberate `core → adapters`
+[PR #63](https://github.com/writeitai/rememberstack/pull/63). A deliberate `core → adapters`
 edge broke both applicable contracts on Python 3.12 and 3.13 in
-[CI run 29610259852](https://github.com/writeitai/ultimate-memory/actions/runs/29610259852);
+[CI run 29610259852](https://github.com/writeitai/rememberstack/actions/runs/29610259852);
 the repaired head kept all five contracts and every existing check green in
-[CI run 29610342445](https://github.com/writeitai/ultimate-memory/actions/runs/29610342445).
-The completion slice in [PR #66](https://github.com/writeitai/ultimate-memory/pull/66)
+[CI run 29610342445](https://github.com/writeitai/rememberstack/actions/runs/29610342445).
+The completion slice in [PR #66](https://github.com/writeitai/rememberstack/pull/66)
 exports exactly seven D61 Protocols, adds their independent shared values and contract tests,
 and keeps all five import contracts plus every required Python 3.12/3.13 and coverage context
-green in [CI run 29616604149](https://github.com/writeitai/ultimate-memory/actions/runs/29616604149).
+green in [CI run 29616604149](https://github.com/writeitai/rememberstack/actions/runs/29616604149).
 Adapter implementations remain separately scoped to WP-0.4a and WP-0.4b.

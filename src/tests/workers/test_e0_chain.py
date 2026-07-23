@@ -18,36 +18,36 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from ultimate_memory.adapters import MarkitdownConverter
-from ultimate_memory.adapters.selfhost import LocalFSObjectStore
-from ultimate_memory.adapters.testing import FakeModelProvider
-from ultimate_memory.adapters.testing import NoopCostMeter
-from ultimate_memory.core import blockize
-from ultimate_memory.core import ConversionRouter
-from ultimate_memory.core import MarkdownPassthroughConverter
-from ultimate_memory.model import ClaimedWork
-from ultimate_memory.model import DeploymentBootstrapInput
-from ultimate_memory.model import DocumentUpload
-from ultimate_memory.model import ObjectKey
-from ultimate_memory.model import PipelineStage
-from ultimate_memory.model import ProcessingLane
-from ultimate_memory.model import ProcessingTarget
-from ultimate_memory.model import RunResultOutcome
-from ultimate_memory.model import SectionTreeRecord
-from ultimate_memory.model import SnappedSection
-from ultimate_memory.spine import DeploymentBootstrapper
-from ultimate_memory.spine import DocumentCatalog
-from ultimate_memory.spine import ForgetCatalog
-from ultimate_memory.spine import WorkLedger
-from ultimate_memory.spine import WorkLedgerSettings
-from ultimate_memory.spine.settings import load_database_settings
-from ultimate_memory.workers import ConvertHandler
-from ultimate_memory.workers import E0_CONVERT_VERSION
-from ultimate_memory.workers import HandlerRegistry
-from ultimate_memory.workers import StructureHandler
-from ultimate_memory.workers import StructurerSettings
-from ultimate_memory.workers import UploadIngestor
-from ultimate_memory.workers import Worker
+from rememberstack.adapters import MarkitdownConverter
+from rememberstack.adapters.selfhost import LocalFSObjectStore
+from rememberstack.adapters.testing import FakeModelProvider
+from rememberstack.adapters.testing import NoopCostMeter
+from rememberstack.core import blockize
+from rememberstack.core import ConversionRouter
+from rememberstack.core import MarkdownPassthroughConverter
+from rememberstack.model import ClaimedWork
+from rememberstack.model import DeploymentBootstrapInput
+from rememberstack.model import DocumentUpload
+from rememberstack.model import ObjectKey
+from rememberstack.model import PipelineStage
+from rememberstack.model import ProcessingLane
+from rememberstack.model import ProcessingTarget
+from rememberstack.model import RunResultOutcome
+from rememberstack.model import SectionTreeRecord
+from rememberstack.model import SnappedSection
+from rememberstack.spine import DeploymentBootstrapper
+from rememberstack.spine import DocumentCatalog
+from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import WorkLedger
+from rememberstack.spine import WorkLedgerSettings
+from rememberstack.spine.settings import load_database_settings
+from rememberstack.workers import ConvertHandler
+from rememberstack.workers import E0_CONVERT_VERSION
+from rememberstack.workers import HandlerRegistry
+from rememberstack.workers import StructureHandler
+from rememberstack.workers import StructurerSettings
+from rememberstack.workers import UploadIngestor
+from rememberstack.workers import Worker
 
 _ROOT = Path(__file__).resolve().parents[3]
 _DEPLOYMENT_ID = UUID("60000000-0000-0000-0000-000000000001")
@@ -61,7 +61,9 @@ def database_engine() -> Iterator[Engine]:
     try:
         database_url = load_database_settings().sqlalchemy_url()
     except ValidationError:
-        pytest.skip("UGM_DATABASE_URL is required for real PostgreSQL chain proofs")
+        pytest.skip(
+            "REMEMBERSTACK_DATABASE_URL is required for real PostgreSQL chain proofs"
+        )
     config = Config(str(_ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     command.downgrade(config=config, revision="base")
@@ -398,8 +400,8 @@ def test_stale_structure_never_overwrites_the_live_representation(rig: _E0Rig) -
 
     from uuid import uuid4
 
-    from ultimate_memory.model import SyntheticRootRecord
-    from ultimate_memory.workers import E0_STRUCTURE_VERSION
+    from rememberstack.model import SyntheticRootRecord
+    from rememberstack.workers import E0_STRUCTURE_VERSION
 
     stale_rep = uuid4()
     with rig.engine.begin() as connection:
