@@ -1,4 +1,4 @@
-"""Command line for the deliberately staged RS-LoCoMo-v1 harness."""
+"""Command line for the deliberately staged full-system LoCoMo harness."""
 
 from __future__ import annotations
 
@@ -51,10 +51,9 @@ def main(argv: list[str] | None = None) -> int:
                     run_dir=args.run,
                     sample_id=args.sample,
                     max_questions=args.max_questions,
-                    max_reader_calls=args.max_reader_calls,
+                    max_agent_calls=args.max_agent_calls,
                     max_evaluator_cost_usd=args.max_evaluator_cost_usd,
                     execute=args.execute,
-                    index_ready_confirmation=args.confirm_index_ready,
                     client=client,
                     provider=provider,
                 )
@@ -89,7 +88,7 @@ def _provider() -> OpenRouterModelProvider:
 
 
 def _positive_decimal(value: str) -> Decimal:
-    """Parse one strictly positive CLI monetary ceiling."""
+    """Parse one strictly positive reported-spend stop threshold."""
     try:
         parsed = Decimal(value)
     except InvalidOperation as error:
@@ -104,7 +103,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m benchmarks.locomo",
         description=(
-            "RS-LoCoMo-v1: prepare is local; ingest/answer/judge require "
+            "RS-LoCoMo-Full-v1: prepare is local; ingest/answer/judge require "
             "explicit execution acknowledgements"
         ),
     )
@@ -128,7 +127,7 @@ def _parser() -> argparse.ArgumentParser:
     ingest.add_argument("--confirm-isolated-deployment")
 
     answer = commands.add_parser(
-        "answer", help="retrieve and call the frozen reader for one sample"
+        "answer", help="run the bounded public-recipe answer agent for one sample"
     )
     _run_and_sample(answer)
     answer.add_argument(
@@ -138,19 +137,20 @@ def _parser() -> argparse.ArgumentParser:
         help="run-absolute authorization; must cover the prepared tier item count",
     )
     answer.add_argument(
-        "--max-reader-calls",
+        "--max-agent-calls",
         type=int,
         required=True,
-        help="run-absolute ceiling over reader calls already recorded plus new calls",
+        help="run-absolute ceiling over answer-agent model calls; recipe calls"
+        " have a separate per-question cap",
     )
     answer.add_argument(
         "--max-evaluator-cost-usd",
         type=_positive_decimal,
         required=True,
-        help="run-absolute shared reader-plus-judge reported-cost ceiling",
+        help="run-absolute shared reported-spend stop threshold; use a provider"
+        " account cap as the hard monetary boundary",
     )
     answer.add_argument("--execute", action="store_true")
-    answer.add_argument("--confirm-index-ready")
 
     judge = commands.add_parser(
         "judge", help="call the frozen judge for one sample's answers"
@@ -166,7 +166,8 @@ def _parser() -> argparse.ArgumentParser:
         "--max-evaluator-cost-usd",
         type=_positive_decimal,
         required=True,
-        help="run-absolute shared reader-plus-judge reported-cost ceiling",
+        help="run-absolute shared reported-spend stop threshold; use a provider"
+        " account cap as the hard monetary boundary",
     )
     judge.add_argument("--execute", action="store_true")
 

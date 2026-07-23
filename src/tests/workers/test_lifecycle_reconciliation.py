@@ -101,8 +101,8 @@ _STAGES = (
     PipelineStage.NORMALIZE_RELATIONS,
     PipelineStage.ADJUDICATE_SUPERSESSION,
     PipelineStage.EMBED_CLAIM,
-    PipelineStage.LABEL_RELATION,
     PipelineStage.RECONCILE,
+    PipelineStage.LABEL_RELATION,
 )
 _TARGET_PATTERN = re.compile(r"TARGET CHUNK:\n(.+)")
 _TABLES = (
@@ -754,7 +754,9 @@ def test_interrupted_reconcile_completes_on_retry(rig: _LifecycleRig) -> None:
     # drain everything EXCEPT reconcile, so its work row sits queued
     while True:
         progressed = False
-        for stage in _STAGES[:-1]:
+        for stage in (
+            stage for stage in _STAGES if stage is not PipelineStage.RECONCILE
+        ):
             outcome = rig.worker.run_one(
                 deployment_id=_DEPLOYMENT_ID, stage=stage, lane=ProcessingLane.STEADY
             ).outcome

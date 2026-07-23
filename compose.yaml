@@ -15,6 +15,18 @@ x-app: &app
     REMEMBERSTACK_SELFHOST_DEPLOYMENT_SLUG: ${REMEMBERSTACK_SELFHOST_DEPLOYMENT_SLUG}
     REMEMBERSTACK_SELFHOST_DEPLOYMENT_NAME: ${REMEMBERSTACK_SELFHOST_DEPLOYMENT_NAME}
     REMEMBERSTACK_SELFHOST_API_PORT: "8000"
+    REMEMBERSTACK_STRUCTURER_MODEL: ${REMEMBERSTACK_STRUCTURER_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_E1_EMBEDDING_MODEL: ${REMEMBERSTACK_E1_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+    REMEMBERSTACK_E1_PREFIX_MODEL: ${REMEMBERSTACK_E1_PREFIX_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_E2_EXTRACT_MODEL: ${REMEMBERSTACK_E2_EXTRACT_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_E3_NORMALIZE_MODEL: ${REMEMBERSTACK_E3_NORMALIZE_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_OBS_SMALL_MODEL: ${REMEMBERSTACK_OBS_SMALL_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_OBS_FRONTIER_MODEL: ${REMEMBERSTACK_OBS_FRONTIER_MODEL:-openai/gpt-5.6-sol}
+    REMEMBERSTACK_OBS_EMBEDDING_MODEL: ${REMEMBERSTACK_OBS_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+    REMEMBERSTACK_ADJUDICATOR_SMALL_MODEL: ${REMEMBERSTACK_ADJUDICATOR_SMALL_MODEL:-openai/gpt-5.6-luna}
+    REMEMBERSTACK_ADJUDICATOR_FRONTIER_MODEL: ${REMEMBERSTACK_ADJUDICATOR_FRONTIER_MODEL:-openai/gpt-5.6-sol}
+    REMEMBERSTACK_P1_EMBEDDING_MODEL: ${REMEMBERSTACK_P1_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+    REMEMBERSTACK_P1_LABEL_MODEL: ${REMEMBERSTACK_P1_LABEL_MODEL:-openai/gpt-5.6-luna}
   volumes:
     - app-state:/var/lib/rememberstack
     - forget-manifests:/var/lib/rememberstack/forget-manifests
@@ -87,6 +99,70 @@ services:
   worker-structure:
     <<: *app
     command: ["worker", "--stage", "structure"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-chunk:
+    <<: *app
+    command: ["worker", "--stage", "chunk"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-embed-chunk:
+    <<: *app
+    command: ["worker", "--stage", "embed_chunk"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-extract-claims:
+    <<: *app
+    command: ["worker", "--stage", "extract_claims"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-normalize-relations:
+    <<: *app
+    command: ["worker", "--stage", "normalize_relations"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-adjudicate-supersession:
+    <<: *app
+    command: ["worker", "--stage", "adjudicate_supersession"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-embed-claim:
+    <<: *app
+    command: ["worker", "--stage", "embed_claim"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-reconcile:
+    <<: *app
+    command: ["worker", "--stage", "reconcile"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  worker-label-relation:
+    <<: *app
+    command: ["worker", "--stage", "label_relation"]
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  projections:
+    <<: *app
+    command: ["project", "--plane", "all"]
+    profiles: ["operations"]
     depends_on:
       setup:
         condition: service_completed_successfully

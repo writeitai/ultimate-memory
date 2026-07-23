@@ -5,12 +5,13 @@ from typing import Annotated
 
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import ValidationError
 import pytest
 
 from rememberstack.adapters import OpenRouterModelProvider
+from rememberstack.adapters import OpenRouterProviderError
 from rememberstack.adapters import OpenRouterSettings
 from rememberstack.adapters.openrouter import _usage
+from rememberstack.model import EmbeddingRequest
 from rememberstack.model import ModelRequest
 from rememberstack.model import ProviderAccountingError
 
@@ -88,10 +89,10 @@ def test_generation_forwards_temperature_only_when_declared(
         assert observed["temperature"] == 0.0
 
 
-def test_generation_preserves_structured_output_validation_error(
+def test_generation_preserves_usage_on_structured_output_validation_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Keep valid JSON with an invalid schema distinct from malformed bodies."""
+    """A billable invalid schema carries its already parsed provider usage."""
     provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
 
     def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
@@ -105,7 +106,7 @@ def test_generation_preserves_structured_output_validation_error(
 
     monkeypatch.setattr(provider, "_post", post)
     try:
-        with pytest.raises(ValidationError):
+        with pytest.raises(OpenRouterProviderError) as raised:
             provider.generate(
                 request=ModelRequest(
                     model="openai/gpt-4o-mini", prompt="Where?", temperature=0
@@ -114,3 +115,38 @@ def test_generation_preserves_structured_output_validation_error(
             )
     finally:
         provider._client.close()
+
+    assert raised.value.usage is not None
+    assert raised.value.usage.tokens_in == 3
+    assert raised.value.usage.tokens_out == 1
+
+
+def test_embedding_preserves_usage_when_the_vector_body_is_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed billable embedding remains attributable to its worker."""
+    provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/embeddings"
+        assert payload
+        return {
+            "model": "qwen/qwen3-embedding-8b",
+            "usage": {"prompt_tokens": 4, "cost": "0.000004"},
+            "data": [{"index": 0, "embedding": []}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        with pytest.raises(OpenRouterProviderError) as raised:
+            provider.embed(
+                request=EmbeddingRequest(
+                    model="qwen/qwen3-embedding-8b", texts=("memory",)
+                )
+            )
+    finally:
+        provider._client.close()
+
+    assert raised.value.usage is not None
+    assert raised.value.usage.tokens_in == 4
+    assert raised.value.usage.cost_usd == Decimal("0.000004")

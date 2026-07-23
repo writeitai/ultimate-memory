@@ -9,6 +9,7 @@ from typing import TypeVar
 
 import httpx
 from pydantic import Field
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
@@ -17,6 +18,7 @@ from rememberstack.model import EmbeddingResponse
 from rememberstack.model import GeneratedResponse
 from rememberstack.model import ModelRequest
 from rememberstack.model import ProviderAccountingError
+from rememberstack.model import ProviderCallError
 from rememberstack.model import ProviderCallUsage
 from rememberstack.model import StructuredResponseModel
 
@@ -33,7 +35,7 @@ class OpenRouterSettings(BaseSettings):
     timeout_s: float = Field(default=120.0, gt=0)
 
 
-class OpenRouterProviderError(Exception):
+class OpenRouterProviderError(ProviderCallError):
     """OpenRouter returned an error or an unusable response body."""
 
 
@@ -79,9 +81,15 @@ class OpenRouterModelProvider:
             decoded = json.loads(content)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as err:
             raise OpenRouterProviderError(
-                f"unusable completion body for {response_type.__name__}"
+                f"unusable completion body for {response_type.__name__}", usage=usage
             ) from err
-        output = response_type.model_validate(decoded)
+        try:
+            output = response_type.model_validate(decoded)
+        except ValidationError as error:
+            raise OpenRouterProviderError(
+                f"completion body failed {response_type.__name__} validation",
+                usage=usage,
+            ) from error
         return GeneratedResponse(output=output, usage=usage)
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
@@ -102,7 +110,9 @@ class OpenRouterModelProvider:
                 vectors=tuple(tuple(item["embedding"]) for item in ordered), usage=usage
             )
         except (KeyError, TypeError, ValueError) as err:
-            raise OpenRouterProviderError("unusable embeddings body") from err
+            raise OpenRouterProviderError(
+                "unusable embeddings body", usage=usage
+            ) from err
 
     def _post(self, *, path: str, payload: dict[str, object]) -> dict[str, Any]:
         """POST one JSON request; non-2xx responses become typed errors."""

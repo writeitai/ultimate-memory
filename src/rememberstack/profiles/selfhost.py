@@ -29,14 +29,27 @@ from rememberstack.model import PipelineStage
 from rememberstack.spine import DeploymentBootstrapper
 from rememberstack.spine import RecipeRegistry
 from rememberstack.spine import seed_canonical_recipes
+from rememberstack.spine import seed_graph_recipes
 from rememberstack.spine.settings import load_database_settings
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from rememberstack.adapters.selfhost import SelfHostWorkerLoop
+    from rememberstack.workers import StageHandler
 
-_SUPPORTED_WORKER_STAGES = (PipelineStage.CONVERT, PipelineStage.STRUCTURE)
+_SUPPORTED_WORKER_STAGES = (
+    PipelineStage.CONVERT,
+    PipelineStage.STRUCTURE,
+    PipelineStage.CHUNK,
+    PipelineStage.EMBED_CHUNK,
+    PipelineStage.EXTRACT_CLAIMS,
+    PipelineStage.NORMALIZE_RELATIONS,
+    PipelineStage.ADJUDICATE_SUPERSESSION,
+    PipelineStage.EMBED_CLAIM,
+    PipelineStage.RECONCILE,
+    PipelineStage.LABEL_RELATION,
+)
 
 
 class SelfHostSettings(BaseSettings):
@@ -53,7 +66,10 @@ class SelfHostSettings(BaseSettings):
     raw_bucket_name: str = Field(default="remember-raw", min_length=1)
     artifacts_bucket_name: str = Field(default="remember-artifacts", min_length=1)
     corpusfs_bucket_name: str = Field(default="remember-corpusfs", min_length=1)
+    snapshot_bucket_name: str = Field(default="remember-snapshots", min_length=1)
     lance_root: Path = Path("/var/lib/rememberstack/lance")
+    projection_work_root: Path = Path("/var/lib/rememberstack/projection-work")
+    graph_cache_root: Path = Path("/var/lib/rememberstack/graph-cache")
     forget_manifest_root: Path = Path("/var/lib/rememberstack/forget-manifests")
     migration_config: Path = Path("alembic.ini")
     api_host: str = "0.0.0.0"
@@ -88,7 +104,7 @@ class _FreshDeploymentReadiness:
 
 
 class SelfHostProfile:
-    """Compose the existing API and E0 workers over PostgreSQL, MinIO, and Lance."""
+    """Compose the complete continuous E/P1 path plus aggregate P2/P3 builds."""
 
     def __init__(
         self,
@@ -98,6 +114,7 @@ class SelfHostProfile:
         raw_store: MinIOObjectStore,
         artifact_store: MinIOObjectStore,
         corpusfs_store: MinIOObjectStore,
+        snapshot_store: MinIOObjectStore,
         model_provider: OpenRouterModelProvider,
     ) -> None:
         """Retain one dependency graph for an API, setup, or worker process."""
@@ -106,6 +123,7 @@ class SelfHostProfile:
         self._raw_store = raw_store
         self._artifact_store = artifact_store
         self._corpusfs_store = corpusfs_store
+        self._snapshot_store = snapshot_store
         self._model_provider = model_provider
 
     @classmethod
@@ -127,6 +145,9 @@ class SelfHostProfile:
             corpusfs_store=MinIOObjectStore(
                 bucket=profile_settings.corpusfs_bucket_name, settings=minio_settings
             ),
+            snapshot_store=MinIOObjectStore(
+                bucket=profile_settings.snapshot_bucket_name, settings=minio_settings
+            ),
             model_provider=OpenRouterModelProvider(
                 settings=OpenRouterSettings.model_validate({})
             ),
@@ -146,7 +167,10 @@ class SelfHostProfile:
         self._raw_store.ensure_bucket()
         self._artifact_store.ensure_bucket()
         self._corpusfs_store.ensure_bucket()
+        self._snapshot_store.ensure_bucket()
         self._settings.forget_manifest_root.mkdir(parents=True, exist_ok=True)
+        self._settings.projection_work_root.mkdir(parents=True, exist_ok=True)
+        self._settings.graph_cache_root.mkdir(parents=True, exist_ok=True)
         DeploymentBootstrapper(engine=self._engine).bootstrap_deployment(
             deployment_input=DeploymentBootstrapInput(
                 deployment_id=self._settings.deployment_id,
@@ -162,23 +186,42 @@ class SelfHostProfile:
             registry=RecipeRegistry(engine=self._engine),
             deployment_id=self._settings.deployment_id,
         )
+        seed_graph_recipes(
+            registry=RecipeRegistry(engine=self._engine),
+            deployment_id=self._settings.deployment_id,
+        )
 
     def api(self) -> FastAPI:
         """Build the existing HTTP surface over this self-host dependency graph."""
         from rememberstack.adapters.selfhost.lance import LanceChunkIndex
         from rememberstack.spine import DocumentCatalog
         from rememberstack.spine import ForgetCatalog
+        from rememberstack.spine import PipelineReadinessCatalog
+        from rememberstack.spine import ProjectionCatalog
         from rememberstack.surfaces import build_api
+        from rememberstack.surfaces import GraphQueries
         from rememberstack.surfaces import QueryEngine
         from rememberstack.surfaces import RecipeExecutor
         from rememberstack.surfaces import RecipeSurface
+        from rememberstack.workers import GraphSnapshotReader
+        from rememberstack.workers import P1Settings
         from rememberstack.workers.e0 import UploadIngestor
 
+        p1_settings = P1Settings.model_validate({})
+        projection_catalog = ProjectionCatalog(engine=self._engine)
+        graph_queries = GraphQueries(
+            reader=GraphSnapshotReader(
+                catalog=projection_catalog,
+                snapshot_store=self._snapshot_store,
+                deployment_id=self._settings.deployment_id,
+                cache_dir=self._settings.graph_cache_root,
+            )
+        )
         query_engine = QueryEngine(
             engine=self._engine,
             search_index=LanceChunkIndex(root=self._settings.lance_root),
             model_provider=self._model_provider,
-            embedding_model="qwen/qwen3-embedding-8b",
+            embedding_model=p1_settings.embedding_model,
         )
         app = build_api(
             engine=query_engine,
@@ -191,13 +234,21 @@ class SelfHostProfile:
             ),
             surface=RecipeSurface(
                 registry=RecipeRegistry(engine=self._engine),
-                executor=RecipeExecutor(query_engine=query_engine),
+                executor=RecipeExecutor(
+                    query_engine=query_engine, graph_queries=graph_queries
+                ),
                 deployment_id=self._settings.deployment_id,
             ),
             ingest=UploadIngestor(
                 catalog=DocumentCatalog(engine=self._engine),
                 raw_store=self._raw_store,
                 admission=ForgetCatalog(engine=self._engine),
+            ),
+            pipeline_readiness=PipelineReadinessCatalog(
+                engine=self._engine,
+                expected_components=_expected_components(),
+                projections=projection_catalog,
+                model_bindings=_model_bindings(),
             ),
         )
 
@@ -211,50 +262,28 @@ class SelfHostProfile:
         return app
 
     def worker_loop(self, *, stage: PipelineStage) -> SelfHostWorkerLoop:
-        """Build one E0 route's ordinary LISTEN/NOTIFY worker loop."""
+        """Build one continuous route's ordinary LISTEN/NOTIFY worker loop."""
+        from rememberstack.adapters.selfhost import JsonLineTelemetry
         from rememberstack.adapters.selfhost import SelfHostTaskQueue
         from rememberstack.adapters.selfhost import SelfHostWorkerLoop
         from rememberstack.adapters.selfhost import TokenBucket
-        from rememberstack.core import ConversionRouter
-        from rememberstack.core import MarkdownPassthroughConverter
         from rememberstack.model import ProcessingLane
-        from rememberstack.spine import DocumentCatalog
         from rememberstack.spine import WorkLedger
         from rememberstack.spine import WorkLedgerSettings
-        from rememberstack.workers import ConvertHandler
         from rememberstack.workers import HandlerRegistry
-        from rememberstack.workers import StructureHandler
         from rememberstack.workers import Worker
 
         if stage not in _SUPPORTED_WORKER_STAGES:
-            raise ValueError(f"the Compose skeleton has no handler for stage {stage}")
-        catalog = DocumentCatalog(engine=self._engine)
+            raise ValueError(f"the self-host profile has no handler for stage {stage}")
         registry = HandlerRegistry()
-        if stage is PipelineStage.CONVERT:
-            registry.register(
-                stage=stage,
-                handler=ConvertHandler(
-                    catalog=catalog,
-                    raw_store=self._raw_store,
-                    artifact_store=self._artifact_store,
-                    router=ConversionRouter(
-                        routes={"text/markdown": MarkdownPassthroughConverter()}
-                    ),
-                ),
-            )
-        else:
-            registry.register(
-                stage=stage,
-                handler=StructureHandler(
-                    catalog=catalog,
-                    artifact_store=self._artifact_store,
-                    model_provider=self._model_provider,
-                ),
-            )
+        registry.register(stage=stage, handler=self._handler(stage=stage))
         ledger = WorkLedger(engine=self._engine, settings=WorkLedgerSettings())
         return SelfHostWorkerLoop(
             worker=Worker(
-                ledger=ledger, registry=registry, queue=SelfHostTaskQueue(ledger=ledger)
+                ledger=ledger,
+                registry=registry,
+                queue=SelfHostTaskQueue(ledger=ledger),
+                telemetry=JsonLineTelemetry(),
             ),
             deployment_id=self._settings.deployment_id,
             stage=stage,
@@ -268,10 +297,177 @@ class SelfHostProfile:
         )
 
     def run_worker(self, *, stage: PipelineStage) -> None:
-        """Run one configured E0 route until the process is stopped or fails."""
+        """Run one configured continuous route until stopped or failed."""
         loop = self.worker_loop(stage=stage)
         while True:
             loop.run_for(duration_s=self._settings.worker_session_s)
+
+    def run_projection(self, *, plane: str) -> dict[str, object]:
+        """Build P2, P3, or both once after continuous ingestion settles."""
+        from rememberstack.spine import ForgetCatalog
+        from rememberstack.spine import ProjectionCatalog
+        from rememberstack.workers import CorpusFsBuilder
+        from rememberstack.workers import GraphRebuildWorker
+
+        ForgetCatalog(engine=self._engine).assert_available(
+            deployment_id=self._settings.deployment_id
+        )
+        catalog = ProjectionCatalog(engine=self._engine)
+        reports: dict[str, object] = {}
+        if plane in {"p2", "all"}:
+            reports["p2"] = GraphRebuildWorker(
+                catalog=catalog, snapshot_store=self._snapshot_store
+            ).rebuild(
+                deployment_id=self._settings.deployment_id,
+                workdir=self._settings.projection_work_root,
+            )
+        if plane in {"p3", "all"}:
+            reports["p3"] = CorpusFsBuilder(
+                catalog=catalog, snapshot_store=self._corpusfs_store
+            ).build(deployment_id=self._settings.deployment_id)
+        if not reports:
+            raise ValueError(f"unknown projection plane {plane!r}")
+        return reports
+
+    def _handler(self, *, stage: PipelineStage) -> StageHandler:
+        """Compose exactly one implemented stage handler for one worker process."""
+        from rememberstack.adapters.selfhost.lance import LanceChunkIndex
+        from rememberstack.core import chunker_version
+        from rememberstack.core import ChunkerParams
+        from rememberstack.core import ConversionRouter
+        from rememberstack.core import MarkdownPassthroughConverter
+        from rememberstack.model import ResolverConfig
+        from rememberstack.spine import CascadeResolver
+        from rememberstack.spine import ChunkCatalog
+        from rememberstack.spine import ClaimCatalog
+        from rememberstack.spine import DocumentCatalog
+        from rememberstack.spine import EntityRegistry
+        from rememberstack.spine import FactCatalog
+        from rememberstack.spine import LifecycleCatalog
+        from rememberstack.spine import ObservationAdjudicator
+        from rememberstack.spine import ObservationSettings
+        from rememberstack.spine import RESOLVER_VERSION
+        from rememberstack.spine import ReviewQueue
+        from rememberstack.spine import SupersessionAdjudicator
+        from rememberstack.spine import SupersessionSettings
+        from rememberstack.workers import AdjudicateSupersessionHandler
+        from rememberstack.workers import ChunkHandler
+        from rememberstack.workers import ConvertHandler
+        from rememberstack.workers import E1Settings
+        from rememberstack.workers import E2Settings
+        from rememberstack.workers import E3Settings
+        from rememberstack.workers import EmbedChunksHandler
+        from rememberstack.workers import EmbedClaimsHandler
+        from rememberstack.workers import ExtractClaimsHandler
+        from rememberstack.workers import LabelFactsHandler
+        from rememberstack.workers import NormalizeRelationsHandler
+        from rememberstack.workers import P1Settings
+        from rememberstack.workers import ReconcileHandler
+        from rememberstack.workers import StructureHandler
+        from rememberstack.workers import StructurerSettings
+
+        documents = DocumentCatalog(engine=self._engine)
+        chunks = ChunkCatalog(engine=self._engine)
+        claims = ClaimCatalog(engine=self._engine)
+        facts = FactCatalog(engine=self._engine)
+        index = LanceChunkIndex(root=self._settings.lance_root)
+        params = ChunkerParams()
+        chunk_generation = chunker_version(params=params)
+        p1_settings = P1Settings.model_validate({})
+        if stage is PipelineStage.CONVERT:
+            return ConvertHandler(
+                catalog=documents,
+                raw_store=self._raw_store,
+                artifact_store=self._artifact_store,
+                router=ConversionRouter(
+                    routes={"text/markdown": MarkdownPassthroughConverter()}
+                ),
+            )
+        if stage is PipelineStage.STRUCTURE:
+            return StructureHandler(
+                catalog=documents,
+                artifact_store=self._artifact_store,
+                model_provider=self._model_provider,
+                settings=StructurerSettings.model_validate({}),
+            )
+        if stage is PipelineStage.CHUNK:
+            return ChunkHandler(
+                catalog=chunks, artifact_store=self._artifact_store, params=params
+            )
+        if stage is PipelineStage.EMBED_CHUNK:
+            return EmbedChunksHandler(
+                catalog=chunks,
+                artifact_store=self._artifact_store,
+                model_provider=self._model_provider,
+                chunk_index=index,
+                settings=E1Settings.model_validate({}),
+                params=params,
+            )
+        if stage is PipelineStage.EXTRACT_CLAIMS:
+            return ExtractClaimsHandler(
+                catalog=claims,
+                chunk_catalog=chunks,
+                artifact_store=self._artifact_store,
+                model_provider=self._model_provider,
+                settings=E2Settings.model_validate({}),
+                chunker_version=chunk_generation,
+            )
+        if stage is PipelineStage.NORMALIZE_RELATIONS:
+            observation_settings = ObservationSettings.model_validate({})
+            return NormalizeRelationsHandler(
+                claim_catalog=claims,
+                chunk_catalog=chunks,
+                registry=EntityRegistry(engine=self._engine),
+                resolver=CascadeResolver(
+                    engine=self._engine,
+                    entity_index=index,
+                    model_provider=self._model_provider,
+                    config=ResolverConfig(resolver_version=RESOLVER_VERSION),
+                    embedding_model=observation_settings.embedding_model,
+                    small_model=observation_settings.small_model,
+                    frontier_model=observation_settings.frontier_model,
+                ),
+                facts=facts,
+                observation_adjudicator=ObservationAdjudicator(
+                    engine=self._engine,
+                    model_provider=self._model_provider,
+                    settings=observation_settings,
+                ),
+                model_provider=self._model_provider,
+                settings=E3Settings.model_validate({}),
+                chunker_version=chunk_generation,
+            )
+        if stage is PipelineStage.ADJUDICATE_SUPERSESSION:
+            return AdjudicateSupersessionHandler(
+                adjudicator=SupersessionAdjudicator(
+                    engine=self._engine,
+                    model_provider=self._model_provider,
+                    settings=SupersessionSettings.model_validate({}),
+                )
+            )
+        if stage is PipelineStage.EMBED_CLAIM:
+            return EmbedClaimsHandler(
+                claim_catalog=claims,
+                chunk_catalog=chunks,
+                model_provider=self._model_provider,
+                claim_index=index,
+                settings=p1_settings,
+                chunker_version=chunk_generation,
+            )
+        if stage is PipelineStage.RECONCILE:
+            return ReconcileHandler(
+                catalog=LifecycleCatalog(engine=self._engine),
+                review_queue=ReviewQueue(engine=self._engine),
+                chunker_version=chunk_generation,
+            )
+        if stage is PipelineStage.LABEL_RELATION:
+            return LabelFactsHandler(
+                facts=facts,
+                model_provider=self._model_provider,
+                fact_index=index,
+                settings=p1_settings,
+            )
+        raise ValueError(f"the self-host profile has no handler for stage {stage}")
 
 
 def create_api() -> FastAPI:
@@ -280,17 +476,21 @@ def create_api() -> FastAPI:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run setup, API, or one E0 worker process for Docker Compose."""
+    """Run setup, API, one continuous worker, or an aggregate projection."""
     parser = argparse.ArgumentParser(description="rememberstack self-host profile")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("setup", help="migrate and bootstrap the deployment")
     subparsers.add_parser("api", help="serve the deployment HTTP API")
-    worker = subparsers.add_parser("worker", help="run one E0 worker route")
+    worker = subparsers.add_parser("worker", help="run one continuous worker route")
     worker.add_argument(
         "--stage",
         choices=tuple(stage.value for stage in _SUPPORTED_WORKER_STAGES),
         required=True,
     )
+    projection = subparsers.add_parser(
+        "project", help="build aggregate projections once"
+    )
+    projection.add_argument("--plane", choices=("p2", "p3", "all"), required=True)
     args = parser.parse_args(argv)
     settings = SelfHostSettings.model_validate({})
     if args.command == "api":
@@ -308,6 +508,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "setup":
             profile.setup()
             return 0
+        if args.command == "project":
+            print(profile.run_projection(plane=args.plane))
+            return 0
         profile.run_worker(stage=PipelineStage(args.stage))
         return 0
     finally:
@@ -318,6 +521,66 @@ def _psycopg_url() -> str:
     """Remove SQLAlchemy's driver suffix for psycopg's native connection parser."""
     url = make_url(load_database_settings().sqlalchemy_url())
     return url.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+def _expected_components() -> dict[PipelineStage, str]:
+    """The exact ten continuous generations composed by this profile."""
+    from rememberstack.spine import ADJUDICATOR_VERSION
+    from rememberstack.workers import E0_CONVERT_VERSION
+    from rememberstack.workers import E0_STRUCTURE_VERSION
+    from rememberstack.workers import E1_CHUNK_VERSION
+    from rememberstack.workers import E1_EMBED_VERSION
+    from rememberstack.workers import E2_EXTRACTOR_VERSION
+    from rememberstack.workers import E3_NORMALIZER_VERSION
+    from rememberstack.workers import FACT_LABEL_VERSION
+    from rememberstack.workers import P1_EMBED_CLAIMS_VERSION
+    from rememberstack.workers import RECONCILE_VERSION
+
+    return {
+        PipelineStage.CONVERT: E0_CONVERT_VERSION,
+        PipelineStage.STRUCTURE: E0_STRUCTURE_VERSION,
+        PipelineStage.CHUNK: E1_CHUNK_VERSION,
+        PipelineStage.EMBED_CHUNK: E1_EMBED_VERSION,
+        PipelineStage.EXTRACT_CLAIMS: E2_EXTRACTOR_VERSION,
+        PipelineStage.NORMALIZE_RELATIONS: E3_NORMALIZER_VERSION,
+        PipelineStage.ADJUDICATE_SUPERSESSION: ADJUDICATOR_VERSION,
+        PipelineStage.EMBED_CLAIM: P1_EMBED_CLAIMS_VERSION,
+        PipelineStage.RECONCILE: RECONCILE_VERSION,
+        PipelineStage.LABEL_RELATION: FACT_LABEL_VERSION,
+    }
+
+
+def _model_bindings() -> dict[str, str]:
+    """Non-secret provider model identities used by the composed pipeline."""
+    from rememberstack.spine import ObservationSettings
+    from rememberstack.spine import SupersessionSettings
+    from rememberstack.workers import E1Settings
+    from rememberstack.workers import E2Settings
+    from rememberstack.workers import E3Settings
+    from rememberstack.workers import P1Settings
+    from rememberstack.workers import StructurerSettings
+
+    structurer = StructurerSettings.model_validate({})
+    e1 = E1Settings.model_validate({})
+    e2 = E2Settings.model_validate({})
+    e3 = E3Settings.model_validate({})
+    observations = ObservationSettings.model_validate({})
+    supersession = SupersessionSettings.model_validate({})
+    p1 = P1Settings.model_validate({})
+    return {
+        "structure": structurer.model,
+        "chunk_embedding": e1.embedding_model,
+        "context_prefix": e1.prefix_model,
+        "claim_extraction": e2.extract_model,
+        "relation_normalization": e3.normalize_model,
+        "entity_observation_embedding": observations.embedding_model,
+        "observation_small": observations.small_model,
+        "observation_frontier": observations.frontier_model,
+        "supersession_small": supersession.small_model,
+        "supersession_frontier": supersession.frontier_model,
+        "p1_embedding": p1.embedding_model,
+        "fact_label": p1.label_model,
+    }
 
 
 if __name__ == "__main__":

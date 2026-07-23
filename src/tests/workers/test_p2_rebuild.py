@@ -322,8 +322,7 @@ def test_validation_gate_aborts_on_a_merge_cycle(
 
 
 def test_reader_hot_swaps_to_a_newer_snapshot(corpus: _Corpus, tmp_path: Path) -> None:
-    """The reader serves v1, keeps serving through a rebuild, and swaps to
-    v2 on refresh — old snapshots remain point-in-time artifacts."""
+    """An ordinary connection observes v2 without an API-process restart."""
     worker, reader, _ = _rig(corpus.engine, tmp_path)
     first = worker.rebuild(deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work")
     assert reader.refresh() is True
@@ -333,10 +332,9 @@ def test_reader_hot_swaps_to_a_newer_snapshot(corpus: _Corpus, tmp_path: Path) -
     with corpus.engine.begin() as connection:  # the corpus grows
         _seed_entity(connection, entity_id=uuid4(), name="Newcomer")
     second = worker.rebuild(deployment_id=_DEPLOYMENT_ID, workdir=tmp_path / "work")
-    assert reader.version == first["version"]  # stable until asked
-    assert reader.refresh() is True
-    assert reader.version == second["version"]
+    assert reader.version == first["version"]  # stable until the next read
     nodes = _scalar(reader.connection(), "MATCH (e:Entity) RETURN count(*)")
+    assert reader.version == second["version"]
     assert nodes == 4  # the newcomer arrived with the swap
 
 

@@ -1,4 +1,4 @@
-"""Pure RS-LoCoMo-v1 rendering, prompts, diagnostics, and scoring."""
+"""Pure full-system LoCoMo rendering, prompts, diagnostics, and scoring."""
 
 from __future__ import annotations
 
@@ -12,31 +12,66 @@ from typing import Final
 from nltk.stem import PorterStemmer
 import regex
 
+from benchmarks.locomo.model import AnswerAgentStep
 from benchmarks.locomo.model import JudgeOutput
 from benchmarks.locomo.model import LoCoMoSample
 from benchmarks.locomo.model import LoCoMoSession
-from benchmarks.locomo.model import ReaderOutput
 from benchmarks.locomo.model import RetainedCategory
-from benchmarks.locomo.model import RetrievedClaim
+from benchmarks.locomo.model import ToolCallRecord
+from rememberstack.model import ToolDescriptor
 
-PROTOCOL_NAME: Final = "RS-LoCoMo-v1"
-ADAPTER_VERSION: Final = "locomo-adapter-2026.07"
-TOP_K: Final = 30
-READER_MODEL: Final = "openai/gpt-4o-mini"
+PROTOCOL_NAME: Final = "RS-LoCoMo-Full-v1"
+ADAPTER_VERSION: Final = "locomo-full-adapter-2026.07"
+MAX_TOOL_CALLS: Final = 8
+MAX_AGENT_CALLS: Final = 9
+EXPECTED_TOOL_CATALOG_SHA256: Final = (
+    "96061015e1681877015027a8f4eccad0ceebec53d6d8dbade346ec0934a9024a"
+)
+EXPECTED_PIPELINE_STAGES: Final = (
+    "convert",
+    "structure",
+    "chunk",
+    "embed_chunk",
+    "extract_claims",
+    "normalize_relations",
+    "adjudicate_supersession",
+    "embed_claim",
+    "reconcile",
+    "label_relation",
+)
+EXPECTED_PROJECTION_PLANES: Final = ("P2_graph", "P3_corpusfs")
+ANSWER_AGENT_MODEL: Final = "openai/gpt-4o-mini"
 JUDGE_MODEL: Final = "openai/gpt-4o-mini"
 TEMPERATURE: Final = 0.0
 
-READER_PROMPT_TEMPLATE: Final = """Answer the question using only the ranked conversation memories below.
-Use memory timestamps when present. Resolve relative time references to the
-corresponding date, month, or year. If memories conflict, prefer the most recent
-one. Do not confuse people mentioned in a memory with the conversation speakers.
-If the memories do not contain the answer, answer "Unknown".
-Return only a concise answer of at most six words.
+ANSWER_AGENT_PROMPT_TEMPLATE: Final = """You answer a question using one ordinary
+RememberStack deployment. You may call only the public recipe tools listed
+below. Work as a normal memory agent:
 
-Ranked memories:
-{memories}
+1. Orient: resolve names and inspect compiled/corpus or graph orientation when
+   useful.
+2. Verify: query current fact tools for what holds now.
+3. Audit: use evidence/hydration tools when wording, time, attribution, or
+   conflicts matter.
 
-Question: {question}"""
+Respect every response envelope's grain, negative, freshness, truncation, and
+dropped_by_hydration fields. Evidence says what a source asserted; it is not
+automatically current fact. Use timestamps to resolve relative dates. Do not
+confuse people mentioned in a memory with the conversation speakers. Never use
+outside knowledge. If the deployment does not contain the answer, finish with
+"Unknown". A final answer must be concise and at most six words.
+
+Return one structured step: either action="tool" with one listed tool_name and
+arguments, or action="answer" with the final answer. Never invent a tool.
+
+PUBLIC TOOLS:
+{tools}
+
+TOOL TRACE SO FAR:
+{trace}
+
+QUESTION:
+{question}"""
 
 JUDGE_PROMPT_TEMPLATE: Final = """Classify the generated answer to the question as CORRECT or WRONG against the
 gold answer. Be generous about concise paraphrases that identify the same topic.
@@ -90,14 +125,28 @@ def render_session(*, sample: LoCoMoSample, session: LoCoMoSession) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_reader_prompt(*, question: str, claims: tuple[RetrievedClaim, ...]) -> str:
-    """Render rank-only claim text; no gold or reconstructed metadata."""
-    memories = (
-        "\n".join(f"[{claim.rank}] {claim.claim_text}" for claim in claims)
-        if claims
-        else "(none)"
+def render_answer_agent_prompt(
+    *,
+    question: str,
+    tools: tuple[ToolDescriptor, ...],
+    trace: tuple[ToolCallRecord, ...],
+) -> str:
+    """Render the frozen public tool catalog and trace, never gold annotations."""
+    tool_payload = json.dumps(
+        [tool.model_dump(mode="json") for tool in tools],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
     )
-    return READER_PROMPT_TEMPLATE.format(memories=memories, question=question)
+    trace_payload = json.dumps(
+        [record.model_dump(mode="json") for record in trace],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return ANSWER_AGENT_PROMPT_TEMPLATE.format(
+        tools=tool_payload, trace=trace_payload or "[]", question=question
+    )
 
 
 def render_judge_prompt(
@@ -114,7 +163,7 @@ def prompt_sha256(*, template: str) -> str:
     return hashlib.sha256(template.encode()).hexdigest()
 
 
-def schema_sha256(*, model: type[ReaderOutput] | type[JudgeOutput]) -> str:
+def schema_sha256(*, model: type[AnswerAgentStep] | type[JudgeOutput]) -> str:
     """Hash a canonical strict-output JSON schema."""
     canonical = json.dumps(
         model.model_json_schema(),

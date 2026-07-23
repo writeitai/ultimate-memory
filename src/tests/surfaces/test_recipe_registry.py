@@ -332,6 +332,41 @@ def test_seeding_is_idempotent_and_round_trips_every_chain(corpus: _Corpus) -> N
         assert by_name[canonical.name].answer_intent == canonical.answer_intent
 
 
+def test_seeding_upgrades_a_changed_recipe_instead_of_masking_it(
+    corpus: _Corpus,
+) -> None:
+    """A v1 row must not hide the bounded v2 public parameter schema."""
+    registry = RecipeRegistry(engine=corpus.engine)
+    current = next(
+        recipe for recipe in CANONICAL_RECIPES if recipe.name == "claims_verbatim"
+    )
+    registry.register(
+        deployment_id=_DEPLOYMENT_ID,
+        recipe=current.model_copy(
+            update={
+                "version": 1,
+                "parameters": {
+                    "query": {"type": "string", "required": True},
+                    "k": {"type": "integer", "required": False, "default": 10},
+                },
+            }
+        ),
+    )
+
+    seed_canonical_recipes(registry=registry, deployment_id=_DEPLOYMENT_ID)
+
+    active = registry.by_name(deployment_id=_DEPLOYMENT_ID, name="claims_verbatim")
+    assert active is not None
+    assert active.version == 2
+    assert active.parameters["k"] == {
+        "type": "integer",
+        "required": False,
+        "default": 10,
+        "minimum": 1,
+        "maximum": 30,
+    }
+
+
 # --- a recipe ≡ its chain --------------------------------------------------
 
 
@@ -342,6 +377,7 @@ def test_every_recipe_equals_its_hand_composed_chain(corpus: _Corpus) -> None:
     executor = RecipeExecutor(query_engine=engine)
     alice, acme = corpus.ids["Alice"], corpus.ids["Acme"]
     arguments: dict[str, dict[str, object]] = {
+        "resolve_entity": {"name": "Alice"},
         "relation_current": {"subject_entity_id": alice, "predicate": "works_for"},
         "observation_current": {"entity_id": acme},
         "entity_timeline": {"entity_id": alice},
@@ -354,6 +390,7 @@ def test_every_recipe_equals_its_hand_composed_chain(corpus: _Corpus) -> None:
     }
     # direct hand-composition of each recipe's chain, primitive by primitive
     direct = {
+        "resolve_entity": engine.resolve(deployment_id=_DEPLOYMENT_ID, name="Alice"),
         "relation_current": engine.lookup_relations(
             deployment_id=_DEPLOYMENT_ID, subject_entity_id=alice, predicate="works_for"
         ),

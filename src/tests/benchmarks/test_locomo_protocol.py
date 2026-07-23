@@ -1,18 +1,30 @@
-"""Pure RS-LoCoMo-v1 rendering, prompt, diagnostic, and scorer proofs."""
+"""Pure full-system LoCoMo rendering, prompt, diagnostic, and scorer proofs."""
 
-from uuid import uuid4
+from datetime import datetime
+from datetime import timezone
+import hashlib
+import json
 
 from benchmarks.locomo.model import LoCoMoQuestion
 from benchmarks.locomo.model import LoCoMoSample
 from benchmarks.locomo.model import LoCoMoSession
 from benchmarks.locomo.model import LoCoMoTurn
-from benchmarks.locomo.model import RetrievedClaim
+from benchmarks.locomo.model import ToolCallRecord
+from benchmarks.locomo.protocol import EXPECTED_TOOL_CATALOG_SHA256
 from benchmarks.locomo.protocol import official_f1
+from benchmarks.locomo.protocol import render_answer_agent_prompt
 from benchmarks.locomo.protocol import render_judge_prompt
-from benchmarks.locomo.protocol import render_reader_prompt
 from benchmarks.locomo.protocol import render_session
 from benchmarks.locomo.protocol import session_diagnostic
 import pytest
+
+from rememberstack.model import Envelope
+from rememberstack.model import Freshness
+from rememberstack.model import Grain
+from rememberstack.model import ToolDescriptor
+from rememberstack.spine import CANONICAL_RECIPES
+from rememberstack.spine import GRAPH_RECIPES
+from rememberstack.surfaces.recipe_surface import recipe_descriptors
 
 
 def test_session_render_preserves_turns_and_discloses_derived_visual_text() -> None:
@@ -57,28 +69,70 @@ def test_session_render_preserves_turns_and_discloses_derived_visual_text() -> N
     assert rendered.endswith("\n")
 
 
-def test_reader_uses_only_ranked_claim_text_and_braces_stay_literal() -> None:
-    claim = _claim(rank=1, text="Literal {question}; timestamp 1 May 2023")
+def test_answer_agent_prompt_contains_only_public_tools_trace_and_question() -> None:
+    tool = ToolDescriptor(
+        name="claims_verbatim",
+        description="What sources asserted",
+        input_schema={"type": "object"},
+        output_grain="evidence",
+        answer_intent="assertion_history",
+    )
+    trace = (
+        ToolCallRecord(
+            name=tool.name,
+            arguments={"query": "Literal {question}"},
+            latency_ms=1,
+            response=Envelope(
+                grain=Grain.EVIDENCE,
+                freshness=Freshness(
+                    pg_live_ts=datetime(2026, 7, 23, tzinfo=timezone.utc)
+                ),
+            ),
+        ),
+    )
 
-    prompt = render_reader_prompt(question="What about {memories}?", claims=(claim,))
+    prompt = render_answer_agent_prompt(
+        question="What about {tools}?", tools=(tool,), trace=trace
+    )
 
-    assert "[1] Literal {question}; timestamp 1 May 2023" in prompt
-    assert "What about {memories}?" in prompt
-    assert claim.source_span not in prompt
+    assert '"name":"claims_verbatim"' in prompt
+    assert "Literal {question}" in prompt
+    assert "What about {tools}?" in prompt
     assert "gold answer" not in prompt.lower()
 
 
-def test_empty_reader_context_is_exactly_none() -> None:
-    prompt = render_reader_prompt(question="Unknown?", claims=())
-    assert "Ranked memories:\n(none)\n\nQuestion: Unknown?" in prompt
+def test_empty_answer_agent_trace_is_explicit_json_array() -> None:
+    prompt = render_answer_agent_prompt(question="Unknown?", tools=(), trace=())
+    assert "TOOL TRACE SO FAR:\n[]" in prompt
 
 
-def test_judge_never_receives_retrieved_context() -> None:
+def test_frozen_tool_catalog_hash_matches_stock_full_system_recipes() -> None:
+    recipes = tuple(
+        sorted((*CANONICAL_RECIPES, *GRAPH_RECIPES), key=lambda recipe: recipe.name)
+    )
+    descriptors = recipe_descriptors(recipes=recipes)
+    canonical = json.dumps(
+        [
+            descriptor.model_dump(mode="json", exclude_none=False)
+            for descriptor in descriptors
+        ],
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    assert hashlib.sha256(canonical.encode()).hexdigest() == (
+        EXPECTED_TOOL_CATALOG_SHA256
+    )
+
+
+def test_judge_never_receives_tool_trace() -> None:
     prompt = render_judge_prompt(
         question="Where?", gold_answer="Prague", generated_answer="Prague"
     )
     assert "Gold answer: Prague" in prompt
-    assert "Ranked memories" not in prompt
+    assert "TOOL TRACE" not in prompt
     assert "source_span" not in prompt
 
 
@@ -116,19 +170,3 @@ def test_session_diagnostic_keeps_valid_ids_and_discloses_malformed_fields() -> 
     assert diagnostic.malformed_fields == 2
     assert diagnostic.recall == pytest.approx(2 / 3)
     assert diagnostic.complete is False
-
-
-def _claim(*, rank: int, text: str) -> RetrievedClaim:
-    return RetrievedClaim(
-        rank=rank,
-        claim_id=uuid4(),
-        doc_id=uuid4(),
-        chunk_id=uuid4(),
-        claim_text=text,
-        source_span="SECRET VERBATIM SOURCE",
-        char_start=0,
-        char_end=22,
-        is_attributed=False,
-        is_current_testimony=True,
-        session_id="D1",
-    )

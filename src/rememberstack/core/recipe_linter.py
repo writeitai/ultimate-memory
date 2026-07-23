@@ -52,6 +52,7 @@ class _OpSpec:
 # or count live-but-expired rows — so it can never sit in a `current_facts`
 # recipe. `fuse` returns an evidence-grade ranking (candidates to hydrate).
 _OPS: dict[str, _OpSpec] = {
+    "resolve": _OpSpec(Grain.FACT, validity_filtered=False),
     "lookup_relations": _OpSpec(Grain.FACT, validity_filtered=True),
     "lookup_observations": _OpSpec(Grain.FACT, validity_filtered=True),
     "aggregate": _OpSpec(Grain.FACT, validity_filtered=False),
@@ -60,6 +61,8 @@ _OPS: dict[str, _OpSpec] = {
     "transcript": _OpSpec(Grain.COMPOSITE, validity_filtered=False),
     "delta": _OpSpec(Grain.COMPOSITE, validity_filtered=False),
     "pages_about": _OpSpec(Grain.COMPILED, validity_filtered=False),
+    "graph_neighborhood": _OpSpec(Grain.FACT, validity_filtered=True),
+    "graph_path": _OpSpec(Grain.FACT, validity_filtered=True),
     "fuse": _OpSpec(Grain.EVIDENCE, validity_filtered=False, min_inputs=1),
 }
 

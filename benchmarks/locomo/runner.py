@@ -1,4 +1,4 @@
-"""Staged, guarded, checkpointed execution for RS-LoCoMo-v1."""
+"""Staged, guarded execution for the full-system LoCoMo protocol."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from benchmarks.locomo.dataset import load_dataset
 from benchmarks.locomo.dataset import load_manifest
 from benchmarks.locomo.dataset import manifest_bytes_hash
 from benchmarks.locomo.dataset import validate_manifest
+from benchmarks.locomo.model import AnswerAgentStep
 from benchmarks.locomo.model import AnswerRecord
 from benchmarks.locomo.model import BenchmarkFailure
 from benchmarks.locomo.model import CategorySummary
@@ -36,33 +37,37 @@ from benchmarks.locomo.model import LoCoMoDataset
 from benchmarks.locomo.model import LoCoMoQuestion
 from benchmarks.locomo.model import PreparedDocument
 from benchmarks.locomo.model import QuestionManifest
-from benchmarks.locomo.model import ReaderOutput
 from benchmarks.locomo.model import RetainedCategory
 from benchmarks.locomo.model import RetrievedClaim
 from benchmarks.locomo.model import RunConfiguration
 from benchmarks.locomo.model import RunState
 from benchmarks.locomo.model import RunSummary
 from benchmarks.locomo.model import SessionDiagnosticSummary
+from benchmarks.locomo.model import ToolCallRecord
 from benchmarks.locomo.protocol import ADAPTER_VERSION
+from benchmarks.locomo.protocol import ANSWER_AGENT_MODEL
+from benchmarks.locomo.protocol import ANSWER_AGENT_PROMPT_TEMPLATE
+from benchmarks.locomo.protocol import EXPECTED_PIPELINE_STAGES
+from benchmarks.locomo.protocol import EXPECTED_PROJECTION_PLANES
+from benchmarks.locomo.protocol import EXPECTED_TOOL_CATALOG_SHA256
 from benchmarks.locomo.protocol import JUDGE_MODEL
 from benchmarks.locomo.protocol import JUDGE_PROMPT_TEMPLATE
+from benchmarks.locomo.protocol import MAX_AGENT_CALLS
+from benchmarks.locomo.protocol import MAX_TOOL_CALLS
 from benchmarks.locomo.protocol import official_f1
 from benchmarks.locomo.protocol import prompt_sha256
 from benchmarks.locomo.protocol import PROTOCOL_NAME
-from benchmarks.locomo.protocol import READER_MODEL
-from benchmarks.locomo.protocol import READER_PROMPT_TEMPLATE
+from benchmarks.locomo.protocol import render_answer_agent_prompt
 from benchmarks.locomo.protocol import render_judge_prompt
-from benchmarks.locomo.protocol import render_reader_prompt
 from benchmarks.locomo.protocol import render_session
 from benchmarks.locomo.protocol import schema_sha256
 from benchmarks.locomo.protocol import session_diagnostic
 from benchmarks.locomo.protocol import TEMPERATURE
-from benchmarks.locomo.protocol import TOP_K
 from rememberstack.adapters.openrouter import OpenRouterProviderError
-from rememberstack.model import Grain
 from rememberstack.model import ModelRequest
 from rememberstack.model import ProviderAccountingError
 from rememberstack.model import ProviderCallUsage
+from rememberstack.model import ToolDescriptor
 from rememberstack.ports import ModelProviderPort
 from rememberstack.surfaces.sdk import MemoryApiError
 from rememberstack.surfaces.sdk import MemoryClient
@@ -111,15 +116,18 @@ def prepare_run(*, dataset_path: Path, tier: str, output: Path) -> RunConfigurat
         "documents_sha256": _models_hash(values=documents),
         "item_count": len(manifest.item_ids),
         "sample_ids": sample_ids,
-        "top_k": TOP_K,
-        "reader_model": READER_MODEL,
+        "max_tool_calls_per_question": MAX_TOOL_CALLS,
+        "max_agent_calls_per_question": MAX_AGENT_CALLS,
+        "knowledge_mode": "not_composed",
+        "answer_agent_model": ANSWER_AGENT_MODEL,
         "judge_model": JUDGE_MODEL,
-        "reader_temperature": TEMPERATURE,
+        "answer_agent_temperature": TEMPERATURE,
         "judge_temperature": TEMPERATURE,
         "judge_repetitions": 1,
-        "reader_prompt_sha256": prompt_sha256(template=READER_PROMPT_TEMPLATE),
+        "tool_catalog_sha256": EXPECTED_TOOL_CATALOG_SHA256,
+        "answer_prompt_sha256": prompt_sha256(template=ANSWER_AGENT_PROMPT_TEMPLATE),
         "judge_prompt_sha256": prompt_sha256(template=JUDGE_PROMPT_TEMPLATE),
-        "reader_schema_sha256": schema_sha256(model=ReaderOutput),
+        "answer_schema_sha256": schema_sha256(model=AnswerAgentStep),
         "judge_schema_sha256": schema_sha256(model=JudgeOutput),
     }
     configuration = RunConfiguration(
@@ -212,10 +220,9 @@ def answer_sample(
     run_dir: Path,
     sample_id: str,
     max_questions: int,
-    max_reader_calls: int,
+    max_agent_calls: int,
     max_evaluator_cost_usd: Decimal,
     execute: bool,
-    index_ready_confirmation: str | None,
     client: MemoryClient,
     provider: ModelProviderPort,
 ) -> tuple[AnswerRecord, ...]:
@@ -225,8 +232,8 @@ def answer_sample(
         context=context,
         execute=execute,
         sample_id=sample_id,
-        confirmation=index_ready_confirmation,
-        confirmation_name="confirm-index-ready",
+        confirmation=sample_id,
+        confirmation_name="sample",
     )
     questions = _sample_questions(context=context, sample_id=sample_id)
     if max_questions < context.configuration.item_count:
@@ -235,16 +242,58 @@ def answer_sample(
             f"{context.configuration.item_count}"
         )
     _require_sample_ingested(context=context, sample_id=sample_id)
+    version_ids = tuple(
+        record.version_id
+        for record in context.state.ingests.values()
+        if record.sample_id == sample_id
+    )
+    readiness = client.pipeline_readiness(
+        version_ids=version_ids, require_projections=True
+    )
+    reported_versions = {version.version_id for version in readiness.versions}
+    complete_versions = all(
+        version.ready
+        and tuple(stage.stage for stage in version.stages) == EXPECTED_PIPELINE_STAGES
+        and all(stage.status in {"succeeded", "skipped"} for stage in version.stages)
+        for version in readiness.versions
+    )
+    reported_planes = tuple(projection.plane for projection in readiness.projections)
+    complete_projections = reported_planes == EXPECTED_PROJECTION_PLANES and all(
+        projection.ready for projection in readiness.projections
+    )
+    if (
+        not readiness.ready
+        or reported_versions != set(version_ids)
+        or not complete_versions
+        or not complete_projections
+    ):
+        raise ExecutionGuardError(
+            "the deployment did not report the exact completed"
+            " RS-LoCoMo-Full-v1 pipeline and fresh P2/P3 projections"
+        )
+    prior_readiness = context.state.readiness.get(sample_id)
+    if prior_readiness is not None and prior_readiness != readiness:
+        raise ExecutionGuardError(
+            "deployment readiness fingerprint changed after it was checkpointed"
+        )
+    context.state.readiness[sample_id] = readiness
+    _save_state(run_dir=run_dir, state=context.state)
+    tools = client.recipes()
+    if _models_hash(values=tools) != context.configuration.tool_catalog_sha256:
+        raise ExecutionGuardError(
+            "deployment recipe catalog differs from the prepared protocol"
+        )
     remaining = tuple(
         question
         for question in questions
         if question.item_id not in context.state.answers
     )
-    called = sum(record.reader_called for record in context.state.answers.values())
-    if called + len(remaining) > max_reader_calls:
+    called = sum(record.agent_call_count for record in context.state.answers.values())
+    worst_case = called + len(remaining) * MAX_AGENT_CALLS
+    if worst_case > max_agent_calls:
         raise ExecutionGuardError(
-            f"max-reader-calls {max_reader_calls} cannot cover at most "
-            f"{called + len(remaining)} run calls"
+            f"max-agent-calls {max_agent_calls} cannot cover at most"
+            f" {worst_case} run calls"
         )
     _require_cost_ceiling(
         spent=context.state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
@@ -259,9 +308,10 @@ def answer_sample(
             question=question,
             client=client,
             provider=provider,
+            tools=tools,
             doc_sessions=doc_sessions,
             state=context.state,
-            max_reader_calls=max_reader_calls,
+            max_agent_calls=max_agent_calls,
             max_evaluator_cost_usd=max_evaluator_cost_usd,
         )
         context.state.answers[question.item_id] = record
@@ -424,8 +474,8 @@ def summarize_run(*, run_dir: Path) -> RunSummary:
             ),
         ),
         failures=dict(sorted(failures.items())),
-        reader_calls=sum(
-            record.reader_called for record in context.state.answers.values()
+        answer_agent_calls=sum(
+            record.agent_call_count for record in context.state.answers.values()
         ),
         judge_calls=sum(
             record.model_called for record in context.state.judges.values()
@@ -538,7 +588,7 @@ def _validate_run(
 ) -> None:
     """Recompute immutable run identity before any local or remote stage."""
     if configuration.dataset_sha256 != DATASET_SHA256:
-        raise BenchmarkRunError("run dataset hash is not RS-LoCoMo-v1")
+        raise BenchmarkRunError("run dataset hash is not RS-LoCoMo-Full-v1")
     if item_ids_hash(item_ids=manifest.item_ids) != manifest.item_ids_sha256:
         raise BenchmarkRunError("run manifest item hash changed")
     if manifest_bytes_hash(manifest=manifest) != configuration.manifest_sha256:
@@ -548,14 +598,14 @@ def _validate_run(
     if manifest.tier != configuration.tier:
         raise BenchmarkRunError("run manifest tier changed")
     if configuration.dataset_commit != DATASET_COMMIT:
-        raise BenchmarkRunError("run dataset commit is not RS-LoCoMo-v1")
+        raise BenchmarkRunError("run dataset commit is not RS-LoCoMo-Full-v1")
     if configuration.adapter_version != ADAPTER_VERSION:
         raise BenchmarkRunError("run adapter version differs from current code")
     if (
-        configuration.reader_temperature != TEMPERATURE
+        configuration.answer_agent_temperature != TEMPERATURE
         or configuration.judge_temperature != TEMPERATURE
     ):
-        raise BenchmarkRunError("run temperature differs from RS-LoCoMo-v1")
+        raise BenchmarkRunError("run temperature differs from RS-LoCoMo-Full-v1")
     if _models_hash(values=documents) != configuration.documents_sha256:
         raise BenchmarkRunError("prepared document manifest changed")
     if len(questions) != configuration.item_count:
@@ -579,23 +629,27 @@ def _validate_run(
         "documents_sha256": configuration.documents_sha256,
         "item_count": configuration.item_count,
         "sample_ids": configuration.sample_ids,
-        "top_k": configuration.top_k,
-        "reader_model": configuration.reader_model,
+        "max_tool_calls_per_question": configuration.max_tool_calls_per_question,
+        "max_agent_calls_per_question": configuration.max_agent_calls_per_question,
+        "knowledge_mode": configuration.knowledge_mode,
+        "answer_agent_model": configuration.answer_agent_model,
         "judge_model": configuration.judge_model,
-        "reader_temperature": configuration.reader_temperature,
+        "answer_agent_temperature": configuration.answer_agent_temperature,
         "judge_temperature": configuration.judge_temperature,
         "judge_repetitions": configuration.judge_repetitions,
-        "reader_prompt_sha256": configuration.reader_prompt_sha256,
+        "tool_catalog_sha256": configuration.tool_catalog_sha256,
+        "answer_prompt_sha256": configuration.answer_prompt_sha256,
         "judge_prompt_sha256": configuration.judge_prompt_sha256,
-        "reader_schema_sha256": configuration.reader_schema_sha256,
+        "answer_schema_sha256": configuration.answer_schema_sha256,
         "judge_schema_sha256": configuration.judge_schema_sha256,
     }
     if _canonical_hash(base) != configuration.protocol_fingerprint:
         raise BenchmarkRunError("run protocol fingerprint changed")
     current_hashes = {
-        "reader_prompt_sha256": prompt_sha256(template=READER_PROMPT_TEMPLATE),
+        "tool_catalog_sha256": EXPECTED_TOOL_CATALOG_SHA256,
+        "answer_prompt_sha256": prompt_sha256(template=ANSWER_AGENT_PROMPT_TEMPLATE),
         "judge_prompt_sha256": prompt_sha256(template=JUDGE_PROMPT_TEMPLATE),
-        "reader_schema_sha256": schema_sha256(model=ReaderOutput),
+        "answer_schema_sha256": schema_sha256(model=AnswerAgentStep),
         "judge_schema_sha256": schema_sha256(model=JudgeOutput),
     }
     for field, actual in current_hashes.items():
@@ -756,128 +810,231 @@ def _answer_one(
     question: LoCoMoQuestion,
     client: MemoryClient,
     provider: ModelProviderPort,
+    tools: tuple[ToolDescriptor, ...],
     doc_sessions: dict[UUID, str],
     state: RunState,
-    max_reader_calls: int,
+    max_agent_calls: int,
     max_evaluator_cost_usd: Decimal,
 ) -> AnswerRecord:
-    """Retrieve and invoke the reader once, returning one terminal record."""
-    started = time.monotonic_ns()
-    try:
-        envelope = client.search_claims(query=question.question, k=TOP_K)
-    except MemoryApiError as error:
-        return _failed_answer(
-            question=question,
-            kind="retrieval",
-            message=str(error),
-            retrieval_latency_ms=_elapsed_ms(started),
-            retrieval_succeeded=False,
-            reader_called=False,
+    """Let a bounded agent choose ordinary public recipes, then answer."""
+    tool_names = {tool.name for tool in tools}
+    trace: list[ToolCallRecord] = []
+    usages: list[ProviderCallUsage] = []
+    agent_latency_ms = 0
+    tool_latency_ms = 0
+    prior_calls = sum(record.agent_call_count for record in state.answers.values())
+    for _ in range(MAX_AGENT_CALLS):
+        if prior_calls + len(usages) >= max_agent_calls:
+            raise ExecutionGuardError(
+                "answer-agent call ceiling reached before next call"
+            )
+        _require_cost_before_call(
+            spent=state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
         )
-    retrieval_latency = _elapsed_ms(started)
-    if envelope.grain is not Grain.EVIDENCE:
-        return _failed_answer(
-            question=question,
-            kind="invalid_response",
-            message=f"claim search returned grain {envelope.grain}",
-            retrieval_latency_ms=retrieval_latency,
-            retrieval_succeeded=False,
-            reader_called=False,
+        prompt = render_answer_agent_prompt(
+            question=question.question, tools=tools, trace=tuple(trace)
         )
-    if len(envelope.evidence) > TOP_K or any(
-        not claim.is_current_testimony for claim in envelope.evidence
-    ):
-        return _failed_answer(
-            question=question,
-            kind="invalid_response",
-            message=("claim search exceeded top-k or returned non-current testimony"),
-            retrieval_latency_ms=retrieval_latency,
-            retrieval_succeeded=False,
-            reader_called=False,
+        started = time.monotonic_ns()
+        try:
+            response = provider.generate(
+                request=ModelRequest(
+                    model=ANSWER_AGENT_MODEL, prompt=prompt, temperature=TEMPERATURE
+                ),
+                response_type=AnswerAgentStep,
+            )
+        except ProviderAccountingError as error:
+            return _failed_answer(
+                question=question,
+                kind="accounting",
+                message=str(error),
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=bool(trace),
+                agent_call_count=len(usages) + 1,
+                reader_latency_ms=agent_latency_ms + _elapsed_ms(started),
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        except ValidationError as error:
+            return _failed_answer(
+                question=question,
+                kind="invalid_response",
+                message=str(error),
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=bool(trace),
+                agent_call_count=len(usages) + 1,
+                reader_latency_ms=agent_latency_ms + _elapsed_ms(started),
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        except OpenRouterProviderError as error:
+            if error.usage is not None:
+                usages.append(error.usage)
+                state.evaluator_cost_usd += error.usage.cost_usd
+            return _failed_answer(
+                question=question,
+                kind="reader",
+                message=str(error),
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=bool(trace),
+                agent_call_count=(
+                    len(usages) if error.usage is not None else len(usages) + 1
+                ),
+                reader_latency_ms=agent_latency_ms + _elapsed_ms(started),
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        agent_latency_ms += _elapsed_ms(started)
+        usages.append(response.usage)
+        state.evaluator_cost_usd += response.usage.cost_usd
+        if state.evaluator_cost_usd > max_evaluator_cost_usd:
+            return _failed_answer(
+                question=question,
+                kind="accounting",
+                message=(
+                    f"reported evaluator spend {state.evaluator_cost_usd} crossed"
+                    f" stop threshold {max_evaluator_cost_usd}"
+                ),
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=bool(trace),
+                agent_call_count=len(usages),
+                reader_latency_ms=agent_latency_ms,
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        step = response.output
+        if step.action == "answer":
+            if not trace:
+                return _failed_answer(
+                    question=question,
+                    kind="invalid_response",
+                    message="answer agent finished without consulting RememberStack",
+                    retrieval_latency_ms=tool_latency_ms,
+                    retrieval_succeeded=False,
+                    agent_call_count=len(usages),
+                    reader_latency_ms=agent_latency_ms,
+                    tool_calls=tuple(trace),
+                    usages=tuple(usages),
+                )
+            answer = step.answer or ""
+            if len(answer.split()) > 6:
+                return _failed_answer(
+                    question=question,
+                    kind="invalid_response",
+                    message="answer agent exceeded the six-word answer limit",
+                    retrieval_latency_ms=tool_latency_ms,
+                    retrieval_succeeded=True,
+                    agent_call_count=len(usages),
+                    reader_latency_ms=agent_latency_ms,
+                    claims=_claims_from_trace(
+                        trace=tuple(trace), doc_sessions=doc_sessions
+                    ),
+                    tool_calls=tuple(trace),
+                    usages=tuple(usages),
+                )
+            claims = _claims_from_trace(trace=tuple(trace), doc_sessions=doc_sessions)
+            return AnswerRecord(
+                item_id=question.item_id,
+                sample_id=question.sample_id,
+                category=_retained_category(question=question),
+                question=question.question,
+                gold_answer=question.answer or "",
+                gold_evidence=question.evidence,
+                claims=claims,
+                tool_calls=tuple(trace),
+                dropped_by_hydration=sum(
+                    call.response.dropped_by_hydration for call in trace
+                ),
+                retrieval_succeeded=True,
+                retrieval_latency_ms=tool_latency_ms,
+                reader_called=True,
+                agent_call_count=len(usages),
+                reader_latency_ms=agent_latency_ms,
+                generated_answer=answer,
+                reader_usage=_aggregate_usage(usages=tuple(usages)),
+            )
+        if step.tool_name not in tool_names:
+            return _failed_answer(
+                question=question,
+                kind="invalid_response",
+                message=f"answer agent requested unknown tool {step.tool_name!r}",
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=bool(trace),
+                agent_call_count=len(usages),
+                reader_latency_ms=agent_latency_ms,
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        if len(trace) >= MAX_TOOL_CALLS:
+            return _failed_answer(
+                question=question,
+                kind="invalid_response",
+                message="answer agent exceeded the per-question tool-call limit",
+                retrieval_latency_ms=tool_latency_ms,
+                retrieval_succeeded=True,
+                agent_call_count=len(usages),
+                reader_latency_ms=agent_latency_ms,
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        tool_started = time.monotonic_ns()
+        try:
+            envelope = client.run_recipe(
+                name=step.tool_name or "", arguments=step.arguments
+            )
+        except MemoryApiError as error:
+            return _failed_answer(
+                question=question,
+                kind="tool",
+                message=str(error),
+                retrieval_latency_ms=tool_latency_ms + _elapsed_ms(tool_started),
+                retrieval_succeeded=False,
+                agent_call_count=len(usages),
+                reader_latency_ms=agent_latency_ms,
+                claims=_claims_from_trace(
+                    trace=tuple(trace), doc_sessions=doc_sessions
+                ),
+                tool_calls=tuple(trace),
+                usages=tuple(usages),
+            )
+        latency = _elapsed_ms(tool_started)
+        tool_latency_ms += latency
+        trace.append(
+            ToolCallRecord(
+                name=step.tool_name or "",
+                arguments=step.arguments,
+                latency_ms=latency,
+                response=envelope,
+            )
         )
-    claims = tuple(
-        RetrievedClaim(
-            rank=rank,
-            claim_id=claim.claim_id,
-            doc_id=claim.doc_id,
-            chunk_id=claim.chunk_id,
-            claim_text=claim.claim_text,
-            source_span=claim.source_span,
-            char_start=claim.char_start,
-            char_end=claim.char_end,
-            is_attributed=claim.is_attributed,
-            is_current_testimony=claim.is_current_testimony,
-            session_id=doc_sessions.get(claim.doc_id),
-        )
-        for rank, claim in enumerate(envelope.evidence, start=1)
-    )
-    called = sum(record.reader_called for record in state.answers.values())
-    if called >= max_reader_calls:
-        raise ExecutionGuardError("reader call ceiling reached before next call")
-    _require_cost_before_call(
-        spent=state.evaluator_cost_usd, ceiling=max_evaluator_cost_usd
-    )
-    prompt = render_reader_prompt(question=question.question, claims=claims)
-    reader_started = time.monotonic_ns()
-    try:
-        response = provider.generate(
-            request=ModelRequest(
-                model=READER_MODEL, prompt=prompt, temperature=TEMPERATURE
-            ),
-            response_type=ReaderOutput,
-        )
-    except ProviderAccountingError as error:
-        return _failed_answer(
-            question=question,
-            kind="accounting",
-            message=str(error),
-            retrieval_latency_ms=retrieval_latency,
-            retrieval_succeeded=True,
-            reader_called=True,
-            reader_latency_ms=_elapsed_ms(reader_started),
-            claims=claims,
-            dropped_by_hydration=envelope.dropped_by_hydration,
-        )
-    except ValidationError as error:
-        return _failed_answer(
-            question=question,
-            kind="invalid_response",
-            message=str(error),
-            retrieval_latency_ms=retrieval_latency,
-            retrieval_succeeded=True,
-            reader_called=True,
-            reader_latency_ms=_elapsed_ms(reader_started),
-            claims=claims,
-            dropped_by_hydration=envelope.dropped_by_hydration,
-        )
-    except OpenRouterProviderError as error:
-        return _failed_answer(
-            question=question,
-            kind="reader",
-            message=str(error),
-            retrieval_latency_ms=retrieval_latency,
-            retrieval_succeeded=True,
-            reader_called=True,
-            reader_latency_ms=_elapsed_ms(reader_started),
-            claims=claims,
-            dropped_by_hydration=envelope.dropped_by_hydration,
-        )
-    state.evaluator_cost_usd += response.usage.cost_usd
-    return AnswerRecord(
-        item_id=question.item_id,
-        sample_id=question.sample_id,
-        category=_retained_category(question=question),
-        question=question.question,
-        gold_answer=question.answer or "",
-        gold_evidence=question.evidence,
-        claims=claims,
-        dropped_by_hydration=envelope.dropped_by_hydration,
-        retrieval_succeeded=True,
-        retrieval_latency_ms=retrieval_latency,
-        reader_called=True,
-        reader_latency_ms=_elapsed_ms(reader_started),
-        generated_answer=response.output.answer,
-        reader_usage=response.usage,
+    return _failed_answer(
+        question=question,
+        kind="invalid_response",
+        message="answer agent exhausted its step budget without a final answer",
+        retrieval_latency_ms=tool_latency_ms,
+        retrieval_succeeded=bool(trace),
+        agent_call_count=len(usages),
+        reader_latency_ms=agent_latency_ms,
+        claims=_claims_from_trace(trace=tuple(trace), doc_sessions=doc_sessions),
+        tool_calls=tuple(trace),
+        usages=tuple(usages),
     )
 
 
@@ -919,7 +1076,18 @@ def _judge_one(
             latency_ms=_elapsed_ms(started),
             failure=_failure(kind="accounting", message=str(error)),
         )
-    except (OpenRouterProviderError, ValidationError) as error:
+    except OpenRouterProviderError as error:
+        if error.usage is not None:
+            state.evaluator_cost_usd += error.usage.cost_usd
+        return JudgeRecord(
+            item_id=question.item_id,
+            label="WRONG",
+            model_called=True,
+            usage=error.usage,
+            latency_ms=_elapsed_ms(started),
+            failure=_failure(kind="judge", message=str(error)),
+        )
+    except ValidationError as error:
         return JudgeRecord(
             item_id=question.item_id,
             label="WRONG",
@@ -928,6 +1096,21 @@ def _judge_one(
             failure=_failure(kind="judge", message=str(error)),
         )
     state.evaluator_cost_usd += response.usage.cost_usd
+    if state.evaluator_cost_usd > max_evaluator_cost_usd:
+        return JudgeRecord(
+            item_id=question.item_id,
+            label="WRONG",
+            model_called=True,
+            usage=response.usage,
+            latency_ms=_elapsed_ms(started),
+            failure=_failure(
+                kind="accounting",
+                message=(
+                    f"reported evaluator spend {state.evaluator_cost_usd} crossed"
+                    f" stop threshold {max_evaluator_cost_usd}"
+                ),
+            ),
+        )
     return JudgeRecord(
         item_id=question.item_id,
         label=response.output.label,
@@ -944,10 +1127,11 @@ def _failed_answer(
     message: str,
     retrieval_latency_ms: int,
     retrieval_succeeded: bool,
-    reader_called: bool,
+    agent_call_count: int,
     reader_latency_ms: int | None = None,
     claims: tuple[RetrievedClaim, ...] = (),
-    dropped_by_hydration: int = 0,
+    tool_calls: tuple[ToolCallRecord, ...] = (),
+    usages: tuple[ProviderCallUsage, ...] = (),
 ) -> AnswerRecord:
     """Build a bounded terminal failure without erasing retrieval evidence."""
     return AnswerRecord(
@@ -958,12 +1142,66 @@ def _failed_answer(
         gold_answer=question.answer or "",
         gold_evidence=question.evidence,
         claims=claims,
-        dropped_by_hydration=dropped_by_hydration,
+        tool_calls=tool_calls,
+        dropped_by_hydration=sum(
+            call.response.dropped_by_hydration for call in tool_calls
+        ),
         retrieval_succeeded=retrieval_succeeded,
         retrieval_latency_ms=retrieval_latency_ms,
-        reader_called=reader_called,
+        reader_called=agent_call_count > 0,
+        agent_call_count=agent_call_count,
         reader_latency_ms=reader_latency_ms,
+        reader_usage=_aggregate_usage(usages=usages) if usages else None,
         failure=_failure(kind=kind, message=message),
+    )
+
+
+def _claims_from_trace(
+    *, trace: tuple[ToolCallRecord, ...], doc_sessions: dict[UUID, str]
+) -> tuple[RetrievedClaim, ...]:
+    """Collect first-seen evidence claims from every public tool response."""
+    seen: set[UUID] = set()
+    claims: list[RetrievedClaim] = []
+    for call in trace:
+        evidence = [
+            *call.response.evidence,
+            *(item for part in call.response.parts for item in part.evidence),
+        ]
+        for claim in evidence:
+            if claim.claim_id in seen:
+                continue
+            seen.add(claim.claim_id)
+            claims.append(
+                RetrievedClaim(
+                    rank=len(claims) + 1,
+                    claim_id=claim.claim_id,
+                    doc_id=claim.doc_id,
+                    chunk_id=claim.chunk_id,
+                    claim_text=claim.claim_text,
+                    source_span=claim.source_span,
+                    char_start=claim.char_start,
+                    char_end=claim.char_end,
+                    is_attributed=claim.is_attributed,
+                    is_current_testimony=claim.is_current_testimony,
+                    session_id=doc_sessions.get(claim.doc_id),
+                )
+            )
+    return tuple(claims)
+
+
+def _aggregate_usage(*, usages: tuple[ProviderCallUsage, ...]) -> ProviderCallUsage:
+    """Collapse one question's same-model agent calls for durable accounting."""
+    if not usages:
+        raise ValueError("cannot aggregate an empty usage tuple")
+    model_names = {usage.model_name for usage in usages}
+    if len(model_names) != 1:
+        raise BenchmarkRunError("one answer-agent trace used multiple models")
+    return ProviderCallUsage(
+        model_name=usages[0].model_name,
+        tokens_in=sum(usage.tokens_in for usage in usages),
+        tokens_out=sum(usage.tokens_out for usage in usages),
+        cost_usd=sum((usage.cost_usd for usage in usages), start=Decimal(0)),
+        latency_ms=sum(usage.latency_ms for usage in usages),
     )
 
 
@@ -986,21 +1224,21 @@ def _sample_questions(
 
 
 def _require_cost_ceiling(*, spent: Decimal, ceiling: Decimal) -> None:
-    """Require a positive run ceiling no lower than persisted spend."""
+    """Require a positive reported-spend threshold no lower than persisted spend."""
     if ceiling <= 0:
         raise ExecutionGuardError("max-evaluator-cost-usd must be positive")
     if ceiling < spent:
         raise ExecutionGuardError(
-            f"cost ceiling {ceiling} is below already recorded spend {spent}"
+            f"cost threshold {ceiling} is below already recorded spend {spent}"
         )
 
 
 def _require_cost_before_call(*, spent: Decimal, ceiling: Decimal) -> None:
-    """Stop before a provider call once the run ceiling is reached."""
+    """Stop before a provider call once the reported-spend threshold is reached."""
     _require_cost_ceiling(spent=spent, ceiling=ceiling)
     if spent >= ceiling:
         raise ExecutionGuardError(
-            f"evaluator spend {spent} has reached run ceiling {ceiling}"
+            f"evaluator spend {spent} has reached run threshold {ceiling}"
         )
 
 

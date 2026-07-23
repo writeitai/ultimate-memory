@@ -20,6 +20,7 @@ from uuid import UUID
 from rememberstack.model import Envelope
 from rememberstack.model import Recipe
 from rememberstack.model import RecipeStep
+from rememberstack.surfaces.graph_queries import GraphQueries
 from rememberstack.surfaces.query_engine import QueryEngine
 
 
@@ -30,9 +31,12 @@ class RecipeExecutionError(Exception):
 class RecipeExecutor:
     """Replay a recipe's frozen chain over the zero-LLM query primitives."""
 
-    def __init__(self, *, query_engine: QueryEngine) -> None:
-        """Bind the executor to the query engine whose primitives it composes."""
+    def __init__(
+        self, *, query_engine: QueryEngine, graph_queries: GraphQueries | None = None
+    ) -> None:
+        """Bind the ordinary primitives and an optional P2 graph surface."""
         self._engine = query_engine
+        self._graph = graph_queries
 
     def execute(
         self, *, deployment_id: UUID, recipe: Recipe, arguments: dict[str, object]
@@ -80,12 +84,26 @@ class RecipeExecutor:
             return self._engine.fuse(
                 rankings=[rankings[index] for index in step.inputs], **kwargs
             )
+        if step.op == "graph_neighborhood":
+            return self._graph_step(op=step.op, kwargs=kwargs)
+        if step.op == "graph_path":
+            return self._graph_step(op=step.op, kwargs=kwargs)
         handler = _SINGLE_OP_HANDLERS.get(step.op)
         if handler is None:
             raise RecipeExecutionError(
                 f"the executor has no handler for op {step.op!r}"
             )
         return handler(self._engine, deployment_id, kwargs)
+
+    def _graph_step(self, *, op: str, kwargs: dict[str, Any]) -> Envelope:
+        """Run a P2 operation only when the deployment composed P2 queries."""
+        if self._graph is None:
+            raise RecipeExecutionError(
+                f"recipe op {op!r} requires a composed P2 graph query surface"
+            )
+        if op == "graph_neighborhood":
+            return self._graph.neighborhood(**kwargs)
+        return self._graph.path(**kwargs)
 
 
 def _ranking_of(envelope: Envelope) -> list[UUID]:
@@ -118,6 +136,13 @@ def _lookup_relations(
 ) -> Envelope:
     """The `lookup_relations` op."""
     return engine.lookup_relations(deployment_id=deployment_id, **kwargs)
+
+
+def _resolve(
+    engine: QueryEngine, deployment_id: UUID, kwargs: dict[str, Any]
+) -> Envelope:
+    """The `resolve` op."""
+    return engine.resolve(deployment_id=deployment_id, **kwargs)
 
 
 def _lookup_observations(
@@ -170,6 +195,7 @@ def _pages_about(
 
 
 _SINGLE_OP_HANDLERS = {
+    "resolve": _resolve,
     "lookup_relations": _lookup_relations,
     "lookup_observations": _lookup_observations,
     "aggregate": _aggregate,
@@ -180,6 +206,10 @@ _SINGLE_OP_HANDLERS = {
     "pages_about": _pages_about,
 }
 
-EXECUTABLE_OPS = frozenset(_SINGLE_OP_HANDLERS) | {"fuse"}
+EXECUTABLE_OPS = frozenset(_SINGLE_OP_HANDLERS) | {
+    "fuse",
+    "graph_neighborhood",
+    "graph_path",
+}
 """Every op the executor can run. Kept equal to the linter's `KNOWN_OPS` (a
 test enforces it), so no chain ever lints clean only to fail at execution."""

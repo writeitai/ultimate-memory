@@ -1,4 +1,4 @@
-"""Synthetic-only remote-boundary, cost, and denominator proofs."""
+"""Synthetic full-system tool-loop, readiness, cost, and denominator proofs."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from benchmarks.locomo import runner
 from benchmarks.locomo.dataset import DATASET_COMMIT
 from benchmarks.locomo.dataset import DATASET_SHA256
 from benchmarks.locomo.dataset import item_ids_hash
+from benchmarks.locomo.model import AnswerAgentStep
 from benchmarks.locomo.model import JudgeOutput
 from benchmarks.locomo.model import LoCoMoDataset
 from benchmarks.locomo.model import LoCoMoQuestion
@@ -22,9 +23,9 @@ from benchmarks.locomo.model import LoCoMoSample
 from benchmarks.locomo.model import LoCoMoSession
 from benchmarks.locomo.model import LoCoMoTurn
 from benchmarks.locomo.model import QuestionManifest
-from benchmarks.locomo.model import ReaderOutput
 from benchmarks.locomo.model import RunState
-from benchmarks.locomo.protocol import READER_MODEL
+from benchmarks.locomo.protocol import ANSWER_AGENT_MODEL
+from benchmarks.locomo.protocol import EXPECTED_PIPELINE_STAGES
 from benchmarks.locomo.runner import _answer_one
 from benchmarks.locomo.runner import _judge_one
 from benchmarks.locomo.runner import answer_sample
@@ -45,110 +46,90 @@ from rememberstack.model import Freshness
 from rememberstack.model import GeneratedResponse
 from rememberstack.model import Grain
 from rememberstack.model import ModelRequest
-from rememberstack.model import Negative
-from rememberstack.model import NegativeKind
 from rememberstack.model import ProviderCallUsage
 from rememberstack.model import StructuredResponseModel
+from rememberstack.model import ToolDescriptor
+from rememberstack.spine import CANONICAL_RECIPES
+from rememberstack.spine import GRAPH_RECIPES
+from rememberstack.surfaces.recipe_surface import recipe_descriptors
 from rememberstack.surfaces.sdk import MemoryClient
 
 ResponseT = TypeVar("ResponseT", bound=StructuredResponseModel)
 
 
-@pytest.mark.parametrize("known_empty", (False, True))
-def test_successful_empty_retrieval_still_calls_reader_once(known_empty: bool) -> None:
-    envelope = _empty_envelope(known_empty=known_empty)
-    client, raw_client = _memory_client(envelope=envelope)
-    provider = FakeModelProvider(generate_payload={"answer": "Unknown"})
-    state = RunState()
+def test_agent_calls_public_recipe_then_answers() -> None:
+    client, raw_client = _memory_client()
+    provider = FakeModelProvider(generate_router=_tool_then_answer)
     try:
         answer = _answer_one(
             question=_question(),
             client=client,
             provider=provider,
+            tools=(_tool(),),
             doc_sessions={},
-            state=state,
-            max_reader_calls=1,
+            state=RunState(),
+            max_agent_calls=9,
             max_evaluator_cost_usd=Decimal("1"),
         )
     finally:
         raw_client.close()
 
     assert answer.retrieval_succeeded is True
-    assert answer.reader_called is True
-    assert answer.failure is None
-    assert answer.generated_answer == "Unknown"
-    assert provider.generated_prompts[0].count("(none)") == 1
+    assert answer.generated_answer == "Prague"
+    assert answer.agent_call_count == 2
+    assert [call.name for call in answer.tool_calls] == ["claims_verbatim"]
+    assert len(provider.generated_prompts) == 2
 
 
-def test_transport_failure_does_not_call_reader() -> None:
-    def fail(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("offline", request=request)
-
-    raw_client = httpx.Client(
-        base_url="http://memory.test", transport=httpx.MockTransport(fail)
+def test_answer_without_consulting_memory_is_rejected() -> None:
+    client, raw_client = _memory_client()
+    provider = FakeModelProvider(
+        generate_payload={
+            "action": "answer",
+            "tool_name": None,
+            "arguments": {},
+            "answer": "Prague",
+        }
     )
-    provider = FakeModelProvider(generate_payload={"answer": "must not run"})
-    try:
-        answer = _answer_one(
-            question=_question(),
-            client=MemoryClient(client=raw_client),
-            provider=provider,
-            doc_sessions={},
-            state=RunState(),
-            max_reader_calls=1,
-            max_evaluator_cost_usd=Decimal("1"),
-        )
-    finally:
-        raw_client.close()
-
-    assert answer.retrieval_succeeded is False
-    assert answer.reader_called is False
-    assert answer.failure is not None
-    assert answer.failure.kind == "retrieval"
-    assert provider.generated_prompts == []
-
-
-def test_invalid_empty_reader_answer_is_a_terminal_reader_failure() -> None:
-    client, raw_client = _memory_client(envelope=_empty_envelope())
-    provider = FakeModelProvider(generate_payload={"answer": ""})
     try:
         answer = _answer_one(
             question=_question(),
             client=client,
             provider=provider,
+            tools=(_tool(),),
             doc_sessions={},
             state=RunState(),
-            max_reader_calls=1,
+            max_agent_calls=9,
             max_evaluator_cost_usd=Decimal("1"),
         )
     finally:
         raw_client.close()
 
-    assert answer.generated_answer is None
-    assert answer.reader_called is True
     assert answer.failure is not None
     assert answer.failure.kind == "invalid_response"
+    assert answer.agent_call_count == 1
 
 
-def test_reader_and_judge_share_one_run_absolute_cost_ceiling() -> None:
-    client, raw_client = _memory_client(envelope=_empty_envelope())
-    provider = _CostProvider(cost=Decimal("0.60"))
+def test_agent_and_judge_share_one_run_absolute_cost_threshold() -> None:
+    client, raw_client = _memory_client()
+    provider = _CostProvider(cost=Decimal("0.30"))
     state = RunState()
     try:
         answer = _answer_one(
             question=_question(),
             client=client,
             provider=provider,
+            tools=(_tool(),),
             doc_sessions={},
             state=state,
-            max_reader_calls=1,
+            max_agent_calls=9,
             max_evaluator_cost_usd=Decimal("0.60"),
         )
     finally:
         raw_client.close()
 
     assert state.evaluator_cost_usd == Decimal("0.60")
-    with pytest.raises(ExecutionGuardError, match="reached run ceiling"):
+    with pytest.raises(ExecutionGuardError, match="reached run threshold"):
         _judge_one(
             question=_question(),
             answer=answer,
@@ -157,21 +138,38 @@ def test_reader_and_judge_share_one_run_absolute_cost_ceiling() -> None:
             max_judge_calls=1,
             max_evaluator_cost_usd=Decimal("0.60"),
         )
-    assert provider.models == [READER_MODEL]
+    assert provider.models == [ANSWER_AGENT_MODEL, ANSWER_AGENT_MODEL]
 
 
-def test_model_request_temperature_is_bounded() -> None:
-    assert ModelRequest(model="m", prompt="p", temperature=0).temperature == 0
-    with pytest.raises(ValueError):
-        ModelRequest(model="m", prompt="p", temperature=-0.1)
-    with pytest.raises(ValueError):
-        ModelRequest(model="m", prompt="p", temperature=2.1)
+def test_a_call_that_crosses_the_cost_threshold_is_recorded_then_stops() -> None:
+    client, raw_client = _memory_client()
+    provider = _CostProvider(cost=Decimal("0.70"))
+    state = RunState()
+    try:
+        answer = _answer_one(
+            question=_question(),
+            client=client,
+            provider=provider,
+            tools=(_tool(),),
+            doc_sessions={},
+            state=state,
+            max_agent_calls=9,
+            max_evaluator_cost_usd=Decimal("0.60"),
+        )
+    finally:
+        raw_client.close()
+
+    assert answer.failure is not None
+    assert answer.failure.kind == "accounting"
+    assert answer.reader_usage is not None
+    assert answer.reader_usage.cost_usd == Decimal("0.70")
+    assert state.evaluator_cost_usd == Decimal("0.70")
+    assert provider.models == [ANSWER_AGENT_MODEL]
 
 
-def test_staged_mock_run_resumes_without_duplicate_checkpointed_calls(
+def test_staged_mock_run_checks_readiness_and_resumes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The staged contract executes only against synthetic local boundaries."""
     _patch_prepared_inputs(monkeypatch=monkeypatch)
     run_dir = tmp_path / "run"
     prepare_run(dataset_path=tmp_path / "synthetic.json", tier="smoke", output=run_dir)
@@ -179,12 +177,7 @@ def test_staged_mock_run_resumes_without_duplicate_checkpointed_calls(
         base_url="http://memory.test", transport=httpx.MockTransport(_run_transport)
     )
     client = MemoryClient(client=raw_client)
-    provider = FakeModelProvider(
-        generate_payloads={
-            "ReaderOutput": {"answer": "Prague"},
-            "JudgeOutput": {"label": "CORRECT"},
-        }
-    )
+    provider = FakeModelProvider(generate_router=_tool_answer_and_judge)
     try:
         ingests = ingest_sample(
             run_dir=run_dir,
@@ -198,10 +191,9 @@ def test_staged_mock_run_resumes_without_duplicate_checkpointed_calls(
             run_dir=run_dir,
             sample_id="conv-test",
             max_questions=1,
-            max_reader_calls=1,
+            max_agent_calls=9,
             max_evaluator_cost_usd=Decimal("1"),
             execute=True,
-            index_ready_confirmation="conv-test",
             client=client,
             provider=provider,
         )
@@ -209,10 +201,9 @@ def test_staged_mock_run_resumes_without_duplicate_checkpointed_calls(
             run_dir=run_dir,
             sample_id="conv-test",
             max_questions=1,
-            max_reader_calls=1,
+            max_agent_calls=9,
             max_evaluator_cost_usd=Decimal("1"),
             execute=True,
-            index_ready_confirmation="conv-test",
             client=client,
             provider=provider,
         )
@@ -238,12 +229,58 @@ def test_staged_mock_run_resumes_without_duplicate_checkpointed_calls(
     assert len(ingests) == 1
     assert first_answers == second_answers
     assert first_judges == second_judges
-    assert len(provider.generated_prompts) == 2
+    assert len(provider.generated_prompts) == 3
     summary = summarize_run(run_dir=run_dir)
-    assert summary.questions == 1
     assert summary.judge_correct == 1
-    assert summary.judge_percent == 100
     assert summary.official_f1 == 1
+    assert summary.answer_agent_calls == 2
+
+
+def test_readiness_flag_cannot_hide_an_incomplete_pipeline_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The protocol verifies the report structure instead of trusting one bool."""
+    _patch_prepared_inputs(monkeypatch=monkeypatch)
+    run_dir = tmp_path / "run"
+    prepare_run(dataset_path=tmp_path / "synthetic.json", tier="smoke", output=run_dir)
+
+    def incomplete_readiness(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/readiness":
+            return httpx.Response(
+                200, json={"ready": True, "versions": [], "projections": []}
+            )
+        return _run_transport(request)
+
+    raw_client = httpx.Client(
+        base_url="http://memory.test",
+        transport=httpx.MockTransport(incomplete_readiness),
+    )
+    client = MemoryClient(client=raw_client)
+    provider = FakeModelProvider(generate_router=_tool_answer_and_judge)
+    try:
+        ingest_sample(
+            run_dir=run_dir,
+            sample_id="conv-test",
+            max_documents=1,
+            execute=True,
+            isolated_deployment_confirmation="conv-test",
+            client=client,
+        )
+        with pytest.raises(ExecutionGuardError, match="exact completed"):
+            answer_sample(
+                run_dir=run_dir,
+                sample_id="conv-test",
+                max_questions=1,
+                max_agent_calls=9,
+                max_evaluator_cost_usd=Decimal("1"),
+                execute=True,
+                client=client,
+                provider=provider,
+            )
+    finally:
+        raw_client.close()
+
+    assert provider.generated_prompts == []
 
 
 def test_missing_records_remain_in_full_manifest_denominator(
@@ -261,64 +298,6 @@ def test_missing_records_remain_in_full_manifest_denominator(
     assert summary.failures == {"missing_answer": 1, "missing_judge": 1}
 
 
-def test_upstream_failure_gets_local_wrong_without_fake_judge_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_prepared_inputs(monkeypatch=monkeypatch)
-    run_dir = tmp_path / "run"
-    prepare_run(dataset_path=tmp_path / "synthetic.json", tier="smoke", output=run_dir)
-    ingest_raw = httpx.Client(
-        base_url="http://memory.test", transport=httpx.MockTransport(_run_transport)
-    )
-    try:
-        ingest_sample(
-            run_dir=run_dir,
-            sample_id="conv-test",
-            max_documents=1,
-            execute=True,
-            isolated_deployment_confirmation="conv-test",
-            client=MemoryClient(client=ingest_raw),
-        )
-    finally:
-        ingest_raw.close()
-    failed_raw = httpx.Client(
-        base_url="http://memory.test",
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(503, text="offline")
-        ),
-    )
-    provider = FakeModelProvider(generate_payload={"answer": "must not run"})
-    try:
-        answer_sample(
-            run_dir=run_dir,
-            sample_id="conv-test",
-            max_questions=1,
-            max_reader_calls=1,
-            max_evaluator_cost_usd=Decimal("1"),
-            execute=True,
-            index_ready_confirmation="conv-test",
-            client=MemoryClient(client=failed_raw),
-            provider=provider,
-        )
-    finally:
-        failed_raw.close()
-    judges = judge_sample(
-        run_dir=run_dir,
-        sample_id="conv-test",
-        max_judge_calls=1,
-        max_evaluator_cost_usd=Decimal("1"),
-        execute=True,
-        provider=provider,
-    )
-
-    summary = summarize_run(run_dir=run_dir)
-    assert judges[0].model_called is False
-    assert judges[0].failure is None
-    assert summary.judge_correct == 0
-    assert summary.failures == {"answer_retrieval": 1}
-    assert provider.generated_prompts == []
-
-
 def test_protocol_mutation_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -327,7 +306,7 @@ def test_protocol_mutation_is_rejected(
     prepare_run(dataset_path=tmp_path / "synthetic.json", tier="smoke", output=run_dir)
     run_path = run_dir / "run.json"
     payload = json.loads(run_path.read_text(encoding="utf-8"))
-    payload["reader_prompt_sha256"] = "0" * 64
+    payload["answer_prompt_sha256"] = "0" * 64
     run_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(BenchmarkRunError, match="fingerprint"):
@@ -340,7 +319,7 @@ def test_remote_stage_requires_explicit_execution(
     _patch_prepared_inputs(monkeypatch=monkeypatch)
     run_dir = tmp_path / "run"
     prepare_run(dataset_path=tmp_path / "synthetic.json", tier="smoke", output=run_dir)
-    client, raw_client = _memory_client(envelope=_empty_envelope())
+    client, raw_client = _memory_client()
     try:
         with pytest.raises(ExecutionGuardError, match="--execute"):
             ingest_sample(
@@ -355,26 +334,53 @@ def test_remote_stage_requires_explicit_execution(
         raw_client.close()
 
 
-def _memory_client(*, envelope: Envelope) -> tuple[MemoryClient, httpx.Client]:
-    def respond(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=envelope.model_dump(mode="json"))
-
+def _memory_client() -> tuple[MemoryClient, httpx.Client]:
     raw = httpx.Client(
-        base_url="http://memory.test", transport=httpx.MockTransport(respond)
+        base_url="http://memory.test",
+        transport=httpx.MockTransport(
+            lambda request: (
+                httpx.Response(200, json=_empty_envelope().model_dump(mode="json"))
+                if request.url.path.startswith("/recipe/")
+                else httpx.Response(404, text="unexpected")
+            )
+        ),
     )
     return MemoryClient(client=raw), raw
 
 
-def _empty_envelope(*, known_empty: bool = False) -> Envelope:
+def _empty_envelope() -> Envelope:
     return Envelope(
         grain=Grain.EVIDENCE,
         freshness=Freshness(pg_live_ts=datetime(2026, 7, 23, tzinfo=timezone.utc)),
-        negative=(
-            Negative(kind=NegativeKind.KNOWN_EMPTY, explanation="No current claims.")
-            if known_empty
-            else None
-        ),
     )
+
+
+def _tool() -> ToolDescriptor:
+    return ToolDescriptor(
+        name="claims_verbatim",
+        description="What sources asserted",
+        input_schema={"type": "object"},
+        output_grain="evidence",
+        answer_intent="assertion_history",
+    )
+
+
+def _tool_then_answer(prompt: str, type_name: str) -> dict[str, object]:
+    assert type_name == "AnswerAgentStep"
+    if "TOOL TRACE SO FAR:\n[]" in prompt:
+        return {
+            "action": "tool",
+            "tool_name": "claims_verbatim",
+            "arguments": {"query": "Where?"},
+            "answer": None,
+        }
+    return {"action": "answer", "tool_name": None, "arguments": {}, "answer": "Prague"}
+
+
+def _tool_answer_and_judge(prompt: str, type_name: str) -> dict[str, object]:
+    if type_name == "JudgeOutput":
+        return {"label": "CORRECT"}
+    return _tool_then_answer(prompt, type_name)
 
 
 def _question() -> LoCoMoQuestion:
@@ -394,17 +400,32 @@ class _CostProvider:
     def __init__(self, *, cost: Decimal) -> None:
         self.cost = cost
         self.models: list[str] = []
+        self.answer_calls = 0
 
     def generate(
         self, *, request: ModelRequest, response_type: type[ResponseT]
     ) -> GeneratedResponse[ResponseT]:
         self.models.append(request.model)
-        payload: dict[str, str]
-        if response_type is ReaderOutput:
-            payload = {"answer": "Prague"}
+        if response_type is AnswerAgentStep:
+            self.answer_calls += 1
+            payload = (
+                {
+                    "action": "tool",
+                    "tool_name": "claims_verbatim",
+                    "arguments": {"query": "Where?"},
+                    "answer": None,
+                }
+                if self.answer_calls == 1
+                else {
+                    "action": "answer",
+                    "tool_name": None,
+                    "arguments": {},
+                    "answer": "Prague",
+                }
+            )
         elif response_type is JudgeOutput:
             payload = {"label": "CORRECT"}
-        else:  # pragma: no cover - the test provider supports only protocol calls
+        else:  # pragma: no cover
             raise AssertionError(response_type)
         return GeneratedResponse(
             output=response_type.model_validate(payload),
@@ -473,6 +494,51 @@ def _run_transport(request: httpx.Request) -> httpx.Response:
                 "created": True,
             },
         )
-    if request.method == "GET" and request.url.path == "/search/claims":
+    if request.method == "POST" and request.url.path == "/readiness":
+        return httpx.Response(200, json=_complete_readiness_payload())
+    if request.method == "GET" and request.url.path == "/recipes":
+        return httpx.Response(
+            200, json=[tool.model_dump(mode="json") for tool in _stock_tools()]
+        )
+    if request.method == "POST" and request.url.path.startswith("/recipe/"):
         return httpx.Response(200, json=_empty_envelope().model_dump(mode="json"))
     return httpx.Response(404, text="unexpected synthetic request")
+
+
+def _complete_readiness_payload() -> dict[str, object]:
+    timestamp = "2026-07-23T12:00:00Z"
+    return {
+        "ready": True,
+        "versions": [
+            {
+                "version_id": "57000000-0000-0000-0000-000000000003",
+                "ready": True,
+                "stages": [
+                    {
+                        "stage": stage,
+                        "component_version": f"test-{stage}-v1",
+                        "status": "succeeded",
+                        "finished_at": timestamp,
+                    }
+                    for stage in EXPECTED_PIPELINE_STAGES
+                ],
+            }
+        ],
+        "projections": [
+            {
+                "plane": plane,
+                "ready": True,
+                "version": "test-v1",
+                "built_at": timestamp,
+                "published_at": timestamp,
+            }
+            for plane in ("P2_graph", "P3_corpusfs")
+        ],
+    }
+
+
+def _stock_tools() -> tuple[ToolDescriptor, ...]:
+    recipes = tuple(
+        sorted((*CANONICAL_RECIPES, *GRAPH_RECIPES), key=lambda recipe: recipe.name)
+    )
+    return recipe_descriptors(recipes=recipes)

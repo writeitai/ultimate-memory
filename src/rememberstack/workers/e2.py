@@ -113,7 +113,7 @@ class ExtractClaimsHandler:
             chunker_version=self._chunker_version,
         )
         if not chunks:
-            return HandlerOutcome()
+            return _normalize_follow_up(work=work, source=source)
         document_md = self._artifact_store.read_bytes(
             key=ObjectKey(source.markdown_uri)
         ).decode("utf-8")
@@ -131,23 +131,7 @@ class ExtractClaimsHandler:
                 document_md=document_md,
                 meter=meter,
             )
-        return HandlerOutcome(
-            follow_up=(
-                EnqueueWork(
-                    deployment_id=work.deployment_id,
-                    target_kind=work.target_kind,
-                    target_id=work.target_id,
-                    stage=PipelineStage.NORMALIZE_RELATIONS,
-                    component_version=E3_NORMALIZER_VERSION,
-                    content_hash=work.content_hash,
-                    lane=work.lane,
-                    payload={
-                        "version_id": str(source.version_id),
-                        "representation_id": str(source.representation_id),
-                    },
-                ),
-            )
-        )
+        return _normalize_follow_up(work=work, source=source)
 
     def _reuse_prior_extraction(
         self, *, source: ChunkSource, chunk: ChunkForEmbedding
@@ -463,6 +447,27 @@ def _empty_extraction_marker(
         edit_detail=None,
         protected_class=None,
         extractor_version=E2_EXTRACTOR_VERSION,
+    )
+
+
+def _normalize_follow_up(*, work: ClaimedWork, source: ChunkSource) -> HandlerOutcome:
+    """Continue an extracted version even when it contains no chunks."""
+    return HandlerOutcome(
+        follow_up=(
+            EnqueueWork(
+                deployment_id=work.deployment_id,
+                target_kind=work.target_kind,
+                target_id=work.target_id,
+                stage=PipelineStage.NORMALIZE_RELATIONS,
+                component_version=E3_NORMALIZER_VERSION,
+                content_hash=work.content_hash,
+                lane=work.lane,
+                payload={
+                    "version_id": str(source.version_id),
+                    "representation_id": str(source.representation_id),
+                },
+            ),
+        )
     )
 
 

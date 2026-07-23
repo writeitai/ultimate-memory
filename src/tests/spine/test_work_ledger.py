@@ -30,6 +30,8 @@ from rememberstack.model import LaneRouteError
 from rememberstack.model import PipelineStage
 from rememberstack.model import ProcessingLane
 from rememberstack.model import ProcessingTarget
+from rememberstack.model import ProviderCallError
+from rememberstack.model import ProviderCallUsage
 from rememberstack.model import RecordCall
 from rememberstack.model import RunResultOutcome
 from rememberstack.model import UnknownStageHandlerError
@@ -440,6 +442,65 @@ class _AlwaysFailingHandler:
         """Fail unconditionally with a real traceback."""
         del meter
         raise RuntimeError(f"deliberate failure for {work.processing_id}")
+
+
+class _BillableFailingHandler:
+    """A provider failure whose malformed output still carries billed usage."""
+
+    def handle(self, *, work: ClaimedWork, meter: CostMeterPort) -> HandlerOutcome:
+        """Expose usage to the worker error boundary without recording it here."""
+        del work, meter
+        raise ProviderCallError(
+            "malformed provider response",
+            usage=ProviderCallUsage(
+                model_name="provider/model",
+                tokens_in=12,
+                tokens_out=3,
+                cost_usd=Decimal("0.25"),
+                latency_ms=8,
+            ),
+        )
+
+
+def test_worker_meters_usage_bearing_provider_failure_before_retry(
+    database_engine: Engine, ledger: WorkLedger
+) -> None:
+    """A malformed billable response cannot disappear from route budgets."""
+    registry = HandlerRegistry()
+    registry.register(
+        stage=PipelineStage.EXTRACT_CLAIMS, handler=_BillableFailingHandler()
+    )
+    worker = Worker(ledger=ledger, registry=registry)
+    enqueued = ledger.enqueue(work=_work())
+
+    result = worker.run_one(
+        deployment_id=_DEPLOYMENT_ID,
+        stage=PipelineStage.EXTRACT_CLAIMS,
+        lane=ProcessingLane.STEADY,
+    )
+
+    assert result.outcome is RunResultOutcome.RETRY_SCHEDULED
+    with database_engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT call_key, tier, model_name, tokens_in, tokens_out,"
+                    " cost_usd FROM cost_ledger"
+                    " WHERE processing_id = :processing_id"
+                ),
+                {"processing_id": enqueued.processing_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert dict(row) == {
+        "call_key": "provider_failure",
+        "tier": "failed_response",
+        "model_name": "provider/model",
+        "tokens_in": 12,
+        "tokens_out": 3,
+        "cost_usd": Decimal("0.250000"),
+    }
 
 
 def test_demo_no_op_worker_chain_retry_and_dead_letter(

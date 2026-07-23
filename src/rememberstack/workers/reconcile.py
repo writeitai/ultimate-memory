@@ -26,13 +26,16 @@ from rememberstack.core import chunker_version as chunker_version_of
 from rememberstack.core import ChunkerParams
 from rememberstack.model import ClaimedWork
 from rememberstack.model import CurrencyTransition
+from rememberstack.model import EnqueueWork
 from rememberstack.model import NonRetryableHandlerError
+from rememberstack.model import PipelineStage
 from rememberstack.model import ReconciliationDelta
 from rememberstack.ports.cost_meter import CostMeterPort
 from rememberstack.spine.lifecycle import LifecycleCatalog
 from rememberstack.spine.review import ReviewQueue
 from rememberstack.workers.base import HandlerOutcome
 from rememberstack.workers.e1 import E2_EXTRACTOR_VERSION
+from rememberstack.workers.p1 import FACT_LABEL_VERSION
 
 RECONCILE_VERSION = "reconcile-2026.07"
 """The reconcile stage's component version (D12 idempotency key member)."""
@@ -185,7 +188,29 @@ class ReconcileHandler:
                 flags_raised=flags,
             ),
         )
-        return HandlerOutcome()
+        doc_id = context["doc_id"]
+        if not isinstance(doc_id, UUID):
+            raise NonRetryableHandlerError(
+                f"version {version_id} reconciliation context has no doc_id"
+            )
+        return HandlerOutcome(
+            follow_up=(
+                EnqueueWork(
+                    deployment_id=work.deployment_id,
+                    target_kind=work.target_kind,
+                    target_id=work.target_id,
+                    stage=PipelineStage.LABEL_RELATION,
+                    component_version=FACT_LABEL_VERSION,
+                    content_hash=work.content_hash,
+                    lane=work.lane,
+                    payload={
+                        "version_id": str(version_id),
+                        "representation_id": str(representation_id),
+                        "doc_id": str(doc_id),
+                    },
+                ),
+            )
+        )
 
     def _flag_transcription_only(
         self,

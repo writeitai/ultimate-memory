@@ -42,9 +42,11 @@ from rememberstack.spine import DocumentCatalog
 from rememberstack.spine import EntityRegistry
 from rememberstack.spine import FactCatalog
 from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import LifecycleCatalog
 from rememberstack.spine import ObservationAdjudicator
 from rememberstack.spine import ObservationSettings
 from rememberstack.spine import RESOLVER_VERSION
+from rememberstack.spine import ReviewQueue
 from rememberstack.spine import SupersessionAdjudicator
 from rememberstack.spine import SupersessionSettings
 from rememberstack.spine import WorkLedger
@@ -66,6 +68,7 @@ from rememberstack.workers import HandlerRegistry
 from rememberstack.workers import LabelFactsHandler
 from rememberstack.workers import NormalizeRelationsHandler
 from rememberstack.workers import P1Settings
+from rememberstack.workers import ReconcileHandler
 from rememberstack.workers import StructureHandler
 from rememberstack.workers import UploadIngestor
 from rememberstack.workers import Worker
@@ -309,6 +312,14 @@ class _ApiRig:
             ),
         )
         registry.register(
+            stage=PipelineStage.RECONCILE,
+            handler=ReconcileHandler(
+                catalog=LifecycleCatalog(engine=engine),
+                review_queue=ReviewQueue(engine=engine),
+                chunker_version=generation,
+            ),
+        )
+        registry.register(
             stage=PipelineStage.LABEL_RELATION,
             handler=LabelFactsHandler(
                 facts=FactCatalog(engine=engine),
@@ -352,6 +363,7 @@ class _ApiRig:
             PipelineStage.NORMALIZE_RELATIONS,
             PipelineStage.ADJUDICATE_SUPERSESSION,
             PipelineStage.EMBED_CLAIM,
+            PipelineStage.RECONCILE,
             PipelineStage.LABEL_RELATION,
         ):
             outcome = self.worker.run_one(

@@ -1,17 +1,16 @@
-# RS-LoCoMo-v1 setup
+# RS-LoCoMo-Full-v1 setup
 
-This directory implements the reviewed `RS-LoCoMo-v1 J@30` protocol. It does not contain the
-LoCoMo data and does not auto-download it. The data is CC BY-NC 4.0; confirm the intended use
-before obtaining it from the
-[official repository](https://github.com/snap-research/locomo/tree/3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376/data).
+This directory contains the unshipped full-system LoCoMo adapter. It does not vendor or
+auto-download LoCoMo. Supply the exact pinned `locomo10.json` only after confirming its
+CC BY-NC 4.0 terms.
 
-Install the repository and the two deterministic-scorer dependencies:
+Install the repository plus deterministic scorer dependencies:
 
 ```bash
 uv sync --extra benchmark
 ```
 
-The safe first command is local:
+The safe first command is local and makes no API or model call:
 
 ```bash
 uv run --extra benchmark python -m benchmarks.locomo prepare \
@@ -20,27 +19,35 @@ uv run --extra benchmark python -m benchmarks.locomo prepare \
   --output .benchmark-runs/locomo-smoke
 ```
 
-`prepare` checks the exact pinned SHA, validates the committed eight-question smoke manifest,
-renders session Markdown, and writes a call/document plan. It does not contact RememberStack or
-an evaluator.
+The harness validates the pinned bytes, renders session documents, and fingerprints the
+eight-question smoke plan. Do not run remote stages until reviewing
+[`locomo_benchmark_design.md`](../../plan/designs/locomo_benchmark_design.md).
 
-Do not proceed to `ingest`, `answer`, or `judge` until the owner walkthrough in
-[`locomo_benchmark_design.md`](../../plan/designs/locomo_benchmark_design.md#12-pre-run-checklist).
-Those stages require `--execute` plus exact isolation/readiness acknowledgements and explicit
-document, question, call, and shared evaluator-cost ceilings.
+The stock Compose deployment now includes all ten continuous E/P1 workers. After ingesting one
+isolated conversation and waiting for them to settle, publish the aggregate projections once:
 
-Question and call ceilings are run-absolute, not allowances for one sample invocation.
-`--max-questions` must therefore cover the complete prepared tier (8 for smoke, 200 for
-development, or 1,540 for publication), while reader and judge call ceilings include calls
-already checkpointed for earlier samples. The evaluator-cost ceiling likewise covers the shared
-reader-plus-judge ledger for the entire run.
+```bash
+docker compose --profile operations run --rm projections
+```
 
-The local ledger records provider usage attached to successfully parsed, checkpointed calls.
-Provider-billed calls that fail before usable accounting is returned are not reconstructable, and
-a process death after a response but before its atomic checkpoint may repeat that one call.
-Provider/account hard limits are therefore the hard monetary boundary; the harness ceilings are
-additional fail-closed operational guards.
+The `answer` command then calls the public readiness endpoint. It refuses to run unless every
+requested version completed the exact composed stage generations and both P2/P3 builds began
+after that work completed. It also refuses a changed public recipe catalog. There is no manual “index ready”
+acknowledgement.
 
-The released Compose profile is not yet a valid target: it wires only `convert` and `structure`,
-not the complete claim-indexing path. Use of a complete isolated deployment is a pre-run
-prerequisite, not something this harness silently constructs.
+Readiness also records the API process's current non-secret model configuration for operator
+review. Those values are not processing-time provenance; freeze one Compose environment for the
+run and retain the provider/cost artifacts.
+
+The primary protocol uses a bounded answer agent over normal public recipes, not hard-coded claim
+search. Limits are run-absolute: allow up to nine agent calls per selected question and one judge
+call per answer. The shared evaluator-cost value is a reported-spend stop threshold: a completed
+call can cross it, is recorded, and stops the run. Use the provider account cap as the hard
+monetary boundary. If that leaves later questions unanswered, they remain visible as zero-scored
+missing records; resuming them requires an explicitly higher threshold.
+
+P3 is built and freshness-checked as part of the ordinary deployment, but the remote recipe
+agent has no filesystem mount. This protocol therefore does not attribute answer quality to P3
+navigation. A future mount-enabled protocol needs a new fingerprint and name.
+
+No real benchmark has been run as part of the setup implementation.

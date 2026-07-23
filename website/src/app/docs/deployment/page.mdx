@@ -1,24 +1,18 @@
 export const metadata = {
   title: "Self-host Deployment",
   description:
-    "Run the fresh-deployment Docker Compose skeleton with PostgreSQL, MinIO, the API, and E0 workers.",
+    "Run one complete self-host deployment with PostgreSQL, MinIO, the API, continuous workers, and explicit projections.",
 };
 
 # Self-host Deployment
 
-The repository ships a Docker Compose skeleton for a **fresh, single-deployment**
-self-host. It starts PostgreSQL, MinIO, the HTTP API, and separate conversion and
-structure workers. The one-shot `setup` service applies every migration before
-the API or workers start, provisions the three object buckets, bootstraps the
-deployment, and seeds the canonical retrieval recipes.
-
-This is a pre-release infrastructure proof. It processes a Markdown upload
-through conversion and deterministic structure, then leaves its chunk work
-pending. Later pipeline workers are not yet wired into this quickstart. The
-release workflow and tag-pinned Compose contract exist and trusted publishing is
-configured. The bounded contributor agreement is enforced as a required `main`
-check. The public `v0.1.0` release is available from PyPI, GHCR, and GitHub
-Releases.
+The repository ships Docker Compose for a **fresh, single-deployment** self-host.
+It starts PostgreSQL, MinIO, the HTTP API, and one process for each of the ten
+implemented continuous document routes: conversion, structure, chunking, chunk
+embedding, claim extraction, normalization, supersession, claim embedding,
+reconciliation, and fact labeling. The one-shot `setup` service applies every
+migration, provisions object buckets, bootstraps the deployment, and seeds
+canonical plus P2 retrieval recipes.
 The RememberStack, `rememberstack`, and `remember` names used here are final. Do
 not expose this stack to untrusted traffic.
 
@@ -38,9 +32,9 @@ also ships this Compose file pinned to
 
 The example file contains local-only PostgreSQL and MinIO credentials. Replace
 every secret before using the stack outside an isolated development machine.
-It also contains an OpenRouter placeholder so the provider adapter can be
-constructed without making a model request. Replace it with a real key before
-processing a corpus; the short smoke upload below makes no LLM or embedding call.
+It also contains an OpenRouter placeholder. Replace it before processing a
+corpus: the complete pipeline makes extraction and embedding calls. Pin explicit
+model IDs for reproducible work; do not use a rotating free-model router.
 
 Check the API and the deployment-seeded recipe registry:
 
@@ -49,7 +43,7 @@ curl --fail http://localhost:8000/healthz
 curl --fail http://localhost:8000/recipes
 ```
 
-## Ingest the smoke document
+## Ingest a document
 
 Create a short Markdown document and push it through the ordinary E0 API:
 
@@ -60,19 +54,32 @@ curl --fail \
   'http://localhost:8000/ingest?filename=remember-smoke.md&mime=text%2Fmarkdown'
 ```
 
-The response names the deployment, document, and version. Both E0 workers use
-the normal PostgreSQL work ledger: `convert` and `structure` become `succeeded`,
-and the next `chunk` row remains visibly `pending` because this skeleton does not
-pretend the later worker topology is composed.
+The response names the deployment, document, and version. Every worker uses the
+normal PostgreSQL work ledger. Inspect its exact state:
 
 ```bash
 docker compose exec postgres psql -U rememberstack -d rememberstack -c \
-  "SELECT stage, status FROM processing_state ORDER BY created_at"
+  "SELECT stage, status FROM processing_state ORDER BY enqueued_at"
 ```
 
 The original bytes and derived Markdown/sidecars are in the MinIO buckets. The
 MinIO console is available at `http://localhost:9001` with the credentials from
 `.env`.
+
+## Publish aggregate projections
+
+P2 and P3 are whole-corpus rebuilds, not per-document workers. After the selected
+ingestion set has settled, publish both once:
+
+```bash
+docker compose --profile operations run --rm projections
+```
+
+The API reads the same MinIO snapshot stores. `POST /readiness` can then verify a
+bounded list of document version IDs: all ten exact component generations must
+be terminal, and both projection builds must begin after the latest terminal stage.
+The response also records the API process's current non-secret model bindings for
+configuration review; these are not processing-time provenance.
 
 ## Stop and reset
 

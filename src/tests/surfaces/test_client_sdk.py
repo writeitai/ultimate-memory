@@ -20,6 +20,7 @@ from rememberstack.client import ConnectorDescriptor
 from rememberstack.client import ConnectorNotFoundError
 from rememberstack.client import MemoryApiError
 from rememberstack.client import MemoryClient
+from rememberstack.client import PipelineReadinessReport
 from rememberstack.model import DocumentUpload
 from rememberstack.model import IngestedVersion
 from rememberstack.surfaces import build_api
@@ -29,6 +30,7 @@ from rememberstack.surfaces.remote_mcp import RemoteRecipeMcpServer
 from rememberstack.surfaces.remote_mcp import serve_mcp_stdio
 
 _DEPLOYMENT_ID = UUID("57000000-0000-0000-0000-000000000001")
+_VERSION_ID = UUID("57000000-0000-0000-0000-000000000003")
 
 
 class _OpenBoundary:
@@ -40,6 +42,23 @@ class _OpenBoundary:
 
     def assert_available(self, *, deployment_id: UUID) -> None:
         assert deployment_id == _DEPLOYMENT_ID
+
+    def inspect(
+        self,
+        *,
+        deployment_id: UUID,
+        version_ids: tuple[UUID, ...],
+        require_projections: bool,
+    ) -> PipelineReadinessReport:
+        assert deployment_id == _DEPLOYMENT_ID
+        assert version_ids == (_VERSION_ID,)
+        assert require_projections is True
+        return PipelineReadinessReport(
+            ready=True,
+            versions=(),
+            projections=(),
+            model_bindings={"claim_extraction": "model-v1"},
+        )
 
 
 class _Ingest:
@@ -124,6 +143,7 @@ def client_surface() -> tuple[MemoryClient, _Ingest, _Connectors]:
         readiness=boundary,
         ingest=ingest,
         connectors=connectors,
+        pipeline_readiness=boundary,
     )
     return MemoryClient(client=TestClient(app)), ingest, connectors
 
@@ -179,6 +199,17 @@ def test_sdk_manages_connectors_remotely(
     assert paused.credential_ref == "deployment-secret://notes"
     with pytest.raises(MemoryApiError, match="was not found"):
         client.connector_status(connector_id=uuid4())
+
+
+def test_sdk_reads_machine_verifiable_pipeline_readiness(
+    client_surface: tuple[MemoryClient, _Ingest, _Connectors],
+) -> None:
+    client, _, _ = client_surface
+
+    report = client.pipeline_readiness(version_ids=(_VERSION_ID,))
+
+    assert report.ready is True
+    assert report.model_bindings == {"claim_extraction": "model-v1"}
 
 
 def test_sdk_validates_lineage_pair_and_maps_api_failures(

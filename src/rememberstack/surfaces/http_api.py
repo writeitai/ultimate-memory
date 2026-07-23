@@ -17,6 +17,7 @@ itself never touches adapters.
 from datetime import datetime
 from datetime import timedelta
 from typing import Annotated
+from typing import Final
 from typing import Literal
 from typing import Protocol
 from uuid import UUID
@@ -38,6 +39,7 @@ from rememberstack.model import Envelope
 from rememberstack.model import ForgetInProgressError
 from rememberstack.model import IngestedVersion
 from rememberstack.model import PerimeterCredential
+from rememberstack.model import PipelineReadinessReport
 from rememberstack.model import ToolDescriptor
 from rememberstack.ports.auth import AuthPerimeterPort
 from rememberstack.surfaces.query_engine import QueryEngine
@@ -46,6 +48,9 @@ from rememberstack.surfaces.recipe_surface import InvalidArgumentError
 from rememberstack.surfaces.recipe_surface import MissingArgumentError
 from rememberstack.surfaces.recipe_surface import RecipeSurface
 from rememberstack.surfaces.recipe_surface import UnknownRecipeError
+
+PIPELINE_READINESS_VERSION_LIMIT: Final = 1_000
+"""Maximum document versions in one read-only readiness inspection."""
 
 
 class IngestPort(Protocol):
@@ -103,6 +108,18 @@ class ReadinessPort(Protocol):
         ...
 
 
+class PipelineReadinessPort(Protocol):
+    """Inspect ordinary per-version and aggregate projection completion."""
+
+    def inspect(
+        self,
+        *,
+        deployment_id: UUID,
+        version_ids: tuple[UUID, ...],
+        require_projections: bool,
+    ) -> PipelineReadinessReport: ...
+
+
 def build_api(
     *,
     engine: QueryEngine,
@@ -113,6 +130,7 @@ def build_api(
     auth: AuthPerimeterPort | None = None,
     ingest: IngestPort | None = None,
     connectors: ConnectorManagementPort | None = None,
+    pipeline_readiness: PipelineReadinessPort | None = None,
 ) -> FastAPI:
     """Build one deployment's query API over a composed engine.
 
@@ -212,8 +230,32 @@ def build_api(
         _mount_ingest(app=app, ingest=ingest, deployment_id=deployment_id)
     if connectors is not None:
         _mount_connectors(app=app, connectors=connectors, deployment_id=deployment_id)
+    if pipeline_readiness is not None:
+        _mount_pipeline_readiness(
+            app=app, readiness=pipeline_readiness, deployment_id=deployment_id
+        )
 
     return app
+
+
+def _mount_pipeline_readiness(
+    *, app: FastAPI, readiness: PipelineReadinessPort, deployment_id: UUID
+) -> None:
+    """Expose a normal, read-only completion boundary for bounded versions."""
+
+    @app.post("/readiness", response_model=PipelineReadinessReport)
+    def pipeline_readiness(
+        version_ids: Annotated[
+            list[UUID], Body(min_length=1, max_length=PIPELINE_READINESS_VERSION_LIMIT)
+        ],
+        require_projections: bool = True,
+    ) -> PipelineReadinessReport:
+        """Inspect exact E generations and optionally fresh P2/P3 snapshots."""
+        return readiness.inspect(
+            deployment_id=deployment_id,
+            version_ids=tuple(version_ids),
+            require_projections=require_projections,
+        )
 
 
 def _mount_recipes(*, app: FastAPI, surface: RecipeSurface) -> None:

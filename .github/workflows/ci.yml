@@ -53,28 +53,49 @@ jobs:
               raise RuntimeError("MinIO replaced an immutable object key")
           PY
 
-      - name: Ingest and observe the E0 chain
+      - name: Prove the zero-cost full continuous pipeline
         run: |
-          curl --fail --data-binary $'# Hello\n\nCompose smoke.\n' \
-            'http://localhost:8000/ingest?filename=smoke.md&mime=text%2Fmarkdown'
+          running_services="$(
+            docker compose --env-file .env.example ps --status running --services
+          )"
+          for service in \
+            api worker-convert worker-structure worker-chunk worker-embed-chunk \
+            worker-extract-claims worker-normalize-relations \
+            worker-adjudicate-supersession worker-embed-claim worker-reconcile \
+            worker-label-relation; do
+            printf '%s\n' "$running_services" | grep -qx "$service"
+          done
+          ingested="$(
+            curl --fail --data-binary '' \
+              'http://localhost:8000/ingest?filename=empty.md&mime=text%2Fmarkdown'
+          )"
+          version_id="$(
+            printf '%s' "$ingested" |
+              docker compose --env-file .env.example exec -T api \
+                python -c 'import json, sys; print(json.load(sys.stdin)["version_id"])'
+          )"
           observed=''
-          for attempt in {1..30}; do
+          for attempt in {1..60}; do
             observed="$(docker compose --env-file .env.example exec -T postgres \
               psql -U rememberstack -d rememberstack -Atc \
-              "SELECT count(*) FILTER (WHERE stage='convert' AND status='succeeded'), count(*) FILTER (WHERE stage='structure' AND status='succeeded'), count(*) FILTER (WHERE stage='chunk' AND status='pending') FROM processing_state")"
-            if [ "$observed" = '1|1|1' ]; then
+              "SELECT count(*), count(*) FILTER (WHERE status='succeeded'), count(DISTINCT stage) FROM processing_state WHERE target_id='$version_id'")"
+            if [ "$observed" = '10|10|10' ]; then
               break
             fi
             sleep 1
           done
-          test "$observed" = '1|1|1'
+          test "$observed" = '10|10|10'
           test "$(docker compose --env-file .env.example exec -T postgres \
-            psql -U rememberstack -d rememberstack -Atc 'SELECT count(*) FROM cost_ledger')" = '0'
+            psql -U rememberstack -d rememberstack -Atc \
+            'SELECT count(*) FROM cost_ledger')" = '0'
 
       - name: Stage an upgrade from the prior schema
         run: |
           docker compose --env-file .env.example stop \
-            api worker-convert worker-structure
+            api worker-convert worker-structure worker-chunk worker-embed-chunk \
+            worker-extract-claims worker-normalize-relations \
+            worker-adjudicate-supersession worker-embed-claim worker-reconcile \
+            worker-label-relation
           docker compose --env-file .env.example run --rm --no-deps \
             --entrypoint alembic setup downgrade p7_02_0016
           test "$(docker compose --env-file .env.example exec -T postgres \
@@ -116,7 +137,7 @@ jobs:
             docker compose "${compose_args[@]}" ps --status running --services
           )"
           test -z "$(printf '%s\n' "$running_services" \
-            | grep -E '^(api|worker-convert|worker-structure)$' || true)"
+            | grep -E '^(api|worker-(convert|structure|chunk|embed-chunk|extract-claims|normalize-relations|adjudicate-supersession|embed-claim|reconcile|label-relation))$' || true)"
           test "$(docker compose "${compose_args[@]}" exec -T postgres \
             psql -U rememberstack -d rememberstack -Atc \
             'SELECT version_num FROM alembic_version')" = 'p7_02_0016'
@@ -133,7 +154,11 @@ jobs:
           running_services="$(
             docker compose "${compose_args[@]}" ps --status running --services
           )"
-          for service in api worker-convert worker-structure; do
+          for service in \
+            api worker-convert worker-structure worker-chunk worker-embed-chunk \
+            worker-extract-claims worker-normalize-relations \
+            worker-adjudicate-supersession worker-embed-claim worker-reconcile \
+            worker-label-relation; do
             printf '%s\n' "$running_services" | grep -qx "$service"
           done
           curl --fail http://localhost:8000/healthz
