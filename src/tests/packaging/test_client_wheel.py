@@ -191,6 +191,7 @@ def _assert_dependency_split(*, wheel: Path) -> None:
         "pydantic-settings",
     }
     assert set(metadata.get_all("Provides-Extra", [])) == {
+        "benchmark",
         "connectors-watched-directory",
         "k",
         "server",
