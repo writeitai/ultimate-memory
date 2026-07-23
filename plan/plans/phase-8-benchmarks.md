@@ -15,7 +15,7 @@ end to end.
 | WP | Goal | Reads | Depends | Deliverable | Acceptance | Status |
 |---|---|---|---|---|---|---|
 | WP-8.1 | **Benchmark landscape survey** — the field moves; select at execution time. Candidates to evaluate (verify currency then): LoCoMo, LongMemEval, DMR-class conversational-memory suites; multi-hop QA (HotpotQA/MultiHop-RAG-class) for graph strengths; latency/cost protocols the competitors publish | — (web survey; D22 for fit) | phase gates | selection memo (analysis/) | chosen suites + rationale + baseline list | done |
-| WP-8.2 | Adapter layer: the system as a memory backend behind each benchmark's protocol (ingest/query interfaces, session semantics) | retrieval §3–7; benchmark specs | WP-8.1 | adapters | benchmark harness runs end-to-end on a sample | planned |
+| WP-8.2 | Adapter layer: the system as a memory backend behind each benchmark's protocol (ingest/query interfaces, session semantics) | retrieval §3–7; benchmark specs | WP-8.1 | adapters | benchmark harness runs end-to-end on a sample | in progress — LoCoMo protocol/setup implemented; owner-reviewed real smoke deliberately pending |
 | WP-8.3 | Baselines: Mem0 OSS + Graphiti OSS from the survey, plus BM25 and dense-RAG floors; hosted/vendor numbers are contextual only | WP-8.1 memo | WP-8.2 | baseline runs | reproducible baseline numbers | planned |
 | WP-8.4 | Metrics + instrumentation: accuracy per suite, latency (P50/P95), token + $ cost per op (cost_ledger), ingestion throughput | schema §2; retrieval §10 | WP-8.2 | metrics pipeline | one reproducible metrics artifact per run | planned |
 | WP-8.5 | **Capability benchmark** (ours, from the S-battery): the differentiators competitors lack — bi-temporal as-of (S9/S10/S15), contradiction surfacing (S23), provenance hydration (S5), watched-source lifecycle (edit/retract/delete), forget (S55) | retrieval_scenarios.md | WP-8.2 | capability suite + narrative doc | each capability demonstrated + scripted | planned |
@@ -34,3 +34,19 @@ The matched baseline set is BM25, minimal dense RAG, Mem0 OSS, and Graphiti OSS.
 as saturated; LongMemEval-V2 and the agent-environment suites remain watch/deferred items rather
 than expanding WP-8.2. The reusable prompt for independent external research is
 [`phase_8_deep_research_prompt.md`](../analysis/phase_8_deep_research_prompt.md).
+
+## WP-8.2 LoCoMo setup
+
+The first adapter is the reviewed `RS-LoCoMo-v1 J@30` protocol:
+
+- analysis and comparability limits:
+  [`locomo_benchmark_analysis.md`](../analysis/locomo_benchmark_analysis.md);
+- binding adapter and pre-run design:
+  [`locomo_benchmark_design.md`](../designs/locomo_benchmark_design.md); and
+- unshipped repository harness: `benchmarks/locomo/`.
+
+Its smoke, development, and publication manifests pin 8, 200, and 1,540 question IDs. The setup
+is implemented behind explicit remote execution guards, but no real ingest, query, reader, judge,
+or score run has occurred. WP-8.2 remains in progress until the owner reviews the setup and an
+eight-question smoke completes against a full isolated deployment. The released Compose skeleton
+does not yet wire the required claim-indexing stages.

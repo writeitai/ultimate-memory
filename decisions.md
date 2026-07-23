@@ -2628,3 +2628,44 @@ enforcement after the workflow lands. The PyPI pending publisher, matching prote
 environment, and protected `v*` tag ruleset are already configured. The first GHCR push creates
 the container package; making that package public is the only post-publish owner action. WP-7.6
 may proceed to its first tagged artifact proof after CLA activation.
+
+## D78. LoCoMo uses a named, fingerprinted protocol rather than a context-free headline
+
+**Decision.** The first competitive benchmark is **`RS-LoCoMo-v1 J@30`** over the exact pinned
+LoCoMo ten-conversation file, categories 1–4, 30 unified current-testimony claims, one frozen
+`gpt-4o-mini` reader, one frozen `gpt-4o-mini` judge pass, and the official deterministic LoCoMo
+F1 as a secondary metric. Prompts, strict output schemas, dataset/manifests, rendered documents,
+models, temperature, adapter version, and repository revision are hashed into the run
+fingerprint. Failures and missing records remain in the full manifest denominator.
+
+Each conversation runs in an isolated deployment because the public claims query has no
+source/document filter. One conversation session becomes one immutable Markdown source document;
+turn timestamps and IDs remain explicit, while generated image captions/search queries are
+labelled as derived and summary annotations are never ingested. A coarse session-grain evidence
+diagnostic is reported with malformed-field coverage; the system does not claim exact turn
+Recall@k without a generic returned source locator.
+
+The adapter is unshipped repository tooling around the public SDK. It does not download or vendor
+the CC BY-NC dataset, own deployment creation/deletion, add a benchmark-only query surface, or
+become a general benchmark framework. Remote ingest, answer, and judge stages require explicit
+execution acknowledgements and run-absolute call/cost ceilings. The released Compose skeleton
+does not provide the full claim-indexing path, so a complete isolated deployment is an explicit
+pre-run prerequisite. Implementation and synthetic checks do not satisfy WP-8.2's end-to-end
+acceptance; an owner-authorized real smoke is still required.
+
+**Context.** Published “LoCoMo scores” use materially different datasets, ingestion units,
+retrieval depths, readers, judges, prompts, and repetition counts. In particular, a historical
+Mem0-lineage `k=30` may retrieve 30 memories per speaker, while this protocol retrieves 30 claims
+total. A bare score would invite false comparison. The named protocol retains the recognizable
+J-score lineage while making every consequential asymmetry visible and reproducible.
+
+**Rejected alternatives.** Calling the result a standard LoCoMo score; adopting a moving vendor
+harness or benchmark-tuned judge; mixing all conversations in one deployment; feeding gold
+evidence to the reader or judge; exact-turn retrieval claims without a locator; automatic
+deployment destruction; dataset vendoring; and a plugin/DSL/dashboard framework before a second
+adapter proves shared machinery is needed.
+
+**Consequences.** WP-8.2 starts with this one adapter. Vendor-reported numbers are contextual only
+until WP-8.3 reruns matched baselines under the same fingerprint. A changed top-k, model, prompt,
+schema, judge repetition, or ingestion mapping is a separately named protocol, not an override
+flag on `RS-LoCoMo-v1`.

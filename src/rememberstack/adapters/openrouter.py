@@ -54,21 +54,21 @@ class OpenRouterModelProvider:
     ) -> GeneratedResponse[ResponseT]:
         """One chat completion constrained to the caller's declared JSON schema."""
         started_ns = time.monotonic_ns()
-        body = self._post(
-            path="/chat/completions",
-            payload={
-                "model": request.model,
-                "messages": [{"role": "user", "content": request.prompt}],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": response_type.__name__,
-                        "strict": True,
-                        "schema": response_type.model_json_schema(),
-                    },
+        payload: dict[str, object] = {
+            "model": request.model,
+            "messages": [{"role": "user", "content": request.prompt}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_type.__name__,
+                    "strict": True,
+                    "schema": response_type.model_json_schema(),
                 },
             },
-        )
+        }
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        body = self._post(path="/chat/completions", payload=payload)
         usage = _usage(
             body=body,
             requested_model=request.model,
@@ -76,11 +76,12 @@ class OpenRouterModelProvider:
         )
         try:
             content = body["choices"][0]["message"]["content"]
-            output = response_type.model_validate(json.loads(content))
-        except (KeyError, IndexError, ValueError) as err:
+            decoded = json.loads(content)
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as err:
             raise OpenRouterProviderError(
                 f"unusable completion body for {response_type.__name__}"
             ) from err
+        output = response_type.model_validate(decoded)
         return GeneratedResponse(output=output, usage=usage)
 
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
