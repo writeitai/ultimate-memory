@@ -32,7 +32,7 @@ license must continue to make source available and permit free self-hosting as d
 in the agreement.
 
 The pull-request template contains the required assent checkbox. The `CLA` job fails
-until the exact box is checked; once that status is required in `main` protection, a
+until the exact box is checked, and that status is required in `main` protection, so a
 failure blocks merge. A later agreement version requires fresh assent and does not
 retroactively expand an earlier grant.
 

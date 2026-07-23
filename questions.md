@@ -65,8 +65,8 @@ Keep this current: when something here is decided, move it to a decision and pru
 11. ~~**Backfill / reprocessing orchestration design**~~ **RESOLVED (D52/D67;
     `orchestration_design.md` §2–§4).** Phase 7 WP-7.1 implements the existing version-filtered
     seeder, separate lane, throttling, resumability, and rollback/replay semantics.
-11a. **OSS governance & release readiness (D60/D61) — DECIDED (D77, 2026-07-23);
-    CLA activation pending.** Conclusions (2026-07-08 comparables + 2026-07-23 owner resolution; full
+11a. **OSS governance & release readiness (D60/D61) — RESOLVED (D77, 2026-07-23);
+    CLA active.** Conclusions (2026-07-08 comparables + 2026-07-23 owner resolution; full
     detail in the cloud repo's split analysis, `04_licensing_naming_findings.md`):
     - **License: stay Apache-2.0** (already shipped). Verified comparables: Sentry FSL-1.1-Apache-2.0
       (tightened only after a decade of dominance), E2B Apache-2.0, Hermes agent (Nous Research) MIT —
@@ -75,8 +75,8 @@ Keep this current: when something here is decided, move it to a decision and pru
       meaningful scale), never a launch choice.
     - **The bounded CLA is specified by D77** rather than a plain DCO. Contributors retain
       ownership; the grant preserves a hosted-service-protective license option only when source
-      remains available and self-hosting remains free. `CLA.md` plus versioned pull-request assent
-      land first; this gate closes when the emitted `CLA` status is required on `main`.
+      remains available and self-hosting remains free. `CLA.md`, immutable versioned pull-request
+      assent, and the required `CLA` status on `main` close this gate.
       `TRADEMARKS.md` separately allows truthful reference, interoperability, unmodified releases,
       and clearly distinguished forks while reserving confusing official-product uses.
     - ~~"Ultimate Memory" is a working title — a rename gates public release~~ **NAME DECIDED
@@ -93,15 +93,15 @@ Keep this current: when something here is decided, move it to a decision and pru
       (lineage-aware ingest; connector management vs execution), delivery-only task execution
       over `processing_state` with the two shells + janitor, the enforced hexagonal layout,
       compose profiles, release/upgrade/portable-restore policy. D76 supplied the exact targets,
-      the mechanical rename is complete, and D77 decides the governance policy pending activation.
+      the mechanical rename and D77 governance activation are complete.
     - ~~Stack-convention slots (roadmap §3).~~ **RESOLVED (2026-07-17;
       `PLAN-RECONCILIATION-WP-0.1-STACK-CONVENTIONS` / WP-0.1)** —
       [PR #39](https://github.com/writeitai/remember-stack/pull/39) merged `uv`/Hatchling,
       Ruff, the single-package `src` layout and naming, and GitHub Actions CI;
       [PR #41](https://github.com/writeitai/remember-stack/pull/41) merged the typed
       pydantic-settings/secret convention and direct-environment-access lint guard. The
-      roadmap now links each choice to the exact repository evidence. The release rename is
-      complete; the D77 `CLA` required-check activation is the remaining governance step.
+      roadmap now links each choice to the exact repository evidence. The release rename and
+      D77 `CLA` required-check activation are complete.
 
 ## 2. Open objections (unresolved critique — see `objections.md`)
 

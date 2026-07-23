@@ -100,7 +100,7 @@ needs to restate it:
 | 4 | Projections | P2 (spikes → views → rebuild → snapshots), P3 (tree + mounts incl. raw), communities | p2_graph, e0 §6, `p3_agent_navigation.md` | done (exit criteria met 2026-07-19; PRs #100-#104 — see the phase file) |
 | 5 | Retrieval complete | full primitives + recipe registry, envelope contract CI, MCP/CLI, batch scan, **consumption skill + S58** | retrieval | done (exit criteria met 2026-07-20; PRs #105–#111 — see the phase file) |
 | 6 | Plane K | planner/writer/driver, fact-sheet → prose bands, citations/staleness, authored + sidecars, triggers + subscriptions, K1 + K2 purpose scopes | k_layers | done (exit criteria met 2026-07-21; PRs #112–#117; former WP-6.7 removed by D73) |
-| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, portable restore | orchestration, packaging, schema §12–13 | in progress (WP-7.1–7.5 and WP-7.7 done; WP-7.6 implemented, with its public tag waiting on owner release gates) |
+| 7 | Operational correctness + portability | backfill/reprocessing, fixed scale batteries, configurable budgets, failure inspection/drills, hard-delete, release, portable restore | orchestration, packaging, schema §12–13 | implemented (all code and owner gates complete; first-tag artifact proof remains) |
 | 8 | Competitive benchmarks | external benchmark harness, adapters, baselines (Mem0/Zep-class), capability benchmark, published methodology + results | D22 (internal) + `phase-8` survey | planned |
 
 Sequencing calls already argued (see the phase files for the rest): **K after retrieval**
@@ -115,7 +115,7 @@ as usual):
 | Gate | Blocks | What must be decided |
 |---|---|---|
 | stack conventions (§3; **resolved 2026-07-17**) | Phase 0 WP-0.1 | Closed by the merged scaffold in [PR #39](https://github.com/writeitai/remember-stack/pull/39) and configuration convention in [PR #41](https://github.com/writeitai/remember-stack/pull/41); §3 maps every former slot to its exact repository evidence. |
-| public-release governance (`questions.md` §11a; **decided 2026-07-23 → D77; activation pending**) | first public tag, first outside PR | Owner accepted the documented naming risk and selected the repository-native, self-hosting-bounded CLA plus narrow trademark policy; close the implementation gate by making the emitted `CLA` status required on `main`. |
+| public-release governance (`questions.md` §11a; **resolved 2026-07-23 → D77**) | first public tag, first outside PR | Closed: owner accepted the documented naming risk; the repository-native, self-hosting-bounded CLA and narrow trademark policy are present; immutable assent is enforced by the required `CLA` status on `main`. |
 | #3 embedding model + dimension (**resolved** → D63) | Phase 1 entry | closed: `qwen3-embedding-8b` port default; conventional + prefix binds (e1 §5); stored dimension remains a D22 measurement |
 | #4 LLM per stage (**extractor seat resolved** → D70) | Phase 2 (adjudicators), Phase 6 (K writers) | extraction default `gpt-5.6-luna` closed Phase 1's gate; remaining seats inherit the port-default principle, gated by their phases' measurements (D53 family split holds) |
 | #7 PageIndex hosted vs self-hosted (**resolved** → D71: neither — a port-configured LLM seat + deterministic snap) | Phase 3 (full structure route) | closed: the snap guards any seat's output; no external tool dependency |

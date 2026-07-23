@@ -9,8 +9,8 @@ auditable by humans. Scale is a requirement, not an aspiration: it is meant to s
 at a million documents.
 
 > **Pre-release software.** Phases 0–7 are implemented and tested. Release automation, trusted
-> publishing, and tag protection are in place; activation of the bounded contributor-agreement
-> check and the first public tag remain. The fresh-deployment Docker
+> publishing, tag protection, and bounded contributor-agreement enforcement are in place; the
+> first public tag remains. The fresh-deployment Docker
 > Compose skeleton is documented under
 > [Self-host deployment](website/src/app/docs/deployment/page.mdx); it proves PostgreSQL, MinIO,
 > API ingestion, and the first two E0 worker stages, not a production rollout. The build follows

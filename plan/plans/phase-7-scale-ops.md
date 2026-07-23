@@ -18,10 +18,9 @@ HA manager, backup scheduler, or parallel source of operational truth. Extend th
 Postgres state, narrow ports, typed settings, and CLI/admin surfaces along one shared path for
 self-host and reference adapters.
 
-**Entry gates:** none. Work-package-local gates remain explicit: #24 is resolved by D74 before
-WP-7.5 implementation. WP-7.6 engineering and account-level registry setup are complete. D77
-records the owner's naming-risk acceptance and the bounded CLA; activating its required `CLA`
-status remains before the first public tag and artifact proof.
+**Entry gates:** none. Work-package-local gates remain explicit: #24 was resolved by D74 before
+WP-7.5 implementation. WP-7.6 engineering, account-level registry setup, and D77 governance
+activation are complete. The first public tag remains the artifact proof.
 **Exit criteria:** fixed synthetic scale profiles exercise the D23 shapes and portable batching;
 a fixture budget parks and later resumes work without loss; telemetry/admin surfaces expose
 pipeline and DLQ state; rebuild and forget drills pass; S55 is green across active serving stores
@@ -35,7 +34,7 @@ the operator-driven portable restore drill is green without a library transport 
 | WP-7.3 | Cost metering + configurable budget enforcement | orchestration §4; schema §2 `cost_ledger` | WP-7.1 | enforcement + admin inspection | explicit fixture ceiling parks and resumes an over-budget lane; attribution is visible | done |
 | WP-7.4 | Operational correctness surfaces + drills: typed telemetry, pipeline/DLQ inspection and replay, P2/P3 rebuild, currency-ledger audit | orchestration §6–7; D7, D60–D61 | WP-7.1 | telemetry/admin surfaces + deterministic drills | failures remain visible and drills pass without a dashboard or hosted control plane | done |
 | WP-7.5 | **Hard-delete end-to-end**: purge active P1/P2/P3/K surfaces and prevent restore resurrection through the D74 portable manifest/adapter contract | hard-forget design; lifecycle §8; k_layers §10; S55 | D74 (gate #24 resolved) | forget pipeline | **S55 CI gate ON and green** across library-controlled surfaces + restore canary | done |
-| WP-7.6 | **Release engineering**: semver across PyPI + the shared GHCR image + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62, D76–D77 | WP-7.1, owner release gates | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | implemented (CLA activation, then first-tag artifact proof, remain) |
+| WP-7.6 | **Release engineering**: semver across PyPI + the shared GHCR image + pinned compose; migrations-before-workers upgrade drill; quickstart cold-start release gate | packaging §1, §5–6; D62, D76–D77 | WP-7.1, owner release gates | release pipeline | tagged release produces all artifacts; upgrade drill green; quickstart under target | implemented (first-tag artifact proof remains) |
 | WP-7.7 | **Portable state + restore round-trip**: define the authoritative store set and fail-closed restore order; operators move bytes with native tools and projections rebuild normally | packaging §6; D7, D60, D74–D75 | WP-7.1, WP-7.5 | portability contract + deterministic drill | real PostgreSQL restore plus whole/independent external-store canaries → no resurrection + control green | done |
 
 ## WP-7.1 implementation
@@ -165,10 +164,9 @@ a reachable health endpoint.
 
 [`RELEASING.md`](../../RELEASING.md) records the deliberately manual owner steps and the clean
 verification commands. The repository rename, D77 risk acceptance, PyPI environment/pending
-publisher, and release-tag protection are complete. The bounded CLA lands before its emitted check
-is made required on `main`; only then does the first tag supply the artifact proof. Making the newly
-created GHCR package public remains the one post-publish owner step rather than an OSS runtime
-feature.
+publisher, release-tag protection, and bounded-CLA enforcement are complete. The first tag now
+supplies the artifact proof. Making the newly created GHCR package public remains the one
+post-publish owner step rather than an OSS runtime feature.
 
 ## WP-7.7 implementation
 

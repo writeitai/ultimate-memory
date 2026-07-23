@@ -6,12 +6,11 @@ It accepts only tags exactly matching `vMAJOR.MINOR.PATCH`.
 
 ## One-time owner setup
 
-The owner setup is in its final activation step:
+The one-time owner setup is complete:
 
 1. D77 records explicit acceptance of the preliminary naming risk. `CLA.md`, the trademark policy,
-   pull-request template, and `CLA` workflow land together; after merge, make the emitted `CLA`
-   status a required `main` check with administrator enforcement before accepting an outside
-   contribution or creating the first release tag.
+   pull-request template, and metadata-only `CLA` workflow are present. The emitted `CLA` status is
+   a required `main` check with administrator enforcement.
 2. The GitHub repository is `writeitai/remember-stack`. Update each existing clone if needed:
 
    ```bash
