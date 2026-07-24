@@ -5,6 +5,7 @@ from decimal import InvalidOperation
 import json
 import time
 from typing import Any
+from typing import Literal
 from typing import TypeVar
 
 import httpx
@@ -35,11 +36,14 @@ class OpenRouterSettings(BaseSettings):
     base_url: str = Field(default="https://openrouter.ai/api/v1")
     timeout_s: float = Field(default=120.0, gt=0)
     embedding_provider: str | None = None
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
+    ) = None
 
-    @field_validator("embedding_provider", mode="before")
+    @field_validator("embedding_provider", "reasoning_effort", mode="before")
     @classmethod
-    def normalize_optional_provider(cls, value: object) -> object:
-        """Treat Compose's empty optional value as no provider pin."""
+    def normalize_optional_string(cls, value: object) -> object:
+        """Treat Compose's empty optional values as unset."""
         if not isinstance(value, str):
             return value
         return value.strip() or None
@@ -80,6 +84,8 @@ class OpenRouterModelProvider:
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        if self._settings.reasoning_effort is not None:
+            payload["reasoning"] = {"effort": self._settings.reasoning_effort}
         body = self._post(path="/chat/completions", payload=payload)
         usage = _usage(
             body=body,

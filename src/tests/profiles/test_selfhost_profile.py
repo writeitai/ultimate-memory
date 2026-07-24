@@ -71,3 +71,16 @@ def test_model_bindings_report_embedding_provider_without_secrets(
 
     assert bindings["openrouter_embedding_provider"] == reported
     assert "test-key" not in bindings.values()
+
+
+@pytest.mark.parametrize(("configured", "reported"), (("none", "none"), ("", "auto")))
+def test_model_bindings_report_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch, configured: str, reported: str
+) -> None:
+    """Readiness fingerprints the configured generation reasoning policy."""
+    monkeypatch.setenv("REMEMBERSTACK_OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("REMEMBERSTACK_OPENROUTER_REASONING_EFFORT", configured)
+
+    bindings = _model_bindings()
+
+    assert bindings["openrouter_reasoning_effort"] == reported

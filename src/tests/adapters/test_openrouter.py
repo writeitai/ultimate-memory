@@ -93,6 +93,44 @@ def test_generation_forwards_temperature_only_when_declared(
         assert observed["temperature"] == 0.0
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    ((None, None), ("", None), ("  ", None), ("none", {"effort": "none"})),
+)
+def test_generation_forwards_configured_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    expected: dict[str, str] | None,
+) -> None:
+    """A deployment can disable unnecessary reasoning without changing its model."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings.model_validate(
+            {"api_key": "test-key", "reasoning_effort": configured}
+        )
+    )
+    observed: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        observed.update(payload)
+        assert path == "/chat/completions"
+        return {
+            "model": "deepseek/deepseek-v4-flash",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"answer":"Prague"}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        provider.generate(
+            request=ModelRequest(model="deepseek/deepseek-v4-flash", prompt="Where?"),
+            response_type=_Answer,
+        )
+    finally:
+        provider._client.close()
+
+    assert observed.get("reasoning") == expected
+
+
 def test_generation_uses_strict_schema_for_defaulted_response_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -235,6 +273,7 @@ def test_embedding_pins_configured_provider_without_fallback(
     def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
         assert path == "/embeddings"
         observed.update(payload)
+        assert "reasoning" not in payload
         return {
             "model": "qwen/qwen3-embedding-8b",
             "usage": {"prompt_tokens": 2, "cost": "0.000001"},

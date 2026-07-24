@@ -582,6 +582,7 @@ def _model_bindings() -> dict[str, str]:
         "p1_embedding": p1.embedding_model,
         "fact_label": p1.label_model,
         "openrouter_embedding_provider": openrouter.embedding_provider or "auto",
+        "openrouter_reasoning_effort": openrouter.reasoning_effort or "auto",
     }
 
 
