@@ -64,7 +64,7 @@ class OpenRouterModelProvider:
                 "json_schema": {
                     "name": response_type.__name__,
                     "strict": True,
-                    "schema": response_type.model_json_schema(),
+                    "schema": _strict_json_schema(response_type),
                 },
             },
         }
@@ -123,6 +123,31 @@ class OpenRouterModelProvider:
                 f"{response.text[:500]}"
             )
         return response.json()
+
+
+def _strict_json_schema(response_type: type[StructuredResponseModel]) -> dict[str, Any]:
+    """Adapt Pydantic defaults to the strict schema subset used by OpenAI routes."""
+    schema = response_type.model_json_schema()
+    _require_all_object_properties(schema)
+    return schema
+
+
+def _require_all_object_properties(node: object) -> None:
+    """Make every declared property required and remove unsupported defaults."""
+    if isinstance(node, list):
+        for item in node:
+            _require_all_object_properties(item)
+        return
+    if not isinstance(node, dict):
+        return
+
+    node.pop("default", None)
+    properties = node.get("properties")
+    if isinstance(properties, dict):
+        node["required"] = list(properties)
+        node["additionalProperties"] = False
+    for value in node.values():
+        _require_all_object_properties(value)
 
 
 def _usage(

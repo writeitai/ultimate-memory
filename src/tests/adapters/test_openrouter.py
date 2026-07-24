@@ -10,10 +10,14 @@ import pytest
 from rememberstack.adapters import OpenRouterModelProvider
 from rememberstack.adapters import OpenRouterProviderError
 from rememberstack.adapters import OpenRouterSettings
+from rememberstack.adapters.openrouter import _strict_json_schema
 from rememberstack.adapters.openrouter import _usage
 from rememberstack.model import EmbeddingRequest
 from rememberstack.model import ModelRequest
+from rememberstack.model import NormalizationResponse
 from rememberstack.model import ProviderAccountingError
+from rememberstack.model import SelectionResponse
+from rememberstack.model import StructureResponse
 
 
 class _Answer(BaseModel):
@@ -87,6 +91,72 @@ def test_generation_forwards_temperature_only_when_declared(
     assert ("temperature" in observed) is present
     if present:
         assert observed["temperature"] == 0.0
+
+
+def test_generation_uses_strict_schema_for_defaulted_response_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenAI-backed routes require every property, even when Pydantic has defaults."""
+    provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
+    observed_schema: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/chat/completions"
+        response_format = payload["response_format"]
+        assert isinstance(response_format, dict)
+        json_schema = response_format["json_schema"]
+        assert isinstance(json_schema, dict)
+        schema = json_schema["schema"]
+        assert isinstance(schema, dict)
+        observed_schema.update(schema)
+        return {
+            "model": "openai/strict-model",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"relations":[],"observations":[]}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        provider.generate(
+            request=ModelRequest(model="openai/strict-model", prompt="Normalize"),
+            response_type=NormalizationResponse,
+        )
+    finally:
+        provider._client.close()
+
+    required = observed_schema["required"]
+    assert isinstance(required, list)
+    assert set(required) == {"relations", "observations"}
+    assert observed_schema["additionalProperties"] is False
+    properties = observed_schema["properties"]
+    assert isinstance(properties, dict)
+    assert "default" not in properties["relations"]
+    assert "default" not in properties["observations"]
+
+
+@pytest.mark.parametrize("response_type", (StructureResponse, SelectionResponse))
+def test_strict_schema_closes_every_nested_object_and_removes_defaults(
+    response_type: type[BaseModel],
+) -> None:
+    """Recursive and nullable production schemas remain strict at every depth."""
+    schema = _strict_json_schema(response_type)
+
+    def assert_strict(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                assert_strict(item)
+            return
+        if not isinstance(node, dict):
+            return
+        assert "default" not in node
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            assert set(node["required"]) == set(properties)
+            assert node["additionalProperties"] is False
+        for value in node.values():
+            assert_strict(value)
+
+    assert_strict(schema)
 
 
 def test_generation_preserves_usage_on_structured_output_validation_error(
