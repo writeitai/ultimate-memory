@@ -200,6 +200,7 @@ def test_embedding_preserves_usage_when_the_vector_body_is_unusable(
     def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
         assert path == "/embeddings"
         assert payload
+        assert "provider" not in payload
         return {
             "model": "qwen/qwen3-embedding-8b",
             "usage": {"prompt_tokens": 4, "cost": "0.000004"},
@@ -220,3 +221,70 @@ def test_embedding_preserves_usage_when_the_vector_body_is_unusable(
     assert raised.value.usage is not None
     assert raised.value.usage.tokens_in == 4
     assert raised.value.usage.cost_usd == Decimal("0.000004")
+
+
+def test_embedding_pins_configured_provider_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A benchmark can freeze one embedding provider instead of load balancing."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings(api_key="test-key", embedding_provider="nebius")
+    )
+    observed: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/embeddings"
+        observed.update(payload)
+        return {
+            "model": "qwen/qwen3-embedding-8b",
+            "usage": {"prompt_tokens": 2, "cost": "0.000001"},
+            "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        response = provider.embed(
+            request=EmbeddingRequest(model="qwen/qwen3-embedding-8b", texts=("memory",))
+        )
+    finally:
+        provider._client.close()
+
+    assert observed["provider"] == {"only": ["nebius"], "allow_fallbacks": False}
+    assert response.vectors == ((0.1, 0.2),)
+
+
+@pytest.mark.parametrize("configured", (None, "", "  "))
+def test_empty_embedding_provider_is_unset(configured: str | None) -> None:
+    """Compose's empty optional value must preserve automatic provider routing."""
+    settings = OpenRouterSettings(api_key="test-key", embedding_provider=configured)
+
+    assert settings.embedding_provider is None
+
+
+def test_embedding_provider_pin_is_not_forwarded_to_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Embedding routing must not constrain independently hosted chat models."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings(api_key="test-key", embedding_provider="nebius")
+    )
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/chat/completions"
+        assert "provider" not in payload
+        return {
+            "model": "deepseek/deepseek-v4-flash",
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"answer":"Prague"}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        response = provider.generate(
+            request=ModelRequest(model="deepseek/deepseek-v4-flash", prompt="Where?"),
+            response_type=_Answer,
+        )
+    finally:
+        provider._client.close()
+
+    assert response.output.answer == "Prague"

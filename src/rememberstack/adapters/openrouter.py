@@ -9,6 +9,7 @@ from typing import TypeVar
 
 import httpx
 from pydantic import Field
+from pydantic import field_validator
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
@@ -33,6 +34,15 @@ class OpenRouterSettings(BaseSettings):
     api_key: str = Field(min_length=1)
     base_url: str = Field(default="https://openrouter.ai/api/v1")
     timeout_s: float = Field(default=120.0, gt=0)
+    embedding_provider: str | None = None
+
+    @field_validator("embedding_provider", mode="before")
+    @classmethod
+    def normalize_optional_provider(cls, value: object) -> object:
+        """Treat Compose's empty optional value as no provider pin."""
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
 
 
 class OpenRouterProviderError(ProviderCallError):
@@ -95,10 +105,16 @@ class OpenRouterModelProvider:
     def embed(self, *, request: EmbeddingRequest) -> EmbeddingResponse:
         """One embeddings call for the caller's batch."""
         started_ns = time.monotonic_ns()
-        body = self._post(
-            path="/embeddings",
-            payload={"model": request.model, "input": list(request.texts)},
-        )
+        payload: dict[str, object] = {
+            "model": request.model,
+            "input": list(request.texts),
+        }
+        if self._settings.embedding_provider:
+            payload["provider"] = {
+                "only": [self._settings.embedding_provider],
+                "allow_fallbacks": False,
+            }
+        body = self._post(path="/embeddings", payload=payload)
         usage = _usage(
             body=body,
             requested_model=request.model,

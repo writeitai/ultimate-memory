@@ -567,6 +567,7 @@ def _model_bindings() -> dict[str, str]:
     observations = ObservationSettings.model_validate({})
     supersession = SupersessionSettings.model_validate({})
     p1 = P1Settings.model_validate({})
+    openrouter = OpenRouterSettings.model_validate({})
     return {
         "structure": structurer.model,
         "chunk_embedding": e1.embedding_model,
@@ -580,6 +581,7 @@ def _model_bindings() -> dict[str, str]:
         "supersession_frontier": supersession.frontier_model,
         "p1_embedding": p1.embedding_model,
         "fact_label": p1.label_model,
+        "openrouter_embedding_provider": openrouter.embedding_provider or "auto",
     }
 
 

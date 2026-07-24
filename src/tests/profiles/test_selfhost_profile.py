@@ -3,8 +3,11 @@
 from pathlib import Path
 import re
 
+import pytest
+
 from rememberstack.model import PipelineStage
 from rememberstack.profiles.selfhost import _expected_components
+from rememberstack.profiles.selfhost import _model_bindings
 from rememberstack.profiles.selfhost import _SUPPORTED_WORKER_STAGES
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -52,3 +55,19 @@ def test_compose_wires_the_exact_supported_worker_set_and_projection_job() -> No
     assert composed_stages == _SUPPORTED_WORKER_STAGES
     assert 'profiles: ["operations"]' in compose
     assert 'command: ["project", "--plane", "all"]' in compose
+
+
+@pytest.mark.parametrize(
+    ("configured", "reported"), (("nebius", "nebius"), ("", "auto"))
+)
+def test_model_bindings_report_embedding_provider_without_secrets(
+    monkeypatch: pytest.MonkeyPatch, configured: str, reported: str
+) -> None:
+    """Readiness fingerprints the routing choice without exposing credentials."""
+    monkeypatch.setenv("REMEMBERSTACK_OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("REMEMBERSTACK_OPENROUTER_EMBEDDING_PROVIDER", configured)
+
+    bindings = _model_bindings()
+
+    assert bindings["openrouter_embedding_provider"] == reported
+    assert "test-key" not in bindings.values()
