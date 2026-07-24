@@ -70,6 +70,9 @@ curl -X POST "$REMEMBERSTACK_API_URL/recipe/relation_current" \
 ```
 
 An unknown recipe is **404**; a missing required argument is **422**.
+The stock self-host adds `resolve_entity` so recipe-only agents can obtain UUIDs,
+plus `graph_neighborhood` and `graph_path` because that profile composes P2.
+Profiles without P2 do not seed the graph recipes.
 
 ## Client writes
 
@@ -85,6 +88,15 @@ must be supplied together. `source_modified_at`, `source_version_ref`, and
 `versioning_mode=snapshot|living` carry the feeder's version metadata. Changed
 bytes under the same identity append a document version; identical bytes are
 an idempotent no-op.
+
+### `POST /readiness`
+
+When composed, accepts a JSON list of document-version UUIDs and returns the
+exact expected stage generations and their states. With
+`require_projections=true` (the default), readiness also requires both P2 and
+P3 builds to have begun after the latest requested terminal stage. The response
+includes non-secret model IDs, making writer/query configuration auditable.
+This endpoint inspects work; it does not wait, retry, or trigger a rebuild.
 
 ### Connector management
 
@@ -122,6 +134,7 @@ with MemoryClient.from_settings() as memory:
         source_ref="workspace/project",
         source_version_ref="revision-17",
     )
+    ready = memory.pipeline_readiness(version_ids=(landed.version_id,))
 ```
 
 The SDK also exposes typed `resolve`, `search_claims`, `hydrate_relation`, and

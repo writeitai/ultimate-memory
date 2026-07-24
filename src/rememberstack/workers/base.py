@@ -25,6 +25,7 @@ from rememberstack.model import HandlerAlreadyRegisteredError
 from rememberstack.model import NonRetryableHandlerError
 from rememberstack.model import PipelineStage
 from rememberstack.model import ProcessingLane
+from rememberstack.model import ProviderCallError
 from rememberstack.model import ProviderCallUsage
 from rememberstack.model import QueueRoute
 from rememberstack.model import RecordCall
@@ -215,6 +216,7 @@ class Worker:
                 outcome=RunResultOutcome.DEAD_LETTERED,
             )
         except Exception as exception:
+            self._record_failed_provider_usage(meter=meter, exception=exception)
             _logger.exception(
                 "retryable failure in stage %s for %s",
                 claimed.stage,
@@ -270,6 +272,26 @@ class Worker:
         return RunResult(
             processing_id=claimed.processing_id, outcome=RunResultOutcome.SUCCEEDED
         )
+
+    @staticmethod
+    def _record_failed_provider_usage(
+        *, meter: CostMeterPort, exception: Exception
+    ) -> None:
+        """Meter a billable call whose response failed after usage was parsed."""
+        if not isinstance(exception, ProviderCallError) or exception.usage is None:
+            return
+        try:
+            meter.record(
+                call_key="provider_failure",
+                tier="failed_response",
+                usage=exception.usage,
+            )
+        except Exception as accounting_exception:  # pragma: no cover - DB outage path
+            exception.add_note(
+                "failed to persist usage from the failed provider response:"
+                f" {accounting_exception}"
+            )
+            _logger.exception("failed to meter a usage-bearing provider exception")
 
     def _export_event(self, *, event: TelemetryEvent) -> None:
         """Export one completed transition when telemetry is configured."""

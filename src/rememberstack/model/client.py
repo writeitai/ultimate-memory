@@ -1,5 +1,6 @@
 """Client-surface values that are safe in the dependency-light base install."""
 
+from datetime import datetime
 from typing import Literal
 from typing import Self
 from uuid import UUID
@@ -38,6 +39,58 @@ class ToolDescriptor(BaseModel):
     input_schema: dict[str, object]
     output_grain: str
     answer_intent: str
+
+
+class PipelineStageReadiness(BaseModel):
+    """One expected document-version stage at the public readiness boundary."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    stage: str
+    component_version: str
+    status: Literal[
+        "missing", "pending", "running", "succeeded", "failed", "dead_letter", "skipped"
+    ]
+    finished_at: datetime | None = None
+
+
+class VersionPipelineReadiness(BaseModel):
+    """The complete expected continuous pipeline state for one version."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version_id: UUID
+    ready: bool
+    stages: tuple[PipelineStageReadiness, ...]
+
+
+class ProjectionReadiness(BaseModel):
+    """Whether one aggregate projection began after the requested E work."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    plane: Literal["P2_graph", "P3_corpusfs"]
+    ready: bool
+    version: str | None = None
+    built_at: datetime | None = None
+    published_at: datetime | None = None
+
+
+class PipelineReadinessReport(BaseModel):
+    """Machine-verifiable E/P readiness for a bounded set of versions."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ready: bool
+    versions: tuple[VersionPipelineReadiness, ...]
+    projections: tuple[ProjectionReadiness, ...]
+    model_bindings: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Current non-secret serving-process configuration; this is not"
+            " processing-time provenance for the requested versions."
+        ),
+    )
 
 
 class ConnectorCreate(BaseModel):

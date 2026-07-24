@@ -13,6 +13,8 @@ from rememberstack.model import ObjectKey
 from rememberstack.model import PerimeterCredential
 from rememberstack.model import ProviderCallUsage
 from rememberstack.model import PublishedMounts
+from rememberstack.model import SelectionDropReason
+from rememberstack.model import SelectionResponse
 
 
 class _Output(BaseModel):
@@ -86,3 +88,57 @@ def test_perimeter_credential_redacts_secret_bytes() -> None:
     )
 
     assert "must-not-appear" not in repr(credential)
+
+
+def test_selection_drop_reason_matches_the_database_vocabulary() -> None:
+    """Reject provider prose before a selection decision reaches PostgreSQL."""
+    valid = SelectionResponse.model_validate(
+        {
+            "candidates": [
+                {
+                    "source_span": "How are you?",
+                    "verdict": "drop",
+                    "drop_reason": "question",
+                    "protected_class": None,
+                }
+            ]
+        }
+    )
+
+    assert valid.candidates[0].drop_reason is SelectionDropReason.QUESTION
+    with pytest.raises(ValidationError):
+        SelectionResponse.model_validate(
+            {
+                "candidates": [
+                    {
+                        "source_span": "How are you?",
+                        "verdict": "drop",
+                        "drop_reason": "question (the speaker asks a question)",
+                        "protected_class": None,
+                    }
+                ]
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("verdict", "drop_reason"),
+    (("drop", None), ("keep", "question"), ("keep_flagged", "advice")),
+)
+def test_selection_drop_reason_is_present_only_for_drops(
+    verdict: str, drop_reason: str | None
+) -> None:
+    """Keep the decision transcript complete without attaching false drop reasons."""
+    with pytest.raises(ValidationError):
+        SelectionResponse.model_validate(
+            {
+                "candidates": [
+                    {
+                        "source_span": "A statement.",
+                        "verdict": verdict,
+                        "drop_reason": drop_reason,
+                        "protected_class": None,
+                    }
+                ]
+            }
+        )

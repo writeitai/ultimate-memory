@@ -104,8 +104,9 @@ def test_fresh_base_wheel_queries_and_ingests_over_http(
             "-c",
             (
                 "import importlib.util; "
-                "from rememberstack.client import MemoryClient; "
+                "from rememberstack.client import MemoryClient, PipelineReadinessReport; "
                 "assert MemoryClient.__name__ == 'MemoryClient'; "
+                "assert PipelineReadinessReport.__name__ == 'PipelineReadinessReport'; "
                 "assert importlib.util.find_spec('sqlalchemy') is None"
             ),
         ],

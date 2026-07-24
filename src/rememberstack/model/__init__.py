@@ -36,12 +36,17 @@ from rememberstack.model.claims import FactLabelResponse
 from rememberstack.model.claims import ObservationForEmbedding
 from rememberstack.model.claims import OtherPredicateGrammarError
 from rememberstack.model.claims import SelectionCandidate
+from rememberstack.model.claims import SelectionDropReason
 from rememberstack.model.claims import SelectionResponse
 from rememberstack.model.claims import SelectionVerdict
 from rememberstack.model.client import ConnectorCreate
 from rememberstack.model.client import ConnectorDescriptor
 from rememberstack.model.client import ConnectorNotFoundError
+from rememberstack.model.client import PipelineReadinessReport
+from rememberstack.model.client import PipelineStageReadiness
+from rememberstack.model.client import ProjectionReadiness
 from rememberstack.model.client import ToolDescriptor
+from rememberstack.model.client import VersionPipelineReadiness
 from rememberstack.model.clustering import ClusterConfig
 from rememberstack.model.clustering import MergeProposal
 from rememberstack.model.clustering import NeighborhoodReport
@@ -220,6 +225,7 @@ from rememberstack.model.model_provider import EmbeddingResponse
 from rememberstack.model.model_provider import GeneratedResponse
 from rememberstack.model.model_provider import ModelRequest
 from rememberstack.model.model_provider import ProviderAccountingError
+from rememberstack.model.model_provider import ProviderCallError
 from rememberstack.model.model_provider import ProviderCallUsage
 from rememberstack.model.model_provider import StructuredResponseModel
 from rememberstack.model.mounts import PublishedMounts
@@ -420,7 +426,9 @@ __all__ = (
     "PackedChunk",
     "PerimeterCredential",
     "PipelineComponent",
+    "PipelineReadinessReport",
     "PipelineStage",
+    "PipelineStageReadiness",
     "PipelineRouteStatus",
     "PoisonTargetRecord",
     "PoisonTargetReport",
@@ -428,7 +436,9 @@ __all__ = (
     "ProcessingStatus",
     "ProcessingTarget",
     "ProjectionSnapshotState",
+    "ProjectionReadiness",
     "ProviderAccountingError",
+    "ProviderCallError",
     "ProviderCallUsage",
     "PublishedMounts",
     "QueueRoute",
@@ -459,6 +469,7 @@ __all__ = (
     "S58Answer",
     "SectionSpan",
     "SelectionCandidate",
+    "SelectionDropReason",
     "SelectionResponse",
     "SelectionVerdict",
     "LifecycleReport",
@@ -580,6 +591,7 @@ __all__ = (
     "UnroutableMimeError",
     "UploadRecord",
     "Validity",
+    "VersionPipelineReadiness",
     "WorkLedgerError",
     "WorkNotDeadLetterError",
     "WorkNotFoundError",

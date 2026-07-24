@@ -46,6 +46,7 @@ from rememberstack.spine.settings import load_database_settings
 from rememberstack.workers import ChunkHandler
 from rememberstack.workers import ConvertHandler
 from rememberstack.workers import E1Settings
+from rememberstack.workers import E2_EXTRACTOR_VERSION
 from rememberstack.workers import E2Settings
 from rememberstack.workers import EmbedChunksHandler
 from rememberstack.workers import ExtractClaimsHandler
@@ -424,7 +425,7 @@ def test_extractor_bump_re_extracts_reused_chunks(rig: _ReuseRig) -> None:
             )
         ).scalar_one()  # a chunk holding only re-attached links
     assert rig.claim_catalog.chunk_already_extracted(
-        chunk_id=reused_chunk, extractor_version="e2-extract-2026.07"
+        chunk_id=reused_chunk, extractor_version=E2_EXTRACTOR_VERSION
     )
     assert not rig.claim_catalog.chunk_already_extracted(
         chunk_id=reused_chunk, extractor_version="e2-extract-9999.01"

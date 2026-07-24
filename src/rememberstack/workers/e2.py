@@ -31,6 +31,7 @@ from rememberstack.model import NonRetryableHandlerError
 from rememberstack.model import ObjectKey
 from rememberstack.model import PipelineStage
 from rememberstack.model import SelectionCandidate
+from rememberstack.model import SelectionDropReason
 from rememberstack.model import SelectionResponse
 from rememberstack.model import SelectionVerdict
 from rememberstack.ports.cost_meter import CostMeterPort
@@ -44,6 +45,8 @@ from rememberstack.workers.e3 import E3_NORMALIZER_VERSION
 
 _logger = logging.getLogger(__name__)
 
+_DROP_REASONS: Final = "|".join(reason.value for reason in SelectionDropReason)
+
 _SELECTION_PROMPT: Final = """You are the Selection stage of a claim extractor.
 Judge every proposition in the TARGET CHUNK: keep statements making a specific,
 verifiable proposition (state, event, decision, quantity, policy, relationship).
@@ -52,7 +55,9 @@ section intros/conclusions, and "we don't know" statements. An ATTRIBUTED
 stance ("X said/believes/opposes Y") is a KEEP. Never-drop classes even if
 phrased opinionatedly: quantities, dates, named-entity+predicate,
 change-of-state. When unsure, prefer keep_flagged over drop. Each candidate's
-source_span must be a verbatim substring of the target chunk.
+source_span must be a verbatim substring of the target chunk. For a DROP,
+drop_reason must be exactly one of: {drop_reasons}. For KEEP or KEEP_FLAGGED,
+it must be null.
 
 {bundle}"""
 
@@ -113,7 +118,7 @@ class ExtractClaimsHandler:
             chunker_version=self._chunker_version,
         )
         if not chunks:
-            return HandlerOutcome()
+            return _normalize_follow_up(work=work, source=source)
         document_md = self._artifact_store.read_bytes(
             key=ObjectKey(source.markdown_uri)
         ).decode("utf-8")
@@ -131,23 +136,7 @@ class ExtractClaimsHandler:
                 document_md=document_md,
                 meter=meter,
             )
-        return HandlerOutcome(
-            follow_up=(
-                EnqueueWork(
-                    deployment_id=work.deployment_id,
-                    target_kind=work.target_kind,
-                    target_id=work.target_id,
-                    stage=PipelineStage.NORMALIZE_RELATIONS,
-                    component_version=E3_NORMALIZER_VERSION,
-                    content_hash=work.content_hash,
-                    lane=work.lane,
-                    payload={
-                        "version_id": str(source.version_id),
-                        "representation_id": str(source.representation_id),
-                    },
-                ),
-            )
-        )
+        return _normalize_follow_up(work=work, source=source)
 
     def _reuse_prior_extraction(
         self, *, source: ChunkSource, chunk: ChunkForEmbedding
@@ -200,7 +189,9 @@ class ExtractClaimsHandler:
         selection_call = self._model_provider.generate(
             request=ModelRequest(
                 model=self._settings.extract_model,
-                prompt=_SELECTION_PROMPT.format(bundle=bundle),
+                prompt=_SELECTION_PROMPT.format(
+                    drop_reasons=_DROP_REASONS, bundle=bundle
+                ),
             ),
             response_type=SelectionResponse,
         )
@@ -459,10 +450,31 @@ def _empty_extraction_marker(
         claim_id=None,
         decision_type=DecisionType.SELECTION_DROP,
         source_span=None,
-        reason="no_info",
+        reason=SelectionDropReason.NO_INFO,
         edit_detail=None,
         protected_class=None,
         extractor_version=E2_EXTRACTOR_VERSION,
+    )
+
+
+def _normalize_follow_up(*, work: ClaimedWork, source: ChunkSource) -> HandlerOutcome:
+    """Continue an extracted version even when it contains no chunks."""
+    return HandlerOutcome(
+        follow_up=(
+            EnqueueWork(
+                deployment_id=work.deployment_id,
+                target_kind=work.target_kind,
+                target_id=work.target_id,
+                stage=PipelineStage.NORMALIZE_RELATIONS,
+                component_version=E3_NORMALIZER_VERSION,
+                content_hash=work.content_hash,
+                lane=work.lane,
+                payload={
+                    "version_id": str(source.version_id),
+                    "representation_id": str(source.representation_id),
+                },
+            ),
+        )
     )
 
 

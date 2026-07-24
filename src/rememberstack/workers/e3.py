@@ -37,7 +37,6 @@ from rememberstack.spine.resolver import CascadeResolver
 from rememberstack.spine.supersession import ADJUDICATOR_VERSION
 from rememberstack.spine.supersession import SupersessionAdjudicator
 from rememberstack.workers.base import HandlerOutcome
-from rememberstack.workers.p1 import FACT_LABEL_VERSION
 from rememberstack.workers.p1 import P1_EMBED_CLAIMS_VERSION
 from rememberstack.workers.reconcile import RECONCILE_VERSION
 
@@ -121,22 +120,14 @@ class NormalizeRelationsHandler:
             chunk_ids=tuple(chunk.chunk_id for chunk in chunks)
         )
         if not claims:
-            # a version whose extraction yielded nothing still completes its
-            # basis change: the chain must reach reconciliation (Codex
-            # review — a living replacement of pure boilerplate would
-            # otherwise never supersede the old claims)
+            # A version whose extraction yielded nothing still completes both
+            # terminal branches. Reconciliation is required for a living
+            # replacement of pure boilerplate, while the no-op embed row makes
+            # per-version readiness mechanically identical to the non-empty
+            # path.
             return HandlerOutcome(
-                follow_up=(
-                    EnqueueWork(
-                        deployment_id=work.deployment_id,
-                        target_kind=work.target_kind,
-                        target_id=work.target_id,
-                        stage=PipelineStage.ADJUDICATE_SUPERSESSION,
-                        component_version=ADJUDICATOR_VERSION,
-                        content_hash=work.content_hash,
-                        lane=work.lane,
-                        payload={**(work.payload or {}), "relation_ids": []},
-                    ),
+                follow_up=self._terminal_branches(
+                    work=work, doc_id=source.doc_id, relation_ids=()
                 )
             )
         deployment_id = work.deployment_id
@@ -172,38 +163,47 @@ class NormalizeRelationsHandler:
                 call_key=f"observation:{entity_id}",
             )
         return HandlerOutcome(
-            follow_up=(
-                EnqueueWork(
-                    deployment_id=work.deployment_id,
-                    target_kind=work.target_kind,
-                    target_id=work.target_id,
-                    stage=PipelineStage.ADJUDICATE_SUPERSESSION,
-                    component_version=ADJUDICATOR_VERSION,
-                    content_hash=work.content_hash,
-                    lane=work.lane,
-                    payload={**(work.payload or {}), "relation_ids": created_relations},
-                ),
-                EnqueueWork(
-                    deployment_id=work.deployment_id,
-                    target_kind=work.target_kind,
-                    target_id=work.target_id,
-                    stage=PipelineStage.EMBED_CLAIM,
-                    component_version=P1_EMBED_CLAIMS_VERSION,
-                    content_hash=work.content_hash,
-                    lane=work.lane,
-                    payload=dict(work.payload or {}),
-                ),
-                EnqueueWork(
-                    deployment_id=work.deployment_id,
-                    target_kind=work.target_kind,
-                    target_id=work.target_id,
-                    stage=PipelineStage.LABEL_RELATION,
-                    component_version=FACT_LABEL_VERSION,
-                    content_hash=work.content_hash,
-                    lane=work.lane,
-                    payload={**(work.payload or {}), "doc_id": str(source.doc_id)},
-                ),
+            follow_up=self._terminal_branches(
+                work=work, doc_id=source.doc_id, relation_ids=tuple(created_relations)
             )
+        )
+
+    @staticmethod
+    def _terminal_branches(
+        *, work: ClaimedWork, doc_id: UUID, relation_ids: tuple[str, ...]
+    ) -> tuple[EnqueueWork, ...]:
+        """Start the lifecycle and claim-index branches after normalization.
+
+        Fact labeling deliberately does not fan out here. It follows
+        reconciliation, after supersession and lifecycle state have settled,
+        so the P1 facts channel cannot race ahead with a pre-adjudication
+        status. Readiness joins this branch with ``embed_claim``.
+        """
+        return (
+            EnqueueWork(
+                deployment_id=work.deployment_id,
+                target_kind=work.target_kind,
+                target_id=work.target_id,
+                stage=PipelineStage.ADJUDICATE_SUPERSESSION,
+                component_version=ADJUDICATOR_VERSION,
+                content_hash=work.content_hash,
+                lane=work.lane,
+                payload={
+                    **(work.payload or {}),
+                    "doc_id": str(doc_id),
+                    "relation_ids": list(relation_ids),
+                },
+            ),
+            EnqueueWork(
+                deployment_id=work.deployment_id,
+                target_kind=work.target_kind,
+                target_id=work.target_id,
+                stage=PipelineStage.EMBED_CLAIM,
+                component_version=P1_EMBED_CLAIMS_VERSION,
+                content_hash=work.content_hash,
+                lane=work.lane,
+                payload=dict(work.payload or {}),
+            ),
         )
 
     def _normalize_claim(
@@ -428,6 +428,7 @@ class AdjudicateSupersessionHandler:
                     payload={
                         "version_id": version_id,
                         "representation_id": representation_id,
+                        "doc_id": payload.get("doc_id"),
                     },
                 ),
             )

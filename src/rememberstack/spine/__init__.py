@@ -31,9 +31,12 @@ from rememberstack.spine.operations import error_class_from_traceback
 from rememberstack.spine.operations import OperationalCatalog
 from rememberstack.spine.operations import OperationalSettings
 from rememberstack.spine.projection import ProjectionCatalog
+from rememberstack.spine.readiness import PipelineReadinessCatalog
 from rememberstack.spine.recipes import CANONICAL_RECIPES
+from rememberstack.spine.recipes import GRAPH_RECIPES
 from rememberstack.spine.recipes import RecipeRegistry
 from rememberstack.spine.recipes import seed_canonical_recipes
+from rememberstack.spine.recipes import seed_graph_recipes
 from rememberstack.spine.resolver import CascadeResolver
 from rememberstack.spine.resolver import RESOLVER_VERSION
 from rememberstack.spine.resolver import seed_resolver_version
@@ -76,9 +79,12 @@ __all__ = (
     "KnowledgeControlPlane",
     "KnowledgeDispatchUnavailableError",
     "ProjectionCatalog",
+    "PipelineReadinessCatalog",
     "CANONICAL_RECIPES",
+    "GRAPH_RECIPES",
     "RecipeRegistry",
     "seed_canonical_recipes",
+    "seed_graph_recipes",
     "ReviewQueue",
     "seed_resolver_version",
     "T0_RESOLVER_VERSION",

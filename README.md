@@ -11,10 +11,11 @@ at a million documents.
 > **Pre-release software.** Phases 0–7 are implemented and tested. The public
 > [`v0.1.0`](https://github.com/writeitai/remember-stack/releases/tag/v0.1.0) release is available
 > from PyPI and GHCR; release automation, trusted publishing, tag protection, and bounded
-> contributor-agreement enforcement are in place. The fresh-deployment Docker Compose skeleton
+> contributor-agreement enforcement are in place. The fresh-deployment Docker Compose profile
 > is documented under
-> [Self-host deployment](website/src/app/docs/deployment/page.mdx); it proves PostgreSQL, MinIO,
-> API ingestion, and the first two E0 worker stages, not a production rollout. The build follows
+> [Self-host deployment](website/src/app/docs/deployment/page.mdx); it composes PostgreSQL,
+> MinIO, the API, all ten continuous E/P1 routes, and explicit P2/P3 publication for one
+> deployment. It remains pre-release software, not a production rollout. The build follows
 > [plan/plans/roadmap.md](plan/plans/roadmap.md).
 
 ## TL;DR

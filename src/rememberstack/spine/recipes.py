@@ -149,6 +149,23 @@ _RECIPE_BY_NAME = text(
 # ─────────────────────────────────────────────────────────────────────────
 CANONICAL_RECIPES: tuple[Recipe, ...] = (
     Recipe(
+        name="resolve_entity",
+        description="Resolve a name to ranked current entity candidates before"
+        " using UUID-addressed fact or graph tools. Returns every exact-name"
+        " candidate rather than silently guessing.",
+        parameters={
+            "name": {"type": "string", "required": True},
+            "entity_type": {"type": "string", "required": False},
+        },
+        chain=(
+            RecipeStep(
+                op="resolve", bind={"name": "name", "entity_type": "entity_type"}
+            ),
+        ),
+        output_grain=Grain.FACT,
+        answer_intent=RecipeAnswerIntent.ORIENTATION,
+    ),
+    Recipe(
         name="relation_current",
         description="Current relations matching a subject and optional predicate"
         " — 'who does X work for now?' (S1). Validity-filtered, fact grain.",
@@ -198,11 +215,18 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
         " (S6). Evidence grain — never a current-fact answer (the D41 bar).",
         parameters={
             "query": {"type": "string", "required": True},
-            "k": {"type": "integer", "required": False, "default": 10},
+            "k": {
+                "type": "integer",
+                "required": False,
+                "default": 10,
+                "minimum": 1,
+                "maximum": 30,
+            },
         },
         chain=(RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),),
         output_grain=Grain.EVIDENCE,
         answer_intent=RecipeAnswerIntent.ASSERTION_HISTORY,
+        version=2,
     ),
     Recipe(
         name="claims_hybrid_rrf",
@@ -210,7 +234,13 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
         " orderings by reciprocal-rank fusion (S46). Evidence grain.",
         parameters={
             "query": {"type": "string", "required": True},
-            "k": {"type": "integer", "required": False, "default": 10},
+            "k": {
+                "type": "integer",
+                "required": False,
+                "default": 10,
+                "minimum": 1,
+                "maximum": 30,
+            },
         },
         chain=(
             RecipeStep(op="search_claims", bind={"query": "query", "k": "k"}),
@@ -219,6 +249,7 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
         ),
         output_grain=Grain.EVIDENCE,
         answer_intent=RecipeAnswerIntent.ASSERTION_HISTORY,
+        version=2,
     ),
     Recipe(
         name="explain",
@@ -264,6 +295,67 @@ CANONICAL_RECIPES: tuple[Recipe, ...] = (
     ),
 )
 
+GRAPH_RECIPES: tuple[Recipe, ...] = (
+    Recipe(
+        name="graph_neighborhood",
+        description="Current P2 graph neighborhood around an entity, ranked by"
+        " distance and carrying explicit truncation metadata.",
+        parameters={
+            "entity_id": {"type": "uuid", "required": True},
+            "hops": {
+                "type": "integer",
+                "required": False,
+                "default": 2,
+                "minimum": 1,
+                "maximum": 4,
+            },
+            "limit": {
+                "type": "integer",
+                "required": False,
+                "default": 30,
+                "minimum": 1,
+                "maximum": 50,
+            },
+        },
+        chain=(
+            RecipeStep(
+                op="graph_neighborhood",
+                bind={"entity_id": "entity_id", "hops": "hops", "limit": "limit"},
+            ),
+        ),
+        output_grain=Grain.FACT,
+        answer_intent=RecipeAnswerIntent.ORIENTATION,
+    ),
+    Recipe(
+        name="graph_path",
+        description="Current shortest P2 paths between two resolved entities,"
+        " with every traversed fact edge returned for inspection.",
+        parameters={
+            "from_entity_id": {"type": "uuid", "required": True},
+            "to_entity_id": {"type": "uuid", "required": True},
+            "max_hops": {
+                "type": "integer",
+                "required": False,
+                "default": 4,
+                "minimum": 1,
+                "maximum": 6,
+            },
+        },
+        chain=(
+            RecipeStep(
+                op="graph_path",
+                bind={
+                    "from_entity_id": "from_entity_id",
+                    "to_entity_id": "to_entity_id",
+                    "max_hops": "max_hops",
+                },
+            ),
+        ),
+        output_grain=Grain.FACT,
+        answer_intent=RecipeAnswerIntent.ORIENTATION,
+    ),
+)
+
 
 def seed_canonical_recipes(*, registry: RecipeRegistry, deployment_id: UUID) -> int:
     """Register the canonical recipe set into a deployment (idempotent).
@@ -274,3 +366,10 @@ def seed_canonical_recipes(*, registry: RecipeRegistry, deployment_id: UUID) -> 
     for recipe in CANONICAL_RECIPES:
         registry.register(deployment_id=deployment_id, recipe=recipe)
     return len(CANONICAL_RECIPES)
+
+
+def seed_graph_recipes(*, registry: RecipeRegistry, deployment_id: UUID) -> int:
+    """Seed P2 recipes only for profiles that actually compose graph queries."""
+    for recipe in GRAPH_RECIPES:
+        registry.register(deployment_id=deployment_id, recipe=recipe)
+    return len(GRAPH_RECIPES)

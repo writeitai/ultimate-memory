@@ -24,6 +24,7 @@ from pydantic_settings import SettingsConfigDict
 
 from rememberstack.model.client import ConnectorCreate
 from rememberstack.model.client import ConnectorDescriptor
+from rememberstack.model.client import PipelineReadinessReport
 from rememberstack.model.client import ToolDescriptor
 from rememberstack.model.documents import IngestedVersion
 from rememberstack.model.envelope import Envelope
@@ -161,6 +162,23 @@ class MemoryClient:
             Envelope,
             self._json("GET", f"/hydrate/relation/{relation_id}"),
             endpoint=f"GET /hydrate/relation/{relation_id}",
+        )
+
+    def pipeline_readiness(
+        self, *, version_ids: tuple[UUID, ...], require_projections: bool = True
+    ) -> PipelineReadinessReport:
+        """Inspect exact continuous-stage and aggregate-projection readiness."""
+        if not version_ids:
+            raise ValueError("pipeline readiness requires at least one version_id")
+        return _validated(
+            PipelineReadinessReport,
+            self._json(
+                "POST",
+                "/readiness",
+                params={"require_projections": str(require_projections).lower()},
+                json_body=[str(version_id) for version_id in version_ids],
+            ),
+            endpoint="POST /readiness",
         )
 
     def ingest(

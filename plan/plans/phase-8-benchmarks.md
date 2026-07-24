@@ -5,9 +5,10 @@ Distinct from the internal D22 harness: that answers "are we correct against our
 set"; this answers "are we better than the alternatives on shared ground", plus "what can we
 do that they cannot".
 
-**Entry gates:** Phases 1–3 + 5 done (ingestion, lifecycle, full retrieval); Phase 6 optional
-per benchmark (K helps orientation-style tasks). Each run records its actual cost and explicit
-run cap; no deployment-owner budget is an OSS benchmark gate (D60).
+**Entry gates:** Phases 1–5 done (ingestion, lifecycle, projections, full retrieval). A benchmark
+records which Plane-K runtime actually ran; an empty/unconfigured K plane is never represented as
+coverage. Each run records its actual cost and explicit run cap; no deployment-owner budget is
+an OSS benchmark gate (D60).
 **Exit criteria:** a published methodology + results document (reproducible runs, pinned
 versions, honest losses included); the capability benchmark demonstrates the differentiators
 end to end.
@@ -37,7 +38,7 @@ than expanding WP-8.2. The reusable prompt for independent external research is
 
 ## WP-8.2 LoCoMo setup
 
-The first adapter is the reviewed `RS-LoCoMo-v1 J@30` protocol:
+The first adapter is the reviewed `RS-LoCoMo-Full-v1` protocol:
 
 - analysis and comparability limits:
   [`locomo_benchmark_analysis.md`](../analysis/locomo_benchmark_analysis.md);
@@ -45,8 +46,9 @@ The first adapter is the reviewed `RS-LoCoMo-v1 J@30` protocol:
   [`locomo_benchmark_design.md`](../designs/locomo_benchmark_design.md); and
 - unshipped repository harness: `benchmarks/locomo/`.
 
-Its smoke, development, and publication manifests pin 8, 200, and 1,540 question IDs. The setup
-is implemented behind explicit remote execution guards, but no real ingest, query, reader, judge,
-or score run has occurred. WP-8.2 remains in progress until the owner reviews the setup and an
-eight-question smoke completes against a full isolated deployment. The released Compose skeleton
-does not yet wire the required claim-indexing stages.
+Its smoke, development, and publication manifests pin 8, 200, and 1,540 question IDs. Compose
+now runs the complete ten-route continuous lifecycle and exposes a one-shot P2/P3 build. The
+answer harness verifies exact stage/projection readiness and lets a bounded agent choose the
+ordinary public recipe tools; the former claims-only J@30 path is not the headline. No real
+ingest, query, answer-agent, judge, or score run has occurred. WP-8.2 remains in progress until
+the owner reviews the setup and an eight-question smoke completes against an isolated deployment.

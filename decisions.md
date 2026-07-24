@@ -2629,43 +2629,63 @@ environment, and protected `v*` tag ruleset are already configured. The first GH
 the container package; making that package public is the only post-publish owner action. WP-7.6
 may proceed to its first tagged artifact proof after CLA activation.
 
-## D78. LoCoMo uses a named, fingerprinted protocol rather than a context-free headline
+## D78. LoCoMo measures the ordinary OSS query system, not a claims-only shortcut
 
-**Decision.** The first competitive benchmark is **`RS-LoCoMo-v1 J@30`** over the exact pinned
-LoCoMo ten-conversation file, categories 1–4, 30 unified current-testimony claims, one frozen
-`gpt-4o-mini` reader, one frozen `gpt-4o-mini` judge pass, and the official deterministic LoCoMo
-F1 as a secondary metric. Prompts, strict output schemas, dataset/manifests, rendered documents,
-models, temperature, adapter version, and repository revision are hashed into the run
-fingerprint. Failures and missing records remain in the full manifest denominator.
+**Decision.** The first competitive benchmark is **`RS-LoCoMo-Full-v1`** over the exact pinned
+LoCoMo ten-conversation file and categories 1–4. Each conversation is an isolated deployment;
+each session is one immutable Markdown source. The deployment processes every document through
+the ten implemented continuous E/P1 routes, then publishes fresh P2 and P3 projections.
 
-Each conversation runs in an isolated deployment because the public claims query has no
-source/document filter. One conversation session becomes one immutable Markdown source document;
-turn timestamps and IDs remain explicit, while generated image captions/search queries are
-labelled as derived and summary annotations are never ingested. A coarse session-grain evidence
-diagnostic is reported with malformed-field coverage; the system does not claim exact turn
-Recall@k without a generic returned source locator.
+Questions are answered by a bounded `gpt-4o-mini` agent using only the deployment's ordinary
+registry-rendered public recipe tools. The agent may resolve entities, read current relations and
+observations, search/hydrate evidence, inspect timelines and transcripts, discover K pages, and
+traverse P2. It has at most eight tool calls and nine model calls per question. Every request,
+response envelope, model binding, component version, latency, usage, and failure is recorded.
+One frozen `gpt-4o-mini` judge pass supplies the primary accuracy metric; official deterministic
+LoCoMo F1 is secondary. Gold answers and evidence never enter retrieval or answer context.
 
-The adapter is unshipped repository tooling around the public SDK. It does not download or vendor
-the CC BY-NC dataset, own deployment creation/deletion, add a benchmark-only query surface, or
-become a general benchmark framework. Remote ingest, answer, and judge stages require explicit
-execution acknowledgements and run-absolute call/cost ceilings. The released Compose skeleton
-does not provide the full claim-indexing path, so a complete isolated deployment is an explicit
-pre-run prerequisite. Implementation and synthetic checks do not satisfy WP-8.2's end-to-end
-acceptance; an owner-authorized real smoke is still required.
+The API, not an operator assertion, proves readiness: every exact expected stage generation for
+the requested versions is terminal and P2/P3 builds began after their latest terminal stage. The
+answer command checkpoints that report and refuses a changed tool catalog. Prompts, schemas,
+tool catalog, dataset/manifests, rendered documents, models, adapter, and repository revision
+are fingerprinted. Failures and missing records remain in the full denominator.
+
+The former `RS-LoCoMo-v1 J@30` hard-coded `search_claims(k=30)` path is not the primary
+RememberStack benchmark. It bypasses the truth, graph, recipe, envelope, and agent-consumption
+logic the OSS package is designed to provide. A claims-only result may return as a separately
+named diagnostic/ablation, never as the full-system headline.
+
+Plane K is disclosed rather than simulated. The stock self-host profile has no reproducible K
+planner/writer runtime or seeded routing rules; a `pages_about` negative is honest but is not K
+coverage. A K-enabled run requires explicit repository/runtime/routing fingerprints, K
+settlement in readiness, and a new protocol version.
+
+P3 is built and freshness-checked, but this remote recipe-agent protocol has no filesystem
+mount and therefore makes no claim that P3 navigation improved its answers. A mount-enabled
+answer protocol receives a new name and fingerprint.
+
+The adapter remains unshipped repository tooling. It does not vendor or download the CC BY-NC
+dataset, own deployment creation/destruction, expose benchmark-only queries, or become a general
+benchmark framework. Run-absolute call limits and a reported-spend stop threshold remain
+mandatory; provider account limits are the hard monetary boundary. Implementation and
+synthetic checks do not satisfy WP-8.2 acceptance; an owner-authorized real smoke is still
+required.
 
 **Context.** Published “LoCoMo scores” use materially different datasets, ingestion units,
-retrieval depths, readers, judges, prompts, and repetition counts. In particular, a historical
-Mem0-lineage `k=30` may retrieve 30 memories per speaker, while this protocol retrieves 30 claims
-total. A bare score would invite false comparison. The named protocol retains the recognizable
-J-score lineage while making every consequential asymmetry visible and reproducible.
+retrieval depths, answer models, judges, prompts, and repetition counts. More importantly, a
+fixed claims retrieval benchmark would measure only one RememberStack projection after the owner
+explicitly chose to evaluate the full OSS memory logic. A named, traced agent protocol preserves
+comparability without reducing the product to dense RAG.
 
-**Rejected alternatives.** Calling the result a standard LoCoMo score; adopting a moving vendor
-harness or benchmark-tuned judge; mixing all conversations in one deployment; feeding gold
-evidence to the reader or judge; exact-turn retrieval claims without a locator; automatic
-deployment destruction; dataset vendoring; and a plugin/DSL/dashboard framework before a second
-adapter proves shared machinery is needed.
+**Rejected alternatives.** Publishing the claims-only `J@30` score as full-system; a
+benchmark-specific SQL/search tool; one service per unused stage enum; treating reconciliation
+alone as readiness; requiring an operator to type “index ready”; rebuilding P2/P3 after every
+document; pretending an empty K plane ran; mixing conversations; gold leakage; automatic
+deployment destruction; dataset vendoring; and an orchestration/dashboard framework.
 
-**Consequences.** WP-8.2 starts with this one adapter. Vendor-reported numbers are contextual only
-until WP-8.3 reruns matched baselines under the same fingerprint. A changed top-k, model, prompt,
-schema, judge repetition, or ingestion mapping is a separately named protocol, not an override
-flag on `RS-LoCoMo-v1`.
+**Consequences.** Compose runs the ten real continuous routes by default and offers one explicit
+P2/P3 build command. Fact labeling follows adjudication and reconciliation, while readiness
+joins it with claim embedding. The API/query writer share `P1Settings`. WP-8.2 continues with
+this protocol; matched baseline runs in WP-8.3 must use the same public tool budget and
+fingerprint. Any changed tool inventory, call budget, model, prompt, schema, judge repetition,
+ingestion mapping, or K mode is a separately named protocol.

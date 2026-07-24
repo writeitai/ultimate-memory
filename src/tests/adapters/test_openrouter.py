@@ -5,14 +5,19 @@ from typing import Annotated
 
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import ValidationError
 import pytest
 
 from rememberstack.adapters import OpenRouterModelProvider
+from rememberstack.adapters import OpenRouterProviderError
 from rememberstack.adapters import OpenRouterSettings
+from rememberstack.adapters.openrouter import _strict_json_schema
 from rememberstack.adapters.openrouter import _usage
+from rememberstack.model import EmbeddingRequest
 from rememberstack.model import ModelRequest
+from rememberstack.model import NormalizationResponse
 from rememberstack.model import ProviderAccountingError
+from rememberstack.model import SelectionResponse
+from rememberstack.model import StructureResponse
 
 
 class _Answer(BaseModel):
@@ -88,10 +93,114 @@ def test_generation_forwards_temperature_only_when_declared(
         assert observed["temperature"] == 0.0
 
 
-def test_generation_preserves_structured_output_validation_error(
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    ((None, None), ("", None), ("  ", None), ("none", {"effort": "none"})),
+)
+def test_generation_forwards_configured_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    expected: dict[str, str] | None,
+) -> None:
+    """A deployment can disable unnecessary reasoning without changing its model."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings.model_validate(
+            {"api_key": "test-key", "reasoning_effort": configured}
+        )
+    )
+    observed: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        observed.update(payload)
+        assert path == "/chat/completions"
+        return {
+            "model": "deepseek/deepseek-v4-flash",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"answer":"Prague"}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        provider.generate(
+            request=ModelRequest(model="deepseek/deepseek-v4-flash", prompt="Where?"),
+            response_type=_Answer,
+        )
+    finally:
+        provider._client.close()
+
+    assert observed.get("reasoning") == expected
+
+
+def test_generation_uses_strict_schema_for_defaulted_response_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Keep valid JSON with an invalid schema distinct from malformed bodies."""
+    """OpenAI-backed routes require every property, even when Pydantic has defaults."""
+    provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
+    observed_schema: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/chat/completions"
+        response_format = payload["response_format"]
+        assert isinstance(response_format, dict)
+        json_schema = response_format["json_schema"]
+        assert isinstance(json_schema, dict)
+        schema = json_schema["schema"]
+        assert isinstance(schema, dict)
+        observed_schema.update(schema)
+        return {
+            "model": "openai/strict-model",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"relations":[],"observations":[]}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        provider.generate(
+            request=ModelRequest(model="openai/strict-model", prompt="Normalize"),
+            response_type=NormalizationResponse,
+        )
+    finally:
+        provider._client.close()
+
+    required = observed_schema["required"]
+    assert isinstance(required, list)
+    assert set(required) == {"relations", "observations"}
+    assert observed_schema["additionalProperties"] is False
+    properties = observed_schema["properties"]
+    assert isinstance(properties, dict)
+    assert "default" not in properties["relations"]
+    assert "default" not in properties["observations"]
+
+
+@pytest.mark.parametrize("response_type", (StructureResponse, SelectionResponse))
+def test_strict_schema_closes_every_nested_object_and_removes_defaults(
+    response_type: type[BaseModel],
+) -> None:
+    """Recursive and nullable production schemas remain strict at every depth."""
+    schema = _strict_json_schema(response_type)
+
+    def assert_strict(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                assert_strict(item)
+            return
+        if not isinstance(node, dict):
+            return
+        assert "default" not in node
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            assert set(node["required"]) == set(properties)
+            assert node["additionalProperties"] is False
+        for value in node.values():
+            assert_strict(value)
+
+    assert_strict(schema)
+
+
+def test_generation_preserves_usage_on_structured_output_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A billable invalid schema carries its already parsed provider usage."""
     provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
 
     def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
@@ -105,7 +214,7 @@ def test_generation_preserves_structured_output_validation_error(
 
     monkeypatch.setattr(provider, "_post", post)
     try:
-        with pytest.raises(ValidationError):
+        with pytest.raises(OpenRouterProviderError) as raised:
             provider.generate(
                 request=ModelRequest(
                     model="openai/gpt-4o-mini", prompt="Where?", temperature=0
@@ -114,3 +223,107 @@ def test_generation_preserves_structured_output_validation_error(
             )
     finally:
         provider._client.close()
+
+    assert raised.value.usage is not None
+    assert raised.value.usage.tokens_in == 3
+    assert raised.value.usage.tokens_out == 1
+
+
+def test_embedding_preserves_usage_when_the_vector_body_is_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed billable embedding remains attributable to its worker."""
+    provider = OpenRouterModelProvider(settings=OpenRouterSettings(api_key="test-key"))
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/embeddings"
+        assert payload
+        assert "provider" not in payload
+        return {
+            "model": "qwen/qwen3-embedding-8b",
+            "usage": {"prompt_tokens": 4, "cost": "0.000004"},
+            "data": [{"index": 0, "embedding": []}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        with pytest.raises(OpenRouterProviderError) as raised:
+            provider.embed(
+                request=EmbeddingRequest(
+                    model="qwen/qwen3-embedding-8b", texts=("memory",)
+                )
+            )
+    finally:
+        provider._client.close()
+
+    assert raised.value.usage is not None
+    assert raised.value.usage.tokens_in == 4
+    assert raised.value.usage.cost_usd == Decimal("0.000004")
+
+
+def test_embedding_pins_configured_provider_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A benchmark can freeze one embedding provider instead of load balancing."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings(api_key="test-key", embedding_provider="nebius")
+    )
+    observed: dict[str, object] = {}
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/embeddings"
+        observed.update(payload)
+        assert "reasoning" not in payload
+        return {
+            "model": "qwen/qwen3-embedding-8b",
+            "usage": {"prompt_tokens": 2, "cost": "0.000001"},
+            "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        response = provider.embed(
+            request=EmbeddingRequest(model="qwen/qwen3-embedding-8b", texts=("memory",))
+        )
+    finally:
+        provider._client.close()
+
+    assert observed["provider"] == {"only": ["nebius"], "allow_fallbacks": False}
+    assert response.vectors == ((0.1, 0.2),)
+
+
+@pytest.mark.parametrize("configured", (None, "", "  "))
+def test_empty_embedding_provider_is_unset(configured: str | None) -> None:
+    """Compose's empty optional value must preserve automatic provider routing."""
+    settings = OpenRouterSettings(api_key="test-key", embedding_provider=configured)
+
+    assert settings.embedding_provider is None
+
+
+def test_embedding_provider_pin_is_not_forwarded_to_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Embedding routing must not constrain independently hosted chat models."""
+    provider = OpenRouterModelProvider(
+        settings=OpenRouterSettings(api_key="test-key", embedding_provider="nebius")
+    )
+
+    def post(*, path: str, payload: dict[str, object]) -> dict[str, object]:
+        assert path == "/chat/completions"
+        assert "provider" not in payload
+        return {
+            "model": "deepseek/deepseek-v4-flash",
+            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "cost": "0"},
+            "choices": [{"message": {"content": '{"answer":"Prague"}'}}],
+        }
+
+    monkeypatch.setattr(provider, "_post", post)
+    try:
+        response = provider.generate(
+            request=ModelRequest(model="deepseek/deepseek-v4-flash", prompt="Where?"),
+            response_type=_Answer,
+        )
+    finally:
+        provider._client.close()
+
+    assert response.output.answer == "Prague"

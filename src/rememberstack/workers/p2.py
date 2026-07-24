@@ -21,6 +21,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+from threading import Lock
 from typing import Final
 from uuid import UUID
 
@@ -393,6 +394,7 @@ class GraphSnapshotReader:
         self._published_at: datetime | None = None
         self._database: ladybug.Database | None = None
         self._connection: ladybug.Connection | None = None
+        self._refresh_lock = Lock()
 
     @property
     def version(self) -> str | None:
@@ -406,6 +408,11 @@ class GraphSnapshotReader:
 
     def refresh(self) -> bool:
         """Serve the latest published snapshot; True when a swap happened."""
+        with self._refresh_lock:
+            return self._refresh_locked()
+
+    def _refresh_locked(self) -> bool:
+        """Download and swap while serializing concurrent refresh attempts."""
         latest = self._catalog.latest_snapshot(
             deployment_id=self._deployment_id, plane="P2_graph"
         )
@@ -452,8 +459,7 @@ class GraphSnapshotReader:
 
     def connection(self) -> ladybug.Connection:
         """The read-only connection to the served snapshot."""
-        if self._connection is None:
-            self.refresh()
+        self.refresh()
         if self._connection is None:
             raise RuntimeError("no published P2 snapshot exists yet")
         return self._connection
@@ -466,8 +472,7 @@ class GraphSnapshotReader:
         connection must not be able to break the read permanently. Same
         read-only database, so it never sees uncommitted or torn data.
         """
-        if self._database is None:
-            self.refresh()
+        self.refresh()
         if self._database is None:
             raise RuntimeError("no published P2 snapshot exists yet")
         return ladybug.Connection(self._database)

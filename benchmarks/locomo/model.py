@@ -1,4 +1,4 @@
-"""Typed dataset, protocol, checkpoint, and result values for RS-LoCoMo-v1."""
+"""Typed values for the full-system RS-LoCoMo-Full-v1 protocol."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import model_validator
 
+from rememberstack.model import Envelope
+from rememberstack.model import PipelineReadinessReport
 from rememberstack.model import ProviderCallUsage
 
 NonEmpty = Annotated[str, Field(min_length=1)]
@@ -20,7 +22,7 @@ Category = Literal[1, 2, 3, 4, 5]
 RetainedCategory = Literal[1, 2, 3, 4]
 Tier = Literal["smoke", "development", "publication"]
 FailureKind = Literal[
-    "retrieval", "reader", "judge", "accounting", "invalid_response", "missing"
+    "readiness", "tool", "reader", "judge", "accounting", "invalid_response", "missing"
 ]
 
 
@@ -104,7 +106,7 @@ class QuestionManifest(FrozenModel):
 class RunConfiguration(FrozenModel):
     """Immutable identity of one prepared benchmark run."""
 
-    protocol_name: Literal["RS-LoCoMo-v1"] = "RS-LoCoMo-v1"
+    protocol_name: Literal["RS-LoCoMo-Full-v1"] = "RS-LoCoMo-Full-v1"
     adapter_version: NonEmpty
     prepared_at: datetime
     repository_revision: NonEmpty
@@ -117,15 +119,18 @@ class RunConfiguration(FrozenModel):
     documents_sha256: NonEmpty
     item_count: int = Field(ge=1)
     sample_ids: Annotated[tuple[NonEmpty, ...], Field(min_length=1)]
-    top_k: Literal[30] = 30
-    reader_model: Literal["openai/gpt-4o-mini"] = "openai/gpt-4o-mini"
+    max_tool_calls_per_question: Literal[8] = 8
+    max_agent_calls_per_question: Literal[9] = 9
+    knowledge_mode: Literal["not_composed"] = "not_composed"
+    answer_agent_model: Literal["openai/gpt-4o-mini"] = "openai/gpt-4o-mini"
     judge_model: Literal["openai/gpt-4o-mini"] = "openai/gpt-4o-mini"
-    reader_temperature: float = Field(default=0.0, ge=0, le=2)
+    answer_agent_temperature: float = Field(default=0.0, ge=0, le=2)
     judge_temperature: float = Field(default=0.0, ge=0, le=2)
     judge_repetitions: Literal[1] = 1
-    reader_prompt_sha256: NonEmpty
+    tool_catalog_sha256: NonEmpty
+    answer_prompt_sha256: NonEmpty
     judge_prompt_sha256: NonEmpty
-    reader_schema_sha256: NonEmpty
+    answer_schema_sha256: NonEmpty
     judge_schema_sha256: NonEmpty
     protocol_fingerprint: NonEmpty
 
@@ -182,10 +187,32 @@ class BenchmarkFailure(FrozenModel):
     message: NonEmpty
 
 
-class ReaderOutput(FrozenModel):
-    """The complete strict reader response: one non-empty answer."""
+class AnswerAgentStep(FrozenModel):
+    """One bounded answer-agent decision: call a public recipe or finish."""
 
-    answer: NonEmpty
+    action: Literal["tool", "answer"]
+    tool_name: str | None = None
+    arguments: dict[str, object] = Field(default_factory=dict)
+    answer: str | None = None
+
+    @model_validator(mode="after")
+    def require_one_action_shape(self) -> "AnswerAgentStep":
+        """Make tool and answer decisions mutually exclusive and complete."""
+        if self.action == "tool":
+            if not self.tool_name or self.answer is not None:
+                raise ValueError("a tool step requires tool_name and no answer")
+        elif not self.answer or self.tool_name is not None or self.arguments:
+            raise ValueError("an answer step requires only a non-empty answer")
+        return self
+
+
+class ToolCallRecord(FrozenModel):
+    """One ordinary public recipe call and its complete response envelope."""
+
+    name: NonEmpty
+    arguments: dict[str, object]
+    latency_ms: int = Field(ge=0)
+    response: Envelope
 
 
 class JudgeOutput(FrozenModel):
@@ -195,7 +222,7 @@ class JudgeOutput(FrozenModel):
 
 
 class AnswerRecord(FrozenModel):
-    """Retrieval plus reader outcome for one manifest item."""
+    """Bounded public-tool trace plus answer-agent outcome for one item."""
 
     item_id: NonEmpty
     sample_id: NonEmpty
@@ -204,10 +231,12 @@ class AnswerRecord(FrozenModel):
     gold_answer: str
     gold_evidence: tuple[str, ...]
     claims: tuple[RetrievedClaim, ...] = ()
+    tool_calls: tuple[ToolCallRecord, ...] = ()
     dropped_by_hydration: int = Field(default=0, ge=0)
     retrieval_succeeded: bool
     retrieval_latency_ms: int = Field(ge=0)
     reader_called: bool
+    agent_call_count: int = Field(default=0, ge=0)
     reader_latency_ms: int | None = Field(default=None, ge=0)
     generated_answer: str | None = None
     reader_usage: ProviderCallUsage | None = None
@@ -224,6 +253,8 @@ class AnswerRecord(FrozenModel):
             raise ValueError("a generated answer requires a reader call")
         if self.reader_usage is not None and not self.reader_called:
             raise ValueError("reader usage requires a reader call")
+        if self.reader_called != (self.agent_call_count > 0):
+            raise ValueError("reader_called must match agent_call_count")
         return self
 
 
@@ -253,6 +284,7 @@ class RunState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ingests: dict[str, IngestRecord] = Field(default_factory=dict)
+    readiness: dict[str, PipelineReadinessReport] = Field(default_factory=dict)
     answers: dict[str, AnswerRecord] = Field(default_factory=dict)
     judges: dict[str, JudgeRecord] = Field(default_factory=dict)
     evaluator_cost_usd: Decimal = Field(default=Decimal(0), ge=Decimal(0))
@@ -283,7 +315,7 @@ class SessionDiagnosticSummary(FrozenModel):
 class RunSummary(FrozenModel):
     """Publication-ready local aggregate with no hidden denominator."""
 
-    protocol_name: Literal["RS-LoCoMo-v1"] = "RS-LoCoMo-v1"
+    protocol_name: Literal["RS-LoCoMo-Full-v1"] = "RS-LoCoMo-Full-v1"
     protocol_fingerprint: NonEmpty
     tier: Tier
     questions: int = Field(ge=1)
@@ -293,7 +325,7 @@ class RunSummary(FrozenModel):
     categories: tuple[CategorySummary, ...]
     session_diagnostic: SessionDiagnosticSummary
     failures: dict[str, int]
-    reader_calls: int = Field(ge=0)
+    answer_agent_calls: int = Field(ge=0)
     judge_calls: int = Field(ge=0)
     tokens_in: int = Field(ge=0)
     tokens_out: int = Field(ge=0)

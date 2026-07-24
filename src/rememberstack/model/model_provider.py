@@ -34,6 +34,15 @@ class ProviderCallUsage(BaseModel):
     latency_ms: int = Field(ge=0)
 
 
+class ProviderCallError(Exception):
+    """A provider call failed after it may already have reported billable usage."""
+
+    def __init__(self, message: str, *, usage: ProviderCallUsage | None = None) -> None:
+        """Keep parsed usage available to the worker's authoritative meter."""
+        super().__init__(message)
+        self.usage = usage
+
+
 class GeneratedResponse(BaseModel, Generic[ResponseT]):
     """A validated structured output paired with its provider accounting."""
 

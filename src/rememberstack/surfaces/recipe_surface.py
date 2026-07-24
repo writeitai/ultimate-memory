@@ -114,14 +114,9 @@ class RecipeSurface:
         advertises exactly that: a deployment with v1 and v2 both active shows
         one `relation_current`, whose schema is the one that will execute.
         """
-        seen: set[str] = set()
-        descriptors: list[ToolDescriptor] = []
-        for recipe in self._registry.active(deployment_id=self._deployment_id):
-            if recipe.name in seen:  # active() is name, version DESC — first wins
-                continue
-            seen.add(recipe.name)
-            descriptors.append(_descriptor(recipe))
-        return tuple(descriptors)
+        return recipe_descriptors(
+            recipes=self._registry.active(deployment_id=self._deployment_id)
+        )
 
     def run(self, *, name: str, arguments: dict[str, object]) -> Envelope:
         """Run one recipe by name over coerced arguments.
@@ -142,6 +137,18 @@ class RecipeSurface:
         )
 
 
+def recipe_descriptors(*, recipes: tuple[Recipe, ...]) -> tuple[ToolDescriptor, ...]:
+    """Render the latest recipe per name into the shared public tool contract."""
+    seen: set[str] = set()
+    descriptors: list[ToolDescriptor] = []
+    for recipe in recipes:
+        if recipe.name in seen:
+            continue
+        seen.add(recipe.name)
+        descriptors.append(_descriptor(recipe))
+    return tuple(descriptors)
+
+
 def _descriptor(recipe: Recipe) -> ToolDescriptor:
     """Render one recipe as a JSON-Schema-carrying tool descriptor.
 
@@ -155,7 +162,7 @@ def _descriptor(recipe: Recipe) -> ToolDescriptor:
     for name, spec in recipe.parameters.items():
         declared = spec if isinstance(spec, dict) else {}
         rendered = dict(_TYPE_SCHEMA.get(str(declared.get("type")), {"type": "string"}))
-        for facet in ("default", "enum", "description"):
+        for facet in ("default", "enum", "description", "minimum", "maximum"):
             if facet in declared:
                 rendered[facet] = declared[facet]
         properties[name] = rendered
@@ -216,4 +223,18 @@ def _coerce_arguments(
                 f"argument {name!r} of recipe {recipe.name!r} is not a valid"
                 f" {declared.get('type', 'string')}: {value!r}"
             ) from error
+        coerced_value = coerced[name]
+        if isinstance(coerced_value, int):
+            minimum = declared.get("minimum")
+            maximum = declared.get("maximum")
+            if isinstance(minimum, int) and coerced_value < minimum:
+                raise InvalidArgumentError(
+                    f"argument {name!r} of recipe {recipe.name!r} must be at"
+                    f" least {minimum}"
+                )
+            if isinstance(maximum, int) and coerced_value > maximum:
+                raise InvalidArgumentError(
+                    f"argument {name!r} of recipe {recipe.name!r} must be at"
+                    f" most {maximum}"
+                )
     return coerced

@@ -72,6 +72,7 @@ from rememberstack.workers import ConvertHandler
 from rememberstack.workers import CycleFinalizer
 from rememberstack.workers import DeletionService
 from rememberstack.workers import E1Settings
+from rememberstack.workers import E2_EXTRACTOR_VERSION
 from rememberstack.workers import E2Settings
 from rememberstack.workers import E3Settings
 from rememberstack.workers import EmbedChunksHandler
@@ -101,8 +102,8 @@ _STAGES = (
     PipelineStage.NORMALIZE_RELATIONS,
     PipelineStage.ADJUDICATE_SUPERSESSION,
     PipelineStage.EMBED_CLAIM,
-    PipelineStage.LABEL_RELATION,
     PipelineStage.RECONCILE,
+    PipelineStage.LABEL_RELATION,
 )
 _TARGET_PATTERN = re.compile(r"TARGET CHUNK:\n(.+)")
 _TABLES = (
@@ -754,7 +755,9 @@ def test_interrupted_reconcile_completes_on_retry(rig: _LifecycleRig) -> None:
     # drain everything EXCEPT reconcile, so its work row sits queued
     while True:
         progressed = False
-        for stage in _STAGES[:-1]:
+        for stage in (
+            stage for stage in _STAGES if stage is not PipelineStage.RECONCILE
+        ):
             outcome = rig.worker.run_one(
                 deployment_id=_DEPLOYMENT_ID, stage=stage, lane=ProcessingLane.STEADY
             ).outcome
@@ -872,8 +875,8 @@ def test_lifecycle_suite_passes_on_healthy_state_and_records_the_run(
     assert report.quiescent  # the chain is drained: full checks ran
     assert report.violations == {}
     assert report.canary_failures == ()
-    assert "e2-extract-2026.07" in report.flag_rate_by_extractor
-    assert report.flag_rate_by_extractor["e2-extract-2026.07"]["flag_rate"] == 0.0
+    assert E2_EXTRACTOR_VERSION in report.flag_rate_by_extractor
+    assert report.flag_rate_by_extractor[E2_EXTRACTOR_VERSION]["flag_rate"] == 0.0
     recorded = rig.scalar("SELECT passed FROM eval_runs WHERE suite = 'lifecycle'")
     assert recorded is True
 
@@ -1002,4 +1005,4 @@ def test_restore_support_plants_a_canary_the_pack_rechecks(rig: _LifecycleRig) -
     assert not regressed.passed  # the canary blocks the regressing version
 
     flag_rates = flag_rate_by_extractor(engine=rig.engine, deployment_id=_DEPLOYMENT_ID)
-    assert flag_rates["e2-extract-2026.07"]["flags_raised"] == 1.0
+    assert flag_rates[E2_EXTRACTOR_VERSION]["flags_raised"] == 1.0

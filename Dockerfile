@@ -13,7 +13,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE alembic.ini ./
 
 RUN addgroup --system app \
-    && adduser --system --ingroup app app \
+    && adduser --system --ingroup app \
+        --home /var/lib/rememberstack --no-create-home app \
     && mkdir -p /var/lib/rememberstack/forget-manifests \
     && chown -R app:app /var/lib/rememberstack \
     && uv sync --locked --no-dev --extra server --no-install-project

@@ -26,6 +26,7 @@ from rememberstack.model import DocumentUpload
 from rememberstack.model import PipelineStage
 from rememberstack.model import ProcessingLane
 from rememberstack.model import RunResultOutcome
+from rememberstack.model import SelectionDropReason
 from rememberstack.spine import ChunkCatalog
 from rememberstack.spine import ClaimCatalog
 from rememberstack.spine import DeploymentBootstrapper
@@ -128,6 +129,23 @@ def database_engine() -> Iterator[Engine]:
         yield engine
     finally:
         engine.dispose()
+
+
+def test_selection_drop_reasons_match_postgres(database_engine: Engine) -> None:
+    """Keep the provider schema vocabulary identical to the persisted enum."""
+    with database_engine.connect() as connection:
+        labels = tuple(
+            connection.execute(
+                text(
+                    "SELECT enumlabel FROM pg_enum"
+                    " JOIN pg_type ON pg_type.oid = pg_enum.enumtypid"
+                    " WHERE pg_type.typname = 'selection_drop_reason'"
+                    " ORDER BY enumsortorder"
+                )
+            ).scalars()
+        )
+
+    assert labels == tuple(reason.value for reason in SelectionDropReason)
 
 
 @pytest.fixture(autouse=True)

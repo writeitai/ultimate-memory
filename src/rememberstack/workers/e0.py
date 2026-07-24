@@ -49,6 +49,7 @@ from rememberstack.model import ObjectKey
 from rememberstack.model import PipelineStage
 from rememberstack.model import ProcessingLane
 from rememberstack.model import ProviderAccountingError
+from rememberstack.model import ProviderCallError
 from rememberstack.model import RepresentationRecord
 from rememberstack.model import SectionTreeRecord
 from rememberstack.model import SnappedSection
@@ -533,6 +534,14 @@ class StructureHandler:
             )
         except ProviderAccountingError:
             raise  # budget enforcement must never degrade missing usage to zero
+        except ProviderCallError as error:
+            if error.usage is not None:
+                meter.record(
+                    call_key="structure_failure",
+                    tier="failed_response",
+                    usage=error.usage,
+                )
+            return None
         except Exception:  # noqa: BLE001 — a document never fails structuring
             return None
         meter.record(call_key="structure", tier="structure", usage=generated.usage)

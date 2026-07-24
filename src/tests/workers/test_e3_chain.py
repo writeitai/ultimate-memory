@@ -35,9 +35,11 @@ from rememberstack.spine import DocumentCatalog
 from rememberstack.spine import EntityRegistry
 from rememberstack.spine import FactCatalog
 from rememberstack.spine import ForgetCatalog
+from rememberstack.spine import LifecycleCatalog
 from rememberstack.spine import ObservationAdjudicator
 from rememberstack.spine import ObservationSettings
 from rememberstack.spine import RESOLVER_VERSION
+from rememberstack.spine import ReviewQueue
 from rememberstack.spine import SupersessionAdjudicator
 from rememberstack.spine import SupersessionSettings
 from rememberstack.spine import WorkLedger
@@ -56,6 +58,7 @@ from rememberstack.workers import HandlerRegistry
 from rememberstack.workers import LabelFactsHandler
 from rememberstack.workers import NormalizeRelationsHandler
 from rememberstack.workers import P1Settings
+from rememberstack.workers import ReconcileHandler
 from rememberstack.workers import StructureHandler
 from rememberstack.workers import UploadIngestor
 from rememberstack.workers import Worker
@@ -315,6 +318,14 @@ class _E3Rig:
         registry.register(
             stage=PipelineStage.LABEL_RELATION, handler=self.label_handler
         )
+        registry.register(
+            stage=PipelineStage.RECONCILE,
+            handler=ReconcileHandler(
+                catalog=LifecycleCatalog(engine=engine),
+                review_queue=ReviewQueue(engine=engine),
+                chunker_version=chunker_version(params=_PARAMS),
+            ),
+        )
         self.worker = Worker(ledger=ledger, registry=registry)
 
     def run_chain(self) -> None:
@@ -328,6 +339,7 @@ class _E3Rig:
             PipelineStage.NORMALIZE_RELATIONS,
             PipelineStage.ADJUDICATE_SUPERSESSION,
             PipelineStage.EMBED_CLAIM,
+            PipelineStage.RECONCILE,
             PipelineStage.LABEL_RELATION,
         ):
             outcome = self.worker.run_one(
@@ -419,6 +431,48 @@ def test_same_fact_twice_is_one_relation_with_lineage_distinct_count(
     assert [dict(a) for a in adjudications] == [
         {"outcome": "add", "method": "novelty_gate"}
     ]
+
+
+def test_empty_document_completes_the_same_terminal_pipeline_without_model_calls(
+    rig: _E3Rig,
+) -> None:
+    """An empty but valid memory is terminal, not permanently unready."""
+    ingested = rig.ingestor.ingest(
+        deployment_id=_DEPLOYMENT_ID,
+        upload=DocumentUpload(filename="empty.md", mime="text/markdown", content=b""),
+    )
+
+    rig.run_chain()
+
+    with rig.engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT stage::text AS stage, status::text AS status"
+                " FROM processing_state"
+                " WHERE deployment_id = :deployment_id"
+                " AND target_id = :version_id"
+            ),
+            {"deployment_id": _DEPLOYMENT_ID, "version_id": ingested.version_id},
+        ).all()
+
+    assert {stage for stage, _status in rows} == {
+        stage.value
+        for stage in (
+            PipelineStage.CONVERT,
+            PipelineStage.STRUCTURE,
+            PipelineStage.CHUNK,
+            PipelineStage.EMBED_CHUNK,
+            PipelineStage.EXTRACT_CLAIMS,
+            PipelineStage.NORMALIZE_RELATIONS,
+            PipelineStage.ADJUDICATE_SUPERSESSION,
+            PipelineStage.EMBED_CLAIM,
+            PipelineStage.RECONCILE,
+            PipelineStage.LABEL_RELATION,
+        )
+    }
+    assert len(rows) == 10
+    assert {status for _stage, status in rows} == {"succeeded"}
+    assert rig.provider.generated_prompts == []
 
 
 def test_rerunning_normalization_replays_without_model_calls(rig: _E3Rig) -> None:
