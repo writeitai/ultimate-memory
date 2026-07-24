@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 _NonEmpty = Annotated[str, Field(min_length=1)]
 
@@ -19,6 +20,21 @@ class SelectionVerdict(StrEnum):
     DROP = "drop"
 
 
+class SelectionDropReason(StrEnum):
+    """The exact D31 vocabulary persisted by PostgreSQL."""
+
+    OPINION = "opinion"
+    ADVICE = "advice"
+    HYPOTHETICAL = "hypothetical"
+    GENERIC = "generic"
+    QUESTION = "question"
+    INTRO = "intro"
+    CONCLUSION = "conclusion"
+    NO_INFO = "no_info"
+    AMBIGUOUS = "ambiguous"
+    REFERENCES_BOILERPLATE = "references_boilerplate"
+
+
 class SelectionCandidate(BaseModel):
     """One proposition Selection judged inside the target chunk."""
 
@@ -26,8 +42,17 @@ class SelectionCandidate(BaseModel):
 
     source_span: _NonEmpty
     verdict: SelectionVerdict
-    drop_reason: str | None = None
+    drop_reason: SelectionDropReason | None = None
     protected_class: str | None = None
+
+    @model_validator(mode="after")
+    def validate_drop_reason(self) -> "SelectionCandidate":
+        """Require one controlled reason exactly when Selection drops a span."""
+        if self.verdict is SelectionVerdict.DROP and self.drop_reason is None:
+            raise ValueError("drop candidates require drop_reason")
+        if self.verdict is not SelectionVerdict.DROP and self.drop_reason is not None:
+            raise ValueError("kept candidates cannot carry drop_reason")
+        return self
 
 
 class SelectionResponse(BaseModel):
@@ -109,7 +134,7 @@ class DecisionRecord(BaseModel):
     claim_id: UUID | None
     decision_type: DecisionType
     source_span: str | None
-    reason: str | None
+    reason: SelectionDropReason | None
     edit_detail: dict[str, object] | None
     protected_class: str | None
     extractor_version: _NonEmpty

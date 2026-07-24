@@ -36,6 +36,7 @@ from rememberstack.model.claims import FactLabelResponse
 from rememberstack.model.claims import ObservationForEmbedding
 from rememberstack.model.claims import OtherPredicateGrammarError
 from rememberstack.model.claims import SelectionCandidate
+from rememberstack.model.claims import SelectionDropReason
 from rememberstack.model.claims import SelectionResponse
 from rememberstack.model.claims import SelectionVerdict
 from rememberstack.model.client import ConnectorCreate
@@ -468,6 +469,7 @@ __all__ = (
     "S58Answer",
     "SectionSpan",
     "SelectionCandidate",
+    "SelectionDropReason",
     "SelectionResponse",
     "SelectionVerdict",
     "LifecycleReport",
